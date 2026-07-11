@@ -1,0 +1,24 @@
+# Local runtime state and secrets
+/dashboard-cache/
+
+# Browser, test, and release artifacts
+/.playwright-cli/
+/test-results/
+/output/
+/dist/
+*.log
+
+# Local AI assistant tooling
+/.agents/
+/skills-lock.json
+
+# Personal bookmark exports and backups
+/bookmarks*.html
+/chrome-beta-bookmarks-backups/
+
+# Common local editor and OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*~

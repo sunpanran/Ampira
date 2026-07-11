@@ -1,0 +1,54 @@
+name: Verify extension release
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-and-package:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    env:
+      REQUIRED_SUPPORT_URL: ${{ vars.REQUIRED_SUPPORT_URL }}
+    defaults:
+      run:
+        shell: pwsh
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Use Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+
+      - name: Verify pinned toolchain and release metadata
+        run: |
+          if ($PSVersionTable.PSVersion.Major -ne 7) {
+            throw "The release workflow requires PowerShell 7."
+          }
+          if ((node --version) -notmatch '^v20\.') {
+            throw "The release workflow requires Node.js 20.x."
+          }
+          if ([string]::IsNullOrWhiteSpace($env:REQUIRED_SUPPORT_URL)) {
+            throw "Set the repository variable REQUIRED_SUPPORT_URL to the real public HTTPS support endpoint."
+          }
+
+      - name: Verify and build deterministic package
+        run: .\scripts\verify-extension.ps1 -Package
+
+      - name: Upload verified release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ampira-${{ github.sha }}
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            dist/ampira-*.zip
+            dist/ampira-*.zip.sha256
+            dist/ampira-*.manifest.json

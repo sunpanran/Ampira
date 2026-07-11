@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ampira Privacy Policy</title>
+  <link rel="stylesheet" href="../styles.css">
+  <link rel="alternate" hreflang="zh-CN" href="../privacy.html">
+  <link rel="alternate" hreflang="zh-TW" href="../zh-TW/privacy.html">
+  <link rel="alternate" hreflang="en" href="privacy.html">
+</head>
+<body>
+  <a class="back" href="index.html">← Ampira</a>
+  <nav class="language-nav" aria-label="Language">
+    <a href="../privacy.html" lang="zh-CN">简体中文</a>
+    <a href="../zh-TW/privacy.html" lang="zh-Hant">繁體中文</a>
+    <a href="privacy.html" aria-current="page">English</a>
+  </nav>
+  <h1>Ampira Privacy Policy</h1>
+  <p>Effective: July 11, 2026</p>
+  <p>Ampira’s single purpose is to turn user-selected Chrome bookmarks and news sources into a searchable New Tab information dashboard. Ampira has no developer-operated server, account system, advertising, or analytics.</p>
+  <h2>Data handled</h2>
+  <ul>
+    <li>Titles, URLs, and folder structure from bookmarks selected by the user.</li>
+    <li>Public Feeds, page titles, summaries, article text, and image URLs from user-authorized sources.</li>
+    <li>Interface settings, reading queue, archive, source preferences, caches, and search questions.</li>
+    <li>Optional AI or image-search API keys entered by the user.</li>
+  </ul>
+  <h2>Purpose and storage</h2>
+  <p>Ampira uses <code>chrome.storage.sync</code> for some non-credential settings. If Chrome Sync is enabled, Chrome may copy those settings to other Chrome installations signed in to the same account. News, summaries, search caches, and reading state use the extension’s IndexedDB. API keys are stored only in <code>chrome.storage.local</code> for the current Chrome profile; they are not included in Chrome Sync, and the full key is not shown again after saving.</p>
+  <p>The public-Feed supplement is enabled by default to add public news alongside bookmark sources, and users can turn it off in Settings. Ampira requests these Feeds only after the user grants the corresponding exact source domains.</p>
+  <h2>Third-party transfers</h2>
+  <p>Without user action, Ampira does not send bookmarks, reading state, or search questions to the developer or a third party. After the user allows a source, Ampira connects directly to that public website. When a dashboard card or the reader displays a remote image, the browser requests it directly from the image host. Even when no referring-page information is sent, that host receives ordinary network information required for the request, such as the IP address and browser information. Ampira does not proxy these requests.</p>
+  <p>When the user explicitly enables AI, submitted questions, article titles, selected text, and an article URL needed for context are sent to the provider configured by that user. Depending on the feature path and extension version, the article URL may be the URL stored by the source or a normalized or minimized form with unnecessary information removed. A URL may still contain path or query information and should be treated as transmitted data. The AI API key is sent directly with the request to the configured provider solely to authenticate that request; it is not sent to the Ampira developer.</p>
+  <p>When Brave Image Search is enabled, generated image queries and the corresponding API key are sent directly to the Brave Search API, where the key authenticates the request. These third-party transfers use HTTPS. HTTP is allowed only for a user-configured localhost service.</p>
+  <h2>Permissions</h2>
+  <p><strong>bookmarks</strong> provides read-only bookmark organization; Ampira does not call bookmark write APIs. <strong>storage</strong> stores settings and caches. <strong>alarms</strong> checks due sources every 15 minutes. Website access is optional and requested for exact domains only after a user gesture.</p>
+  <h2>Sharing, sale, and retention</h2>
+  <p>Ampira does not sell, share, or use data for advertising. News cache is retained for at most 30 days and limited to about 25 MB; users can clear it at any time. Uninstalling removes extension-local data. Settings in Chrome Sync follow Chrome’s own synchronization rules.</p>
+  <h2>Chrome Web Store Limited Use</h2>
+  <p>The use of information received from Google APIs will adhere to the Chrome Web Store User Data Policy, including the Limited Use requirements. Ampira uses that data only for its disclosed single purpose and user-facing features; it does not use it for personalized advertising, credit assessment, or data resale. Ampira has no backend through which its developer or personnel can read that data.</p>
+  <h2>Contact</h2>
+  <p>Use the <a href="https://github.com/sunpanran/Ampira/issues">project support channel</a> for privacy or support questions. Never include API keys, private bookmarks, or personal browsing information.</p>
+</body>
+</html>

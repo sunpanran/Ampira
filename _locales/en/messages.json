@@ -1,0 +1,5 @@
+{
+  "appName": { "message": "Ampira New Tab" },
+  "appDescription": { "message": "Turn selected Chrome bookmarks and feeds into a searchable new-tab information dashboard." },
+  "actionTitle": { "message": "Open Ampira" }
+}
