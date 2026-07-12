@@ -5,6 +5,23 @@ import { decodeResponseBuffer, fetchBounded } from "./network.mjs";
 
 const REQUEST_TIMEOUT_MS = 12000;
 const MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
+const NON_NEWS_PATH_SEGMENTS = new Set([
+  "about", "about-us", "account", "auth", "career", "careers", "contact", "contact-us",
+  "download", "downloads", "job", "jobs", "login", "privacy", "privacy-policy", "register",
+  "search", "sign-in", "sign-up", "signin", "signup", "sitemap", "terms", "terms-of-service",
+]);
+const NON_NEWS_TITLE_SEGMENTS = new Set([
+  "about", "about us", "advertisement", "careers", "contact", "contact us", "download", "downloads",
+  "home", "homepage", "jobs", "login", "privacy", "privacy policy", "register", "search", "sign in",
+  "sign up", "sitemap", "sponsored", "terms", "terms of service",
+  "主页", "首页", "关于我们", "联系我们", "下载", "下载客户端", "加入我们", "招聘", "搜索",
+  "登录", "注册", "用户协议", "隐私政策", "服务条款", "网站地图", "免责声明", "广告", "推广",
+  "主頁", "首頁", "關於我們", "聯絡我們", "下載", "下載客戶端", "加入我們", "招聘", "搜尋",
+  "登入", "註冊", "使用者協議", "隱私政策", "服務條款", "網站地圖", "免責聲明", "廣告", "推廣",
+]);
+const PROMOTIONAL_TITLE = /^\s*(?:(?:[\[【(（]\s*(?:广告|廣告|推广|推廣|赞助|贊助|商业推广|商業推廣|advertisement|sponsored)\s*[\]】)）])|(?:(?:广告|廣告|推广|推廣|赞助|贊助|商业推广|商業推廣|advertisement|sponsored)(?:\s*[:：|｜·—-]|\s+)))/i;
+const ARTICLE_PATH_MARKERS = new Set(["article", "blog", "detail", "feature", "news", "post", "review", "story"]);
+const ARTICLE_QUERY_KEYS = new Set(["articleid", "contentid", "id", "newsid", "storyid"]);
 
 export async function fetchSourceArticles(source, options = {}) {
   const requestedLimit = Number(options.limit);
@@ -16,7 +33,7 @@ export async function fetchSourceArticles(source, options = {}) {
     try {
       const response = await fetchText(url, options);
       successfulResponses += 1;
-      const parsed = parseFeedDocument(response.text, response.url, source, limit, response.contentType);
+      const parsed = filterLikelyNewsItems(parseFeedDocument(response.text, response.url, source, limit, response.contentType));
       if (parsed.length) return parsed;
       if (looksLikeHtml(response.text, response.contentType)) {
         const discovered = discoverFeedUrls(response.text, response.url);
@@ -24,7 +41,7 @@ export async function fetchSourceArticles(source, options = {}) {
           try {
             const feed = await fetchText(feedUrl, options);
             successfulResponses += 1;
-            const entries = parseFeedDocument(feed.text, feed.url, source, limit, feed.contentType);
+            const entries = filterLikelyNewsItems(parseFeedDocument(feed.text, feed.url, source, limit, feed.contentType));
             if (entries.length) return entries;
           } catch (error) {
             lastError = error;
@@ -33,7 +50,10 @@ export async function fetchSourceArticles(source, options = {}) {
         }
         const links = extractArticleLinks(response.text, response.url).slice(0, limit);
         if (links.length) return links.map((link, index) => articleFromLink(link, source, index));
-        if (isLikelyArticleDocument(response.text)) return [articleFromHtml(response.text, response.url, source)];
+        if (isLikelyArticleDocument(response.text)) {
+          const article = articleFromHtml(response.text, response.url, source);
+          if (isLikelyNewsItem(article)) return [article];
+        }
         continue;
       }
     } catch (error) {
@@ -54,10 +74,14 @@ export function parseFeedDocument(text, finalUrl, source = {}, limit = 5, conten
 
 export function rankAndDedupe(items, limit = 192) {
   const now = Date.now();
-  return dedupeArticles(items)
+  return dedupeArticles(filterLikelyNewsItems(items))
     .map((item) => ({ ...item, score: item.score || scoreArticle(item, now) }))
     .sort((left, right) => Number(right.score || 0) - Number(left.score || 0))
     .slice(0, limit);
+}
+
+export function filterLikelyNewsItems(items) {
+  return (Array.isArray(items) ? items : []).filter(isLikelyNewsItem);
 }
 
 export function feedCacheOrEmpty(feed) {
@@ -276,10 +300,72 @@ function extractArticleLinks(html, baseUrl) {
   for (const match of String(html || "").matchAll(/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)) {
     const url = absolutize(match[1], baseUrl);
     const title = cleanText(match[2]);
-    if (!url || title.length < 8 || !/\/(?:20\d{2}|news|article|story|post|detail|review|feature|blog)\b/i.test(new URL(url).pathname)) continue;
+    if (!url || title.length < 8 || isNonNewsTitle(title) || isNonNewsUrl(url) || !hasArticlePath(url)) continue;
     links.push({ url, title });
   }
   return dedupeBy(links, (item) => normalizeUrl(item.url));
+}
+
+function isLikelyNewsItem(item) {
+  if (!item || isNonNewsTitle(item.title) || isNonNewsUrl(item.url)) return false;
+  if (isRootSourceLanding(item)) return false;
+  return true;
+}
+
+function isNonNewsTitle(value) {
+  const title = cleanText(value);
+  if (!title || PROMOTIONAL_TITLE.test(title)) return true;
+  return title
+    .toLowerCase()
+    .split(/\s*(?:[|｜·•»]|-{1,2}|–|—|:|：)\s*/)
+    .filter(Boolean)
+    .some((segment) => NON_NEWS_TITLE_SEGMENTS.has(segment));
+}
+
+function isNonNewsUrl(value) {
+  try {
+    const url = new URL(value);
+    if (!/^https?:$/.test(url.protocol)) return true;
+    return url.pathname
+      .toLowerCase()
+      .split("/")
+      .filter(Boolean)
+      .some((segment) => NON_NEWS_PATH_SEGMENTS.has(segment));
+  } catch {
+    return true;
+  }
+}
+
+function isRootSourceLanding(item) {
+  try {
+    const url = new URL(item.url);
+    if (!/^\/(?:index(?:\.[a-z0-9]+)?)?$/i.test(url.pathname) || url.search) return false;
+    const title = comparableText(item.title);
+    const source = comparableText(item.source);
+    const host = comparableText(url.hostname.replace(/^www\./i, ""));
+    return Boolean(title && (title === source || title === host));
+  } catch {
+    return false;
+  }
+}
+
+function hasArticlePath(value) {
+  try {
+    const url = new URL(value);
+    const segments = url.pathname.toLowerCase().split("/").filter(Boolean);
+    const yearIndex = segments.findIndex((segment) => /^20\d{2}$/.test(segment));
+    if (yearIndex >= 0 && segments.length > yearIndex + 1) return true;
+    const markerIndex = segments.findIndex((segment) => ARTICLE_PATH_MARKERS.has(segment));
+    if (markerIndex >= 0 && segments.length > markerIndex + 1) return true;
+    if (segments.some((segment) => /^(?:article|detail|news|post|story)[-_]\d{3,}(?:\.[a-z0-9]+)?$/.test(segment))) return true;
+    return markerIndex >= 0 && [...url.searchParams.keys()].some((key) => ARTICLE_QUERY_KEYS.has(key.toLowerCase()));
+  } catch {
+    return false;
+  }
+}
+
+function comparableText(value) {
+  return cleanText(value).toLowerCase().replace(/^www\./, "").replace(/[^a-z0-9\u3400-\u9fff]+/gu, "");
 }
 
 function isLikelyArticleDocument(html) {

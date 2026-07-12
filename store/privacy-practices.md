@@ -19,7 +19,7 @@
 - Authentication information: user-entered API credentials are stored only in extension-local storage and never synchronized or sent to the developer. Each key is sent directly to the provider selected by the user solely to authenticate that provider request.
 - User-generated content: explicit AI search questions and source preferences.
 - Synchronized settings: some non-credential settings use Chrome Sync and can be copied by Chrome to the user's other signed-in Chrome installations when Sync is enabled.
-- Remote images: inspiration cards prefer the image declared by an authorized original page and use Brave Image Search only as an optional fallback. Displaying an image in a dashboard card or extracted article makes a direct request to the image host. Ampira does not proxy that request; the host receives ordinary network information needed to serve the image.
+- Remote images: inspiration cards prefer the image declared by an authorized original page and start preloading all 15 fixed daily cards, including all three reshuffle batches, immediately before first render; Brave Image Search remains only an optional fallback. Displaying or preloading an image for a dashboard card or extracted article makes a direct request to the image host. Ampira does not proxy that request; the host receives ordinary network information needed to serve the image.
 
 ## Certifications
 

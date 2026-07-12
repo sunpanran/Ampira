@@ -91,6 +91,7 @@ function bindEvents() {
   });
   els.grantOnboarding?.addEventListener("click", (event) => grantOrigins(requiredUngrantedOrigins(permissionRows), {
     advance: true,
+    permissions: ["favicon"],
     trigger: event.currentTarget,
   }));
   els.newsFolder?.addEventListener("change", renderOnboardingFolderStatus);
@@ -396,9 +397,10 @@ function renderFaviconPermission() {
   }
 }
 
-async function grantOrigins(origins, { advance = false, trigger = null } = {}) {
+async function grantOrigins(origins, { advance = false, permissions = [], trigger = null } = {}) {
   const requested = Array.isArray(origins) ? origins.filter(Boolean) : [];
-  if (!requested.length) {
+  const requestedPermissions = Array.isArray(permissions) ? permissions.filter(Boolean) : [];
+  if (!requested.length && !requestedPermissions.length) {
     if (advance) showOnboarding(Math.min(lastOnboardingStep, onboardingStep + 1));
     return;
   }
@@ -408,12 +410,16 @@ async function grantOrigins(origins, { advance = false, trigger = null } = {}) {
   if (label) label.textContent = t("permission.requesting");
   setPermissionFeedback(t("permission.requesting"));
   try {
-    const granted = await chrome.permissions.request({ origins: requested });
+    const requestDetails = {};
+    if (requested.length) requestDetails.origins = requested;
+    if (requestedPermissions.length) requestDetails.permissions = requestedPermissions;
+    const granted = await chrome.permissions.request(requestDetails);
     if (granted !== true) {
       setPermissionFeedback(t("permission.requestDeclined"));
       return;
     }
     await refreshPermissionRows();
+    if (requestedPermissions.includes("favicon")) await refreshFaviconPermission({ notify: true });
     if (advance) showOnboarding(Math.min(lastOnboardingStep, onboardingStep + 1));
   } catch (error) {
     setPermissionFeedback(t("permission.requestDenied", { message: error.message || error }));

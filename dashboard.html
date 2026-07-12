@@ -7,6 +7,7 @@
   <link rel="icon" type="image/svg+xml" href="favicon.svg?v=20260710-refined">
   <link rel="icon" type="image/svg+xml" href="favicon-light.svg?v=20260710-refined" media="(prefers-color-scheme: light)">
   <link rel="icon" type="image/svg+xml" href="favicon-dark.svg?v=20260710-refined" media="(prefers-color-scheme: dark)">
+  <script src="/assets/client/theme-bootstrap.mjs"></script>
   <link rel="stylesheet" href="/assets/dashboard.css">
   <link rel="stylesheet" href="/assets/extension.css">
 </head>
@@ -172,38 +173,25 @@
           <button type="button" data-settings-tab="about">
             <img class="tab-icon" data-icon="info" alt="" aria-hidden="true">
             <span class="settings-tab-copy">
-              <strong data-i18n="settings.tab.about">说明</strong>
-              <small data-i18n="settings.tab.aboutHint">本地数据</small>
+              <strong data-i18n="settings.tab.about">关于</strong>
+              <small data-i18n="settings.tab.aboutHint">版本与源码</small>
             </span>
           </button>
         </div>
         <div class="settings-overview" aria-label="运行概览" data-i18n-aria-label="settings.overview.label">
-          <div>
-            <div class="settings-overview-title" id="settingsOverviewTitle" data-i18n="settings.overview.connecting">正在连接本地服务</div>
-            <div class="settings-overview-meta" id="settingsOverviewMeta" data-i18n="settings.overview.meta">服务状态会在这里显示。</div>
+          <div class="settings-overview-head">
+            <div>
+              <div class="settings-overview-title" id="settingsOverviewTitle" data-i18n="settings.overview.aiService">AI 服务</div>
+              <div class="settings-overview-meta" id="settingsOverviewMeta" data-i18n="settings.overview.aiNotConfigured">配置服务后，可使用 AI 搜索与资讯摘要。</div>
+            </div>
+            <button class="btn" id="settingsOverviewAction" type="button" data-i18n="settings.overview.configure">去配置</button>
           </div>
           <div class="settings-overview-grid">
-            <div class="settings-overview-item"><span data-i18n="settings.overview.aiService">AI 服务</span><strong id="settingsKeyStatus">-</strong></div>
-            <div class="settings-overview-item"><span data-i18n="settings.overview.apiStyle">调用方式</span><strong id="settingsModelStatus">-</strong></div>
             <div class="settings-overview-item"><span data-i18n="settings.overview.todayQuota">今日额度</span><strong id="settingsQuotaStatus">0/50</strong></div>
-            <div class="settings-overview-item"><span data-i18n="settings.overview.allEntries">全部入口</span><strong id="settingsTotalStatus">0</strong></div>
-          </div>
-          <div class="settings-meters">
-            <div class="settings-meter">
-              <div><span data-i18n="settings.overview.todayQuota">今日额度</span><strong id="quotaMeterText">0%</strong></div>
-              <div class="meter-track"><span id="quotaMeterBar"></span></div>
-            </div>
-            <div class="settings-meter">
-              <div><span data-i18n="settings.overview.hotPool">热门池</span><strong id="cacheMeterText">0%</strong></div>
-              <div class="meter-track"><span id="cacheMeterBar"></span></div>
-            </div>
-            <div class="settings-meter">
-              <div><span data-i18n="settings.overview.backgroundCache">后台缓存</span><strong id="refreshMeterText">0%</strong></div>
-              <div class="meter-track"><span id="refreshMeterBar"></span></div>
-            </div>
+            <div class="settings-overview-item"><span data-i18n="settings.overview.backgroundCache">后台缓存</span><strong id="settingsCacheOverviewStatus">已就绪</strong></div>
           </div>
         </div>
-        <div class="settings-status" id="settingsStatus" data-i18n="settings.status.loading">正在读取设置。</div>
+        <div class="settings-status" id="settingsStatus" role="status" aria-live="polite" data-i18n="settings.status.loading">正在读取设置。</div>
         <div class="settings-panel active" data-settings-panel="service">
           <div class="settings-panel-intro">
             <h3 data-i18n="settings.service.title">AI 摘要</h3>
@@ -422,8 +410,8 @@
           <div class="field">
             <div class="field-label" data-i18n="settings.colorMode.label">颜色模式</div>
             <div class="segmented appearance-segmented" id="colorModeGroup" role="group" aria-label="颜色模式" data-i18n-aria-label="settings.colorMode.label">
-              <button class="active" type="button" data-color-mode="system" aria-pressed="true"><img class="segment-icon" data-icon="monitor-01" alt="" aria-hidden="true"><span data-i18n="settings.colorMode.system">跟随系统</span></button>
-              <button type="button" data-color-mode="dark" aria-pressed="false"><img class="segment-icon" data-icon="moon-01" alt="" aria-hidden="true"><span data-i18n="settings.colorMode.dark">深色</span></button>
+              <button type="button" data-color-mode="system" aria-pressed="false"><img class="segment-icon" data-icon="monitor-01" alt="" aria-hidden="true"><span data-i18n="settings.colorMode.system">跟随系统</span></button>
+              <button class="active" type="button" data-color-mode="dark" aria-pressed="true"><img class="segment-icon" data-icon="moon-01" alt="" aria-hidden="true"><span data-i18n="settings.colorMode.dark">深色</span></button>
               <button type="button" data-color-mode="light" aria-pressed="false"><img class="segment-icon" data-icon="sun" alt="" aria-hidden="true"><span data-i18n="settings.colorMode.light">浅色</span></button>
             </div>
             <div class="help" data-i18n="settings.colorMode.help">手动选择会覆盖系统深浅色偏好。</div>
@@ -475,7 +463,7 @@
               <span class="switch-help" data-i18n="settings.headerImage.help">在首页顶部显示横向图片，可随时关闭。</span>
             </span>
             <span class="toggle">
-              <input id="headerImageEnabledInput" type="checkbox">
+              <input id="headerImageEnabledInput" type="checkbox" checked>
               <span aria-hidden="true"></span>
             </span>
           </label>
@@ -596,44 +584,19 @@
         </div>
         <div class="settings-panel" data-settings-panel="about">
           <div class="settings-panel-intro">
-            <h3 data-i18n="settings.about.title">说明</h3>
-            <p data-i18n="settings.about.intro">这块看板只在 Chrome 扩展中运行；这里说明数据来源和本地存储。</p>
+            <h3 data-i18n="settings.about.title">关于</h3>
+            <p data-i18n="settings.about.intro">查看 Ampira 的版本与项目源码。</p>
           </div>
           <div class="about-panel">
             <div class="about-brand">
               <img src="/assets/logo-purple.svg?v=20260710-refined" alt="" aria-hidden="true">
-              <div>
+              <div class="about-identity">
                 <div class="about-title">Ampira</div>
                 <div class="about-meta" data-i18n="settings.about.tagline">把书签、资讯和网页内容提纯成每日信号</div>
               </div>
+              <span class="about-version">v26.1.6</span>
             </div>
-            <div class="about-grid">
-              <div>
-                <span data-i18n="settings.about.dataSource">数据来源</span>
-                <strong data-i18n="settings.about.dataSourceValue">Chrome 书签 API</strong>
-              </div>
-              <div>
-                <span data-i18n="settings.about.runtime">运行方式</span>
-                <strong data-i18n="settings.about.runtimeValue">Manifest V3 扩展</strong>
-              </div>
-              <div>
-                <span data-i18n="settings.about.localCache">本地缓存</span>
-                <strong>IndexedDB / Chrome Storage</strong>
-              </div>
-              <div>
-                <span data-i18n="settings.about.language">界面语言</span>
-                <strong id="currentUiLanguage">简体中文</strong>
-              </div>
-              <div>
-                <span data-i18n="settings.about.version">版本</span>
-                <strong>26.1.5</strong>
-              </div>
-              <div>
-                <span data-i18n="settings.about.github">项目源码</span>
-                <strong><a href="https://github.com/sunpanran/Ampira" target="_blank" rel="noopener noreferrer" data-i18n="settings.about.githubLink">GitHub</a></strong>
-              </div>
-            </div>
-            <div class="about-note" data-i18n="settings.about.note">Ampira 没有开发者服务器或分析。启用第三方 AI 后，只有用户明确提交的问题和选定资讯文本会发送给对应服务。</div>
+            <a class="about-source-link" href="https://github.com/sunpanran/Ampira" target="_blank" rel="noopener noreferrer"><span data-i18n="settings.about.githubLink">GitHub</span><span aria-hidden="true">↗</span></a>
           </div>
         </div>
       </form>
@@ -722,7 +685,7 @@
         <p data-i18n="onboarding.step2.body">Ampira 只在读取具体网站的资讯、正文和图片时申请对应域名。所有网站权限都可以跳过；书签仍然可以正常打开，只会暂停对应内容的自动获取。</p>
         <div class="onboarding-permission-status"><img class="inline-icon" data-icon="link-external-01" alt="" aria-hidden="true"><span id="onboardingPermissionStatus" data-i18n="onboarding.step2.loading">正在整理可选来源域名…</span></div>
         <div class="onboarding-actions">
-          <button class="btn primary" id="onboardingGrantSources" type="button"><img class="btn-icon" data-icon="rss-01" alt="" aria-hidden="true"><span class="btn-label" data-i18n="onboarding.step2.grant">授权当前资讯来源</span></button>
+          <button class="btn primary" id="onboardingGrantSources" type="button"><img class="btn-icon" data-icon="rss-01" alt="" aria-hidden="true"><span class="btn-label" data-i18n="onboarding.step2.grant">授权来源并启用网站图标</span></button>
           <button class="btn" type="button" data-permission="favicon"><img class="btn-icon" data-icon="eye" alt="" aria-hidden="true"><span class="btn-label" data-i18n="onboarding.faviconEnable">启用网站图标</span></button>
           <button class="btn ghost onboarding-next" type="button"><span class="btn-label" data-i18n="onboarding.step2.skip">暂不授权</span><img class="btn-icon" data-icon="arrow-up-right" alt="" aria-hidden="true"></button>
         </div>

@@ -1,6 +1,6 @@
 export const DEFAULT_ACCENT_THEME = "violet";
 export const DEFAULT_CUSTOM_ACCENT_COLOR = "#9152FF";
-export const DEFAULT_COLOR_MODE = "system";
+export const DEFAULT_COLOR_MODE = "dark";
 export const ACCENT_THEMES = Object.freeze({
   violet: "#9152FF",
   cyan: "#06B6D4",
@@ -16,7 +16,7 @@ export function normalizeAccentTheme(value) {
 
 export function normalizeColorMode(value) {
   const mode = String(value || "").trim().toLowerCase();
-  return mode === "dark" || mode === "light" ? mode : DEFAULT_COLOR_MODE;
+  return mode === "system" || mode === "dark" || mode === "light" ? mode : DEFAULT_COLOR_MODE;
 }
 
 export function normalizeHexColor(value) {

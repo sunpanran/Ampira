@@ -31,6 +31,8 @@ const DAILY_NEWS_COUNT = 11;
 const DAILY_NEWS_BATCH_LIMIT = 3;
 const DAILY_INSPIRATION_COUNT = 5;
 const DAILY_INSPIRATION_BATCH_LIMIT = 3;
+const INITIAL_INSPIRATION_PRELOAD_TIMEOUT_MS = 1600;
+const UPDATE_INSPIRATION_PRELOAD_TIMEOUT_MS = 800;
 const HOT_SUMMARY_PAGE_SIZE = 16;
 const SETTINGS_SAVE_CLOSE_DELAY_MS = 900;
 const DAILY_BOARD_CARD_SELECTOR = ".news-list-card, .daily-card";
@@ -48,6 +50,7 @@ const OPENED_STORAGE_KEY = "dash.opened";
 const DISMISSED_STORAGE_KEY = "dash.dismissed";
 const RETAINED_SEEN_STORAGE_KEY = "dash.seen.retained";
 const ACTION_RECORD_LIMIT = 150;
+const COLOR_MODE_BOOTSTRAP_STORAGE_KEY = "ampira.colorMode";
 
 await hydrateStorage();
 const state = createInitialState();
@@ -93,6 +96,7 @@ const inspirationPreviews = createInspirationPreviewController({
   isHttpUrl,
   isEnabled: () => state.settings?.bookmarkConsentGranted === true,
   canFallback: () => state.settings?.webImageSearchEnabled === true && state.settings?.hasImageSearchKey === true,
+  preloadImage: preloadBrowserImage,
   isCurrent: (item, fingerprint) => {
     const current = (state.data?.bookmarks || []).find((candidate) => candidate.key === item.key);
     return inspirationPreviewFingerprint(current, normalizeUrl) === fingerprint;
@@ -158,7 +162,8 @@ async function initialize() {
   resetToDailyView();
   bindEvents();
   startTodayClock();
-  await Promise.all([loadSettings(), loadDashboard()]);
+  await Promise.all([loadSettings(), loadDashboard({ render: false })]);
+  await preloadDailyInspiration(INITIAL_INSPIRATION_PRELOAD_TIMEOUT_MS);
   renderAll();
   syncSegmentedIndicators();
   resetToDailyView();
@@ -191,9 +196,9 @@ function bindEvents() {
 
   document.querySelector("#settingsNav").addEventListener("click", openSettings);
   els.aiSearchNav.addEventListener("click", () => openAiSearch());
-  els.closeSettings.addEventListener("click", closeSettings);
+  els.closeSettings.addEventListener("click", requestCloseSettings);
   els.settingsModal.addEventListener("click", (event) => {
-    if (event.target === els.settingsModal) closeSettings();
+    if (event.target === els.settingsModal) requestCloseSettings();
   });
   els.aiSearchOverlay.addEventListener("click", (event) => {
     if (!els.aiSearchOverlay.classList.contains("open")) return;
@@ -229,7 +234,7 @@ function bindEvents() {
       closeAiSearch();
       return;
     }
-    if (els.settingsModal.classList.contains("open")) closeSettings();
+    if (els.settingsModal.classList.contains("open")) requestCloseSettings();
   });
   els.settingsForm.addEventListener("submit", (event) => {
     event.preventDefault();
@@ -290,6 +295,7 @@ function bindEvents() {
     if (!button) return;
     selectSettingsTab(button.dataset.settingsTab);
   });
+  els.settingsOverviewAction.addEventListener("click", () => selectSettingsTab("service"));
   els.uiLocaleSelect.addEventListener("change", () => {
     applyUiLocale(els.uiLocaleSelect.value, { persist: false });
     renderSettingsStatus();
@@ -722,13 +728,17 @@ function getCurrentSectionButton() {
   return currentButton;
 }
 
-async function loadDashboard() {
+async function loadDashboard(options = {}) {
   const token = ++dashboardLoadToken;
   try {
     const data = await apiGet("/api/dashboard");
     if (token !== dashboardLoadToken) return false;
     state.data = data;
-    renderAll();
+    if (options.render !== false) {
+      await preloadDailyInspiration(UPDATE_INSPIRATION_PRELOAD_TIMEOUT_MS);
+      if (token !== dashboardLoadToken) return false;
+      renderAll();
+    }
     return true;
   } catch (error) {
     if (token !== dashboardLoadToken) return false;
@@ -766,7 +776,7 @@ async function loadSettings() {
     els.newsPerCategoryInput.placeholder = state.settings.defaultNewsEntriesPerCategory || "12";
     syncBookmarkFolderControls(state.settings);
     els.cardSummaryEnabledInput.checked = state.settings.cardSummaryEnabled !== false;
-    els.floatingOpenInput.checked = state.settings.floatingWebOpenEnabled !== false;
+    els.floatingOpenInput.checked = state.settings.floatingWebOpenEnabled === true;
     els.readingQueueOpenOnReadAllInput.checked = state.settings.readingQueueOpenOnReadAll !== false;
     els.retainSeenArchiveInput.checked = state.settings.retainSeenArchive === true;
     els.personalizedRankingEnabledInput.checked = state.settings.personalizedRankingEnabled !== false;
@@ -782,7 +792,7 @@ async function loadSettings() {
     els.imageSearchApiKeyInput.placeholder = state.settings.maskedImageSearchKey || "BSA...";
     renderExcludeFolderOptions();
     renderExclusionList();
-    renderSettingsStatus();
+    renderSettingsStatus(t("settings.status.ready"));
     return true;
   } catch (error) {
     if (token !== settingsLoadToken) return false;
@@ -839,28 +849,7 @@ async function saveSettings() {
   settingsActionGeneration += 1;
   setSettingsBusy(true);
   try {
-    const draft = {
-      openaiApiKey: aiSetupState.formUnlocked ? els.apiKeyInput.value : "",
-      openaiBaseUrl: els.apiBaseUrlInput.value,
-      openaiApiStyle: els.apiStyleSelect.value,
-      openaiSummaryModel: els.modelInput.value,
-      braveSearchApiKey: els.imageSearchApiKeyInput.value,
-      aiDisclosureAccepted: els.aiDisclosureConsent.checked,
-      webImageSearchEnabled: els.webImageSearchEnabledInput.checked,
-      dailyAiLimit: els.dailyLimitInput.value,
-      cardSummaryEnabled: els.cardSummaryEnabledInput.checked,
-      hotNewsCacheSize: els.cacheSizeInput.value,
-      hotNewsEntriesPerSource: els.hotNewsPerSourceInput.value,
-      newsEntriesPerCategory: els.newsPerCategoryInput.value,
-      ...bookmarkSourcePayload(),
-      floatingWebOpenEnabled: els.floatingOpenInput.checked,
-      readingQueueOpenOnReadAll: els.readingQueueOpenOnReadAllInput.checked,
-      retainSeenArchive: els.retainSeenArchiveInput.checked,
-      personalizedRankingEnabled: els.personalizedRankingEnabledInput.checked,
-      publicFeedSupplementEnabled: els.publicFeedSupplementEnabledInput.checked,
-      ...appearancePayload(),
-      excludedNewsSources: currentExcludedNewsSources()
-    };
+    const draft = currentSettingsDraft();
     const payload = diffSettingsDraft(draft, settingsSnapshot);
     const savedSettings = await apiPost("/api/settings", payload);
     if (session !== settingsSession) return;
@@ -892,6 +881,31 @@ async function saveSettings() {
   } finally {
     if (session === settingsSession || !els.settingsModal.classList.contains("open")) setSettingsBusy(false);
   }
+}
+
+function currentSettingsDraft() {
+  return {
+    openaiApiKey: aiSetupState.formUnlocked ? els.apiKeyInput.value : "",
+    openaiBaseUrl: els.apiBaseUrlInput.value,
+    openaiApiStyle: els.apiStyleSelect.value,
+    openaiSummaryModel: els.modelInput.value,
+    braveSearchApiKey: els.imageSearchApiKeyInput.value,
+    aiDisclosureAccepted: els.aiDisclosureConsent.checked,
+    webImageSearchEnabled: els.webImageSearchEnabledInput.checked,
+    dailyAiLimit: els.dailyLimitInput.value,
+    cardSummaryEnabled: els.cardSummaryEnabledInput.checked,
+    hotNewsCacheSize: els.cacheSizeInput.value,
+    hotNewsEntriesPerSource: els.hotNewsPerSourceInput.value,
+    newsEntriesPerCategory: els.newsPerCategoryInput.value,
+    ...bookmarkSourcePayload(),
+    floatingWebOpenEnabled: els.floatingOpenInput.checked,
+    readingQueueOpenOnReadAll: els.readingQueueOpenOnReadAllInput.checked,
+    retainSeenArchive: els.retainSeenArchiveInput.checked,
+    personalizedRankingEnabled: els.personalizedRankingEnabledInput.checked,
+    publicFeedSupplementEnabled: els.publicFeedSupplementEnabledInput.checked,
+    ...appearancePayload(),
+    excludedNewsSources: currentExcludedNewsSources()
+  };
 }
 
 function testKey() {
@@ -1501,6 +1515,17 @@ function closeSettings(commit = false) {
   syncNavToCurrentSection();
 }
 
+function requestCloseSettings() {
+  if (settingsBusy) return;
+  const hasUnsavedChanges = settingsSnapshot
+    && Object.keys(diffSettingsDraft(currentSettingsDraft(), settingsSnapshot)).length > 0;
+  if (!hasUnsavedChanges) {
+    closeSettings();
+    return;
+  }
+  if (window.confirm(t("settings.unsaved.confirm"))) saveSettings();
+}
+
 function resetSecretDrafts() {
   els.apiKeyInput.value = "";
   els.imageSearchApiKeyInput.value = "";
@@ -1968,12 +1993,21 @@ function applyAppearanceSettings(settings = {}) {
   const palette = paletteFromAccent(accentColor);
   const root = document.documentElement;
   root.dataset.colorMode = colorMode;
+  cacheBootstrapColorMode(colorMode);
   root.dataset.accentTheme = accentTheme;
   root.dataset.pointerGlow = settings.pointerGlowEnabled === false ? "off" : "on";
   root.style.setProperty("--accent", palette.accent);
   root.style.setProperty("--accent-rgb", palette.accentRgb.join(", "));
   applyCustomAccentPreview(customAccentColor);
   renderHeaderImage(settings);
+}
+
+function cacheBootstrapColorMode(colorMode) {
+  try {
+    localStorage.setItem(COLOR_MODE_BOOTSTRAP_STORAGE_KEY, colorMode);
+  } catch {
+    // Appearance still applies for this page when synchronous storage is unavailable.
+  }
 }
 
 function applyCustomAccentPreview(color) {
@@ -2174,60 +2208,8 @@ function focusAiSetupRequirement() {
 }
 
 function renderSettingsStatus(extra) {
-  const settings = state.settings || {};
-  const sourceText = t(settings.keySource === "environment"
-    ? "settings.keySource.environment"
-    : "settings.keySource.local");
-  const keyText = settings.hasOpenAIKey
-    ? t("settings.key.configured", { source: sourceText, masked: settings.maskedKey ? t("settings.key.masked", { value: settings.maskedKey }) : "" })
-    : t("settings.key.notConfigured");
-  const baseUrl = els.apiBaseUrlInput.value || settings.baseUrl || settings.defaultBaseUrl || "-";
-  const apiStyle = els.apiStyleSelect.value || settings.apiStyle || settings.defaultApiStyle || "-";
-  const model = els.modelInput.value || settings.model || settings.defaultModel || "-";
-  const dailyLimit = els.dailyLimitInput.value || settings.dailyLimit || settings.defaultDailyLimit || "-";
-  const cacheSize = els.cacheSizeInput.value || settings.hotNewsCacheSize || settings.defaultHotNewsCacheSize || "-";
-  const perSourceValue = els.hotNewsPerSourceInput.value === ""
-    ? (settings.hotNewsEntriesPerSource ?? settings.defaultHotNewsEntriesPerSource ?? "-")
-    : els.hotNewsPerSourceInput.value;
-  const perSourceLimit = Number(perSourceValue) === 0 ? t("common.unlimited") : perSourceValue;
-  const perCategoryValue = els.newsPerCategoryInput.value === ""
-    ? (settings.newsEntriesPerCategory ?? settings.defaultNewsEntriesPerCategory ?? "-")
-    : els.newsPerCategoryInput.value;
-  const perCategoryLimit = Number(perCategoryValue) === 0 ? t("common.unlimited") : perCategoryValue;
-  const bookmarkSource = bookmarkSourceStatusText();
-  const cardSummary = t(els.cardSummaryEnabledInput.checked ? "common.on" : "common.off");
-  const floatingOpen = t(els.floatingOpenInput.checked ? "common.on" : "common.off");
-  const readAllOpen = t(els.readingQueueOpenOnReadAllInput.checked ? "common.on" : "common.off");
-  const imageSearch = !els.webImageSearchEnabledInput.checked
-    ? t("common.off")
-    : t((els.imageSearchApiKeyInput.value.trim() || settings.hasImageSearchKey) ? "common.available" : "common.missingKey");
-  const retainSeenArchive = t(els.retainSeenArchiveInput.checked ? "common.retain" : "common.clearNextDay");
-  const personalized = t(els.personalizedRankingEnabledInput.checked ? "common.on" : "common.off");
-  const publicFeed = t(els.publicFeedSupplementEnabledInput.checked ? "common.on" : "common.off");
-  const appearance = appearanceStatusText();
-  const excludedCount = currentExcludedNewsSources().length;
-  const detail = t("settings.status.detail", {
-    baseUrl,
-    apiStyle: apiStyleLabel(apiStyle),
-    model,
-    dailyLimit,
-    imageSearch,
-    cardSummary,
-    cacheSize,
-    perSourceLimit,
-    perCategoryLimit,
-    personalized,
-    publicFeed,
-    bookmarkSource,
-    excludedCount,
-    floatingOpen,
-    readAllOpen,
-    retainSeenArchive,
-    appearance,
-  });
-  els.settingsStatus.textContent = extra
-    ? t("settings.status.withExtra", { extra, key: keyText, detail })
-    : t("settings.status.standard", { key: keyText, detail });
+  els.settingsStatus.textContent = extra || t("settings.status.unsaved");
+  els.settingsStatus.dataset.state = extra ? "notice" : "pending";
   renderBookmarkSourceStatus();
 }
 
@@ -2265,8 +2247,6 @@ function renderAll() {
 }
 
 function renderStats() {
-  const bookmarks = state.data?.bookmarks || [];
-  els.settingsTotalStatus.textContent = String(bookmarks.length);
 }
 
 function startTodayClock() {
@@ -2294,49 +2274,22 @@ function handleDayRollover() {
     writeJson(`dash.seen.${previousDay}`, []);
     replaceSeenRecords(readSeenRecords(`dash.seen.${nextDay}`));
   }
-  renderAll();
   loadDashboard();
 }
 
 function renderStatus() {
   const status = state.data?.status || {};
   const ai = state.data?.ai || {};
-  const title = status.running ? t("status.backgroundCaching") : localizedStatusMessage(status, "status.waitingUpdate");
-  const finished = status.finishedAt
-    ? t("status.lastFinished", { time: formatDateTime(status.finishedAt) })
-    : t("status.noFinishedRecord");
-  const aiText = t(ai.enabled
-    ? "status.aiEnabled"
-    : !ai.configured
-      ? "status.aiNotConfigured"
-      : !ai.disclosureAccepted
-        ? "status.aiConsentRequired"
-        : "status.aiPermissionRequired");
-  const excluded = status.excluded || state.data?.cache?.excluded || currentExcludedNewsSources().length || 0;
-  const pipeline = state.data?.pipeline || {};
-  const stage = currentPipelineStage(status.stages || pipeline.stages);
-  const switches = t("status.switches", {
-    personalized: t(pipeline.personalizedRankingEnabled === false ? "common.off" : "common.on"),
-    publicFeed: t(pipeline.publicFeedSupplementEnabled === false ? "common.off" : "common.on"),
-  });
-  renderOverviewStatus(title, t("status.overviewMeta", {
-    finished,
-    aiText,
-    switches,
-    stage,
-    excluded,
-    failed: status.failed || 0,
-  }));
-  els.settingsKeyStatus.textContent = t(ai.enabled
-    ? "status.available"
-    : !ai.configured
-      ? "status.notConfigured"
-      : !ai.disclosureAccepted
-        ? "status.waitingConsent"
-        : "status.waitingPermission");
-  els.settingsModelStatus.textContent = ai.configured ? `${apiStyleLabel(ai.apiStyle)} · ${ai.model}` : t("status.notEnabled");
+  const overviewMetaKey = ai.enabled
+    ? "settings.overview.aiReady"
+    : ai.configured
+      ? "settings.overview.aiNeedsAttention"
+      : "settings.overview.aiNotConfigured";
+  renderOverviewStatus(t("settings.overview.aiService"), t(overviewMetaKey));
+  els.settingsOverviewAction.textContent = t(ai.configured ? "settings.overview.manage" : "settings.overview.configure");
   els.settingsQuotaStatus.textContent = `${ai.usedToday || 0}/${ai.dailyLimit || 50}`;
-  renderMeters();
+  els.settingsCacheOverviewStatus.textContent = t(status.running ? "settings.overview.cacheRunning" : "settings.overview.cacheReady");
+  renderCacheStatus();
   els.refresh.disabled = Boolean(status.running);
   renderRefreshButton(Boolean(status.running));
 }
@@ -2357,16 +2310,9 @@ function renderRefreshButton(isRunning) {
   }
 }
 
-function renderMeters() {
+function renderCacheStatus() {
   const ai = state.data?.ai || {};
   const cache = state.data?.cache || {};
-  const status = state.data?.status || {};
-  const quotaPercent = percentage(Number(ai.usedToday || 0), Number(ai.dailyLimit || 50));
-  const cachePercent = Math.round(Number(cache.progress || 0) * 100);
-  const refreshPercent = status.running ? Math.round(Number(cache.refreshProgress || 0) * 100) : 100;
-  setMeter(els.quotaMeterBar, els.quotaMeterText, quotaPercent);
-  setMeter(els.cacheMeterBar, els.cacheMeterText, cachePercent);
-  setMeter(els.refreshMeterBar, els.refreshMeterText, refreshPercent);
   const perSourceValue = ai.hotNewsEntriesPerSource ?? state.settings?.hotNewsEntriesPerSource ?? state.settings?.defaultHotNewsEntriesPerSource ?? 5;
   const perSourceText = Number(perSourceValue) === 0 ? t("common.unlimited") : tc("unit.entries", perSourceValue);
   const perCategoryValue = ai.newsEntriesPerCategory ?? state.settings?.newsEntriesPerCategory ?? state.settings?.defaultNewsEntriesPerCategory ?? 12;
@@ -3067,13 +3013,14 @@ function createColumnAction(column) {
   return button;
 }
 
-function reshuffleDailyColumn(columnId) {
+async function reshuffleDailyColumn(columnId) {
   if (!Object.prototype.hasOwnProperty.call(state.variants, columnId)) return;
   const count = columnId === "news" ? DAILY_NEWS_COUNT : DAILY_INSPIRATION_COUNT;
   const page = dailyPageForCardType(columnId === "news" ? NEWS_CARD_TYPE : INSPIRATION_CARD_TYPE, count);
   state.variants[columnId] = (page.variant + 1) % page.pageCount;
   writeValue(`dash.variant.${state.day}.${columnId}`, String(state.variants[columnId]));
   if (columnId === "inspiration") writeValue(`dash.variant.${state.day}`, String(state.variants[columnId]));
+  if (columnId === "inspiration") await preloadDailyInspiration(UPDATE_INSPIRATION_PRELOAD_TIMEOUT_MS);
   renderDaily();
 }
 
@@ -3180,6 +3127,18 @@ function dailyInspirationItems() {
     (state.data?.bookmarks || []).filter(isInspirationCard),
     `${state.day}.${inspirationSectionName()}`
   );
+}
+
+function preloadDailyInspiration(timeoutMs = UPDATE_INSPIRATION_PRELOAD_TIMEOUT_MS) {
+  if (!state.data || !state.settings?.bookmarkConsentGranted) return Promise.resolve([]);
+  const pool = selectUnseenPool(
+    dailyInspirationItems(),
+    state.seen,
+    DAILY_INSPIRATION_COUNT * DAILY_INSPIRATION_BATCH_LIMIT,
+  );
+  const current = pageForItems(pool, DAILY_INSPIRATION_COUNT, state.variants.inspiration).items;
+  const items = [...current, ...pool];
+  return inspirationPreviews.preload(items, { timeoutMs }).catch(() => []);
 }
 
 function batchLabel(pageInfo) {
@@ -3306,13 +3265,37 @@ function renderInspirationImageThumb(thumb, item, imageUrl) {
   const img = document.createElement("img");
   img.src = imageUrl;
   img.alt = "";
-  img.loading = "lazy";
+  img.loading = "eager";
+  img.decoding = "async";
+  img.fetchPriority = "high";
   img.referrerPolicy = "no-referrer";
   img.addEventListener("error", () => {
     inspirationPreviews.reject(item, imageUrl);
     renderInspirationFallbackThumb(thumb, item);
   }, { once: true });
   thumb.replaceChildren(img);
+}
+
+function preloadBrowserImage(imageUrl) {
+  if (typeof Image !== "function" || !isHttpUrl(imageUrl)) return Promise.resolve(false);
+  return new Promise((resolve) => {
+    const image = new Image();
+    let settled = false;
+    const finish = (loaded) => {
+      if (settled) return;
+      settled = true;
+      resolve(loaded);
+    };
+    image.decoding = "async";
+    image.fetchPriority = "high";
+    image.referrerPolicy = "no-referrer";
+    image.addEventListener("load", async () => {
+      try { await image.decode?.(); } catch { /* A loaded image remains cacheable if decode is deferred. */ }
+      finish(true);
+    }, { once: true });
+    image.addEventListener("error", () => finish(false), { once: true });
+    image.src = imageUrl;
+  });
 }
 
 function renderInspirationFallbackThumb(thumb, item) {
@@ -3987,10 +3970,8 @@ function createActionToggleButton({ active, icon, label, className, readingQueue
 function renderConnectionError(error) {
   const detail = localizedErrorMessage(error);
   renderOverviewStatus(t("connection.unavailable"), t("connection.retryMeta", { detail }));
-  els.settingsKeyStatus.textContent = t("connection.backgroundPaused");
-  els.settingsModelStatus.textContent = "-";
   els.settingsQuotaStatus.textContent = "0/50";
-  els.settingsTotalStatus.textContent = "0";
+  els.settingsCacheOverviewStatus.textContent = t("connection.backgroundPaused");
   els.dailyBoard.replaceChildren(createEmptyState({
     title: t("connection.recoveringTitle"),
     body: t("connection.recoveringBody"),

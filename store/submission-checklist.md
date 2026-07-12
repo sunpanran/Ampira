@@ -17,6 +17,7 @@
 - [ ] Enable and then remove the optional website-icon permission; verify Chrome favicons appear only while granted and missing icons fall back without console errors.
 - [ ] Grant one exact source origin and verify Feed refresh; revoke it and verify bookmark-only fallback.
 - [ ] Grant one exact inspiration origin and verify its original page image appears without a Brave key; revoke it and verify the card remains usable without another original-page read.
+- [ ] Reload the new tab and verify all 15 fixed daily inspiration cards across the three reshuffle batches begin preloading before first render, while a deliberately slow image still falls back to progressive rendering without blocking the dashboard.
 - [ ] For an inspiration page with no usable image, enable Brave Image Search with a non-production key and verify Brave runs only as the fallback; remove the key afterward.
 - [ ] Restart Chrome, confirm the dashboard cache renders immediately, and confirm saved API keys are not shown in full.
 - [ ] Test a provider with a non-production key, then remove the key and clear the test data.
