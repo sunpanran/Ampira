@@ -7,7 +7,7 @@ import { providerEndpoint, requestAiCompletion, searchImagePreview, testImageSea
 import { createClientStateStore } from "../extension/core/client-state.mjs";
 import { DEFAULT_SETTINGS, SETTINGS_KEY } from "../extension/core/constants.mjs";
 import { recordsToPrune } from "../extension/core/db.mjs";
-import { feedCacheOrEmpty, fetchSourceArticles, parseFeedDocument, rankAndDedupe } from "../extension/core/feed.mjs";
+import { feedCacheOrEmpty, fetchSourceArticles, filterLikelyNewsItems, parseFeedDocument, rankAndDedupe } from "../extension/core/feed.mjs";
 import { normalizeFeedback } from "../extension/core/feedback.mjs";
 import { createQuotaManager } from "../extension/core/quota.mjs";
 import { createPreviewService, fetchSourceImagePreview } from "../extension/core/preview.mjs";
@@ -83,6 +83,9 @@ assert.deepEqual(defaultBookmarkFoldersForLocale("zh-Hant"), { news: "資訊", i
 assert.equal(translate("en", "settings.bookmarks.folderOption", { name: "Design", count: 5 }), "Design (5)");
 assert.equal(DEFAULT_SETTINGS.newsBookmarkFolder, "");
 assert.equal(DEFAULT_SETTINGS.inspirationBookmarkFolder, "");
+assert.equal(DEFAULT_SETTINGS.colorMode, "dark", "appearance must default to dark mode");
+assert.equal(DEFAULT_SETTINGS.headerImageEnabled, true, "the header image must be enabled by default");
+assert.equal(DEFAULT_SETTINGS.floatingWebOpenEnabled, false, "in-app reading must be opt-in by default");
 
 const permissionUiRows = [
   { origin: "https://allowed.example/*", required: true, granted: true },
@@ -150,6 +153,7 @@ assert(dashboardSource.includes('data-i18n="onboarding.step3.skip"') && dashboar
 const permissionUiSource = await fs.readFile(path.join(root, "assets", "client", "extension-ui.mjs"), "utf8");
 assert(permissionUiSource.includes('request("settings:save", { newsBookmarkFolder, inspirationBookmarkFolder })'), "onboarding folder choices must persist through the settings boundary");
 assert(permissionUiSource.includes('request("settings:save", { openaiApiKey, aiDisclosureAccepted: true })'), "onboarding API keys must keep the existing consent and local-secret boundary");
+assert(permissionUiSource.includes('permissions: ["favicon"]'), "the onboarding primary permission action must also request website icons from its user gesture");
 assert(permissionUiSource.includes('event.detail?.type === "settings.changed"'), "website access must react to extension permission updates");
 assert(permissionUiSource.includes('"visibilitychange"'), "website access must recheck when the page becomes visible");
 const aiFieldsetStart = dashboardSource.indexOf('<fieldset class="ai-provider-fields"');
@@ -276,6 +280,13 @@ assert.equal(atomItems.length, 1);
 assert.equal(jsonItems.length, 1);
 assert(!rssItems[0].excerpt.includes("<script>"), "remote markup must never survive as executable HTML");
 assert.equal(rankAndDedupe([...rssItems, ...rssItems, ...atomItems, ...jsonItems]).length, 3);
+const locallyFilteredItems = filterLikelyNewsItems([
+  { articleId: "privacy", title: "Privacy Policy", source: "Example", url: "https://example.com/privacy" },
+  { articleId: "promotion", title: "【广告】限时推广", source: "Example", url: "https://example.com/news/promotion" },
+  { articleId: "login", title: "Account access", source: "Example", url: "https://example.com/login" },
+  { articleId: "sparse-news", title: "真实但没有摘要和日期的新闻", source: "Example", url: "https://example.com/updates/alpha" },
+]);
+assert.deepEqual(locallyFilteredItems.map((item) => item.articleId), ["sparse-news"], "local filtering must reject clear utility and promotional entries without requiring AI");
 const entityUrlItems = parseFeedDocument(
   "<rss><channel><item><title>Entity URL</title><link>https://example.com/story?a=1&amp;b=2</link></item></channel></rss>",
   "https://example.com/feed.xml",
@@ -350,7 +361,7 @@ try {
     });
   };
   assert.equal((await fetchSourceArticles({ url: "https://recover.example/", title: "Recover" })).at(0)?.title, "Recovered", "feed discovery must continue after one candidate fails");
-  globalThis.fetch = async () => new Response('<html><head><meta property="og:type" content="website"><meta property="og:title" content="Example News"><meta name="description" content="A news website, not a news article."></head><body></body></html>', {
+  globalThis.fetch = async () => new Response('<html><head><meta property="og:type" content="website"><meta property="og:title" content="Example News"><meta name="description" content="A news website, not a news article."></head><body><a href="/news">Browse all current news coverage</a><a href="/login">Sign in to your account</a></body></html>', {
     status: 200,
     headers: { "content-type": "text/html" },
   });
@@ -373,6 +384,19 @@ try {
   });
   const detailArticles = await fetchSourceArticles({ url: "https://details.example/", title: "Details" });
   assert.equal(detailArticles.at(0)?.url, "https://details.example/detail/123456", "detail-style news links must be discovered before considering an HTML fallback");
+  globalThis.fetch = async () => new Response(JSON.stringify({
+    version: "https://jsonfeed.org/version/1.1",
+    items: [
+      { id: "privacy", url: "https://filtered.example/privacy", title: "Privacy Policy" },
+      { id: "sponsored", url: "https://filtered.example/news/sponsored", title: "Sponsored: partner offer" },
+      { id: "real", url: "https://filtered.example/updates/real", title: "A real feed article", content_text: "A legitimate article remains visible." },
+    ],
+  }), {
+    status: 200,
+    headers: { "content-type": "application/feed+json" },
+  });
+  const filteredFeed = await fetchSourceArticles({ url: "https://filtered.example/feed", title: "Filtered" });
+  assert.deepEqual(filteredFeed.map((item) => item.title), ["A real feed article"], "clear utility and sponsored feed entries must be removed before caching");
   globalThis.fetch = async () => new Response("failure", { status: 503 });
   await assert.rejects(
     fetchSourceArticles({ url: "https://fixture.example/feed", title: "Fixture" }),
@@ -995,13 +1019,16 @@ let currentPreviewItem = { key: "bookmark-1", url: "https://a.example/", title: 
 let previewApiCalls = 0;
 let resolvePreviewRequest;
 const appliedPreviewImages = [];
+const preloadedPreviewImages = [];
 let previewApi = () => new Promise((resolve) => { resolvePreviewRequest = resolve; });
+let previewImageLoader = async (imageUrl) => { preloadedPreviewImages.push(imageUrl); return true; };
 const previewController = createInspirationPreviewController({
   apiGet: (...args) => { previewApiCalls += 1; return previewApi(...args); },
   normalizeUrl: (value) => String(value || ""),
   isHttpUrl: (value) => /^https?:\/\//.test(value),
   isEnabled: () => true,
   canFallback: () => true,
+  preloadImage: (imageUrl) => previewImageLoader(imageUrl),
   isCurrent: (item, fingerprint) => inspirationPreviewFingerprint(currentPreviewItem, String) === fingerprint,
   onImage: (item, imageUrl) => appliedPreviewImages.push([item.key, imageUrl]),
 });
@@ -1029,6 +1056,58 @@ await previewController.reject(currentPreviewItem, "https://imgs.search.brave.co
 assert.equal(previewApiCalls, previewCallsAfterBrave, "a failed Brave image must fall back to the favicon without looping");
 previewController.invalidate();
 assert.equal(previewController.get(currentPreviewItem), null);
+currentPreviewItem = { key: "bookmark-2", url: "https://preload.example/", title: "Preload" };
+previewApi = async () => ({ imageUrl: "https://images.example/preloaded.jpg", source: "origin" });
+await previewController.preload([currentPreviewItem, currentPreviewItem], { timeoutMs: 50 });
+assert.deepEqual(preloadedPreviewImages, ["https://images.example/preloaded.jpg"], "daily preload must deduplicate items and warm the resolved image URL before rendering");
+assert.equal(previewController.get(currentPreviewItem)?.imageUrl, "https://images.example/preloaded.jpg");
+previewController.invalidate();
+currentPreviewItem = { key: "bookmark-3", url: "https://fallback-preload.example/", title: "Fallback preload" };
+preloadedPreviewImages.length = 0;
+previewApi = async (url) => {
+  const mode = new URL(url, "https://ampira.invalid").searchParams.get("mode");
+  return mode === "brave-only"
+    ? { imageUrl: "https://imgs.search.brave.com/preloaded-fallback.jpg", source: "brave" }
+    : { imageUrl: "https://images.example/preload-failure.jpg", source: "origin" };
+};
+previewImageLoader = async (imageUrl) => {
+  preloadedPreviewImages.push(imageUrl);
+  return imageUrl.includes("imgs.search.brave.com");
+};
+await previewController.preload([currentPreviewItem], { timeoutMs: 50 });
+assert.deepEqual(preloadedPreviewImages, [
+  "https://images.example/preload-failure.jpg",
+  "https://imgs.search.brave.com/preloaded-fallback.jpg",
+], "a failed original preload must resolve and warm the Brave fallback before cards render");
+assert.equal(previewController.get(currentPreviewItem)?.source, "brave");
+previewController.invalidate();
+currentPreviewItem = { key: "bookmark-4", url: "https://slow-preload.example/", title: "Slow preload" };
+previewApi = async () => ({ imageUrl: "https://images.example/slow-preload.jpg", source: "origin" });
+previewImageLoader = () => new Promise(() => {});
+const preloadTimeoutStartedAt = Date.now();
+await previewController.preload([currentPreviewItem], { timeoutMs: 5 });
+assert(Date.now() - preloadTimeoutStartedAt < 500, "a slow image preload must respect the render timeout instead of blocking the dashboard");
+previewController.invalidate();
+const dailyPoolItems = Array.from({ length: 15 }, (_, index) => ({
+  key: `daily-${index}`,
+  url: `https://daily-${index}.example/`,
+  title: `Daily ${index}`,
+}));
+const dailyPoolRequests = [];
+const dailyPoolController = createInspirationPreviewController({
+  apiGet: async (url) => {
+    dailyPoolRequests.push(new URL(url, "https://ampira.invalid").searchParams.get("url"));
+    return { imageUrl: `https://images.example/${dailyPoolRequests.length}.jpg`, source: "origin" };
+  },
+  normalizeUrl: String,
+  isHttpUrl: (value) => /^https?:\/\//.test(value),
+  isEnabled: () => true,
+  isCurrent: () => true,
+  preloadImage: async () => true,
+  onImage() {},
+});
+await dailyPoolController.preload(dailyPoolItems, { timeoutMs: 100 });
+assert.equal(dailyPoolRequests.length, 15, "the complete three-batch daily inspiration pool must be requested in one preload pass");
 const referenceItems = [
   { key: "article-a", sourceKey: "source-shared", url: "https://example.com/a", summary: { title: "Article A" } },
   { key: "article-b", sourceKey: "source-shared", url: "https://example.com/b", summary: { title: "Article B" } },
@@ -1040,7 +1119,8 @@ assert.equal(safeReaderOrigin("http://example.com/article"), "");
 assert.equal(safeReaderOrigin("http://localhost:3000/article"), "http://localhost:3000");
 assert.equal(sameOrigin("https://example.com/a", "https://example.com/b"), true);
 assert.equal(normalizeAccentTheme("unknown"), "violet");
-assert.equal(normalizeColorMode("unknown"), "system");
+assert.equal(normalizeColorMode("unknown"), "dark");
+assert.equal(normalizeColorMode("system"), "system", "system mode must remain explicitly selectable");
 assert.equal(normalizeHexColor("9152ff"), "#9152FF");
 assert.deepEqual(paletteFromAccent("#06B6D4"), { accent: "#06B6D4", accentRgb: [6, 182, 212] });
 
@@ -1069,6 +1149,9 @@ assert(readerUiSource.includes("markReadOnOpen(item);"), "opening a bookmark or 
 assert(appSource.includes('t("settings.bookmarks.folderOption"'));
 assert(appSource.includes('isEnabled: () => state.settings?.bookmarkConsentGranted === true'), "original previews must not depend on Brave configuration");
 assert(appSource.includes('event.detail?.payload?.permissionsChanged || event.detail?.payload?.imageSearchChanged'), "permission and Brave configuration changes must invalidate previews in every open tab");
+assert(appSource.includes('await preloadDailyInspiration(INITIAL_INSPIRATION_PRELOAD_TIMEOUT_MS)'), "the fixed daily inspiration selection must preload before the initial render");
+assert(appSource.includes('DAILY_INSPIRATION_COUNT * DAILY_INSPIRATION_BATCH_LIMIT'), "daily preload must include all 15 cards across the three reshuffle batches");
+assert(appSource.includes('img.loading = "eager"'), "preloaded daily inspiration images must not be deferred again by lazy loading");
 assert(serviceWorkerSource.includes('urls.push(...inspirationPreviewSourceUrls(model.bookmarks))'), "inspiration origins must appear in the exact-origin permission list");
 assert(serviceWorkerSource.includes("await pruneStalePreviewCaches(settings)"), "bookmark changes must prune preview caches for removed inspiration targets");
 assert(serviceWorkerSource.includes("if (bookmarkSourceChanged) await pruneStalePreviewCaches(normalized)"), "changing the selected inspiration folder must prune stale preview caches");

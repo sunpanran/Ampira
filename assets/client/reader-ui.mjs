@@ -40,7 +40,7 @@ export function createReaderController(context) {
   }
 
   function shouldOpenInFloatingFrame(url) {
-    return isReaderUrl(url) && (state.settings?.floatingWebOpenEnabled !== false);
+    return isReaderUrl(url) && state.settings?.floatingWebOpenEnabled === true;
   }
 
   async function openFloatingWeb(url, title = "", item = null, options = {}) {
