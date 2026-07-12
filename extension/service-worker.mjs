@@ -5,10 +5,10 @@ import {
   REFRESH_PERIOD_MINUTES,
 } from "./core/constants.mjs";
 import { buildBookmarkModel, hashText, inspirationPreviewSourceUrls, inspirationPreviewTargets, originsFromUrls } from "./core/bookmarks.mjs";
-import { buildFallbackDigest, buildTopics, feedCacheOrEmpty, fetchSourceArticles, rankAndDedupe } from "./core/feed.mjs";
+import { buildFallbackDigest, feedCacheOrEmpty, fetchSourceArticles, rankAndDedupe } from "./core/feed.mjs";
 import { normalizeFeedback } from "./core/feedback.mjs";
 import { clearRecords, deleteRecord, getRecord, listRecords, pruneCache, setRecord, setRecords } from "./core/db.mjs";
-import { fetchReader, loadReaderWithCache, readerTextFromBlocks } from "./core/reader.mjs";
+import { extractPageMetadata, fetchReader, fetchReaderHtml, loadReaderWithCache, readerTextFromBlocks } from "./core/reader.mjs";
 import {
   clearLegacyCredentialData,
   readProviderProfile,
@@ -42,6 +42,7 @@ import {
 } from "./core/permission-state.mjs";
 import { isValidServiceUrl, normalizeSettings, providerOrigin } from "./core/settings.mjs";
 import { createSettingsStore } from "./core/settings-store.mjs";
+import { cleanGeneratedSummaryLine, extractGeneratedSummaryTitle, parseGeneratedDailyDigest } from "./core/summary-text.mjs";
 
 let bookmarkRefreshTimer = 0;
 let feedbackMutationQueue = Promise.resolve();
@@ -51,6 +52,10 @@ let permissionReconcileTimer = 0;
 let permissionReconcileAttempts = 0;
 let permissionEpoch = 0;
 const pendingRemovedOrigins = new Set();
+const AI_CONNECTION_TEST_MAX_TOKENS = 900;
+const AI_DIGEST_MAX_TOKENS = 900;
+const AI_ARTICLE_SUMMARY_MAX_TOKENS = 1200;
+const CARD_SUMMARY_EXCERPT_MAX_CHARS = 2000;
 const cacheMutations = createEpochMutationQueue();
 const clientStateStore = createClientStateStore({ getRecord, setRecord });
 const quotaManager = createQuotaManager(chrome.storage.local, localDateKey);
@@ -161,7 +166,7 @@ async function handleRequest(request) {
     case "settings:image-test": return testImageSearchSettings(payload);
     case "refresh:start": return startRefresh(payload.force === true);
     case "refresh:status": return getRefreshStatus();
-    case "digest:refresh": return refreshDailyDigest();
+    case "digest:refresh": return refreshDailyDigest({ automatic: false });
     case "summary:refresh": return refreshSingleSummary(payload);
     case "ai:search": return answerAiSearch(payload);
     case "reader:get": return readArticle(payload.url);
@@ -332,6 +337,9 @@ async function performSaveSettings(body, transaction) {
     || Object.hasOwn(bravePatch, "braveSearchApiKey");
   const aiConfigurationChanged = previous.aiDisclosureAccepted !== normalized.aiDisclosureAccepted
     || previous.credentialGeneration !== normalized.credentialGeneration;
+  const automaticAiChanged = aiConfigurationChanged
+    || previous.cardSummaryEnabled !== normalized.cardSummaryEnabled
+    || previous.dailyAiLimit !== normalized.dailyAiLimit;
   if (localeChanged || bookmarkSourceChanged || aiConfigurationChanged || imageSearchChanged) {
     cacheMutations.invalidate();
     if (bookmarkSourceChanged) refreshCoordinator.invalidate();
@@ -339,8 +347,24 @@ async function performSaveSettings(body, transaction) {
     if (bookmarkSourceChanged) await pruneStalePreviewCaches(normalized);
     if (imageSearchChanged) await pruneBravePreviewCaches();
   }
-  broadcast("settings.changed", { bookmarkSourceChanged, localeChanged, imageSearchChanged });
-  return { ...(await publicSettings()), bookmarkSourceChanged, localeChanged, imageSearchChanged };
+  let automaticAiStarted = false;
+  if (automaticAiChanged) {
+    const ready = normalized.cardSummaryEnabled !== false && await aiConfigured(normalized);
+    await setAiAutoStatus(ready ? defaultAiAutoStatus() : { ...defaultAiAutoStatus(), phase: "not-ready" }, false);
+    if (ready) {
+      automaticAiStarted = true;
+      startRefresh(true).catch(() => {});
+    }
+  }
+  broadcast("settings.changed", { bookmarkSourceChanged, localeChanged, imageSearchChanged, automaticAiChanged, automaticAiStarted });
+  return {
+    ...(await publicSettings()),
+    bookmarkSourceChanged,
+    localeChanged,
+    imageSearchChanged,
+    automaticAiChanged,
+    automaticAiStarted,
+  };
 }
 
 async function buildDashboardPayload(attempt = 0) {
@@ -351,11 +375,12 @@ async function buildDashboardPayload(attempt = 0) {
   const secrets = await secretStatus();
   const model = settings.bookmarkConsentGranted ? await currentBookmarkModel(settings) : emptyBookmarkModel();
   let feed = feedCacheOrEmpty(await getRecord("feed", null));
-  const [status, cachedDigest, quota, rawSourceQuality] = await Promise.all([
+  const [status, cachedDigest, quota, rawSourceQuality, autoAiStatus] = await Promise.all([
     getRefreshStatus(),
     getRecord("daily-digest", null),
     readQuota(settings.dailyAiLimit),
     getRecord("source-quality", emptySourceQuality()),
+    getAiAutoStatus(),
   ]);
   const feedPermissions = await currentFeedPermissionState(settings, model);
   const visibleFeedItems = filterFeedItemsBySources(feed.items || [], feedPermissions.permitted);
@@ -373,6 +398,7 @@ async function buildDashboardPayload(attempt = 0) {
   let configuredForAi = settings.aiDisclosureAccepted === true
     && secrets.hasOpenAIKey
     && aiPermissionGranted;
+  feed = { ...feed, items: sanitizeCardAiSummaries(feed.items, settings, configuredForAi) };
   const fallbackDigest = withFeedCacheMetadata(
     buildFallbackDigest(feed.items, secrets.hasOpenAIKey ? "pending" : "no-api-key", locale),
     feed.items,
@@ -406,7 +432,6 @@ async function buildDashboardPayload(attempt = 0) {
     sections: model.sections,
     bookmarks: model.bookmarks,
     feed: { schemaVersion: 2, ...feed },
-    topics: buildTopics(feed.items),
     dailyDigest: digest,
     ai: {
       enabled: configuredForAi,
@@ -420,6 +445,7 @@ async function buildDashboardPayload(attempt = 0) {
       maskedKey: secrets.hasOpenAIKey ? "••••••••" : "",
       dailyLimit: settings.dailyAiLimit,
       usedToday: quota.used,
+      autoStatus: autoAiStatus,
       hotNewsCacheSize: settings.hotNewsCacheSize,
       hotNewsEntriesPerSource: settings.hotNewsEntriesPerSource,
       newsEntriesPerCategory: settings.newsEntriesPerCategory,
@@ -623,6 +649,14 @@ async function runRefresh(generation) {
         stages: pipelineStages("complete"),
       };
       await setRefreshStatus(failed);
+      const autoStatus = await getAiAutoStatus();
+      if (autoStatus.running) await setAiAutoStatus({
+        ...autoStatus,
+        phase: "error",
+        running: false,
+        lastRunAt: new Date().toISOString(),
+        errorKey: error?.messageKey || "background.error.aiNetwork",
+      });
       broadcast("refresh.progress", failed);
     } catch {
       // Preserve the original refresh failure when status persistence also fails.
@@ -702,18 +736,22 @@ async function performRefresh(generation) {
     }
   });
   if (!refreshCoordinator.isCurrent(generation)) return;
+  const aiReadyForRefresh = await aiConfigured(settings);
   const committed = await cacheMutations.run(async (isCurrent) => {
     if (!isCurrent() || !refreshCoordinator.isCurrent(generation)) return null;
-    const [previous, previousQuality] = await Promise.all([
+    const [previous, previousQuality, previousDigest] = await Promise.all([
       getRecord("feed", { items: [] }),
       getRecord("source-quality", emptySourceQuality()),
+      getRecord("daily-digest", null),
     ]);
     if (!isCurrent() || !refreshCoordinator.isCurrent(generation)) return null;
     const retained = filterFeedItemsBySources(
       retainActiveUnrefreshedItems(previous.items, permitted, successfullyRefreshedSources),
       permitted,
     );
-    const items = rankAndDedupe([...articles, ...retained], settings.hotNewsCacheSize);
+    const previousByArticle = new Map((previous.items || []).map((item) => [item.articleId || item.entryKey || item.url, item]));
+    const refreshed = articles.map((item) => preserveCardAiSummary(item, previousByArticle.get(item.articleId || item.entryKey || item.url), settings));
+    const items = rankAndDedupe([...refreshed, ...retained], settings.hotNewsCacheSize);
     const feed = {
       schemaVersion: 2,
       generatedAt: new Date().toISOString(),
@@ -728,28 +766,43 @@ async function performRefresh(generation) {
       && originPattern(record?.sourceOrigin || "") === feedPermissions.permittedByKey.get(key)
     )));
     const qualitySummary = summarizeQuality({ ...retainedQuality, ...quality }, denied);
+    const preservedDigest = previousDigest?.locale === locale
+      && previousDigest?.date === localDateKey()
+      && digestCachePermitted(previousDigest, items, feedPermissions, settings, aiReadyForRefresh)
+      ? previousDigest
+      : withFeedCacheMetadata(buildFallbackDigest(items, "local", locale), items, "daily-digest");
     if (!isCurrent() || !refreshCoordinator.isCurrent(generation)) return null;
     await setRecords([
       { key: "feed", value: feed, kind: "cache" },
       { key: "source-quality", value: qualitySummary, kind: "cache" },
       {
         key: "daily-digest",
-        value: withFeedCacheMetadata(buildFallbackDigest(items, "local", locale), items, "daily-digest"),
+        value: preservedDigest,
         kind: "cache",
       },
       { key: "refresh-source-cursor", value: refreshBatch.nextCursor, kind: "state" },
     ]);
-    return { items };
+    return { items, needsDigest: Boolean(items.length && aiReadyForRefresh && preservedDigest.status !== "ai") };
   }, cacheEpoch);
   if (!committed || !refreshCoordinator.isCurrent(generation)) return;
-  const { items } = committed;
+  const automaticRun = await runAutomaticAiAfterRefresh({
+    settings,
+    items: committed.items,
+    needsDigest: committed.needsDigest,
+    aiReady: aiReadyForRefresh,
+    cacheEpoch,
+    generation,
+  });
+  const { items, errorKey: autoSummaryErrorKey } = automaticRun;
   const finished = {
     ...status,
     running: false,
     finishedAt: new Date().toISOString(),
     progress: 1,
     message: "",
-    messageKey: items.length ? "background.cachedItems" : "background.noItems",
+    messageKey: items.length
+      ? (autoSummaryErrorKey ? "background.cachedItemsAiDeferred" : "background.cachedItems")
+      : "background.noItems",
     messageParams: items.length ? { count: items.length } : {},
     stages: pipelineStages("complete"),
   };
@@ -758,7 +811,187 @@ async function performRefresh(generation) {
   broadcast("dashboard.updated", { reason: "refresh-complete" });
 }
 
-async function refreshDailyDigest() {
+async function runAutomaticAiAfterRefresh({ settings, items, needsDigest, aiReady, cacheEpoch, generation }) {
+  const previous = await getAiAutoStatus();
+  const quota = await readQuota(settings.dailyAiLimit);
+  const remainingQuota = Math.max(0, settings.dailyAiLimit - quota.used);
+  const availableCards = settings.cardSummaryEnabled
+    ? items.filter((item) => item.summaryStatus !== "ai" && String(item.excerpt || "").trim()).length
+    : 0;
+  const digestEligible = needsDigest && remainingQuota > 0;
+  const cardEligible = Math.min(availableCards, Math.max(0, remainingQuota - Number(digestEligible)));
+  const total = Number(digestEligible) + cardEligible;
+  const hasPendingWork = needsDigest || availableCards > 0;
+  const startedAt = new Date().toISOString();
+  const base = {
+    processed: 0,
+    total,
+    eligible: cardEligible,
+    startedAt,
+    lastRunAt: previous.lastRunAt || "",
+    errorKey: "",
+  };
+  if (!aiReady) {
+    await setAiAutoStatus({ ...base, phase: "not-ready", running: false, lastRunAt: startedAt });
+    return { items, errorKey: "" };
+  }
+  if (!remainingQuota && hasPendingWork) {
+    await setAiAutoStatus({ ...base, phase: "quota", running: false, lastRunAt: startedAt });
+    return { items, errorKey: "" };
+  }
+  if (!total) {
+    await setAiAutoStatus({ ...base, phase: "no-candidates", running: false, lastRunAt: startedAt });
+    return { items, errorKey: "" };
+  }
+
+  let processed = 0;
+  let phase = digestEligible ? "running-digest" : "running-cards";
+  let errorKey = "";
+  await setAiAutoStatus({ ...base, phase, running: true });
+
+  if (digestEligible && refreshCoordinator.isCurrent(generation)) {
+    const digest = await refreshDailyDigest({ automatic: true });
+    if (digest.status === "ai") processed += 1;
+    else if (digest.status === "quota-or-empty") phase = "quota";
+    else {
+      phase = "error";
+      errorKey = digest.errorKey || "background.error.aiNetwork";
+    }
+  }
+
+  if (!errorKey && phase !== "quota" && cardEligible && refreshCoordinator.isCurrent(generation)) {
+    phase = "running-cards";
+    await setAiAutoStatus({ ...base, phase, running: true, processed });
+    const automatic = await automaticallySummarizeCards(settings, items, cacheEpoch, generation, cardEligible, async (cardProcessed) => {
+      await setAiAutoStatus({ ...base, phase, running: true, processed: processed + cardProcessed });
+    });
+    items = automatic.items;
+    processed += automatic.processed;
+    if (automatic.quotaReached) phase = "quota";
+    if (automatic.errorKey) {
+      phase = "error";
+      errorKey = automatic.errorKey;
+    }
+  }
+
+  if (!errorKey && phase !== "quota") phase = "completed";
+  await setAiAutoStatus({
+    ...base,
+    phase,
+    running: false,
+    processed,
+    lastRunAt: new Date().toISOString(),
+    errorKey,
+  });
+  return { items, errorKey };
+}
+
+async function automaticallySummarizeCards(settings, items, cacheEpoch, generation, candidateLimit, onProgress = null) {
+  if (!await aiConfigured(settings)) return { items, errorKey: "", processed: 0, eligible: 0, quotaReached: false };
+  const locale = settingsLocale(settings);
+  let currentItems = items;
+  let errorKey = "";
+  let processed = 0;
+  let quotaReached = false;
+  const candidates = items.filter((item) => (
+    item.summaryStatus !== "ai"
+    && String(item.excerpt || "").trim()
+  )).slice(0, candidateLimit);
+
+  for (const candidate of candidates) {
+    if (!cacheMutations.isCurrent(cacheEpoch) || !refreshCoordinator.isCurrent(generation)) break;
+    let result;
+    try {
+      const context = await automaticCardSummaryContext(candidate);
+      result = await runAiWithinQuota(settings, () => callProvider(
+        settings,
+        translate(locale, "background.prompt.cardSummary"),
+        translate(locale, "background.prompt.webInput", {
+          url: candidate.url,
+          title: candidate.title,
+          text: context.text,
+        }),
+        AI_ARTICLE_SUMMARY_MAX_TOKENS,
+        "",
+        async () => {
+          const validation = await assertFeedItemsStillPermitted([candidate]);
+          return { ...validation, origins: uniqueStrings([...validation.origins, ...context.origins]) };
+        },
+      ));
+    } catch (error) {
+      errorKey = error?.messageKey || "background.error.aiNetwork";
+      break;
+    }
+    if (!result.usedAi) {
+      quotaReached = true;
+      break;
+    }
+    const organized = generatedCardSummary(result.value);
+    if (!organized.title || !organized.summary.length) {
+      errorKey = "background.error.aiNoText";
+      break;
+    }
+    const summarizedAt = new Date().toISOString();
+    const providerOrigin = safeOrigin(settings.openaiBaseUrl);
+    const committedItem = await cacheMutations.run(async (isCurrent) => {
+      if (!isCurrent() || !refreshCoordinator.isCurrent(generation)) return null;
+      const latestSettings = await getSettings();
+      if (!latestSettings.cardSummaryEnabled || !await aiConfigured(latestSettings)) return null;
+      if (safeOrigin(latestSettings.openaiBaseUrl) !== providerOrigin) return null;
+      const latestModel = latestSettings.bookmarkConsentGranted ? await currentBookmarkModel(latestSettings) : emptyBookmarkModel();
+      const latestPermissions = await currentFeedPermissionState(latestSettings, latestModel);
+      if (latestPermissions.permittedByKey.get(String(candidate.sourceKey || "")) !== originPattern(candidate.sourceOrigin || "")) return null;
+      const feed = feedCacheOrEmpty(await getRecord("feed", null));
+      let updatedItem = null;
+      const updatedItems = feed.items.map((item) => {
+        if ((item.articleId || item.entryKey) !== (candidate.articleId || candidate.entryKey) || item.url !== candidate.url) return item;
+        if (item.summaryStatus === "ai") return item;
+        updatedItem = { ...item, summaryTitle: organized.title, summary: organized.summary, summaryStatus: "ai", summarizedAt, summaryProviderOrigin: providerOrigin };
+        return updatedItem;
+      });
+      if (!updatedItem || !isCurrent()) return null;
+      await setRecord("feed", { ...feed, items: updatedItems }, "cache");
+      return updatedItem;
+    }, cacheEpoch);
+    if (!committedItem) break;
+    currentItems = currentItems.map((item) => item.url === committedItem.url ? committedItem : item);
+    processed += 1;
+    if (typeof onProgress === "function") await onProgress(processed);
+  }
+  return { items: currentItems, errorKey, processed, eligible: candidates.length, quotaReached };
+}
+
+function automaticCardSummaryContext(candidate) {
+  return {
+    text: String(candidate.excerpt || "").trim().slice(0, CARD_SUMMARY_EXCERPT_MAX_CHARS),
+    origins: [],
+  };
+}
+
+function preserveCardAiSummary(item, previous, settings) {
+  if (previous?.summaryStatus !== "ai" || !previous.summaryTitle || !Array.isArray(previous.summary) || !previous.summary.length) return item;
+  if (originPattern(previous.summaryProviderOrigin || "") !== originPattern(settings.openaiBaseUrl)) return item;
+  return {
+    ...item,
+    summaryTitle: previous.summaryTitle,
+    summary: previous.summary,
+    summaryStatus: "ai",
+    summarizedAt: previous.summarizedAt || "",
+    summaryProviderOrigin: previous.summaryProviderOrigin,
+  };
+}
+
+function sanitizeCardAiSummaries(items, settings, configuredForAi) {
+  return (items || []).map((item) => {
+    if (item.summaryStatus !== "ai") return item;
+    if (configuredForAi && originPattern(item.summaryProviderOrigin || "") === originPattern(settings.openaiBaseUrl)) return item;
+    const { summarizedAt, summaryProviderOrigin, summaryTitle, ...rest } = item;
+    const excerpt = String(item.excerpt || "").trim();
+    return { ...rest, summary: excerpt ? [excerpt] : [], summaryStatus: excerpt ? "excerpt" : "raw" };
+  });
+}
+
+async function refreshDailyDigest({ automatic = false } = {}) {
   const cacheEpoch = cacheMutations.capture();
   const settings = await getSettings();
   const locale = settingsLocale(settings);
@@ -771,21 +1004,31 @@ async function refreshDailyDigest() {
   if (contextItems.length && cacheMutations.isCurrent(cacheEpoch) && await aiConfigured(settings)) {
     const context = contextItems.map((item, index) => `${index + 1}. ${item.title}｜${item.excerpt}｜${item.url}`).join("\n");
     try {
-      const result = await runAiWithinQuota(settings, () => callProvider(
+      const operation = () => callProvider(
         settings,
         translate(locale, "background.prompt.dailyDigest"),
         context,
-        500,
+        AI_DIGEST_MAX_TOKENS,
         "",
         () => assertFeedItemsStillPermitted(contextItems),
-      ));
+      );
+      const result = automatic
+        ? await runAiWithinQuota(settings, operation)
+        : { usedAi: true, value: await operation() };
       if (result.usedAi) {
+        const organized = parseGeneratedDailyDigest(result.value, digest.items.length);
         digest = withFeedCacheMetadata({
           ...digest,
           locale,
           status: "ai",
-          overview: result.value.split(/\n+/).map((line) => line.trim()).filter(Boolean).slice(0, 3),
+          overview: organized.overview,
+          items: digest.items.map((item, index) => {
+            const aiTitle = organized.eventTitles[index] || "";
+            return aiTitle ? { ...item, originalTitle: item.title, title: aiTitle, aiTitle } : item;
+          }),
         }, contextItems, "daily-digest", settings.openaiBaseUrl);
+      } else {
+        digest = { ...digest, status: "quota-or-empty" };
       }
     } catch (error) {
       const errorKey = error?.messageKey || "background.error.aiNetwork";
@@ -819,22 +1062,56 @@ async function refreshSingleSummary(body) {
   const locale = settingsLocale(settings);
   if (!settings.bookmarkConsentGranted) return resultMessage(settings, false, "background.error.sourceNotFound");
   const model = await currentBookmarkModel(settings);
-  const source = model.bookmarks.find((item) => (item.key === body.key || item.bookmarkId === body.key) && item.cardType === "news" && !item.feedExcluded);
-  if (!source) return resultMessage(settings, false, "background.error.sourceNotFound");
-  if (!await hasOriginPermission(source.url)) return resultMessage(settings, false, "background.error.sourcePermission");
-  const fresh = await fetchSourceArticles(source, sourceFetchOptions(settings.hotNewsEntriesPerSource));
+  const feed = feedCacheOrEmpty(await getRecord("feed", null));
+  const target = feed.items.find((item) => (
+    String(item.sourceKey || "") === String(body.sourceKey || "")
+    && (String(item.articleId || item.entryKey || "") === String(body.articleId || "") || item.url === body.url)
+  ));
+  const permissions = await currentFeedPermissionState(settings, model);
+  const permittedSourceOrigin = target ? permissions.permittedByKey.get(String(target.sourceKey || "")) : "";
+  if (!target || !permittedSourceOrigin || permittedSourceOrigin !== originPattern(target.sourceOrigin || "")) {
+    return resultMessage(settings, false, "background.error.sourceNotFound");
+  }
+  const excerptText = String(target.excerpt || "").trim().slice(0, CARD_SUMMARY_EXCERPT_MAX_CHARS);
+  if (!excerptText) throw typedError("SUMMARY_CONTENT_MISSING", "summary.status.noContent", {}, false);
+  const summaryText = await callProvider(
+    settings,
+    translate(locale, "background.prompt.cardSummary"),
+    translate(locale, "background.prompt.webInput", {
+      url: target.url,
+      title: target.title,
+      text: excerptText,
+    }),
+    AI_ARTICLE_SUMMARY_MAX_TOKENS,
+    "",
+    () => assertFeedItemsStillPermitted([target]),
+  );
+  const organized = generatedCardSummary(summaryText);
+  if (!organized.title || !organized.summary.length) throw typedError("AI_EMPTY_RESPONSE", "background.error.aiNoText", {}, true);
   const committed = await cacheMutations.run(async (isCurrent) => {
     if (!isCurrent()) return null;
     const latestSettings = await getSettings();
     if (!latestSettings.bookmarkConsentGranted) return null;
     const latestModel = await currentBookmarkModel(latestSettings);
-    const latestSource = latestModel.bookmarks.find((item) => item.key === source.key && item.cardType === "news" && !item.feedExcluded);
-    if (!latestSource || originPattern(latestSource.url) !== originPattern(source.url) || !await hasOriginPermission(source.url)) return null;
     const latestPermissions = await currentFeedPermissionState(latestSettings, latestModel);
-    if (!isCurrent() || !latestPermissions.permittedByKey.has(source.key)) return null;
+    if (!isCurrent() || latestPermissions.permittedByKey.get(String(target.sourceKey || "")) !== permittedSourceOrigin) return null;
     const previous = await getRecord("feed", { items: [] });
     const permittedPrevious = filterFeedItemsBySources(previous.items || [], latestPermissions.permitted);
-    const items = rankAndDedupe([...fresh, ...permittedPrevious.filter((item) => item.sourceKey !== source.key)], latestSettings.hotNewsCacheSize);
+    const items = permittedPrevious.map((item) => (
+      item.sourceKey === target.sourceKey
+      && (item.articleId || item.entryKey) === (target.articleId || target.entryKey)
+      && item.url === target.url
+        ? {
+          ...item,
+          summaryTitle: organized.title,
+          summary: organized.summary,
+          summaryStatus: "ai",
+          summarizedAt: new Date().toISOString(),
+          summaryProviderOrigin: safeOrigin(settings.openaiBaseUrl),
+        }
+        : item
+    ));
+    if (!items.some((item) => item.summaryStatus === "ai" && item.url === target.url)) return null;
     const feed = {
       ...previous,
       generatedAt: new Date().toISOString(),
@@ -857,7 +1134,19 @@ async function refreshSingleSummary(body) {
   if (!committed || !cacheMutations.isCurrent(cacheEpoch)) return resultMessage(settings, false, "background.error.sourcePermission");
   broadcast("dashboard.updated", { reason: "single-source" });
   const quota = await readQuota(settings.dailyAiLimit);
-  return { ok: true, locale, item: source, quota: { usedToday: quota.used, dailyLimit: settings.dailyAiLimit } };
+  return { ok: true, locale, item: target, quota: { usedToday: quota.used, dailyLimit: settings.dailyAiLimit } };
+}
+
+function generatedCardSummary(value) {
+  const text = String(value || "").trim();
+  if (!text) return { title: "", summary: [] };
+  const rawLines = text.split(/\n+/).map((line) => line.trim()).filter(Boolean);
+  const title = rawLines.map((line) => extractGeneratedSummaryTitle(line)).find(Boolean) || "";
+  const lines = rawLines.map(cleanGeneratedSummaryLine).filter(Boolean);
+  const summary = lines.length > 1
+    ? lines.slice(0, 3)
+    : (lines[0]?.match(/[^。！？.!?]+[。！？.!?]?/g) || lines).map((line) => line.trim()).filter(Boolean).slice(0, 3);
+  return { title, summary };
 }
 
 async function loadQuestionSearchContext(settings, query) {
@@ -993,27 +1282,40 @@ async function answerAiSearch(body) {
     if (!await hasOriginPermission(asUrl)) {
       result = websitePermissionSearchResult(locale, asUrl);
     } else {
-      const reader = await readArticle(asUrl);
+      let reader;
+      try {
+        reader = await readArticle(asUrl);
+      } catch (error) {
+        if (error?.code !== "READER_EXTRACTION_EMPTY") throw error;
+        reader = await readWebsiteOverview(asUrl);
+      }
       const readerText = readerTextFromBlocks(reader.blocks);
+      const isArticle = readerText.trim().length >= 80;
+      const mode = isArticle ? "article" : "website";
+      const fallbackText = isArticle
+        ? readerText.slice(0, 1200)
+        : reader.description || translate(locale, "background.search.noWebsiteDescription");
       nonAiFallback = {
         ok: true,
         locale,
         type: "url",
-        mode: "article",
-        answer: `${reader.title}\n\n${readerText.slice(0, 1200) || translate(locale, "background.search.noReadableText")}`,
+        mode,
+        answer: `${reader.title}\n\n${fallbackText}`,
         links: [{ title: reader.title, url: reader.url }],
         usedAi: false,
       };
       result = await answerWithOptionalAi(settings, {
         locale,
         type: "url",
-        mode: "article",
+        mode,
         fallback: nonAiFallback.answer,
-        system: translate(locale, "background.prompt.webSummary"),
-        input: translate(locale, "background.prompt.webInput", {
+        system: translate(locale, isArticle ? "background.prompt.webSummary" : "background.prompt.websiteIntro"),
+        input: translate(locale, isArticle ? "background.prompt.webInput" : "background.prompt.websiteInput", {
           url: reader.url,
           title: reader.title,
           text: readerText.slice(0, 12000),
+          siteName: reader.siteName,
+          description: reader.description,
         }),
         links: [{ title: reader.title, url: reader.url }],
         validateRequest: () => assertUrlsStillPermitted([asUrl, reader.requestedUrl, reader.url, reader.canonicalUrl]),
@@ -1029,7 +1331,9 @@ async function answerAiSearch(body) {
       system: translate(locale, "background.prompt.dashboardAnswer"),
       input: translate(locale, "background.prompt.dashboardInput", {
         query,
-        content: candidates.map((item, index) => `${index + 1}. ${item.title}｜${item.excerpt}｜${item.url}`).join("\n"),
+        content: candidates.length
+          ? candidates.map((item, index) => `${index + 1}. ${item.title}｜${item.excerpt}｜${item.url}`).join("\n")
+          : translate(locale, "background.search.noLocalResults", { query }),
       }),
       links: candidates.map((item) => ({ title: item.title, url: item.url })),
       validateRequest: () => assertFeedItemsStillPermitted(candidates),
@@ -1054,9 +1358,8 @@ async function answerAiSearch(body) {
 async function answerWithOptionalAi(settings, options) {
   if (!await aiConfigured(settings)) return { ok: true, locale: options.locale, type: options.type, mode: options.mode, answer: options.fallback, links: options.links, usedAi: false };
   try {
-    const result = await runAiWithinQuota(settings, () => callProvider(settings, options.system, options.input, 900, "", options.validateRequest));
-    if (!result.usedAi) return { ok: true, locale: options.locale, type: options.type, mode: options.mode, answer: options.fallback, links: options.links, usedAi: false };
-    return { ok: true, locale: options.locale, type: options.type, mode: options.mode, answer: result.value, links: options.links, usedAi: true };
+    const value = await callProvider(settings, options.system, options.input, 900, "", options.validateRequest);
+    return { ok: true, locale: options.locale, type: options.type, mode: options.mode, answer: value, links: options.links, usedAi: true };
   } catch (error) {
     const messageKey = error?.messageKey || "background.error.aiNetwork";
     const messageParams = error?.messageParams || {};
@@ -1151,7 +1454,13 @@ async function testOpenAISettings(body) {
     });
     if (!apiKey) return resultMessage(settings, false, "background.error.aiKeyMissing");
     const locale = settingsLocale(settings);
-    const sample = await callProvider(settings, translate(locale, "background.prompt.connectionSystem"), translate(locale, "background.prompt.connectionInput"), 20, apiKey);
+    const sample = await callProvider(
+      settings,
+      translate(locale, "background.prompt.connectionSystem"),
+      translate(locale, "background.prompt.connectionInput"),
+      AI_CONNECTION_TEST_MAX_TOKENS,
+      apiKey,
+    );
     return resultMessage(settings, /^ok\b/i.test(sample.trim()) || Boolean(sample), "background.connectionAvailable");
   } catch (error) {
     return errorResult(await getSettings(), error);
@@ -1208,6 +1517,32 @@ async function readArticle(url) {
     });
   }
   return reader;
+}
+
+async function readWebsiteOverview(url) {
+  const normalized = normalizeUserUrl(url);
+  if (!normalized) throw typedError("INVALID_URL", "background.error.invalidUrl", {}, false, { url: String(url || "") });
+  const response = await fetchReaderHtml(normalized, 12000, {
+    validateResponse: async (result) => {
+      const finalUrl = result.url || normalized;
+      if (!await hasOriginPermission(finalUrl)) {
+        throw typedError("ORIGIN_PERMISSION_REQUIRED", "background.error.websitePermission", {}, false, {
+          origin: new URL(finalUrl).origin,
+          url: finalUrl,
+        });
+      }
+    },
+  });
+  const metadata = extractPageMetadata(response.text, response.url);
+  return {
+    requestedUrl: normalized,
+    url: response.url,
+    canonicalUrl: metadata.canonicalUrl || response.url,
+    title: metadata.title || metadata.siteName || new URL(response.url).hostname,
+    siteName: metadata.siteName || new URL(response.url).hostname,
+    description: metadata.description || "",
+    blocks: [],
+  };
 }
 
 async function cachedReaderPermitted(requestedUrl, cached) {
@@ -1381,7 +1716,12 @@ async function handleAddedOrigins(values) {
   const feedPermissions = await currentFeedPermissionState(settings, model);
   const addedSourceKeys = revokedSourceKeys(feedPermissions.permitted, addedOrigins);
   const status = await getRefreshStatus();
-  if (addedSourceKeys.size || status.running) startRefresh(true).catch(() => {});
+  const aiOriginAdded = addedOrigins.includes(originPattern(settings.openaiBaseUrl));
+  const aiAutoReady = aiOriginAdded && settings.cardSummaryEnabled !== false && await aiConfigured(settings);
+  if (aiAutoReady) {
+    await setAiAutoStatus(defaultAiAutoStatus(), false);
+  }
+  if (addedSourceKeys.size || status.running || aiAutoReady) startRefresh(true).catch(() => {});
 }
 
 async function handleRemovedOrigins(
@@ -1637,6 +1977,7 @@ async function clearGeneratedCache() {
     await clearRecords("cache");
     await setRecord("refresh-source-cursor", 0, "state");
     await setRefreshStatus(defaultRefreshStatus("background.cacheClearedWaiting"));
+    await setAiAutoStatus(defaultAiAutoStatus(), false);
   });
   broadcast("dashboard.updated", { reason: "cache-cleared" });
   return resultMessage(settings, true, "background.cacheClearSuccess");
@@ -1645,6 +1986,8 @@ async function clearGeneratedCache() {
 async function resetQuota() {
   const settings = await getSettings();
   await quotaManager.reset();
+  const previous = await getAiAutoStatus();
+  await setAiAutoStatus({ ...defaultAiAutoStatus(), lastRunAt: previous.lastRunAt || "" });
   return resultMessage(settings, true, "background.quotaReset", {}, { quota: { usedToday: 0, dailyLimit: settings.dailyAiLimit } });
 }
 
@@ -1682,6 +2025,30 @@ async function getRefreshStatus() {
 async function setRefreshStatus(status) {
   await setRecord("refresh-status", status, "state");
   return status;
+}
+
+async function getAiAutoStatus() {
+  return { ...defaultAiAutoStatus(), ...(await getRecord("ai-auto-status", null) || {}) };
+}
+
+async function setAiAutoStatus(status, notify = true) {
+  const normalized = { ...defaultAiAutoStatus(), ...status };
+  await setRecord("ai-auto-status", normalized, "state");
+  if (notify) broadcast("dashboard.updated", { reason: "ai-auto-status" });
+  return normalized;
+}
+
+function defaultAiAutoStatus() {
+  return {
+    phase: "never",
+    running: false,
+    processed: 0,
+    total: 0,
+    eligible: 0,
+    startedAt: "",
+    lastRunAt: "",
+    errorKey: "",
+  };
 }
 
 function defaultRefreshStatus(messageKey = "background.waitingFirstRefresh") {
@@ -1779,12 +2146,35 @@ function normalizeUserUrl(value) {
 }
 
 function searchFeed(items, query) {
-  const terms = String(query || "").toLowerCase().split(/\s+/).filter(Boolean);
+  const terms = searchQueryTerms(query);
+  if (!terms.length) return [];
   return (items || []).map((item) => {
-    const haystack = `${item.title} ${item.excerpt} ${item.source} ${item.category}`.toLowerCase();
-    const score = terms.reduce((total, term) => total + (haystack.includes(term) ? 1 : 0), 0);
+    const title = String(item.title || "").toLowerCase();
+    const excerpt = String(item.excerpt || "").toLowerCase();
+    const source = `${item.source || ""} ${item.category || ""}`.toLowerCase();
+    const score = terms.reduce((total, term) => total
+      + (title.includes(term) ? 4 : 0)
+      + (excerpt.includes(term) ? 2 : 0)
+      + (source.includes(term) ? 1 : 0), 0);
     return { item, score };
   }).filter((entry) => entry.score > 0).sort((a, b) => b.score - a.score || Number(b.item.score || 0) - Number(a.item.score || 0)).map((entry) => entry.item);
+}
+
+function searchQueryTerms(query) {
+  const text = String(query || "").trim().toLowerCase();
+  if (!text) return [];
+  const terms = new Set(text.split(/[^\p{L}\p{N}]+/u).filter((term) => term.length > 1));
+  try {
+    const segmenter = new Intl.Segmenter(undefined, { granularity: "word" });
+    for (const segment of segmenter.segment(text)) {
+      const term = String(segment.segment || "").trim();
+      if (segment.isWordLike && term.length > 1) terms.add(term);
+    }
+  } catch {}
+  for (const sequence of text.match(/[\p{Script=Han}]{2,}/gu) || []) {
+    for (let index = 0; index < sequence.length - 1; index += 1) terms.add(sequence.slice(index, index + 2));
+  }
+  return [...terms];
 }
 
 function pipelineStages(active) {

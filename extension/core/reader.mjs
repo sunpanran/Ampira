@@ -303,6 +303,7 @@ function extractMetadata(root, baseUrl, structuredImages = []) {
   return {
     title: firstNonEmpty(meta.get("og:title"), meta.get("twitter:title"), cleanText(textOf(titleNode))),
     siteName: firstNonEmpty(meta.get("og:site_name"), meta.get("application-name"), hostOf(baseUrl)),
+    description: firstNonEmpty(meta.get("og:description"), meta.get("twitter:description"), meta.get("description")).slice(0, 1000),
     byline: firstNonEmpty(meta.get("author"), meta.get("article:author"), cleanText(textOf(bylineNode))).slice(0, 180),
     publishedAt: normalizeDate(firstNonEmpty(
       meta.get("article:published_time"),

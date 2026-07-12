@@ -180,7 +180,7 @@
         </div>
         <div class="settings-overview" aria-label="运行概览" data-i18n-aria-label="settings.overview.label">
           <div class="settings-overview-head">
-            <div>
+            <div class="settings-overview-copy">
               <div class="settings-overview-title" id="settingsOverviewTitle" data-i18n="settings.overview.aiService">AI 服务</div>
               <div class="settings-overview-meta" id="settingsOverviewMeta" data-i18n="settings.overview.aiNotConfigured">配置服务后，可使用 AI 搜索与资讯摘要。</div>
             </div>
@@ -189,6 +189,11 @@
           <div class="settings-overview-grid">
             <div class="settings-overview-item"><span data-i18n="settings.overview.todayQuota">今日额度</span><strong id="settingsQuotaStatus">0/50</strong></div>
             <div class="settings-overview-item"><span data-i18n="settings.overview.backgroundCache">后台缓存</span><strong id="settingsCacheOverviewStatus">已就绪</strong></div>
+            <div class="settings-overview-item settings-overview-auto">
+              <span data-i18n="settings.overview.autoAi">自动整理</span>
+              <strong id="settingsAutoAiStatus" data-i18n="settings.auto.never">尚未运行</strong>
+              <small id="settingsAutoAiDetail" data-i18n="settings.auto.neverDetail">执行一次资讯缓存后，这里会显示后台 AI 进度。</small>
+            </div>
           </div>
         </div>
         <div class="settings-status" id="settingsStatus" role="status" aria-live="polite" data-i18n="settings.status.loading">正在读取设置。</div>
@@ -197,7 +202,12 @@
             <h3 data-i18n="settings.service.title">AI 摘要</h3>
             <p data-i18n="settings.service.intro">连接 OpenAI 或兼容服务，用于今日简报、卡片摘要和问答。发送前会明确征得同意。</p>
           </div>
-          <div class="credential-panel">
+          <section class="ai-service-group" aria-labelledby="aiProviderGroupTitle">
+            <div class="ai-service-group-head">
+              <h4 id="aiProviderGroupTitle" data-i18n="settings.service.providerGroup">AI Provider</h4>
+              <p data-i18n="settings.service.providerGroupHelp">先完成服务授权与数据传输确认，再设置密钥、调用方式和自动整理参数。</p>
+            </div>
+            <div class="credential-panel">
             <div class="credential-copy">
               <strong class="feature-title"><img class="feature-title-icon" data-icon="key-01" alt="" aria-hidden="true"><span data-i18n="settings.service.localKeysTitle">本机密钥</span></strong>
               <span data-i18n="settings.service.localKeysHelp">API 密钥只保存在当前 Chrome 配置的扩展本地存储中，不会同步或发送给 Ampira 开发者。</span>
@@ -219,8 +229,8 @@
               <button class="btn danger" id="clearKey" type="button"><img class="btn-icon" data-icon="trash-01" alt="" aria-hidden="true"><span class="btn-label" data-i18n="settings.service.removeKey">移除密钥</span></button>
             </div>
             <div class="ai-form-access-status" id="aiFormAccessStatus" data-stage="needs-consent" data-i18n="settings.service.aiFormNeedsConsent" aria-live="polite">先确认数据传输说明，才能授权 AI 服务域名。</div>
-          </div>
-          <fieldset class="ai-provider-fields" id="aiProviderFields" aria-describedby="aiFormAccessStatus" disabled>
+            </div>
+            <fieldset class="ai-provider-fields" id="aiProviderFields" aria-describedby="aiFormAccessStatus" disabled>
             <legend class="sr-only" data-i18n="settings.service.aiFormLegend">AI 服务配置</legend>
             <div class="settings-field-grid">
               <div class="field">
@@ -250,31 +260,42 @@
             <div class="settings-panel-actions settings-ai-actions">
               <button class="btn" id="testKey" type="button"><img class="btn-icon" data-icon="check" alt="" aria-hidden="true"><span class="btn-label" data-i18n="settings.service.test">测试连接</span></button>
             </div>
-          </fieldset>
-          <div class="settings-field-grid">
-            <div class="field">
-              <label for="imageSearchApiKeyInput" data-i18n="settings.service.imageKey">Brave 图片搜索密钥</label>
-              <input id="imageSearchApiKeyInput" type="password" placeholder="BSA..." autocomplete="new-password" autocapitalize="off" spellcheck="false">
-              <div class="help"><span data-i18n="settings.service.imageKeyHelp">原站图片不需要 Brave 密钥，但需在“浏览器”页授权对应灵感站点；Brave 仅在原图缺失或加载失败时使用。</span> <a href="https://brave.com/search/api/" target="_blank" rel="noreferrer" data-i18n="settings.service.getImageKey">获取密钥</a></div>
-              <div class="credential-controls">
-                <button class="btn" id="grantBraveOrigin" type="button"><img class="btn-icon" data-icon="search-lg" alt="" aria-hidden="true"><span class="btn-label" data-i18n="settings.service.grantBrave">授权 Brave 图片搜索</span></button>
+            </fieldset>
+          </section>
+          <section class="ai-service-group" aria-labelledby="aiImageGroupTitle">
+            <div class="ai-service-group-head">
+              <h4 id="aiImageGroupTitle" data-i18n="settings.service.imageGroup">图片搜索兜底</h4>
+              <p data-i18n="settings.service.imageGroupHelp">这是一项独立的可选服务，只在原站图片不可用时参与。</p>
+            </div>
+            <div class="ai-image-layout">
+              <div class="settings-field-grid">
+                <div class="field">
+                  <label for="imageSearchApiKeyInput" data-i18n="settings.service.imageKey">Brave 图片搜索密钥</label>
+                  <input id="imageSearchApiKeyInput" type="password" placeholder="BSA..." autocomplete="new-password" autocapitalize="off" spellcheck="false">
+                  <div class="help"><span data-i18n="settings.service.imageKeyHelp">原站图片不需要 Brave 密钥，但需在“浏览器”页授权对应灵感站点；Brave 仅在原图缺失或加载失败时使用。</span> <a href="https://brave.com/search/api/" target="_blank" rel="noreferrer" data-i18n="settings.service.getImageKey">获取密钥</a></div>
+                  <div class="credential-controls">
+                    <button class="btn" id="grantBraveOrigin" type="button"><img class="btn-icon" data-icon="search-lg" alt="" aria-hidden="true"><span class="btn-label" data-i18n="settings.service.grantBrave">授权 Brave 图片搜索</span></button>
+                  </div>
+                </div>
+              </div>
+              <div class="ai-image-controls">
+                <label class="switch-field" for="webImageSearchEnabledInput">
+                  <span class="switch-copy">
+                    <span class="switch-title" data-i18n="settings.service.webImageSearch">全网搜图兜底</span>
+                    <span class="switch-help" data-i18n="settings.service.webImageSearchHelp">优先使用原站图片；失败时用站点名称和域名搜索，并过滤 Logo、低清图和无关结果。</span>
+                  </span>
+                  <span class="toggle">
+                    <input id="webImageSearchEnabledInput" type="checkbox" checked>
+                    <span aria-hidden="true"></span>
+                  </span>
+                </label>
+                <div class="settings-panel-actions">
+                  <button class="btn" id="testImageSearchKey" type="button"><img class="btn-icon" data-icon="check" alt="" aria-hidden="true"><span class="btn-label" data-i18n="settings.service.testImage">测试图片搜索</span></button>
+                  <button class="btn danger" id="clearImageSearchKey" type="button"><img class="btn-icon" data-icon="trash-01" alt="" aria-hidden="true"><span class="btn-label" data-i18n="settings.service.removeImageKey">移除搜图密钥</span></button>
+                </div>
               </div>
             </div>
-          </div>
-          <label class="switch-field" for="webImageSearchEnabledInput">
-            <span class="switch-copy">
-              <span class="switch-title" data-i18n="settings.service.webImageSearch">全网搜图兜底</span>
-              <span class="switch-help" data-i18n="settings.service.webImageSearchHelp">优先使用原站图片；失败时用站点名称和域名搜索，并过滤 Logo、低清图和无关结果。</span>
-            </span>
-            <span class="toggle">
-              <input id="webImageSearchEnabledInput" type="checkbox" checked>
-              <span aria-hidden="true"></span>
-            </span>
-          </label>
-          <div class="settings-panel-actions">
-            <button class="btn" id="testImageSearchKey" type="button"><img class="btn-icon" data-icon="check" alt="" aria-hidden="true"><span class="btn-label" data-i18n="settings.service.testImage">测试图片搜索</span></button>
-            <button class="btn danger" id="clearImageSearchKey" type="button"><img class="btn-icon" data-icon="trash-01" alt="" aria-hidden="true"><span class="btn-label" data-i18n="settings.service.removeImageKey">移除搜图密钥</span></button>
-          </div>
+          </section>
         </div>
         <div class="settings-panel" data-settings-panel="cache">
           <div class="settings-panel-intro">
@@ -594,7 +615,7 @@
                 <div class="about-title">Ampira</div>
                 <div class="about-meta" data-i18n="settings.about.tagline">把书签、资讯和网页内容提纯成每日信号</div>
               </div>
-              <span class="about-version">v26.1.6</span>
+              <span class="about-version">v26.1.7</span>
             </div>
             <a class="about-source-link" href="https://github.com/sunpanran/Ampira" target="_blank" rel="noopener noreferrer"><span data-i18n="settings.about.githubLink">GitHub</span><span aria-hidden="true">↗</span></a>
           </div>
@@ -686,7 +707,6 @@
         <div class="onboarding-permission-status"><img class="inline-icon" data-icon="link-external-01" alt="" aria-hidden="true"><span id="onboardingPermissionStatus" data-i18n="onboarding.step2.loading">正在整理可选来源域名…</span></div>
         <div class="onboarding-actions">
           <button class="btn primary" id="onboardingGrantSources" type="button"><img class="btn-icon" data-icon="rss-01" alt="" aria-hidden="true"><span class="btn-label" data-i18n="onboarding.step2.grant">授权来源并启用网站图标</span></button>
-          <button class="btn" type="button" data-permission="favicon"><img class="btn-icon" data-icon="eye" alt="" aria-hidden="true"><span class="btn-label" data-i18n="onboarding.faviconEnable">启用网站图标</span></button>
           <button class="btn ghost onboarding-next" type="button"><span class="btn-label" data-i18n="onboarding.step2.skip">暂不授权</span><img class="btn-icon" data-icon="arrow-up-right" alt="" aria-hidden="true"></button>
         </div>
       </section>
