@@ -63,11 +63,46 @@ export async function requestAiCompletion(settings, options) {
       { status: response.status, url: response.url || endpoint },
     );
   }
-  const text = chat
-    ? data?.choices?.[0]?.message?.content
-    : (data?.output_text || data?.output?.flatMap((item) => item?.content || []).map((item) => item?.text || "").join("\n"));
-  if (!String(text || "").trim()) throw serviceError("AI_EMPTY_RESPONSE", "background.error.aiNoText", {}, true);
-  return String(text).trim();
+  const text = aiResponseText(data, chat);
+  if (!text) throw serviceError("AI_EMPTY_RESPONSE", "background.error.aiNoText", {}, true);
+  return text;
+}
+
+function aiResponseText(data, chat) {
+  const preferred = chat
+    ? [data?.choices?.[0]?.message?.content, data?.choices?.[0]?.text]
+    : [data?.output_text, data?.output];
+  const fallbacks = chat
+    ? [data?.output_text, data?.output]
+    : [data?.choices?.[0]?.message?.content, data?.choices?.[0]?.text];
+  for (const value of [...preferred, ...fallbacks]) {
+    const text = contentText(value);
+    if (text) return text;
+  }
+  return "";
+}
+
+function contentText(value) {
+  if (typeof value === "string") return value.trim();
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    if (typeof value.text === "string") return value.text.trim();
+    if (typeof value.output_text === "string") return value.output_text.trim();
+    return contentText(value.content);
+  }
+  if (!Array.isArray(value)) return "";
+  return value
+    .flatMap((item) => {
+      if (typeof item === "string") return [item];
+      if (!item || typeof item !== "object") return [];
+      if (typeof item.text === "string") return [item.text];
+      if (typeof item.output_text === "string") return [item.output_text];
+      const nested = contentText(item.content);
+      return nested ? [nested] : [];
+    })
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .join("\n")
+    .trim();
 }
 
 export async function testImageSearchConnection(apiKey, hasOriginPermission) {

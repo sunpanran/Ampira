@@ -5,7 +5,7 @@ import { createIcon, createThemedIcon, hydrateIcons } from "./icons.mjs";
 import { allTranslations, formatLocaleList, getLocale, normalizeLocale, setLocale, t, tc, translateDocument } from "./i18n.mjs";
 import { hydrateStorage, readJson, readNumber, writeJson, writeValue } from "./storage.mjs";
 import { createInitialState } from "./state.mjs";
-import { cleanTitleText, normalizeComparableText, similarityScore, textLength } from "./text.mjs";
+import { cleanTitleText, normalizeComparableText, similarityScore, textLength, truncateText } from "./text.mjs";
 import { formatDateTime, formatFullDateTime, getTodayKey } from "./time.mjs";
 import { faviconUrl, hostFromUrl, isHttpUrl, normalizeUrl } from "./urls.mjs";
 import { findNewsItemByReference as findNewsItemReference, pageForItems, seededShuffle as shuffle } from "./dashboard-model.mjs";
@@ -15,6 +15,7 @@ import { createAiSearchController } from "./ai-search-ui.mjs";
 import { cloneSettingsDraft, diffSettingsDraft, snapshotSettingsDraft } from "./settings-draft.mjs";
 import { createInspirationPreviewController, inspirationPreviewFingerprint } from "./inspiration-preview-controller.mjs";
 import { AI_SETUP_STAGE, aiProviderOrigin, deriveAiSetupControlState } from "./ai-settings-policy.mjs";
+import { cleanGeneratedSummaryLine, hasStructuralSummaryPrefix, isStructuralSummaryHeading, normalizeSummaryMarkup } from "../../extension/core/summary-text.mjs";
 import {
   ACCENT_THEMES,
   DEFAULT_ACCENT_THEME,
@@ -27,7 +28,7 @@ import {
 } from "./appearance-model.mjs";
 
 const QUICK_REFERENCE_LINES = new Set(allTranslations("summary.quickReference"));
-const DAILY_NEWS_COUNT = 11;
+const DAILY_NEWS_COUNT = 10;
 const DAILY_NEWS_BATCH_LIMIT = 3;
 const DAILY_INSPIRATION_COUNT = 5;
 const DAILY_INSPIRATION_BATCH_LIMIT = 3;
@@ -51,6 +52,8 @@ const DISMISSED_STORAGE_KEY = "dash.dismissed";
 const RETAINED_SEEN_STORAGE_KEY = "dash.seen.retained";
 const ACTION_RECORD_LIMIT = 150;
 const COLOR_MODE_BOOTSTRAP_STORAGE_KEY = "ampira.colorMode";
+const SUMMARY_TITLE_MAX_LENGTH = 64;
+const SUMMARY_DETAIL_MAX_LENGTH = 180;
 
 await hydrateStorage();
 const state = createInitialState();
@@ -89,6 +92,7 @@ const {
   localizedResponseMessage,
   localizedErrorMessage,
   openExternal,
+  requestWebsitePermission,
 });
 const inspirationPreviews = createInspirationPreviewController({
   apiGet,
@@ -112,8 +116,6 @@ let settingsLoadToken = 0;
 let refreshPollToken = 0;
 let todayClockTimer = 0;
 let viewportMetricWidth = 0;
-let activeDigestTitlePreview = null;
-let digestTitlePreviewId = 0;
 let settingsLocaleAtOpen = getLocale();
 let settingsSnapshot = null;
 let settingsSession = 0;
@@ -177,7 +179,6 @@ function bindEvents() {
   syncNavExpandedWidth();
   document.fonts?.ready?.then(syncNavExpandedWidth).catch(() => {});
   window.addEventListener("resize", () => {
-    hideDigestTitlePreview();
     syncViewportMetrics();
     syncSegmentedIndicators();
     syncNavExpandedWidth();
@@ -185,7 +186,6 @@ function bindEvents() {
   window.visualViewport?.addEventListener("resize", syncViewportMetrics);
   bindContextMenuEvents();
   document.addEventListener("keydown", handleGlobalSearchTyping);
-  document.addEventListener("scroll", () => hideDigestTitlePreview(), true);
 
   document.querySelectorAll("[data-scroll]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -250,9 +250,17 @@ function bindEvents() {
     scheduleSearchRender();
   });
   els.search.addEventListener("keydown", (event) => {
-    if (event.key !== "Escape") return;
-    event.preventDefault();
-    clearTopSearchFilter();
+    if (event.key === "Enter" && !event.isComposing) {
+      const query = els.search.value.trim();
+      if (!query) return;
+      event.preventDefault();
+      openAiSearch(query, true);
+      return;
+    }
+    if (event.key === "Escape") {
+      event.preventDefault();
+      clearTopSearchFilter();
+    }
   });
   els.topAiSearch?.addEventListener("click", () => openAiSearch(els.search.value.trim(), Boolean(els.search.value.trim())));
 
@@ -512,6 +520,19 @@ function insertSearchText(text) {
 
 function setIconLabel(node, icon, label, iconClass = "btn-icon", labelClass = "btn-label") {
   node.replaceChildren(createIcon(icon, iconClass), spanText(label, labelClass));
+}
+
+function requestWebsitePermission(rawUrl) {
+  if (!globalThis.chrome?.permissions?.request) return Promise.resolve(false);
+  try {
+    const input = String(rawUrl || "").trim();
+    const url = new URL(/^[a-z][a-z\d+.-]*:\/\//i.test(input) ? input : `https://${input}`);
+    const isLocalHttp = url.protocol === "http:" && ["localhost", "127.0.0.1"].includes(url.hostname);
+    if (url.protocol !== "https:" && !isLocalHttp) return Promise.resolve(false);
+    return chrome.permissions.request({ origins: [`${url.origin}/*`] });
+  } catch {
+    return Promise.resolve(false);
+  }
 }
 
 function bindContextMenuEvents() {
@@ -858,6 +879,7 @@ async function saveSettings() {
     const bookmarkSourceChanged = state.settings?.bookmarkSourceChanged === true;
     const localeChanged = state.settings?.localeChanged === true;
     const imageSearchChanged = state.settings?.imageSearchChanged === true;
+    const automaticAiStarted = state.settings?.automaticAiStarted === true;
     resetSecretDrafts();
     if (imageSearchChanged) {
       inspirationPreviews.invalidate();
@@ -868,13 +890,13 @@ async function saveSettings() {
     applyUiLocale(state.settings.uiLocale || selectedUiLocale(), { persist: true });
     settingsLocaleAtOpen = getLocale();
     renderExclusionList();
-    renderSettingsStatus(t(bookmarkSourceChanged
+    renderSettingsStatus(t(bookmarkSourceChanged || automaticAiStarted
       ? "settings.status.savedRefreshing"
       : localeChanged ? "settings.status.savedLocale" : "settings.status.saved"));
     await wait(SETTINGS_SAVE_CLOSE_DELAY_MS);
     if (session === settingsSession && els.settingsModal.classList.contains("open")) closeSettings(true);
     await loadDashboard();
-    if (bookmarkSourceChanged) await triggerRefresh(true);
+    if (bookmarkSourceChanged && !automaticAiStarted) await triggerRefresh(true);
   } catch (error) {
     if (session !== settingsSession) return;
     renderSettingsStatus(t("settings.status.saveFailed", { message: error.message || error }));
@@ -924,8 +946,9 @@ function testKey() {
         aiDisclosureAccepted: els.aiDisclosureConsent.checked,
       });
       if (!isCurrent()) return;
+      const hasUnsavedChanges = Object.keys(diffSettingsDraft(currentSettingsDraft(), settingsSnapshot)).length > 0;
       renderSettingsStatus(result.ok
-        ? t("settings.test.success")
+        ? t(hasUnsavedChanges ? "settings.test.successSaveHint" : "settings.test.success")
         : t("settings.test.failed", { message: localizedResponseMessage(result, "error.requestFailed") }));
     } catch (error) {
       if (isCurrent()) renderSettingsStatus(t("settings.test.failed", { message: localizedErrorMessage(error) }));
@@ -2289,9 +2312,58 @@ function renderStatus() {
   els.settingsOverviewAction.textContent = t(ai.configured ? "settings.overview.manage" : "settings.overview.configure");
   els.settingsQuotaStatus.textContent = `${ai.usedToday || 0}/${ai.dailyLimit || 50}`;
   els.settingsCacheOverviewStatus.textContent = t(status.running ? "settings.overview.cacheRunning" : "settings.overview.cacheReady");
+  renderAutoAiStatus(ai);
   renderCacheStatus();
   els.refresh.disabled = Boolean(status.running);
   renderRefreshButton(Boolean(status.running));
+}
+
+function renderAutoAiStatus(ai) {
+  const auto = ai.autoStatus || {};
+  const readinessPhase = !ai.configured
+    ? "missing-key"
+    : !ai.disclosureAccepted
+      ? "missing-consent"
+      : !ai.permissionGranted ? "missing-permission" : "not-ready";
+  const phase = ai.enabled ? (auto.phase || "never") : readinessPhase;
+  els.settingsAutoAiStatus.removeAttribute("data-i18n");
+  els.settingsAutoAiDetail.removeAttribute("data-i18n");
+  const labelKeys = {
+    "running-digest": "settings.auto.runningDigest",
+    "running-cards": "settings.auto.runningCards",
+    completed: "settings.auto.completed",
+    "no-candidates": "settings.auto.noCandidates",
+    quota: "settings.auto.quota",
+    "not-ready": "settings.auto.notReady",
+    "missing-key": "settings.auto.missingKey",
+    "missing-consent": "settings.auto.missingConsent",
+    "missing-permission": "settings.auto.missingPermission",
+    error: "settings.auto.error",
+    never: "settings.auto.never",
+  };
+  els.settingsAutoAiStatus.textContent = t(labelKeys[phase] || "settings.auto.never");
+  els.settingsAutoAiStatus.closest(".settings-overview-auto")?.setAttribute("data-phase", phase);
+  const processed = Math.max(0, Number(auto.processed || 0));
+  const total = Math.max(0, Number(auto.total || 0));
+  const used = Math.max(0, Number(ai.usedToday || 0));
+  const limit = Math.max(1, Number(ai.dailyLimit || 50));
+  if (["never", "missing-key", "missing-consent", "missing-permission", "not-ready"].includes(phase)) {
+    const detailKeys = {
+      "missing-key": "settings.auto.missingKeyDetail",
+      "missing-consent": "settings.auto.missingConsentDetail",
+      "missing-permission": "settings.auto.missingPermissionDetail",
+      "not-ready": "settings.auto.notReadyDetail",
+    };
+    els.settingsAutoAiDetail.textContent = t(detailKeys[phase] || "settings.auto.neverDetail");
+    return;
+  }
+  els.settingsAutoAiDetail.textContent = t(auto.running ? "settings.auto.runningDetail" : "settings.auto.detail", {
+    processed,
+    total,
+    used,
+    limit,
+    time: auto.lastRunAt ? formatDateTime(auto.lastRunAt) : t("settings.auto.noTime"),
+  });
 }
 
 function renderOverviewStatus(title, meta) {
@@ -2443,107 +2515,21 @@ function createDailyDigestPanelCard() {
 
 function dailyDigestBriefNodes(digest) {
   const nodes = [];
-  const items = Array.isArray(digest?.items) ? digest.items.slice(0, 10) : [];
-  if (items.length) {
-    nodes.push(createDigestLanes(items));
-  } else {
-    nodes.push(createEmptyState({
-      title: t("digest.organized.title"),
-      body: t("digest.organized.body"),
-      variant: "compact",
+  const overviewLines = Array.isArray(digest?.overview)
+    ? digest.overview.map((line) => String(line || "").trim()).filter(Boolean).slice(0, 3)
+    : [];
+  if (overviewLines.length) {
+    const summary = document.createElement("div");
+    summary.className = "ai-digest-summary";
+    summary.append(...overviewLines.map((line) => {
+      const paragraph = document.createElement("p");
+      paragraph.textContent = line;
+      return paragraph;
     }));
+    nodes.push(summary);
   }
   nodes.push(createDigestRefreshButton());
   return nodes;
-}
-
-function createDigestLanes(items) {
-  const lanes = document.createElement("div");
-  lanes.className = "ai-digest-lanes";
-  const sorted = [...items].sort((left, right) => Number(right.importanceScore || 0) - Number(left.importanceScore || 0));
-  const topItems = sorted.slice(0, 2);
-  const follow = sorted.slice(2, 4);
-  const skip = sorted.slice(4, 6);
-  lanes.append(
-    createDigestLane(t("digest.lane.important"), topItems, t("digest.lane.mustRead")),
-    createDigestLane(t("digest.lane.follow"), follow, t("digest.lane.followValue")),
-    createDigestLane(t("digest.lane.skip"), skip, t("digest.lane.lowPriority")),
-  );
-  return lanes;
-}
-
-function createDigestLane(titleText, items, emptyText) {
-  const lane = document.createElement("div");
-  lane.className = "ai-digest-lane";
-  const title = document.createElement("div");
-  title.className = "ai-digest-lane-title";
-  title.textContent = titleText;
-  const list = document.createElement("div");
-  list.className = "ai-digest-brief-list";
-  if (!items.length) {
-    const empty = document.createElement("div");
-    empty.className = "ai-digest-brief-item is-empty";
-    empty.textContent = emptyText;
-    list.append(empty);
-  } else {
-    list.append(...items.map(createDigestBriefItem));
-  }
-  lane.append(title, list);
-  return lane;
-}
-
-function createDigestBriefItem(item) {
-  const row = document.createElement("button");
-  row.className = "ai-digest-brief-item";
-  row.type = "button";
-  row.addEventListener("click", () => openDigestItem(item));
-  const title = document.createElement("span");
-  title.className = "ai-digest-brief-title";
-  const titleText = item.title || item.source || t("digest.importantNews");
-  title.textContent = titleText;
-  title.addEventListener("pointerenter", () => showDigestTitlePreview(row, title, titleText));
-  title.addEventListener("pointerleave", () => hideDigestTitlePreview(row));
-  row.addEventListener("focus", () => showDigestTitlePreview(row, row, titleText));
-  row.addEventListener("blur", () => hideDigestTitlePreview(row));
-  row.append(title);
-  return row;
-}
-
-function showDigestTitlePreview(row, anchor, text) {
-  hideDigestTitlePreview();
-  const tooltip = document.createElement("div");
-  const id = `digest-title-preview-${++digestTitlePreviewId}`;
-  tooltip.className = "digest-title-preview";
-  tooltip.id = id;
-  tooltip.setAttribute("role", "tooltip");
-  tooltip.textContent = text;
-  tooltip.style.maxWidth = `${Math.max(160, Math.min(360, window.innerWidth - 24))}px`;
-  document.body.append(tooltip);
-  row.setAttribute("aria-describedby", id);
-
-  const anchorRect = anchor.getBoundingClientRect();
-  const tooltipRect = tooltip.getBoundingClientRect();
-  const viewportMargin = 12;
-  const gap = 8;
-  const idealLeft = anchorRect.left + (anchorRect.width - tooltipRect.width) / 2;
-  const maxLeft = Math.max(viewportMargin, window.innerWidth - tooltipRect.width - viewportMargin);
-  const left = Math.min(Math.max(idealLeft, viewportMargin), maxLeft);
-  let top = anchorRect.top - tooltipRect.height - gap;
-  if (top < viewportMargin) top = anchorRect.bottom + gap;
-  top = Math.min(Math.max(viewportMargin, top), window.innerHeight - tooltipRect.height - viewportMargin);
-  tooltip.style.left = `${Math.round(left)}px`;
-  tooltip.style.top = `${Math.round(top)}px`;
-  activeDigestTitlePreview = { row, tooltip, id };
-  requestAnimationFrame(() => tooltip.classList.add("is-visible"));
-}
-
-function hideDigestTitlePreview(row = null) {
-  if (!activeDigestTitlePreview) return;
-  if (row && activeDigestTitlePreview.row !== row) return;
-  const { row: owner, tooltip, id } = activeDigestTitlePreview;
-  if (owner.getAttribute("aria-describedby") === id) owner.removeAttribute("aria-describedby");
-  tooltip.remove();
-  activeDigestTitlePreview = null;
 }
 
 function createDigestRefreshButton() {
@@ -2567,7 +2553,6 @@ function openDigestItem(digestItem) {
 
 function renderEfficiencyPanel() {
   if (!els.efficiencyPanel) return;
-  hideDigestTitlePreview();
   const isSearching = Boolean(state.query);
   els.efficiencyPanel.hidden = isSearching;
   if (isSearching) {
@@ -2575,9 +2560,11 @@ function renderEfficiencyPanel() {
     return;
   }
   const queueItems = readingQueueItems();
-  const topics = (state.data?.topics || []).slice(0, 4);
+  const dailyEvents = [...(state.data?.dailyDigest?.items || [])]
+    .sort((left, right) => Number(right.importanceScore || 0) - Number(left.importanceScore || 0))
+    .slice(0, 3);
   const cards = [
-    createTopicsPanelCard(topics),
+    createDailyEventsPanelCard(dailyEvents),
     createDailyDigestPanelCard(),
     createQueuePanelCard(queueItems),
   ];
@@ -2613,18 +2600,18 @@ function createQueuePanelCard(items) {
   return card;
 }
 
-function createTopicsPanelCard(topics) {
-  const card = createEfficiencyCard(t("topics.cardTitle"), tc("topics.groups", topics.length), "news");
+function createDailyEventsPanelCard(items) {
+  const card = createEfficiencyCard(t("events.cardTitle"), tc("unit.entries", items.length), "news");
   const list = document.createElement("div");
   list.className = "efficiency-list";
-  if (!topics.length) {
+  if (!items.length) {
     list.append(createEmptyState({
-      title: t("topics.empty.title"),
-      body: t("topics.empty.body"),
+      title: t("events.empty.title"),
+      body: t("events.empty.body"),
       variant: "compact",
     }));
   } else {
-    list.append(...topics.map(createTopicPanelRow));
+    list.append(...items.map(createDailyEventPanelRow));
   }
   card.append(list);
   return card;
@@ -2669,37 +2656,26 @@ function createQueuePanelRow(item) {
   return row;
 }
 
-function createTopicPanelRow(topic) {
+function createDailyEventPanelRow(item) {
   const row = document.createElement("button");
   row.className = "efficiency-row topic-row";
   row.type = "button";
-  row.title = topic.representative?.url || "";
-  row.addEventListener("click", () => openTopic(topic));
+  row.title = item.url || "";
+  row.addEventListener("click", () => openDigestItem(item));
   const main = document.createElement("span");
   main.className = "efficiency-row-main";
   const title = document.createElement("span");
   title.className = "efficiency-row-title";
-  title.textContent = topic.title || t("topics.unnamed");
+  title.textContent = item.title || item.source || t("digest.importantNews");
   const meta = document.createElement("span");
   meta.className = "efficiency-row-meta";
-  const latest = topic.latestAt ? formatDateTime(topic.latestAt) : "";
-  meta.textContent = [tc("topics.sources", topic.sourceCount || 1), tc("unit.entries", topic.itemCount || 1), latest].filter(Boolean).join(" · ");
+  meta.textContent = item.source || item.host || "";
   main.append(title, meta);
   const badge = document.createElement("span");
   badge.className = "efficiency-score";
-  badge.textContent = String(topic.score || topic.sourceCount || 1);
+  badge.textContent = String(Math.round(Number(item.importanceScore || 0)));
   row.append(main, badge);
   return row;
-}
-
-function openTopic(topic) {
-  const representative = topic?.representative || {};
-  const item = findNewsItemByReference(representative);
-  if (item) {
-    openDailyItem(item);
-    return;
-  }
-  if (representative.url) openExternal(representative.url, representative.title || topic.title || "");
 }
 
 async function refreshDailyDigest(event) {
@@ -3115,11 +3091,18 @@ function cardIconName(item) {
 
 function dailyPageForCardType(cardType, count) {
   if (cardType === NEWS_CARD_TYPE) {
-    const items = selectUnseenPool(dailyNewsItems(), state.seen, count * DAILY_NEWS_BATCH_LIMIT);
-    return pageForItems(items, count, state.variants.news);
+    return fixedDailyPage(dailyNewsItems(), state.seen, count, DAILY_NEWS_BATCH_LIMIT, state.variants.news);
   }
-  const items = selectUnseenPool(dailyInspirationItems(), state.seen, count * DAILY_INSPIRATION_BATCH_LIMIT);
-  return pageForItems(items, count, state.variants.inspiration);
+  return fixedDailyPage(dailyInspirationItems(), state.seen, count, DAILY_INSPIRATION_BATCH_LIMIT, state.variants.inspiration);
+}
+
+function fixedDailyPage(items, seenKeys, count, batchLimit, variant) {
+  const cappedItems = (Array.isArray(items) ? items : []).slice(0, count * batchLimit);
+  const page = pageForItems(cappedItems, count, variant);
+  return {
+    ...page,
+    items: page.items.filter((item) => !seenKeys.has(item.key)),
+  };
 }
 
 function dailyInspirationItems() {
@@ -3474,7 +3457,7 @@ function unifiedFeedItem(feedItem) {
   const lines = Array.isArray(feedItem.summary) && feedItem.summary.length
     ? feedItem.summary
     : (feedItem.excerpt ? [feedItem.excerpt] : []);
-  const publishedAt = feedItem.publishedAt || feedItem.fetchedAt || "";
+  const publishedAt = feedItem.publishedAt || "";
   return {
     key: feedItem.articleId || feedItem.entryKey,
     sourceKey: feedItem.sourceKey || "",
@@ -3491,7 +3474,8 @@ function unifiedFeedItem(feedItem) {
     summary: {
       entryKey: feedItem.articleId || feedItem.entryKey,
       itemUrl: feedItem.url,
-      title: feedItem.title,
+      title: feedItem.summaryStatus === "ai" && feedItem.summaryTitle ? feedItem.summaryTitle : feedItem.title,
+      summaryTitle: feedItem.summaryTitle || "",
       sourceTitle: feedItem.source,
       host: feedItem.host,
       category: feedItem.category,
@@ -3504,7 +3488,7 @@ function unifiedFeedItem(feedItem) {
       hotScore: Number(feedItem.score || 0),
       isHotNews: true,
       newsStatus: "hot",
-      summaryStatus: lines.length ? "excerpt" : "raw",
+      summaryStatus: feedItem.summaryStatus === "ai" ? "ai" : (lines.length ? "excerpt" : "raw"),
       timeUnverified: feedItem.timeUnverified === true,
       externalDiscovery: feedItem.externalDiscovery === true,
       clusterId: feedItem.clusterId || "",
@@ -3557,6 +3541,7 @@ function createNewsRanker() {
     ],
     hotScore: (item) => item.summary?.hotScore,
     itemTime: summaryTime,
+    itemQuality: summaryQuality,
   });
 }
 
@@ -3576,9 +3561,23 @@ function reshuffleSummaries() {
 }
 
 function summaryTime(item) {
+  if (item.timeUnverified || item.summary?.timeUnverified) return 0;
   const value = item.summary?.publishedAt || item.summary?.updatedAt || item.summary?.fetchedAt || "";
   const time = Date.parse(value);
   return Number.isFinite(time) ? time : 0;
+}
+
+function summaryQuality(item) {
+  const summary = item.summary;
+  if (!summary) return 0;
+  const hasBody = Boolean(
+    String(summary.description || "").trim() ||
+    (Array.isArray(summary.summary) && summary.summary.some((line) => String(line || "").trim()))
+  );
+  const isBareUnverified = Boolean(summary.timeUnverified || item.timeUnverified) &&
+    !String(summary.imageUrl || "").trim() &&
+    !hasBody;
+  return isBareUnverified ? 0 : 1;
 }
 
 function createSummaryCard(item) {
@@ -3633,7 +3632,7 @@ function createSummaryCard(item) {
   source.textContent = item.host || item.url;
   const lines = document.createElement("div");
   lines.className = "summary-lines";
-  const detailText = summaryDetailLines(item, cardTitle).slice(0, 3).join(" ");
+  const detailText = truncateText(summaryDetailLines(item, cardTitle).slice(0, 3).join(" "), SUMMARY_DETAIL_MAX_LENGTH);
   if (detailText) {
     const node = document.createElement("div");
     node.className = "summary-line";
@@ -3689,11 +3688,16 @@ async function refreshSummaryItem(item, event) {
   event.stopPropagation();
   if (state.manualRefreshKeys.has(item.key)) return;
 
+  const articleUrl = itemUrl(item);
   let latestItem = item;
   state.manualRefreshKeys.add(item.key);
   updateSummaryCard(item);
   try {
-    const result = await apiPost("/api/summary/refresh", { key: item.sourceKey || item.key });
+    const result = await apiPost("/api/summary/refresh", {
+      articleId: item.feedItem?.articleId || item.key,
+      sourceKey: item.sourceKey,
+      url: articleUrl,
+    });
     if (!result.ok) throw new Error(localizedResponseMessage(result, "error.requestFailed"));
     await loadDashboard();
     latestItem = findNewsItemByReference({
@@ -3972,6 +3976,8 @@ function renderConnectionError(error) {
   renderOverviewStatus(t("connection.unavailable"), t("connection.retryMeta", { detail }));
   els.settingsQuotaStatus.textContent = "0/50";
   els.settingsCacheOverviewStatus.textContent = t("connection.backgroundPaused");
+  els.settingsAutoAiStatus.textContent = t("settings.auto.notReady");
+  els.settingsAutoAiDetail.textContent = t("settings.auto.neverDetail");
   els.dailyBoard.replaceChildren(createEmptyState({
     title: t("connection.recoveringTitle"),
     body: t("connection.recoveringBody"),
@@ -4297,14 +4303,14 @@ function seenKey(item) {
 
 function displayTitle(item) {
   const title = item.summary && !item.summary.hidden
-    ? (organizedSummaryTitle(item) || item.summary.title)
+    ? item.summary.title
     : item.title;
   return title && title.trim() ? title.trim() : (item.host || item.url);
 }
 
 function displaySummaryTitle(item) {
   const candidates = item.summary && !item.summary.hidden
-    ? [organizedSummaryTitle(item), item.summary.title, item.title]
+    ? [item.summary.title, item.title]
     : [item.title];
   for (const candidate of candidates) {
     const title = cleanSummaryTitle(candidate);
@@ -4314,7 +4320,9 @@ function displaySummaryTitle(item) {
 }
 
 function cleanSummaryTitle(value) {
-  return cleanTitleText(value);
+  const title = normalizeSummaryMarkup(cleanTitleText(value));
+  if (isStructuralSummaryHeading(title) || hasStructuralSummaryPrefix(title)) return "";
+  return truncateText(title, SUMMARY_TITLE_MAX_LENGTH);
 }
 
 function itemUrl(item) {
@@ -4328,7 +4336,6 @@ function summaryText(item) {
 function summaryDetailLines(item, displayTitleText = "") {
   const lines = summaryLines(item);
   const fullTitles = [
-    organizedSummaryTitle(item),
     item.summary?.title,
     item.title,
   ].map(cleanTitleText).filter(Boolean);
@@ -4388,27 +4395,29 @@ function summaryLines(item) {
   return [];
 }
 
-function organizedSummaryTitle(item) {
-  if (!item.summary || item.summary.hidden || item.summary.error || item.summary.summaryStatus !== "ai") return "";
-  return Array.isArray(item.summary.summary) ? (cleanSummaryLines(item.summary.summary)[0] || "") : "";
-}
-
 function isCorrectlySummarized(item) {
   const summary = item.summary;
   if (!summary || summary.error || summary.hidden || summary.advertisement || summary.stale) return false;
   if (summary.newsStatus && summary.newsStatus !== "hot") return false;
   if (summary.summaryStatus !== "ai") return false;
+  if (!cleanSummaryTitle(summary.summaryTitle)) return false;
   return cleanSummaryLines(Array.isArray(summary.summary) ? summary.summary : []).length >= 2;
 }
 
 function cardSummaryEnabled() {
-  return state.settings?.cardSummaryEnabled !== false && state.data?.ai?.cardSummaryEnabled !== false;
+  return state.data?.ai?.enabled === true
+    && state.settings?.cardSummaryEnabled !== false
+    && state.data?.ai?.cardSummaryEnabled !== false;
 }
 
 function cleanSummaryLines(lines) {
   return lines
-    .map((line) => String(line || "").trim())
+    .map(cleanAiSummaryLine)
     .filter((line) => line && !QUICK_REFERENCE_LINES.has(line) && !isSummaryStatusLine(line));
+}
+
+function cleanAiSummaryLine(value) {
+  return cleanGeneratedSummaryLine(value);
 }
 
 function isSummaryStatusLine(line) {

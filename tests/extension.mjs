@@ -27,6 +27,8 @@ import { cloneSettingsDraft, diffSettingsDraft, snapshotSettingsDraft } from "..
 import { createInspirationPreviewController, inspirationPreviewFingerprint } from "../assets/client/inspiration-preview-controller.mjs";
 import { AI_SETUP_STAGE, aiProviderOrigin, aiProviderOriginPattern, deriveAiSetupControlState } from "../assets/client/ai-settings-policy.mjs";
 import { permissionRowCounts, requiredUngrantedOrigins } from "../assets/client/permission-ui-model.mjs";
+import { textLength, truncateText } from "../assets/client/text.mjs";
+import { cleanGeneratedSummaryLine, extractGeneratedSummaryTitle, hasStructuralSummaryPrefix, normalizeSummaryMarkup, parseGeneratedDailyDigest } from "../extension/core/summary-text.mjs";
 import {
   DEFAULT_LOCALE,
   SUPPORTED_LOCALES,
@@ -85,6 +87,23 @@ assert.equal(DEFAULT_SETTINGS.newsBookmarkFolder, "");
 assert.equal(DEFAULT_SETTINGS.inspirationBookmarkFolder, "");
 assert.equal(DEFAULT_SETTINGS.colorMode, "dark", "appearance must default to dark mode");
 assert.equal(DEFAULT_SETTINGS.headerImageEnabled, true, "the header image must be enabled by default");
+assert.equal(truncateText("标题", 4), "标题");
+assert.equal(truncateText("这是一个过长标题", 5), "这是一个…");
+assert.equal(textLength(truncateText("😀😀😀😀", 3)), 3, "text caps must count Unicode characters without splitting emoji");
+assert.equal(normalizeSummaryMarkup("### **核心内容**"), "核心内容");
+assert.equal(cleanGeneratedSummaryLine("**核心内容**：这是一段摘要。"), "这是一段摘要。");
+assert.equal(cleanGeneratedSummaryLine("核心内容：第一点。 **重要性**：第二点。"), "第一点。 第二点。");
+assert.equal(cleanGeneratedSummaryLine("### 核心内容"), "");
+assert.equal(cleanGeneratedSummaryLine("- **行动建议**：继续观察。"), "继续观察。");
+assert.equal(hasStructuralSummaryPrefix("**核心内容**：正文"), false, "prefix checks run after Markdown normalization");
+assert.equal(hasStructuralSummaryPrefix(normalizeSummaryMarkup("**核心内容**：正文")), true);
+assert.equal(extractGeneratedSummaryTitle("**标题：AI 精炼标题**"), "AI 精炼标题");
+assert.equal(extractGeneratedSummaryTitle(`标题：${"长".repeat(80)}`).length, 64, "generated card titles must be capped before caching");
+assert.equal(cleanGeneratedSummaryLine("标题：AI 精炼标题"), "", "generated title rows must not leak into summary text");
+const generatedDigest = parseGeneratedDailyDigest("OVERVIEW: 第一段。\nOVERVIEW: 第二段。\nEVENT 1: AI 事件标题\nEVENT 2: 第二个标题", 3);
+assert.deepEqual(generatedDigest.overview, ["第一段。", "第二段。"]);
+assert.deepEqual(generatedDigest.eventTitles, ["AI 事件标题", "第二个标题", ""]);
+assert.equal(parseGeneratedDailyDigest(`EVENT 1: ${"长".repeat(80)}`, 1).eventTitles[0].length, 64, "daily event AI titles must be capped at 64 characters");
 assert.equal(DEFAULT_SETTINGS.floatingWebOpenEnabled, false, "in-app reading must be opt-in by default");
 
 const permissionUiRows = [
@@ -143,9 +162,11 @@ const untranslatedDashboardLines = dashboardSource.split(/\r?\n/).filter((line) 
 ));
 assert.deepEqual(untranslatedDashboardLines, [], "dashboard-owned Chinese copy must be marked for translation");
 assert(dashboardSource.includes('id="sourcePermissionSummary"'), "website access must expose a visible settings-page status");
+assert.equal((dashboardSource.match(/class="ai-service-group"/g) || []).length, 2, "AI settings must separate provider configuration from optional image search");
+assert(dashboardSource.includes('class="ai-image-layout"') && dashboardSource.includes('class="ai-image-controls"'), "optional image-search controls must have a dedicated responsive layout");
 assert(!dashboardSource.includes('id="refreshPermissionStatus"'), "website access must sync automatically without a no-op refresh button");
 assert(dashboardSource.includes('id="toggleFaviconPermission"'), "existing users must be able to manage the optional favicon permission in settings");
-assert(dashboardSource.includes('data-permission="favicon"'), "onboarding must request the optional favicon permission from an explicit user gesture");
+assert(!dashboardSource.includes('data-permission="favicon"'), "onboarding must not duplicate the favicon permission action beside the combined primary action");
 assert.equal((dashboardSource.match(/data-onboarding-step="\d"/g) || []).length, 5, "onboarding must retain the five-step product, permission, folder, API key, and start flow");
 assert(dashboardSource.includes('id="onboardingNewsFolder"') && dashboardSource.includes('id="onboardingInspirationFolder"'), "onboarding must let users choose bookmark folders in place");
 assert(dashboardSource.includes('id="onboardingApiKey"') && dashboardSource.includes('id="onboardingSkipApiKey"'), "onboarding must offer an optional in-place API key step");
@@ -280,13 +301,35 @@ assert.equal(atomItems.length, 1);
 assert.equal(jsonItems.length, 1);
 assert(!rssItems[0].excerpt.includes("<script>"), "remote markup must never survive as executable HTML");
 assert.equal(rankAndDedupe([...rssItems, ...rssItems, ...atomItems, ...jsonItems]).length, 3);
+const importanceFixture = parseFeedDocument(
+  `<rss><channel>
+    <item><title>限时优惠：桌面配件购买指南</title><link>https://example.com/deals/desk</link><description>热门配件推荐与优惠券汇总</description><pubDate>Sun, 12 Jul 2026 10:00:00 GMT</pubDate></item>
+    <item><title>台风登陆，多地启动防汛应急响应</title><link>https://example.com/news/storm</link><description>公共交通中断，相关部门发布避险通知</description><pubDate>Sun, 12 Jul 2026 10:00:00 GMT</pubDate></item>
+  </channel></rss>`,
+  "https://example.com/feed.xml",
+  source,
+  5,
+  "application/rss+xml",
+);
+const importanceRanked = rankAndDedupe(importanceFixture);
+assert.equal(importanceRanked[0].url, "https://example.com/news/storm", "impact signals must outrank a source-leading promotional guide");
+assert(importanceRanked[0].scoreBreakdown.impact > 0, "importance scores must expose their impact contribution");
+assert(importanceRanked[1].scoreBreakdown.lowPriorityPenalty > 0, "soft or commercial content must expose its ranking penalty");
+const legacyImportanceRanked = rankAndDedupe([{ ...importanceFixture[0], score: 99, scorePolicyVersion: 1 }]);
+assert.equal(legacyImportanceRanked[0].scorePolicyVersion, 2, "legacy cached scores must be recalculated under the current policy");
+assert.notEqual(legacyImportanceRanked[0].score, 99, "legacy feed-position scores must not survive policy migration");
 const locallyFilteredItems = filterLikelyNewsItems([
   { articleId: "privacy", title: "Privacy Policy", source: "Example", url: "https://example.com/privacy" },
   { articleId: "promotion", title: "【广告】限时推广", source: "Example", url: "https://example.com/news/promotion" },
   { articleId: "login", title: "Account access", source: "Example", url: "https://example.com/login" },
+  { articleId: "root-home", title: "Latest reporting from around the world", source: "Example", url: "https://example.com/?utm_source=rss" },
+  { articleId: "index-home", title: "Example front page", source: "Example", url: "https://example.com/index.html?ref=feed" },
+  { articleId: "news-landing", title: "All current news", source: "Example", url: "https://example.com/news?from=rss" },
+  { articleId: "blog-landing", title: "Company writing", source: "Example", url: "https://example.com/blog/" },
   { articleId: "sparse-news", title: "真实但没有摘要和日期的新闻", source: "Example", url: "https://example.com/updates/alpha" },
+  { articleId: "nested-news", title: "A specific article remains eligible", source: "Example", url: "https://example.com/news/specific-story" },
 ]);
-assert.deepEqual(locallyFilteredItems.map((item) => item.articleId), ["sparse-news"], "local filtering must reject clear utility and promotional entries without requiring AI");
+assert.deepEqual(locallyFilteredItems.map((item) => item.articleId), ["sparse-news", "nested-news"], "local filtering must reject utility, promotional, root-homepage, and section-landing entries without requiring AI");
 const entityUrlItems = parseFeedDocument(
   "<rss><channel><item><title>Entity URL</title><link>https://example.com/story?a=1&amp;b=2</link></item></channel></rss>",
   "https://example.com/feed.xml",
@@ -378,6 +421,16 @@ try {
   assert.equal(directArticle.length, 1, "a directly bookmarked HTML article must remain readable");
   assert.equal(directArticle[0].title, "Direct article");
   assert.equal(directArticle[0].timeUnverified, false);
+  globalThis.fetch = async () => new Response('<html><head><meta property="og:type" content="article"><meta property="og:title" content="Mislabelled homepage"></head><body></body></html>', {
+    status: 200,
+    headers: { "content-type": "text/html" },
+  });
+  assert.deepEqual(await fetchSourceArticles({ url: "https://mislabelled.example/", title: "Mislabelled" }), [], "an article-type marker without a verified publication time must not let a root homepage enter the feed");
+  globalThis.fetch = async () => new Response('<html><head><meta property="og:title" content="80 Level"><meta property="datePublished" content="2019-07-11T11:57:45Z"></head><body></body></html>', {
+    status: 200,
+    headers: { "content-type": "text/html" },
+  });
+  assert.deepEqual(await fetchSourceArticles({ url: "https://dated-homepage.example/", title: "Dated Homepage" }), [], "a stale datePublished marker must never let a root homepage enter the feed");
   globalThis.fetch = async () => new Response('<html><body><a href="/detail/123456">A sufficiently descriptive detail article title</a></body></html>', {
     status: 200,
     headers: { "content-type": "text/html" },
@@ -443,6 +496,37 @@ try {
     maxTokens: 20,
     hasOriginPermission: async () => true,
   }), "Provider answer");
+  globalThis.fetch = async () => new Response(JSON.stringify({
+    output: [{ type: "message", content: [{ type: "output_text", text: "Nested response answer" }] }],
+  }), { status: 200, headers: { "content-type": "application/json" } });
+  assert.equal(await requestAiCompletion(DEFAULT_SETTINGS, {
+    apiKey: "test-key",
+    system: "System",
+    input: "Input",
+    maxTokens: 20,
+    hasOriginPermission: async () => true,
+  }), "Nested response answer");
+  globalThis.fetch = async () => new Response(JSON.stringify({
+    choices: [{ message: { content: [{ type: "text", text: "Array chat answer" }] } }],
+  }), { status: 200, headers: { "content-type": "application/json" } });
+  assert.equal(await requestAiCompletion({ ...DEFAULT_SETTINGS, openaiApiStyle: "chat_completions" }, {
+    apiKey: "test-key",
+    system: "System",
+    input: "Input",
+    maxTokens: 20,
+    hasOriginPermission: async () => true,
+  }), "Array chat answer");
+  globalThis.fetch = async () => new Response(JSON.stringify({ choices: [{ text: "Legacy completion answer" }] }), {
+    status: 200,
+    headers: { "content-type": "application/json" },
+  });
+  assert.equal(await requestAiCompletion({ ...DEFAULT_SETTINGS, openaiApiStyle: "chat_completions" }, {
+    apiKey: "test-key",
+    system: "System",
+    input: "Input",
+    maxTokens: 20,
+    hasOriginPermission: async () => true,
+  }), "Legacy completion answer");
   let guardedAiFetches = 0;
   globalThis.fetch = async () => { guardedAiFetches += 1; return new Response("{}"); };
   const staleContextError = Object.assign(new Error("stale context"), { code: "SOURCE_PERMISSION_CHANGED" });
@@ -555,6 +639,7 @@ const previewMetadata = extractPageMetadata(`
   </head></html>
 `, "https://design.example.com/work/item");
 assert.equal(previewMetadata.heroImageUrl, "https://design.example.com/images/hero.jpg?x=1&y=2", "Open Graph images must outrank Twitter images and resolve relative URLs");
+assert.equal(extractPageMetadata('<meta name="description" content="A concise website description">', "https://example.com/").description, "A concise website description", "website overview metadata must expose the page description");
 assert.equal(extractPageMetadata('<meta content="/twitter.jpg" name="twitter:image">', "https://design.example.com/").heroImageUrl, "https://design.example.com/twitter.jpg", "metadata attribute order must not matter");
 assert.equal(extractPageMetadata('<meta property="og:image" content="javascript:alert(1)"><link rel="image_src" href="/safe.jpg">', "https://design.example.com/").heroImageUrl, "https://design.example.com/safe.jpg", "unsafe image candidates must fall through to the next source");
 assert.equal(extractPageMetadata('<meta property="og:image" content="https://127.0.0.1/private.jpg">', "https://design.example.com/").heroImageUrl, "", "remote pages must not trigger image requests to private address literals");
@@ -900,6 +985,20 @@ const selectorRanker = createPriorityRanker({
 });
 assert.deepEqual([...selectorItems].sort(selectorRanker.compareImportant).map((item) => item.key), ["a", "b"], "digest priority must outrank fallback hot score");
 assert.deepEqual([...selectorItems].sort(selectorRanker.compareByOrder("time")).map((item) => item.key), ["b", "a"]);
+const qualityRanker = createPriorityRanker({
+  digestItems: [{ title: "empty", importanceScore: 100 }],
+  digestKeys: (item) => [item.title],
+  itemKeys: (item) => [item.title],
+  hotScore: (item) => item.hotScore,
+  itemTime: (item) => item.time,
+  itemQuality: (item) => item.quality,
+});
+const qualityItems = [
+  { title: "empty", hotScore: 100, time: 30, quality: 0 },
+  { title: "complete", hotScore: 10, time: 10, quality: 1 },
+];
+assert.deepEqual([...qualityItems].sort(qualityRanker.compareImportant).map((item) => item.title), ["complete", "empty"], "bare unverified items must follow items with readable content even when their fallback score is higher");
+assert.deepEqual([...qualityItems].sort(qualityRanker.compareByOrder("time")).map((item) => item.title), ["complete", "empty"], "bare unverified items must not treat fetch time as a newest-story signal");
 const zeroPriorityRanker = createPriorityRanker({
   digestItems: [{ title: "zero", importanceScore: 0 }, { title: "ranked", importanceScore: 10 }],
   digestKeys: (item) => [item.title],
@@ -917,10 +1016,10 @@ assert.deepEqual([...groupItemsByKey([
   { section: "two", category: "y", key: "3" },
 ], (item) => `${item.section}/${item.category}`).entries()].map(([key, items]) => [key, items.length]), [["one/x", 2], ["two/y", 1]]);
 assert.deepEqual(selectUnseenPool(
-  Array.from({ length: 5 }, (_, index) => ({ key: `item-${index + 1}` })),
-  new Set(["item-1", "item-2", "item-3"]),
-  2,
-).map((item) => item.key), ["item-4", "item-5"], "seen items must be removed before the visible pool is capped");
+    Array.from({ length: 5 }, (_, index) => ({ key: `item-${index + 1}` })),
+    new Set(["item-1", "item-2", "item-3"]),
+    2,
+  ).map((item) => item.key), [], "seen items must leave vacancies in the capped daily pool");
 const settingsDraftBaseline = snapshotSettingsDraft({ uiLocale: "", dailyAiLimit: 50, accentTheme: "violet", excludedNewsSources: [] }, "zh-CN");
 const settingsDraftClone = cloneSettingsDraft(settingsDraftBaseline);
 settingsDraftClone.excludedNewsSources.push({ id: "local-only" });
@@ -1161,6 +1260,58 @@ assert(appSource.includes('visibilitychange'), "the AI permission gate must refr
 assert(appSource.includes('settings.service.aiFormDeclined'), "AI permission denial must be reported in the adjacent live setup status");
 assert(!serviceWorkerSource.includes("fallbackFeedFromBookmarks"), "missing or empty feed caches must remain empty");
 assert(!serviceWorkerSource.includes("bookmark-article-"), "empty feeds must not synthesize news cards from bookmark names");
+assert(appSource.includes('articleId: item.feedItem?.articleId || item.key'), "manual summaries must identify the clicked article, not only its feed source");
+const manualSummaryHandlerSource = appSource.slice(appSource.indexOf("async function refreshSummaryItem"), appSource.indexOf("function updateSummaryCard"));
+assert(!manualSummaryHandlerSource.includes("requestWebsitePermission"), "manual summaries must not require or request article-origin permission");
+assert(appSource.includes("state.data?.ai?.enabled === true"), "manual summary actions must stay hidden until AI consent, credentials, and provider permission are configured");
+assert(appSource.includes('feedItem.summaryStatus === "ai"'), "AI summary status must survive feed-to-card mapping");
+assert(appSource.includes('feedItem.summaryStatus === "ai" && feedItem.summaryTitle ? feedItem.summaryTitle : feedItem.title'), "organized cards must prefer the separately cached AI title and retain the Feed title as fallback");
+assert(appSource.includes(".map(cleanAiSummaryLine)"), "cached card summaries must strip Markdown and structural AI headings before rendering");
+assert(appSource.includes("isStructuralSummaryHeading(title) || hasStructuralSummaryPrefix(title)"), "structural AI headings and labeled summary text must never render as card titles");
+assert(appSource.includes("SUMMARY_TITLE_MAX_LENGTH = 64") && appSource.includes("SUMMARY_DETAIL_MAX_LENGTH = 180"), "card titles and summaries must have explicit character caps");
+assert(serviceWorkerSource.includes('const summaryText = await callProvider('), "manual card organization must invoke the configured AI provider");
+assert(serviceWorkerSource.includes(".map(cleanGeneratedSummaryLine)"), "new AI card summaries must discard Markdown and structural headings before caching");
+assert(serviceWorkerSource.includes('summaryStatus: "ai"'), "manual card organization must persist AI summary status in the feed cache");
+assert(serviceWorkerSource.includes("summaryTitle: organized.title"), "automatic and manual card organization must persist the generated AI title separately");
+assert(serviceWorkerSource.includes('translate(locale, "background.prompt.cardSummary")'), "card organization must request a structured AI title and summary");
+assert(serviceWorkerSource.includes("parseGeneratedDailyDigest(result.value, digest.items.length)"), "daily digest generation must extract AI-organized event titles without a second provider call");
+assert(serviceWorkerSource.includes("originalTitle: item.title, title: aiTitle, aiTitle"), "daily events must display the AI title while retaining the Feed title as fallback data");
+assert(serviceWorkerSource.includes('const excerptText = String(target.excerpt || "").trim().slice(0, CARD_SUMMARY_EXCERPT_MAX_CHARS)'), "manual summaries must use only the bounded feed excerpt");
+assert(serviceWorkerSource.includes("AI_CONNECTION_TEST_MAX_TOKENS = 900"), "AI connection tests must match the proven search budget so reasoning models can emit visible text");
+assert(serviceWorkerSource.includes("AI_ARTICLE_SUMMARY_MAX_TOKENS = 1200"), "article organization must leave enough output budget after processing long source text");
+assert(serviceWorkerSource.includes("const remainingQuota = Math.max(0, settings.dailyAiLimit - quota.used)"), "automatic card summaries must use the remaining shared daily quota");
+assert(serviceWorkerSource.includes("Math.min(availableCards, Math.max(0, remainingQuota - Number(digestEligible)))"), "automatic card summaries must process every eligible card that fits in the remaining daily quota");
+assert(serviceWorkerSource.includes("const automatic = await automaticallySummarizeCards(settings, items, cacheEpoch, generation,"), "the refresh pipeline must run automatic card summaries after committing fresh feed items");
+assert(serviceWorkerSource.includes("result = await runAiWithinQuota(settings"), "automatic card summaries must reserve the shared daily AI quota");
+assert(serviceWorkerSource.includes("preserveCardAiSummary(item"), "fresh feed reads must preserve compatible AI card summaries");
+assert(serviceWorkerSource.includes("sanitizeCardAiSummaries(feed.items, settings, configuredForAi)"), "card AI summaries must be hidden after provider consent, key, or permission becomes invalid");
+assert(serviceWorkerSource.includes("await refreshDailyDigest({ automatic: true })"), "a missing daily AI brief must be generated automatically after feed refresh");
+assert(serviceWorkerSource.includes("? await runAiWithinQuota(settings, operation)"), "only automatic daily briefs may consume the automatic AI quota");
+assert(serviceWorkerSource.includes("const value = await callProvider(settings, options.system, options.input, 900"), "manual AI search must not consume the automatic organization quota");
+assert(serviceWorkerSource.includes("const context = await automaticCardSummaryContext(candidate)"), "automatic summaries must build a bounded excerpt-only context");
+const automaticSummaryContextSource = serviceWorkerSource.slice(serviceWorkerSource.indexOf("function automaticCardSummaryContext"), serviceWorkerSource.indexOf("function preserveCardAiSummary"));
+assert(!automaticSummaryContextSource.includes("readArticle") && !automaticSummaryContextSource.includes("hasOriginPermission"), "automatic card summaries must never fetch article bodies");
+const manualSummarySource = serviceWorkerSource.slice(serviceWorkerSource.indexOf("async function refreshSingleSummary"), serviceWorkerSource.indexOf("function generatedCardSummary"));
+assert(!manualSummarySource.includes("readArticle") && !manualSummarySource.includes("readerTextFromBlocks"), "manual card summaries must never fetch article bodies");
+assert(serviceWorkerSource.includes("function searchQueryTerms(query)"), "dashboard AI search must segment natural-language and CJK queries before selecting context");
+assert(!serviceWorkerSource.includes("result = candidates.length\n      ? await answerWithOptionalAi"), "dashboard questions without a local keyword match must still invoke the configured AI provider");
+assert(serviceWorkerSource.includes("content: candidates.length"), "dashboard AI search must explicitly tell the provider when no matching local context exists");
+assert(appSource.includes('summary.className = "ai-digest-summary"'), "the daily brief must render provider-generated overview text instead of hiding it behind local lanes");
+assert(dashboardSource.includes('id="settingsAutoAiStatus"') && dashboardSource.includes('id="settingsAutoAiDetail"'), "AI settings must expose automatic organization phase and progress");
+assert(serviceWorkerSource.includes('getRecord("ai-auto-status", null)'), "automatic AI status must persist across service-worker suspension");
+assert(serviceWorkerSource.includes('"running-digest"') && serviceWorkerSource.includes('phase: "no-candidates"'), "automatic AI status must distinguish active work from an empty candidate queue");
+assert(appSource.includes("function renderAutoAiStatus(ai)"), "the AI settings overview must render persisted automatic organization status");
+assert(appSource.includes('removeAttribute("data-i18n")'), "dynamic automatic AI status must survive whole-document translation passes");
+assert(appSource.includes('"missing-key": "settings.auto.missingKey"'), "automatic AI status must explain when a tested API key has not been saved");
+assert(appSource.includes("settings.test.successSaveHint"), "a successful draft connection test must tell the user to save settings before automation can run");
+assert(serviceWorkerSource.includes("automaticAiStarted = true") && serviceWorkerSource.includes("startRefresh(true).catch"), "saving a ready AI configuration must start an automatic refresh immediately");
+assert(serviceWorkerSource.includes("const aiAutoReady = aiOriginAdded"), "granting the saved provider origin must start automatic work when the remaining configuration is ready");
+assert(!appSource.includes("createDigestLanes"), "the daily brief must not restore the important, follow, and skip card lanes");
+assert(appSource.includes('createEfficiencyCard(t("events.cardTitle"), tc("unit.entries", items.length), "news")'), "the former topic card must render today's events");
+assert(appSource.includes("Number(right.importanceScore || 0) - Number(left.importanceScore || 0)"), "today's events must rank digest stories by importance");
+assert(appSource.includes('row.className = "efficiency-row topic-row"'), "today's event rows must preserve the former topic card styling hook");
+assert(appSource.includes('meta.textContent = item.source || item.host || ""'), "today's event rows must show the source without the redundant high-priority reason");
+assert(!serviceWorkerSource.includes("buildTopics("), "the dashboard payload must not run the removed cross-source topic aggregation");
 
 const now = Date.now();
 const tooLarge = [

@@ -22,6 +22,7 @@ const NON_NEWS_TITLE_SEGMENTS = new Set([
 const PROMOTIONAL_TITLE = /^\s*(?:(?:[\[【(（]\s*(?:广告|廣告|推广|推廣|赞助|贊助|商业推广|商業推廣|advertisement|sponsored)\s*[\]】)）])|(?:(?:广告|廣告|推广|推廣|赞助|贊助|商业推广|商業推廣|advertisement|sponsored)(?:\s*[:：|｜·—-]|\s+)))/i;
 const ARTICLE_PATH_MARKERS = new Set(["article", "blog", "detail", "feature", "news", "post", "review", "story"]);
 const ARTICLE_QUERY_KEYS = new Set(["articleid", "contentid", "id", "newsid", "storyid"]);
+const NEWS_LANDING_PATHS = new Set([...ARTICLE_PATH_MARKERS, "articles", "latest", "posts", "updates"]);
 
 export async function fetchSourceArticles(source, options = {}) {
   const requestedLimit = Number(options.limit);
@@ -75,7 +76,9 @@ export function parseFeedDocument(text, finalUrl, source = {}, limit = 5, conten
 export function rankAndDedupe(items, limit = 192) {
   const now = Date.now();
   return dedupeArticles(filterLikelyNewsItems(items))
-    .map((item) => ({ ...item, score: item.score || scoreArticle(item, now) }))
+    .map((item) => item.scorePolicyVersion === 2
+      ? item
+      : { ...item, ...scoreArticle(item, now) })
     .sort((left, right) => Number(right.score || 0) - Number(left.score || 0))
     .slice(0, limit);
 }
@@ -94,33 +97,6 @@ export function feedCacheOrEmpty(feed) {
     publicCount: 0,
     deniedOrigins: [],
   };
-}
-
-export function buildTopics(items, limit = 4) {
-  const groups = new Map();
-  for (const item of items || []) {
-    const key = item.categoryKey || item.category || item.host || "news";
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key).push(item);
-  }
-  return [...groups.entries()]
-    .map(([category, group]) => {
-      const representative = [...group].sort((a, b) => Number(b.score || 0) - Number(a.score || 0))[0];
-      return {
-        id: `topic-${hashText(category)}`,
-        title: representative?.title || category,
-        category,
-        categoryKey: representative?.categoryKey || "",
-        sourceCount: new Set(group.map((item) => item.host)).size,
-        itemCount: group.length,
-        latestAt: group.map((item) => item.publishedAt).filter(Boolean).sort().at(-1) || "",
-        score: Math.round(Math.max(...group.map((item) => Number(item.score || 0)), 0)),
-        representative,
-        items: group.slice(0, 6),
-      };
-    })
-    .sort((a, b) => b.score - a.score)
-    .slice(0, limit);
 }
 
 export function buildFallbackDigest(items, reason = "no-api-key", locale = "zh-CN") {
@@ -188,6 +164,10 @@ function parseJsonFeed(text, finalUrl, source, limit) {
 }
 
 function articleFromHtml(html, url, source) {
+  const publishedAt = normalizeDate(firstNonEmpty(
+    firstMatch(html, /<meta\b[^>]*(?:property|name)=["'](?:article:published_time|datePublished)["'][^>]*content=["']([^"']+)["']/i),
+    "",
+  ));
   return articleRecord({
     title: cleanText(firstNonEmpty(
       firstMatch(html, /<meta\b[^>]*(?:property|name)=["']og:title["'][^>]*content=["']([^"']+)["']/i),
@@ -199,13 +179,11 @@ function articleFromHtml(html, url, source) {
       firstMatch(html, /<meta\b[^>]*(?:property|name)=["'](?:description|og:description)["'][^>]*content=["']([^"']+)["']/i),
       htmlToText(html).slice(0, 600),
     )),
-    publishedAt: normalizeDate(firstNonEmpty(
-      firstMatch(html, /<meta\b[^>]*(?:property|name)=["'](?:article:published_time|datePublished)["'][^>]*content=["']([^"']+)["']/i),
-      "",
-    )),
+    publishedAt,
     imageUrl: absolutize(firstMatch(html, /<meta\b[^>]*property=["']og:image["'][^>]*content=["']([^"']+)["']/i), url),
     source,
     index: 0,
+    articleDocument: Boolean(publishedAt),
   });
 }
 
@@ -213,14 +191,14 @@ function articleFromLink(link, source, index) {
   return articleRecord({ title: link.title, url: link.url, description: "", publishedAt: "", imageUrl: "", source, index });
 }
 
-function articleRecord({ title, url, description, publishedAt, imageUrl, source, index }) {
+function articleRecord({ title, url, description, publishedAt, imageUrl, source, index, articleDocument = false }) {
   const host = hostOf(url);
   const fetchedAt = new Date().toISOString();
   const excerpt = cleanText(description).slice(0, 420);
-  return {
+  const item = {
     schemaVersion: 1,
     extractorVersion: 1,
-    policyVersion: 1,
+    policyVersion: 2,
     articleId: `article-${hashText(normalizeUrl(url))}`,
     entryKey: `article-${hashText(normalizeUrl(url))}`,
     sourceKey: source.key || `source-${hashText(source.url || host)}`,
@@ -237,10 +215,11 @@ function articleRecord({ title, url, description, publishedAt, imageUrl, source,
     publishedAt: publishedAt || "",
     fetchedAt,
     timeUnverified: !publishedAt,
+    ...(articleDocument === true ? { articleDocument: true } : {}),
     externalDiscovery: source.externalDiscovery === true,
-    score: Math.max(20, 86 - index * 4),
-    scoreBreakdown: { freshness: publishedAt ? 35 : 10, source: 25, position: Math.max(0, 20 - index * 2) },
+    feedPosition: index,
   };
+  return { ...item, ...scoreArticle(item, Date.now()) };
 }
 
 async function fetchText(url, options = {}) {
@@ -339,11 +318,11 @@ function isNonNewsUrl(value) {
 function isRootSourceLanding(item) {
   try {
     const url = new URL(item.url);
-    if (!/^\/(?:index(?:\.[a-z0-9]+)?)?$/i.test(url.pathname) || url.search) return false;
-    const title = comparableText(item.title);
-    const source = comparableText(item.source);
-    const host = comparableText(url.hostname.replace(/^www\./i, ""));
-    return Boolean(title && (title === source || title === host));
+    const segments = url.pathname.toLowerCase().split("/").filter(Boolean);
+    if (!segments.length) return true;
+    if (segments.length === 1 && /^index(?:\.[a-z0-9]+)?$/i.test(segments[0])) return true;
+    if (item.articleDocument === true) return false;
+    return segments.length === 1 && NEWS_LANDING_PATHS.has(segments[0]);
   } catch {
     return false;
   }
@@ -404,9 +383,45 @@ function tagText(block, tag) {
 }
 
 function scoreArticle(item, now) {
-  const published = Date.parse(item.publishedAt || item.fetchedAt || "") || now;
-  const hours = Math.max(0, (now - published) / 3600000);
-  return Math.round(Math.max(10, 96 - Math.min(72, hours) * 0.7 + (item.imageUrl ? 4 : 0)));
+  const published = Date.parse(item.publishedAt || "");
+  const hours = Number.isFinite(published) ? Math.max(0, (now - published) / 3600000) : Number.POSITIVE_INFINITY;
+  const freshness = Number.isFinite(hours) ? Math.max(0, 38 - Math.min(96, hours) * 0.4) : 4;
+  const source = 20;
+  const position = Math.max(0, 6 - Math.max(0, Number(item.feedPosition || 0)));
+  const content = Math.min(12,
+    (item.excerpt ? 5 : 0)
+    + (item.imageUrl ? 2 : 0)
+    + (item.publishedAt ? 3 : 0)
+    + (String(item.title || "").length >= 12 ? 2 : 0));
+  const searchable = `${item.title || ""} ${item.excerpt || ""}`.toLowerCase();
+  const impact = importanceSignalScore(searchable);
+  const lowPriorityPenalty = lowPrioritySignalPenalty(searchable);
+  const score = Math.round(Math.max(10, Math.min(100,
+    freshness + source + position + content + impact - lowPriorityPenalty)));
+  return {
+    score,
+    scorePolicyVersion: 2,
+    scoreBreakdown: {
+      freshness: Math.round(freshness),
+      source,
+      position: Math.round(position),
+      content,
+      impact,
+      lowPriorityPenalty,
+    },
+  };
+}
+
+function importanceSignalScore(text) {
+  const highImpact = /(?:地震|台风|洪水|火灾|战争|冲突|袭击|事故|灾害|疫情|召回|漏洞|数据泄露|宕机|中断|禁令|制裁|判决|监管|政策|法律|法规|选举|辞职|破产|裁员|并购|停产|涨价|降价|earthquake|typhoon|flood|wildfire|war|attack|outage|breach|vulnerability|recall|ban|sanction|regulation|law|election|resign|bankrupt|layoff|acquisition)/i;
+  const materialChange = /(?:发布|推出|上线|开放|关闭|停止|终止|取消|调整|更新|突破|正式|宣布|release|launch|announce|discontinue|shutdown|update)/i;
+  return (highImpact.test(text) ? 18 : 0) + (materialChange.test(text) ? 5 : 0);
+}
+
+function lowPrioritySignalPenalty(text) {
+  const commercial = /(?:广告|推广|赞助|优惠|折扣|促销|秒杀|领券|众筹|预购|开售|好价|购买指南|advertorial|sponsored|sale|discount|coupon|pre-?order|buying guide)/i;
+  const softContent = /(?:开箱|体验|上手|测评|评测|教程|技巧|清单|盘点|推荐|随笔|游记|周报|月报|壁纸|配件|桌面|效率工具|unboxing|hands-on|review|tutorial|tips|roundup|recommend)/i;
+  return (commercial.test(text) ? 20 : 0) + (softContent.test(text) ? 10 : 0);
 }
 
 function dedupeArticles(items) {

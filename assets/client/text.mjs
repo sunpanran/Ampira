@@ -8,6 +8,15 @@ export function textLength(value) {
   return Array.from(String(value || "")).length;
 }
 
+export function truncateText(value, maxLength) {
+  const text = String(value || "").trim();
+  const characters = Array.from(text);
+  const limit = Math.max(0, Number(maxLength) || 0);
+  if (characters.length <= limit) return text;
+  if (limit <= 1) return characters.slice(0, limit).join("");
+  return `${characters.slice(0, limit - 1).join("").trimEnd()}…`;
+}
+
 export function normalizeComparableText(value) {
   return String(value || "")
     .toLowerCase()

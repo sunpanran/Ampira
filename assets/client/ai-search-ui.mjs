@@ -37,6 +37,17 @@ export function createAiSearchController(options) {
     els.aiAnswer.hidden = false;
     els.aiAnswer.textContent = t("aiSearch.analyzing");
     try {
+      if (looksLikeUrl(query) && typeof options.requestWebsitePermission === "function") {
+        els.aiSearchMeta.textContent = t("aiSearch.requestingWebsitePermission");
+        const granted = await options.requestWebsitePermission(query);
+        if (!isCurrent(requestGeneration)) return;
+        if (!granted) {
+          els.aiSearchMeta.textContent = t("aiSearch.permissionRequired");
+          streamAnswer(t("aiSearch.permissionDeclined"), []);
+          return;
+        }
+        els.aiSearchMeta.textContent = t("aiSearch.readingPage");
+      }
       const result = await apiPost("/api/ai/search", { query });
       if (!isCurrent(requestGeneration)) return;
       if (!result.ok) throw new Error(options.localizedResponseMessage(result, "error.requestFailed"));

@@ -32,6 +32,8 @@ export function getElements() {
     settingsOverviewAction: document.querySelector("#settingsOverviewAction"),
     settingsQuotaStatus: document.querySelector("#settingsQuotaStatus"),
     settingsCacheOverviewStatus: document.querySelector("#settingsCacheOverviewStatus"),
+    settingsAutoAiStatus: document.querySelector("#settingsAutoAiStatus"),
+    settingsAutoAiDetail: document.querySelector("#settingsAutoAiDetail"),
     settingsTabs: document.querySelector("#settingsTabs"),
     settingsCacheStatus: document.querySelector("#settingsCacheStatus"),
     bookmarkSourceStatus: document.querySelector("#bookmarkSourceStatus"),

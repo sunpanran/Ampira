@@ -86,9 +86,6 @@ function bindEvents() {
       showOnboarding(Math.min(lastOnboardingStep, onboardingStep + 1));
     });
   });
-  document.querySelectorAll('[data-permission="favicon"]').forEach((button) => {
-    button.addEventListener("click", () => updateFaviconPermission(true, { trigger: button }));
-  });
   els.grantOnboarding?.addEventListener("click", (event) => grantOrigins(requiredUngrantedOrigins(permissionRows), {
     advance: true,
     permissions: ["favicon"],
