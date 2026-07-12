@@ -13,9 +13,15 @@ export function createInspirationPreviewController(options) {
     return cache.get(fingerprint(item)) || null;
   }
 
-  function reject(item) {
+  function reject(item, failedImageUrl = "") {
     const key = fingerprint(item);
-    if (key) cache.set(key, { imageUrl: "" });
+    const current = key ? cache.get(key) : null;
+    if (!key || (failedImageUrl && current?.imageUrl !== failedImageUrl)) return Promise.resolve(null);
+    cache.set(key, { imageUrl: "" });
+    if (current?.source !== "origin" || (typeof options.canFallback === "function" && !options.canFallback())) {
+      return Promise.resolve(null);
+    }
+    return request(item, { mode: "brave-only" });
   }
 
   function invalidate() {
@@ -24,14 +30,16 @@ export function createInspirationPreviewController(options) {
     pending.clear();
   }
 
-  function request(item) {
+  function request(item, requestOptions = {}) {
     if (!options.isEnabled() || !item?.key || !options.isHttpUrl(item.url)) return Promise.resolve(null);
     const key = fingerprint(item);
-    if (!key || cache.has(key)) return Promise.resolve(cache.get(key) || null);
-    if (pending.has(key)) return pending.get(key);
+    const mode = requestOptions.mode === "brave-only" ? "brave-only" : "prefer-origin";
+    if (!key || (mode === "prefer-origin" && cache.has(key))) return Promise.resolve(cache.get(key) || null);
+    const pendingKey = mode === "brave-only" ? `${key}|brave-only` : key;
+    if (pending.has(pendingKey)) return pending.get(pendingKey);
     const requestGeneration = generation;
     const operation = Promise.resolve()
-      .then(() => options.apiGet(`/api/site-preview?url=${encodeURIComponent(item.url)}&title=${encodeURIComponent(item.title || "")}`))
+      .then(() => options.apiGet(`/api/site-preview?url=${encodeURIComponent(item.url)}&title=${encodeURIComponent(item.title || "")}&mode=${mode}`))
       .then((preview) => {
         if (!isCurrent(item, key, requestGeneration)) return null;
         const normalized = preview && typeof preview === "object" ? preview : {};
@@ -44,9 +52,9 @@ export function createInspirationPreviewController(options) {
         return null;
       })
       .finally(() => {
-        if (pending.get(key) === operation) pending.delete(key);
+        if (pending.get(pendingKey) === operation) pending.delete(pendingKey);
       });
-    pending.set(key, operation);
+    pending.set(pendingKey, operation);
     return operation;
   }
 

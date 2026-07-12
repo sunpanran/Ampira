@@ -15,7 +15,7 @@ Legacy `dashboard-cache/` may contain user data from the removed Node edition. N
 - `node tests\extension.mjs` runs manifest, localization, parser, permission-shape, cache, credential-storage, and remote-code tests.
 - `node --check extension\service-worker.mjs` validates the service worker.
 - `Get-ChildItem extension\core\*.mjs,assets\client\*.mjs | ForEach-Object { node --check $_.FullName }` validates browser modules.
-- `.\scripts\package-extension.ps1` creates `dist/ampira-26.1.4.zip` with `manifest.json` at the ZIP root.
+- `.\scripts\package-extension.ps1` creates `dist/ampira-26.1.5.zip` with `manifest.json` at the ZIP root.
 - Load the repository root from `chrome://extensions` for manual extension QA.
 
 There is no package manifest, dependency install, build step, local server, or Node runtime in the shipped extension.
@@ -34,7 +34,7 @@ The settings “Browser” page must explain that the new-tab override is contro
 
 ## Permissions and Security
 
-Required permissions stay limited to `bookmarks`, `storage`, and `alarms`. Do not add `tabs`, `history`, `scripting`, `webRequest`, `management`, `unlimitedStorage`, content scripts, or required broad host access without explicit product and policy review.
+Required permissions stay limited to `bookmarks`, `storage`, and `alarms`. The optional `favicon` permission may be requested only from a user gesture to render Chrome-provided icons for URLs already present in Ampira; do not replace it with a third-party favicon service. Do not add `tabs`, `history`, `scripting`, `webRequest`, `management`, `unlimitedStorage`, content scripts, or required broad host access without explicit product and policy review.
 
 Optional website access must be requested from a user gesture and narrowed to exact origins. Reject insecure non-local HTTP. Never log, test with, screenshot, or package real API keys, private bookmarks, Chrome profile data, or runtime cache contents. API keys must stay in `chrome.storage.local` and must never enter Chrome Sync or public settings responses.
 

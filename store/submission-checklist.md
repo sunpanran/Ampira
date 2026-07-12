@@ -14,9 +14,13 @@
 - [ ] Confirm there are no manifest or service-worker errors.
 - [ ] Open `chrome://newtab` and complete the four onboarding steps.
 - [ ] Confirm the install disclosure and Bookmark permission warning match the listing.
+- [ ] Enable and then remove the optional website-icon permission; verify Chrome favicons appear only while granted and missing icons fall back without console errors.
 - [ ] Grant one exact source origin and verify Feed refresh; revoke it and verify bookmark-only fallback.
+- [ ] Grant one exact inspiration origin and verify its original page image appears without a Brave key; revoke it and verify the card remains usable without another original-page read.
+- [ ] For an inspiration page with no usable image, enable Brave Image Search with a non-production key and verify Brave runs only as the fallback; remove the key afterward.
 - [ ] Restart Chrome, confirm the dashboard cache renders immediately, and confirm saved API keys are not shown in full.
 - [ ] Test a provider with a non-production key, then remove the key and clear the test data.
+- [ ] Confirm the AI form stays locked before disclosure consent and exact-origin access, unlocks after authorization, and locks again after origin change or permission removal.
 - [ ] Verify no horizontal overflow at 1280×800, 1440×1000, and a narrow desktop window.
 
 ## Package and listing
@@ -25,6 +29,7 @@
 - [ ] Upload the manifest-versioned ZIP printed by the script and retain its `.zip.sha256` and `.manifest.json` sidecars with the release record.
 - [ ] Use the localized copy in `store/listing/`.
 - [ ] Upload `store/assets/01-dashboard.png`, `02-permissions.png`, `03-ai-settings.png`, and `ampira-promo-440x280.png`.
+- [ ] Re-capture dashboard or permission screenshots if the visible website-icon state differs from the submitted assets.
 - [ ] Copy the single-purpose, permission, and data-use answers from `store/privacy-practices.md`.
 - [ ] Include `store/reviewer-notes.md` in the reviewer instructions.
 - [ ] Confirm there are no in-app purchases, mature content, analytics, ads, or remote code to disclose.

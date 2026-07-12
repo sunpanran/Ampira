@@ -33,7 +33,8 @@ export async function fetchSourceArticles(source, options = {}) {
         }
         const links = extractArticleLinks(response.text, response.url).slice(0, limit);
         if (links.length) return links.map((link, index) => articleFromLink(link, source, index));
-        return [articleFromHtml(response.text, response.url, source)];
+        if (isLikelyArticleDocument(response.text)) return [articleFromHtml(response.text, response.url, source)];
+        continue;
       }
     } catch (error) {
       lastError = error;
@@ -57,6 +58,18 @@ export function rankAndDedupe(items, limit = 192) {
     .map((item) => ({ ...item, score: item.score || scoreArticle(item, now) }))
     .sort((left, right) => Number(right.score || 0) - Number(left.score || 0))
     .slice(0, limit);
+}
+
+export function feedCacheOrEmpty(feed) {
+  if (feed && Array.isArray(feed.items)) return feed;
+  return {
+    schemaVersion: 2,
+    generatedAt: "",
+    items: [],
+    localCount: 0,
+    publicCount: 0,
+    deniedOrigins: [],
+  };
 }
 
 export function buildTopics(items, limit = 4) {
@@ -263,10 +276,27 @@ function extractArticleLinks(html, baseUrl) {
   for (const match of String(html || "").matchAll(/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)) {
     const url = absolutize(match[1], baseUrl);
     const title = cleanText(match[2]);
-    if (!url || title.length < 8 || !/\/(?:20\d{2}|news|article|story|post|review|feature|blog)\b/i.test(new URL(url).pathname)) continue;
+    if (!url || title.length < 8 || !/\/(?:20\d{2}|news|article|story|post|detail|review|feature|blog)\b/i.test(new URL(url).pathname)) continue;
     links.push({ url, title });
   }
   return dedupeBy(links, (item) => normalizeUrl(item.url));
+}
+
+function isLikelyArticleDocument(html) {
+  const type = metaContent(html, ["og:type"]).toLowerCase();
+  if (type === "article" || type === "newsarticle") return true;
+  return Boolean(normalizeDate(metaContent(html, ["article:published_time", "datepublished"])));
+}
+
+function metaContent(html, names) {
+  const accepted = new Set(names.map((name) => String(name).toLowerCase()));
+  for (const match of String(html || "").matchAll(/<meta\b[^>]*>/gi)) {
+    const name = firstMatch(match[0], /(?:property|name)=["']([^"']+)["']/i).toLowerCase();
+    if (!accepted.has(name)) continue;
+    const content = firstMatch(match[0], /content=["']([^"']*)["']/i);
+    if (content) return content;
+  }
+  return "";
 }
 
 function htmlToText(html) {

@@ -1,14 +1,38 @@
-export function faviconUrl(item) {
-  const candidate = String(item?.faviconUrl || "").trim();
-  if (candidate) {
+const FALLBACK_FAVICON_URL = "favicon.svg";
+const FAVICON_SIZE = 32;
+let nativeFaviconEnabled = false;
+
+export function setNativeFaviconEnabled(value) {
+  nativeFaviconEnabled = value === true;
+}
+
+export function faviconUrl(item, {
+  runtime = globalThis.chrome?.runtime,
+  nativeEnabled = nativeFaviconEnabled,
+} = {}) {
+  const pageUrl = httpUrl(item?.url);
+  if (nativeEnabled && pageUrl && runtime?.id && typeof runtime.getURL === "function") {
     try {
-      const url = new URL(candidate);
-      if (url.protocol === "https:" || (url.protocol === "http:" && ["localhost", "127.0.0.1"].includes(url.hostname))) return url.href;
+      const url = new URL(runtime.getURL("/_favicon/"));
+      if (url.protocol === "chrome-extension:") {
+        url.searchParams.set("pageUrl", pageUrl);
+        url.searchParams.set("size", String(FAVICON_SIZE));
+        return url.href;
+      }
     } catch {
-      // Use the packaged fallback for malformed or insecure favicon URLs.
+      // Use the packaged fallback when Chrome cannot construct its favicon URL.
     }
   }
-  return "favicon.svg";
+  return FALLBACK_FAVICON_URL;
+}
+
+function httpUrl(value) {
+  try {
+    const url = new URL(String(value || "").trim());
+    return url.protocol === "https:" || url.protocol === "http:" ? url.href : "";
+  } catch {
+    return "";
+  }
 }
 
 export function hostFromUrl(url) {

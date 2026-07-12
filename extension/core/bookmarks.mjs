@@ -53,6 +53,20 @@ export function originsFromUrls(urls) {
   return [...origins].sort();
 }
 
+export function inspirationPreviewSourceUrls(bookmarks) {
+  return [...new Set(inspirationPreviewTargets(bookmarks).map((item) => item.url))];
+}
+
+export function inspirationPreviewTargets(bookmarks) {
+  return (Array.isArray(bookmarks) ? bookmarks : [])
+    .filter((item) => item?.cardType === "inspiration")
+    .map((item) => ({
+      url: String(item?.url || "").trim(),
+      title: clean(item?.title),
+    }))
+    .filter((item) => item.url);
+}
+
 function topLevelFolders(tree) {
   const root = Array.isArray(tree) ? tree[0] : tree;
   const containers = root?.children || [];

@@ -4,6 +4,7 @@ const DEFAULT_MAX_BYTES = 2 * 1024 * 1024;
 export async function fetchBounded(url, options = {}, limits = {}) {
   const timeoutMs = positiveNumber(limits.timeoutMs, DEFAULT_TIMEOUT_MS);
   const maxBytes = positiveNumber(limits.maxBytes, DEFAULT_MAX_BYTES);
+  const truncate = limits.truncate === true;
   const controller = new AbortController();
   const externalSignal = options.signal;
   const abortFromExternal = () => controller.abort(externalSignal?.reason);
@@ -29,7 +30,7 @@ export async function fetchBounded(url, options = {}, limits = {}) {
       }
     }
     const contentLength = Number(response.headers.get("content-length") || 0);
-    if (contentLength > maxBytes) {
+    if (!truncate && contentLength > maxBytes) {
       controller.abort("response-too-large");
       throw networkError("RESPONSE_TOO_LARGE", false, {
         url: response.url || String(url),
@@ -39,7 +40,9 @@ export async function fetchBounded(url, options = {}, limits = {}) {
     }
     let buffer;
     try {
-      buffer = await readBoundedBody(response, maxBytes, controller);
+      const body = await readBoundedBody(response, maxBytes, controller, truncate);
+      buffer = body.buffer;
+      return { response, buffer, truncated: body.truncated };
     } catch (error) {
       if (error?.code) throw error;
       if (controller.signal.aborted && !externalSignal?.aborted) {
@@ -47,7 +50,6 @@ export async function fetchBounded(url, options = {}, limits = {}) {
       }
       throw networkError("NETWORK_ERROR", true, { url: response.url || String(url) }, error);
     }
-    return { response, buffer };
   } finally {
     clearTimeout(timer);
     externalSignal?.removeEventListener?.("abort", abortFromExternal);
@@ -63,22 +65,38 @@ export function decodeResponseBuffer(buffer, contentType = "") {
   }
 }
 
-async function readBoundedBody(response, maxBytes, controller) {
+async function readBoundedBody(response, maxBytes, controller, truncate = false) {
   if (!response.body?.getReader) {
     const buffer = await response.arrayBuffer();
-    if (buffer.byteLength > maxBytes) throw responseTooLarge(response, maxBytes, controller);
-    return buffer;
+    if (buffer.byteLength > maxBytes) {
+      if (!truncate) throw responseTooLarge(response, maxBytes, controller);
+      return { buffer: buffer.slice(0, maxBytes), truncated: true };
+    }
+    return { buffer, truncated: false };
   }
   const reader = response.body.getReader();
   const chunks = [];
   let size = 0;
+  let truncated = false;
   try {
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
       if (!value?.byteLength) continue;
+      if (size + value.byteLength > maxBytes) {
+        if (!truncate) throw responseTooLarge(response, maxBytes, controller);
+        const remaining = Math.max(0, maxBytes - size);
+        if (remaining) chunks.push(value.slice(0, remaining));
+        size += remaining;
+        truncated = true;
+        try {
+          await reader.cancel?.("prefix-complete");
+        } catch {
+          // The requested prefix is already complete even if stream cancellation fails.
+        }
+        break;
+      }
       size += value.byteLength;
-      if (size > maxBytes) throw responseTooLarge(response, maxBytes, controller);
       chunks.push(value);
     }
   } finally {
@@ -90,7 +108,7 @@ async function readBoundedBody(response, maxBytes, controller) {
     output.set(chunk, offset);
     offset += chunk.byteLength;
   }
-  return output.buffer;
+  return { buffer: output.buffer, truncated };
 }
 
 function responseTooLarge(response, maxBytes, controller) {

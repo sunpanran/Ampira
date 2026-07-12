@@ -19,12 +19,20 @@ export function createReaderController(context) {
   let readerRequestGeneration = 0;
 
   function openExternal(url, title = "", item = null) {
+    markReadOnOpen(item);
     if (shouldOpenInFloatingFrame(url)) {
       openFloatingWeb(url, title, item);
       return;
     }
     if (item) markOpenedItem(item);
     openExternalWindow(url);
+  }
+
+  function markReadOnOpen(item) {
+    if (!item) return;
+    const key = actionKey(item);
+    if (!key || state.seen.has(key)) return;
+    toggleSeen(item, true, defaultSeenSource(item));
   }
 
   function openExternalWindow(url) {

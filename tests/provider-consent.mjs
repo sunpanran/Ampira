@@ -21,12 +21,14 @@ import {
   updateSecrets,
 } from "../extension/core/secrets.mjs";
 import { createSettingsStore } from "../extension/core/settings-store.mjs";
-import { normalizeServiceUrl, normalizeSettings } from "../extension/core/settings.mjs";
+import { isValidServiceUrl, normalizeServiceUrl, normalizeSettings } from "../extension/core/settings.mjs";
 
 assert.equal(normalizeServiceUrl("https://user:secret@example.com/v1"), DEFAULT_SETTINGS.openaiBaseUrl);
 assert.equal(normalizeServiceUrl("https://example.com/v1?token=secret"), DEFAULT_SETTINGS.openaiBaseUrl);
 assert.equal(normalizeServiceUrl("https://example.com/v1#fragment"), DEFAULT_SETTINGS.openaiBaseUrl);
 assert.equal(normalizeServiceUrl("https://example.com/v1/"), "https://example.com/v1");
+assert.equal(isValidServiceUrl("https://example.com/v1/"), true);
+assert.equal(isValidServiceUrl("https://example.com/v1?token=secret"), false);
 
 const invalidConsent = normalizeSettings({
   consentVersion: CONSENT_VERSION - 1,

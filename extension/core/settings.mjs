@@ -46,7 +46,9 @@ export function normalizeSettings(value = {}) {
   settings.colorMode = enumValue(input.colorMode, COLOR_MODES, DEFAULT_SETTINGS.colorMode);
   settings.accentTheme = enumValue(input.accentTheme, ACCENT_THEMES, DEFAULT_SETTINGS.accentTheme);
   settings.customAccentColor = normalizeColor(input.customAccentColor, DEFAULT_SETTINGS.customAccentColor);
-  settings.headerImageUrl = normalizePublicUrl(input.headerImageUrl);
+  settings.headerImageUrl = normalizePublicUrl(
+    Object.hasOwn(input, "headerImageUrl") ? input.headerImageUrl : DEFAULT_SETTINGS.headerImageUrl,
+  );
   settings.headerImageFullscreen = settings.headerImageFixed && settings.headerImageFullscreen;
   settings.newsBookmarkFolder = cleanString(input.newsBookmarkFolder, 200, DEFAULT_SETTINGS.newsBookmarkFolder);
   settings.inspirationBookmarkFolder = cleanString(input.inspirationBookmarkFolder, 200, DEFAULT_SETTINGS.inspirationBookmarkFolder);
@@ -76,16 +78,24 @@ export function providerOrigin(value) {
 }
 
 export function normalizeServiceUrl(value) {
+  return normalizedServiceUrl(value) || DEFAULT_SETTINGS.openaiBaseUrl;
+}
+
+export function isValidServiceUrl(value) {
+  return Boolean(normalizedServiceUrl(value));
+}
+
+function normalizedServiceUrl(value) {
   try {
     const url = new URL(String(value || "").trim());
-    if (url.href.length > 2048) return DEFAULT_SETTINGS.openaiBaseUrl;
-    if (url.username || url.password || url.search || url.hash) return DEFAULT_SETTINGS.openaiBaseUrl;
+    if (url.href.length > 2048) return "";
+    if (url.username || url.password || url.search || url.hash) return "";
     if (url.protocol === "https:") return url.href.replace(/\/$/, "");
     if (url.protocol === "http:" && isLocalHost(url.hostname)) return url.href.replace(/\/$/, "");
   } catch {
     // Use the safe default below.
   }
-  return DEFAULT_SETTINGS.openaiBaseUrl;
+  return "";
 }
 
 export function normalizePublicUrl(value) {

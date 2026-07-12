@@ -18,7 +18,11 @@ const BLOCK_TAGS = new Set([
 ]);
 const NEGATIVE_PATTERN = /(?:^|[\s_-])(?:ad|ads|advert|banner|breadcrumb|comment|cookie|consent|footer|header|login|menu|modal|nav|newsletter|promo|recommend|related|share|sidebar|social|sponsor|subscribe|toolbar)(?:$|[\s_-])/i;
 const POSITIVE_PATTERN = /(?:^|[\s_-])(?:article|body|content|entry|main|post|story|text)(?:$|[\s_-])/i;
-const IMAGE_NEGATIVE_PATTERN = /(?:avatar|badge|emoji|icon|logo|pixel|spinner|sprite|tracker)/i;
+const IMAGE_NEGATIVE_PATTERN = /(?:^|[^a-z0-9])(?:avatar|badge|emoji|icon|logo|pixel|spinner|sprite|tracker)(?:$|[^a-z0-9])/i;
+const HERO_IMAGE_PATTERN = /(?:article|content|cover|featured|hero|lead|main|masthead|og-image|post|story)[-_\s]*(?:image|media|photo|visual)?/i;
+const PLACEHOLDER_IMAGE_PATTERN = /(?:^|[/_.-])(?:blank|loading|placeholder|spacer|transparent)(?:[/_.-]|$)/i;
+const MAX_STRUCTURED_DATA_CHARS = 256 * 1024;
+const MAX_STRUCTURED_DATA_NODES = 500;
 const VIDEO_HOST_PATTERN = /(?:youtube(?:-nocookie)?\.com|youtu\.be|vimeo\.com|bilibili\.com|player\.|video\.)/i;
 
 export async function fetchReader(url, timeoutOrOptions = REQUEST_TIMEOUT_MS) {
@@ -131,6 +135,11 @@ export function extractReaderDocument(html, finalUrl, requestedUrl = finalUrl) {
     fetchedAt: new Date().toISOString(),
     staleReason: "",
   };
+}
+
+export function extractPageMetadata(html, baseUrl) {
+  const source = String(html || "");
+  return extractMetadata(parseHtml(source), baseUrl, structuredImageCandidates(source));
 }
 
 export function readerTextFromBlocks(blocks) {
@@ -270,7 +279,7 @@ function contentMetrics(node) {
   return { textLength, linkLength, paragraphs, headings };
 }
 
-function extractMetadata(root, baseUrl) {
+function extractMetadata(root, baseUrl, structuredImages = []) {
   const meta = new Map();
   walkElements(root, (node) => {
     if (node.tag !== "meta") return;
@@ -279,6 +288,15 @@ function extractMetadata(root, baseUrl) {
     if (key && value && !meta.has(key)) meta.set(key, value);
   });
   const canonicalNode = findFirst(root, (node) => node.tag === "link" && /(?:^|\s)canonical(?:\s|$)/i.test(node.attrs.rel || ""));
+  const imageSourceNode = findFirst(root, (node) => node.tag === "link" && /(?:^|\s)image_src(?:\s|$)/i.test(node.attrs.rel || ""));
+  const preloadImages = findAll(root, (node) => (
+    node.tag === "link"
+    && /(?:^|\s)preload(?:\s|$)/i.test(node.attrs.rel || "")
+    && String(node.attrs.as || "").toLowerCase() === "image"
+  )).flatMap((node) => [
+    ...srcsetImageCandidates(node.attrs.imagesrcset),
+    node.attrs.href,
+  ]);
   const titleNode = findFirst(root, (node) => node.tag === "title");
   const bylineNode = findFirst(root, (node) => /(?:author|byline)/i.test(nodeIdentity(node)) && cleanText(textOf(node)).length < 180);
   const timeNode = findFirst(root, (node) => node.tag === "time" && node.attrs.datetime);
@@ -293,8 +311,174 @@ function extractMetadata(root, baseUrl) {
       timeNode?.attrs?.datetime,
     )),
     canonicalUrl: safeHttpUrl(canonicalNode?.attrs?.href, baseUrl),
-    heroImageUrl: safeImageUrl(firstNonEmpty(meta.get("og:image"), meta.get("twitter:image")), baseUrl),
+    heroImageUrl: firstSafeImageUrl([
+      meta.get("og:image:secure_url"),
+      meta.get("og:image:url"),
+      meta.get("og:image"),
+      meta.get("twitter:image"),
+      meta.get("twitter:image:src"),
+      meta.get("thumbnailurl"),
+      meta.get("image"),
+      imageSourceNode?.attrs?.href,
+      ...structuredImages,
+      ...preloadImages,
+      ...semanticImageCandidates(root),
+    ], baseUrl),
   };
+}
+
+function structuredImageCandidates(html) {
+  const output = [];
+  const seen = new Set();
+  let consumed = 0;
+  const scripts = /<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi;
+  for (const match of String(html || "").matchAll(scripts)) {
+    const attrs = parseAttributes(match[1]);
+    if (String(attrs.type || "").split(";", 1)[0].trim().toLowerCase() !== "application/ld+json") continue;
+    const raw = String(match[2] || "").trim().replace(/^<!--\s*|\s*-->$/g, "");
+    consumed += raw.length;
+    if (!raw || consumed > MAX_STRUCTURED_DATA_CHARS) break;
+    try {
+      const state = { remaining: MAX_STRUCTURED_DATA_NODES };
+      collectStructuredImages(JSON.parse(raw), output, seen, state);
+    } catch {
+      // Invalid structured data is ignored like malformed metadata.
+    }
+  }
+  return output;
+}
+
+function collectStructuredImages(value, output, seen, state, depth = 0) {
+  if (state.remaining <= 0 || depth > 10 || value === null || value === undefined) return;
+  state.remaining -= 1;
+  if (Array.isArray(value)) {
+    for (const item of value) collectStructuredImages(item, output, seen, state, depth + 1);
+    return;
+  }
+  if (typeof value !== "object") return;
+  for (const key of ["image", "thumbnailUrl", "primaryImageOfPage"]) {
+    if (Object.hasOwn(value, key)) collectStructuredImageValue(value[key], output, seen, state, depth + 1);
+  }
+  const types = Array.isArray(value["@type"]) ? value["@type"] : [value["@type"]];
+  if (types.some((type) => String(type || "").toLowerCase() === "imageobject")) {
+    for (const key of ["contentUrl", "url", "thumbnailUrl", "@id"]) {
+      if (typeof value[key] === "string") pushUniqueImageCandidate(value[key], output, seen);
+    }
+  }
+  for (const [key, item] of Object.entries(value)) {
+    if (["image", "thumbnailUrl", "primaryImageOfPage", "logo"].includes(key)) continue;
+    collectStructuredImages(item, output, seen, state, depth + 1);
+  }
+}
+
+function collectStructuredImageValue(value, output, seen, state, depth) {
+  if (typeof value === "string") {
+    pushUniqueImageCandidate(value, output, seen);
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) collectStructuredImageValue(item, output, seen, state, depth + 1);
+    return;
+  }
+  if (!value || typeof value !== "object" || state.remaining <= 0 || depth > 10) return;
+  state.remaining -= 1;
+  for (const key of ["contentUrl", "url", "thumbnailUrl", "@id"]) {
+    if (typeof value[key] === "string") pushUniqueImageCandidate(value[key], output, seen);
+  }
+}
+
+function pushUniqueImageCandidate(value, output, seen) {
+  const candidate = String(value || "").trim();
+  if (!candidate || seen.has(candidate)) return;
+  seen.add(candidate);
+  output.push(candidate);
+}
+
+function semanticImageCandidates(root) {
+  return findAll(root, (node) => node.tag === "img")
+    .map((node, index) => scoreImageNode(node, index))
+    .filter(Boolean)
+    .sort((left, right) => right.score - left.score)
+    .flatMap((entry) => entry.sources);
+}
+
+function scoreImageNode(node, index) {
+  const sources = imageNodeCandidates(node);
+  if (!sources.length) return null;
+  const identity = `${nodeIdentity(node)} ${node.attrs.alt || ""} ${node.attrs.title || ""} ${sources.join(" ")}`;
+  if (IMAGE_NEGATIVE_PATTERN.test(identity) || hasDecorativeAncestor(node)) return null;
+  const width = imageDimension(node.attrs.width);
+  const height = imageDimension(node.attrs.height);
+  if ((width && width < 180) || (height && height < 100)) return null;
+  let score = Math.max(0, 20 - index * 0.01);
+  if (String(node.attrs.itemprop || "").toLowerCase() === "image") score += 140;
+  if (HERO_IMAGE_PATTERN.test(identity)) score += 120;
+  if (String(node.attrs.fetchpriority || "").toLowerCase() === "high") score += 100;
+  if (hasAncestor(node, (ancestor) => ancestor.tag === "article")) score += 90;
+  else if (hasAncestor(node, (ancestor) => ancestor.tag === "main" || ancestor.attrs.role === "main")) score += 70;
+  if (width >= 1000) score += 50;
+  else if (width >= 600) score += 35;
+  else if (width >= 320) score += 20;
+  if (height >= 300) score += 15;
+  if (cleanText(node.attrs.alt || "").length >= 8) score += 8;
+  return { score, sources };
+}
+
+function imageNodeCandidates(node) {
+  return [
+    node.attrs["data-original"],
+    node.attrs["data-original-src"],
+    node.attrs["data-src"],
+    node.attrs["data-lazy-src"],
+    node.attrs["data-lazy"],
+    node.attrs["data-image"],
+    node.attrs["data-zoom-image"],
+    node.attrs["data-flickity-lazyload"],
+    node.attrs["data-cfsrc"],
+    ...srcsetImageCandidates(node.attrs["data-srcset"]),
+    ...pictureSourceCandidates(node),
+    ...srcsetImageCandidates(node.attrs.srcset),
+    node.attrs.src,
+  ].map((value) => String(value || "").trim()).filter((value) => value && !PLACEHOLDER_IMAGE_PATTERN.test(value));
+}
+
+function pictureSourceCandidates(node) {
+  if (node?.parent?.tag !== "picture") return [];
+  return node.parent.children.filter((child) => child.tag === "source").flatMap((source) => [
+    ...srcsetImageCandidates(source.attrs["data-srcset"]),
+    ...srcsetImageCandidates(source.attrs.srcset),
+    source.attrs["data-src"],
+    source.attrs.src,
+  ]);
+}
+
+function srcsetImageCandidates(value) {
+  return String(value || "").split(",").map((entry, index) => {
+    const match = entry.trim().match(/^(\S+)(?:\s+([\d.]+)(w|x))?$/i);
+    if (!match) return null;
+    const amount = Number(match[2] || 0);
+    const score = match[3]?.toLowerCase() === "w" ? amount : amount * 1000;
+    return { url: match[1], score, index };
+  }).filter(Boolean).sort((left, right) => right.score - left.score || left.index - right.index).map((entry) => entry.url);
+}
+
+function imageDimension(value) {
+  const match = String(value || "").trim().match(/^([\d.]+)(?:px)?$/i);
+  const number = Number(match?.[1] || 0);
+  return Number.isFinite(number) && number > 0 ? number : 0;
+}
+
+function hasAncestor(node, predicate) {
+  for (let current = node?.parent; current; current = current.parent) if (predicate(current)) return true;
+  return false;
+}
+
+function hasDecorativeAncestor(node) {
+  return hasAncestor(node, (ancestor) => (
+    ["nav", "footer", "aside"].includes(ancestor.tag)
+    || ancestor.tag === "header" && !HERO_IMAGE_PATTERN.test(nodeIdentity(ancestor))
+    || isExcludedNode(ancestor)
+  ));
 }
 
 function createExtractionState(baseUrl, title) {
@@ -609,6 +793,7 @@ function safeHttpUrl(value, baseUrl) {
   if (!value) return "";
   try {
     const url = new URL(String(value).trim(), baseUrl);
+    if (url.username || url.password || url.href.length > 8192) return "";
     if (url.protocol === "https:") return url.href;
     if (url.protocol === "http:" && ["localhost", "127.0.0.1"].includes(url.hostname)) return url.href;
   } catch {
@@ -628,7 +813,39 @@ function sameOriginUrl(value, baseUrl) {
 }
 
 function safeImageUrl(value, baseUrl) {
-  return safeHttpUrl(value, baseUrl);
+  const safe = safeHttpUrl(value, baseUrl);
+  if (!safe) return "";
+  try {
+    const imageUrl = new URL(safe);
+    const pageUrl = new URL(baseUrl);
+    if (isPrivateAddressLiteral(imageUrl.hostname) && imageUrl.origin !== pageUrl.origin) return "";
+    imageUrl.hash = "";
+    return imageUrl.href;
+  } catch {
+    return "";
+  }
+}
+
+function firstSafeImageUrl(values, baseUrl) {
+  for (const value of values || []) {
+    const safe = safeImageUrl(value, baseUrl);
+    if (safe) return safe;
+  }
+  return "";
+}
+
+function isPrivateAddressLiteral(hostname) {
+  const host = String(hostname || "").toLowerCase().replace(/^\[|\]$/g, "");
+  if (["localhost", "::1"].includes(host)) return true;
+  if (/^(?:fc|fd|fe[89ab])[0-9a-f:]*$/i.test(host)) return true;
+  const octets = host.split(".").map(Number);
+  if (octets.length !== 4 || octets.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return false;
+  return octets[0] === 10
+    || octets[0] === 127
+    || octets[0] === 0
+    || octets[0] === 169 && octets[1] === 254
+    || octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31
+    || octets[0] === 192 && octets[1] === 168;
 }
 
 function looksLikeReadableHtml(text, contentType) {

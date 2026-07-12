@@ -2,28 +2,31 @@ import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { webcrypto } from "node:crypto";
-import { buildBookmarkModel, originsFromUrls } from "../extension/core/bookmarks.mjs";
+import { buildBookmarkModel, inspirationPreviewSourceUrls, inspirationPreviewTargets, originsFromUrls } from "../extension/core/bookmarks.mjs";
 import { providerEndpoint, requestAiCompletion, searchImagePreview, testImageSearchConnection } from "../extension/core/ai.mjs";
 import { createClientStateStore } from "../extension/core/client-state.mjs";
 import { DEFAULT_SETTINGS, SETTINGS_KEY } from "../extension/core/constants.mjs";
 import { recordsToPrune } from "../extension/core/db.mjs";
-import { fetchSourceArticles, parseFeedDocument, rankAndDedupe } from "../extension/core/feed.mjs";
+import { feedCacheOrEmpty, fetchSourceArticles, parseFeedDocument, rankAndDedupe } from "../extension/core/feed.mjs";
 import { normalizeFeedback } from "../extension/core/feedback.mjs";
 import { createQuotaManager } from "../extension/core/quota.mjs";
-import { createPreviewService } from "../extension/core/preview.mjs";
+import { createPreviewService, fetchSourceImagePreview } from "../extension/core/preview.mjs";
+import { bravePreviewCacheKeys, previewCacheKeysOutsideTargets } from "../extension/core/preview-cache.mjs";
 import { retainActiveUnrefreshedItems, selectRefreshBatch, selectRefreshSources } from "../extension/core/refresh.mjs";
 import { fetchBounded } from "../extension/core/network.mjs";
-import { loadReaderWithCache, readerTextFromBlocks } from "../extension/core/reader.mjs";
+import { extractPageMetadata, loadReaderWithCache, readerTextFromBlocks } from "../extension/core/reader.mjs";
 import { normalizeSettings } from "../extension/core/settings.mjs";
 import { decodeSettingsFromSync, encodeSettingsForSync, settingsChunkKeys } from "../extension/core/settings-storage.mjs";
 import { createSettingsStore } from "../extension/core/settings-store.mjs";
-import { isReaderUrl, normalizeUrl as normalizeClientUrl } from "../assets/client/urls.mjs";
+import { faviconUrl, isReaderUrl, normalizeUrl as normalizeClientUrl } from "../assets/client/urls.mjs";
 import { findNewsItemByReference, pageForItems, seededShuffle } from "../assets/client/dashboard-model.mjs";
 import { createPriorityRanker, groupItemsByKey, mergeRankedUnique, selectUnseenPool } from "../assets/client/dashboard-selectors.mjs";
 import { readerErrorBodyKey, safeReaderOrigin, sameOrigin } from "../assets/client/reader-policy.mjs";
 import { normalizeAccentTheme, normalizeColorMode, normalizeHexColor, paletteFromAccent } from "../assets/client/appearance-model.mjs";
 import { cloneSettingsDraft, diffSettingsDraft, snapshotSettingsDraft } from "../assets/client/settings-draft.mjs";
 import { createInspirationPreviewController, inspirationPreviewFingerprint } from "../assets/client/inspiration-preview-controller.mjs";
+import { AI_SETUP_STAGE, aiProviderOrigin, aiProviderOriginPattern, deriveAiSetupControlState } from "../assets/client/ai-settings-policy.mjs";
+import { permissionRowCounts, requiredUngrantedOrigins } from "../assets/client/permission-ui-model.mjs";
 import {
   DEFAULT_LOCALE,
   SUPPORTED_LOCALES,
@@ -46,6 +49,7 @@ const manifest = JSON.parse(await fs.readFile(path.join(root, "manifest.json"), 
 assert.equal(manifest.manifest_version, 3);
 assert.equal(manifest.chrome_url_overrides.newtab, "dashboard.html");
 assert.deepEqual(manifest.permissions.sort(), ["alarms", "bookmarks", "storage"]);
+assert.deepEqual([...(manifest.optional_permissions || [])].sort(), ["favicon"], "website icons must use an optional named permission so upgrades do not disable existing installs");
 for (const forbidden of ["tabs", "history", "scripting", "webRequest", "management", "unlimitedStorage"]) {
   assert(!manifest.permissions.includes(forbidden), `manifest must not request ${forbidden}`);
 }
@@ -58,6 +62,7 @@ assert(extensionCsp.includes("base-uri 'none'"), "extension CSP must disable rem
 assert(!/unsafe-(?:eval|inline)/.test(extensionCsp), "extension CSP must not allow unsafe script execution");
 const cspDirectives = new Map(extensionCsp.split(";").map((directive) => directive.trim().split(/\s+/)).filter((parts) => parts[0]).map(([name, ...values]) => [name, values]));
 assert.deepEqual(cspDirectives.get("script-src"), ["'self'"], "extension scripts must only come from the package");
+assert(cspDirectives.get("img-src")?.includes("'self'"), "the native favicon endpoint must remain available as a same-extension image");
 
 assert.equal(DEFAULT_LOCALE, "zh-CN");
 assert.deepEqual(SUPPORTED_LOCALES, ["en", "zh-CN", "zh-Hant"]);
@@ -68,6 +73,8 @@ assert.equal(normalizeLocale("zh-Hans-SG"), "zh-CN");
 assert.equal(detectSupportedLocale(["fr-FR", "en-GB"]), "en");
 assert.equal(detectSupportedLocale(["fr-FR"]), "zh-CN");
 assert.equal(translate("en", "context.openAll", { count: 3 }), "Open all in new tabs (3)");
+assert(translate("en", "settings.service.consent").includes("article URLs used for context"), "the prominent AI disclosure must include context article URLs");
+assert(translate("zh-CN", "settings.service.consent").includes("文章网址"), "the Chinese AI disclosure must include context article URLs");
 assert.equal(translateCount("en", "unit.entries", 1), "1 entry");
 assert.equal(translateCount("en", "unit.entries", 2), "2 entries");
 assert.equal(formatListForLocale("en", ["News", "Design"]), "News and Design");
@@ -76,6 +83,22 @@ assert.deepEqual(defaultBookmarkFoldersForLocale("zh-Hant"), { news: "資訊", i
 assert.equal(translate("en", "settings.bookmarks.folderOption", { name: "Design", count: 5 }), "Design (5)");
 assert.equal(DEFAULT_SETTINGS.newsBookmarkFolder, "");
 assert.equal(DEFAULT_SETTINGS.inspirationBookmarkFolder, "");
+
+const permissionUiRows = [
+  { origin: "https://allowed.example/*", required: true, granted: true },
+  { origin: "https://pending.example/*", required: true, granted: false },
+  { origin: "https://legacy.example/*", required: false, granted: true, legacy: true },
+];
+assert.deepEqual(permissionRowCounts(permissionUiRows), {
+  required: 2,
+  granted: 1,
+  pending: 1,
+  legacy: 1,
+  broadRequired: 0,
+});
+assert.deepEqual(requiredUngrantedOrigins(permissionUiRows), ["https://pending.example/*"]);
+assert.equal(permissionRowCounts(permissionUiRows.map((row) => ({ ...row, granted: true }))).pending, 0, "fully granted rows must not leave an active bulk action");
+assert.equal(permissionRowCounts(permissionUiRows.filter((row) => row.legacy)).pending, 0, "legacy-only rows must not enable bulk authorization");
 
 const localeKeys = Object.keys(localeMessages(DEFAULT_LOCALE)).sort();
 const defaultMessages = localeMessages(DEFAULT_LOCALE);
@@ -106,15 +129,37 @@ for (const locale of ["en", "zh_CN", "zh_TW"]) {
 }
 
 const dashboardSource = await fs.readFile(path.join(root, "dashboard.html"), "utf8");
-const dashboardI18nKeys = [...dashboardSource.matchAll(/data-i18n(?:-[\w-]+)?="([^"]+)"/g)].map((match) => match[1]);
+const dashboardI18nKeys = [...dashboardSource.matchAll(/(?:data-i18n(?:-[\w-]+)?|data-dynamic-i18n)="([^"]+)"/g)].map((match) => match[1]);
 for (const key of dashboardI18nKeys) assert(localeKeys.includes(key), `dashboard translation key must exist: ${key}`);
 const untranslatedDashboardLines = dashboardSource.split(/\r?\n/).filter((line) => (
   /[\u3400-\u9fff]/u.test(line)
   && !line.includes("data-i18n")
+  && !line.includes("data-dynamic-i18n")
   && !/<option value="zh-(?:CN|Hant)">/.test(line)
   && !/id="currentUiLanguage"/.test(line)
 ));
 assert.deepEqual(untranslatedDashboardLines, [], "dashboard-owned Chinese copy must be marked for translation");
+assert(dashboardSource.includes('id="sourcePermissionSummary"'), "website access must expose a visible settings-page status");
+assert(!dashboardSource.includes('id="refreshPermissionStatus"'), "website access must sync automatically without a no-op refresh button");
+assert(dashboardSource.includes('id="toggleFaviconPermission"'), "existing users must be able to manage the optional favicon permission in settings");
+assert(dashboardSource.includes('data-permission="favicon"'), "onboarding must request the optional favicon permission from an explicit user gesture");
+assert.equal((dashboardSource.match(/data-onboarding-step="\d"/g) || []).length, 5, "onboarding must retain the five-step product, permission, folder, API key, and start flow");
+assert(dashboardSource.includes('id="onboardingNewsFolder"') && dashboardSource.includes('id="onboardingInspirationFolder"'), "onboarding must let users choose bookmark folders in place");
+assert(dashboardSource.includes('id="onboardingApiKey"') && dashboardSource.includes('id="onboardingSkipApiKey"'), "onboarding must offer an optional in-place API key step");
+assert(dashboardSource.includes('data-i18n="onboarding.step3.skip"') && dashboardSource.includes('data-i18n="onboarding.step4.skip"'), "folder and API key onboarding steps must both remain skippable");
+const permissionUiSource = await fs.readFile(path.join(root, "assets", "client", "extension-ui.mjs"), "utf8");
+assert(permissionUiSource.includes('request("settings:save", { newsBookmarkFolder, inspirationBookmarkFolder })'), "onboarding folder choices must persist through the settings boundary");
+assert(permissionUiSource.includes('request("settings:save", { openaiApiKey, aiDisclosureAccepted: true })'), "onboarding API keys must keep the existing consent and local-secret boundary");
+assert(permissionUiSource.includes('event.detail?.type === "settings.changed"'), "website access must react to extension permission updates");
+assert(permissionUiSource.includes('"visibilitychange"'), "website access must recheck when the page becomes visible");
+const aiFieldsetStart = dashboardSource.indexOf('<fieldset class="ai-provider-fields"');
+const aiFieldsetEnd = dashboardSource.indexOf("</fieldset>", aiFieldsetStart);
+assert(aiFieldsetStart > 0 && aiFieldsetEnd > aiFieldsetStart, "AI provider controls must use a semantic fieldset");
+assert(dashboardSource.slice(aiFieldsetStart, aiFieldsetEnd).includes(" disabled"), "AI provider fields must start locked before permission state hydrates");
+assert(dashboardSource.slice(aiFieldsetStart, aiFieldsetEnd).includes('aria-describedby="aiFormAccessStatus"'), "locked AI fields must reference the live setup status");
+assert(dashboardSource.indexOf('id="apiBaseUrlInput"') < aiFieldsetStart, "the provider URL must remain available before the gated AI fields");
+assert(dashboardSource.indexOf('id="clearKey"') < aiFieldsetStart, "credential removal must remain available outside the gated AI fields");
+assert(dashboardSource.indexOf('id="grantBraveOrigin"') > aiFieldsetEnd, "Brave authorization must remain independent of the AI provider gate");
 
 for (const file of ["assets/client/api.mjs", "assets/client/extension-ui.mjs"]) {
   const text = await fs.readFile(path.join(root, file), "utf8");
@@ -164,6 +209,27 @@ const model = buildBookmarkModel(fixtureTree, { newsBookmarkFolder: "资讯", in
 assert.equal(model.sections.length, 2);
 assert.equal(model.bookmarks.length, 3);
 assert.equal(model.bookmarks.filter((item) => item.cardType === "news").length, 2);
+assert.deepEqual(inspirationPreviewSourceUrls(model.bookmarks), ["https://design.example.com/"], "only inspiration bookmarks should require original-preview origins");
+assert.deepEqual(previewCacheKeysOutsideTargets([
+  { key: "preview-origin-v2-kept", value: { capability: "site-preview-origin", requestedUrl: "https://design.example.com/#work" } },
+  { key: "preview-brave-v2-kept", value: { capability: "site-preview-brave", requestedUrl: "https://design.example.com/", title: "Design" } },
+  { key: "preview-brave-v2-renamed", value: { capability: "site-preview-brave", requestedUrl: "https://design.example.com/", title: "Old name" } },
+  { key: "preview-brave-v2-removed", value: { capability: "site-preview-brave", requestedUrl: "https://removed.example.com/" } },
+  { key: "preview-origin-v2-insecure", value: { capability: "site-preview-origin", requestedUrl: "http://design.example.com/" } },
+  { key: "preview-origin-v2-invalid", value: { capability: "site-preview-origin", requestedUrl: "" } },
+  { key: "feed", value: { requestedUrl: "https://removed.example.com/" } },
+], inspirationPreviewTargets(model.bookmarks)), [
+  "preview-brave-v2-renamed",
+  "preview-brave-v2-removed",
+  "preview-origin-v2-insecure",
+  "preview-origin-v2-invalid",
+], "bookmark changes must identify stale v2 preview records without touching unrelated cache entries");
+assert.deepEqual(bravePreviewCacheKeys([
+  { key: "preview-origin-v2-kept", value: { capability: "site-preview-origin" } },
+  { key: "preview-brave-v2-current", value: { capability: "site-preview-brave" } },
+  { key: "preview-legacy", value: { capability: "image-preview" } },
+  { key: "preview-brave-v2-unknown", value: {} },
+]), ["preview-brave-v2-current", "preview-legacy", "preview-brave-v2-unknown"], "Brave setting or key changes must target only Brave preview cache records");
 assert.equal(model.availableNewsFolders[0].value, "资讯/科技");
 const urlExcludedModel = buildBookmarkModel(fixtureTree, {
   newsBookmarkFolder: "资讯",
@@ -227,6 +293,39 @@ assert.doesNotThrow(() => parseFeedDocument(
 ), "invalid remote numeric entities must not abort feed parsing");
 assert.notEqual(normalizeClientUrl("http://127.0.0.1:3000/a"), normalizeClientUrl("http://127.0.0.1:4000/a"));
 assert.equal(isReaderUrl("http://news.example.com/article"), false);
+
+const faviconPageUrl = "https://example.com/path?q=one&size=128#section";
+const faviconRuntime = {
+  id: "test-extension",
+  getURL(pathname) {
+    assert.equal(pathname, "/_favicon/");
+    return `chrome-extension://test-extension${pathname}`;
+  },
+};
+const nativeFavicon = new URL(faviconUrl({
+  url: faviconPageUrl,
+  faviconUrl: "https://tracker.example/icon.png",
+}, { runtime: faviconRuntime, nativeEnabled: true }));
+assert.equal(nativeFavicon.protocol, "chrome-extension:");
+assert.equal(nativeFavicon.hostname, "test-extension");
+assert.equal(nativeFavicon.pathname, "/_favicon/");
+assert.equal(nativeFavicon.searchParams.get("pageUrl"), faviconPageUrl);
+assert.deepEqual(nativeFavicon.searchParams.getAll("size"), ["32"]);
+assert.equal(faviconUrl({ url: faviconPageUrl }, { runtime: faviconRuntime, nativeEnabled: false }), "favicon.svg", "ungranted optional favicon access must use the packaged fallback");
+assert.equal(faviconUrl({ faviconUrl: "https://tracker.example/icon.png" }, { runtime: faviconRuntime, nativeEnabled: false }), "favicon.svg", "remote favicon candidates must never bypass Chrome's native icon service");
+assert.equal(faviconUrl({ url: "javascript:alert(1)" }, { runtime: faviconRuntime, nativeEnabled: true }), "favicon.svg");
+assert.equal(faviconUrl({ url: "not a url" }, { runtime: faviconRuntime, nativeEnabled: true }), "favicon.svg");
+assert.equal(faviconUrl({ url: faviconPageUrl }, {
+  nativeEnabled: true,
+  runtime: { id: "test-extension", getURL() { throw new Error("unavailable"); } },
+}), "favicon.svg");
+
+const emptyFeedCache = feedCacheOrEmpty(null);
+assert.deepEqual(emptyFeedCache.items, [], "a missing feed cache must remain empty instead of falling back to bookmark cards");
+const cachedEmptyFeed = { schemaVersion: 2, items: [] };
+assert.equal(feedCacheOrEmpty(cachedEmptyFeed), cachedEmptyFeed, "an empty feed cache must remain the authoritative empty result");
+const cachedFeed = { schemaVersion: 2, items: [{ articleId: "real-article", title: "Real article" }] };
+assert.equal(feedCacheOrEmpty(cachedFeed), cachedFeed, "real cached news must remain available");
 assert.equal(isReaderUrl("http://127.0.0.1:3000/article"), true);
 
 const originalFetch = globalThis.fetch;
@@ -251,6 +350,29 @@ try {
     });
   };
   assert.equal((await fetchSourceArticles({ url: "https://recover.example/", title: "Recover" })).at(0)?.title, "Recovered", "feed discovery must continue after one candidate fails");
+  globalThis.fetch = async () => new Response('<html><head><meta property="og:type" content="website"><meta property="og:title" content="Example News"><meta name="description" content="A news website, not a news article."></head><body></body></html>', {
+    status: 200,
+    headers: { "content-type": "text/html" },
+  });
+  assert.deepEqual(
+    await fetchSourceArticles({ url: "https://homepage.example/", title: "Example News" }),
+    [],
+    "an HTML homepage without a feed or article links must not become a news card",
+  );
+  globalThis.fetch = async () => new Response('<html><head><meta content="article" property="og:type"><meta property="og:title" content="Direct article"><meta property="article:published_time" content="2026-07-12T04:00:00Z"><meta name="description" content="Direct article summary"></head><body></body></html>', {
+    status: 200,
+    headers: { "content-type": "text/html" },
+  });
+  const directArticle = await fetchSourceArticles({ url: "https://direct.example/story", title: "Direct source" });
+  assert.equal(directArticle.length, 1, "a directly bookmarked HTML article must remain readable");
+  assert.equal(directArticle[0].title, "Direct article");
+  assert.equal(directArticle[0].timeUnverified, false);
+  globalThis.fetch = async () => new Response('<html><body><a href="/detail/123456">A sufficiently descriptive detail article title</a></body></html>', {
+    status: 200,
+    headers: { "content-type": "text/html" },
+  });
+  const detailArticles = await fetchSourceArticles({ url: "https://details.example/", title: "Details" });
+  assert.equal(detailArticles.at(0)?.url, "https://details.example/detail/123456", "detail-style news links must be discovered before considering an HTML fallback");
   globalThis.fetch = async () => new Response("failure", { status: 503 });
   await assert.rejects(
     fetchSourceArticles({ url: "https://fixture.example/feed", title: "Fixture" }),
@@ -402,6 +524,72 @@ try {
   globalThis.fetch = originalFetch;
 }
 
+const previewMetadata = extractPageMetadata(`
+  <html><head>
+    <meta name="twitter:image" content="https://cdn.example.com/twitter.jpg">
+    <meta content="../images/hero.jpg?x=1&amp;y=2#crop" property="og:image">
+  </head></html>
+`, "https://design.example.com/work/item");
+assert.equal(previewMetadata.heroImageUrl, "https://design.example.com/images/hero.jpg?x=1&y=2", "Open Graph images must outrank Twitter images and resolve relative URLs");
+assert.equal(extractPageMetadata('<meta content="/twitter.jpg" name="twitter:image">', "https://design.example.com/").heroImageUrl, "https://design.example.com/twitter.jpg", "metadata attribute order must not matter");
+assert.equal(extractPageMetadata('<meta property="og:image" content="javascript:alert(1)"><link rel="image_src" href="/safe.jpg">', "https://design.example.com/").heroImageUrl, "https://design.example.com/safe.jpg", "unsafe image candidates must fall through to the next source");
+assert.equal(extractPageMetadata('<meta property="og:image" content="https://127.0.0.1/private.jpg">', "https://design.example.com/").heroImageUrl, "", "remote pages must not trigger image requests to private address literals");
+assert.equal(extractPageMetadata(`
+  <script type="application/ld+json">{
+    "@context": "https://schema.org",
+    "@type": "Article",
+    "image": { "@type": "ImageObject", "contentUrl": "/structured-cover.jpg" },
+    "publisher": { "@type": "Organization", "logo": "/publisher-logo.jpg" }
+  }</script>
+`, "https://design.example.com/work").heroImageUrl, "https://design.example.com/structured-cover.jpg", "JSON-LD article images must be used without selecting publisher logos");
+assert.equal(extractPageMetadata('<link rel="preload" as="image" imagesrcset="/cover-640.jpg 640w, /cover-1280.jpg 1280w">', "https://design.example.com/").heroImageUrl, "https://design.example.com/cover-1280.jpg", "preloaded responsive hero images must prefer the largest candidate");
+assert.equal(extractPageMetadata(`
+  <header><img src="/brand-logo.png" width="120" height="40" alt="Brand logo"></header>
+  <main><article><img src="/placeholder.gif" data-src="/article-cover.jpg" width="1200" height="675" alt="Article cover image"></article></main>
+`, "https://design.example.com/").heroImageUrl, "https://design.example.com/article-cover.jpg", "semantic article images must outrank decorative logos and lazy placeholders");
+assert.equal(extractPageMetadata(`
+  <main><picture><source srcset="/visual-640.webp 640w, /visual-1600.webp 1600w"><img src="/placeholder.gif" alt="Featured visual"></picture></main>
+`, "https://design.example.com/").heroImageUrl, "https://design.example.com/visual-1600.webp", "picture source sets must remain available when the img source is only a placeholder");
+
+let sourcePreviewRequest = null;
+try {
+  globalThis.fetch = async (url, options) => {
+    sourcePreviewRequest = { url: String(url), options };
+    return new Response('<html><head><meta content="/cover.jpg" property="og:image"></head><body>Large page</body></html>', {
+      status: 200,
+      headers: { "content-type": "text/html; charset=utf-8", "content-length": String(8 * 1024 * 1024) },
+    });
+  };
+  assert.equal(await fetchSourceImagePreview("https://design.example.com/work"), "https://design.example.com/cover.jpg");
+  assert.equal(sourcePreviewRequest.options.redirect, "error");
+  assert.equal(sourcePreviewRequest.options.credentials, "omit");
+  assert.equal(sourcePreviewRequest.options.referrerPolicy, "no-referrer");
+
+  globalThis.fetch = async () => new Response(`<html><head>${" ".repeat(600 * 1024)}<meta property="og:image" content="/late-cover.jpg"></head></html>`, {
+    status: 200,
+    headers: { "content-type": "text/html; charset=utf-8" },
+  });
+  assert.equal(await fetchSourceImagePreview("https://design.example.com/late"), "https://design.example.com/late-cover.jpg", "preview metadata beyond the old 512 KiB prefix must remain discoverable within the bounded 1 MiB scan");
+
+  let unsupportedBodyRead = false;
+  globalThis.fetch = async () => ({
+    ok: true,
+    status: 200,
+    url: "https://design.example.com/data",
+    headers: new Headers({ "content-type": "application/json" }),
+    body: {
+      getReader() {
+        unsupportedBodyRead = true;
+        return { read: async () => ({ done: true }), releaseLock() {} };
+      },
+    },
+  });
+  await assert.rejects(fetchSourceImagePreview("https://design.example.com/data"), (error) => error.code === "SOURCE_UNSUPPORTED_CONTENT");
+  assert.equal(unsupportedBodyRead, false, "unsupported source bodies must be rejected before reading");
+} finally {
+  globalThis.fetch = originalFetch;
+}
+
 const normalizedSettings = normalizeSettings({
   unknownSetting: "must disappear",
   openaiApiStyle: "invalid",
@@ -417,8 +605,37 @@ assert.equal(normalizedSettings.customAccentColor, "#9152FF");
 assert.equal(normalizedSettings.dailyAiLimit, 500);
 assert.equal(normalizedSettings.hotNewsEntriesPerSource, 0);
 assert.equal(normalizedSettings.aiDisclosureAccepted, false);
-let previewSearches = 0;
+assert.equal(normalizedSettings.headerImageUrl, DEFAULT_SETTINGS.headerImageUrl);
+assert.equal(normalizeSettings({ headerImageUrl: "" }).headerImageUrl, "", "the default cover URL must remain removable");
+let originalPreviewFetches = 0;
+let originalPreviewSearches = 0;
 let previewCacheEpoch = -1;
+const originalPreviewRecords = new Map();
+const getOriginalPreview = createPreviewService({
+  async getSettings() { assert.fail("an original hit must not read Brave settings"); },
+  async readSecrets() { assert.fail("an original hit must not read the Brave key"); },
+  async getRecord(key, fallback) { return originalPreviewRecords.get(key) || fallback; },
+  async setRecord(key, value, _kind, cacheEpoch) { originalPreviewRecords.set(key, value); previewCacheEpoch = cacheEpoch; },
+  async hasOriginPermission(value) { return String(value).startsWith("https://origin.example/"); },
+  captureCacheEpoch() { return 17; },
+  async fetchSourceImage() {
+    originalPreviewFetches += 1;
+    return "https://origin.example/hero.jpg";
+  },
+  async searchImage() { originalPreviewSearches += 1; return ""; },
+  now: () => Date.parse("2026-07-11T00:00:00Z"),
+});
+const originalPreview = await getOriginalPreview({ url: "https://origin.example/design", title: "Original" });
+assert.equal(originalPreview.imageUrl, "https://origin.example/hero.jpg");
+assert.equal(originalPreview.source, "origin");
+assert.equal(originalPreview.originalStatus, "found");
+assert.equal((await getOriginalPreview({ url: "https://origin.example/design", title: "Renamed" })).cached, true, "original caches must depend on URL, not title");
+assert.equal(originalPreviewFetches, 1);
+assert.equal(originalPreviewSearches, 0, "Brave must not run when the original page supplies an image");
+assert.equal(previewCacheEpoch, 17, "preview writes must retain the permission/cache epoch captured before the request");
+assert([...originalPreviewRecords.keys()].some((key) => key.startsWith("preview-origin-v3-")), "the optimized extractor must bypass legacy v2 misses with a new cache identity");
+
+let previewSearches = 0;
 const previewRecords = new Map();
 const getPreview = createPreviewService({
   async getSettings() { return { webImageSearchEnabled: true }; },
@@ -427,6 +644,7 @@ const getPreview = createPreviewService({
   async setRecord(key, value, _kind, cacheEpoch) { previewRecords.set(key, value); previewCacheEpoch = cacheEpoch; },
   async hasOriginPermission() { return true; },
   captureCacheEpoch() { return 17; },
+  async fetchSourceImage() { return ""; },
   async searchImage(query) {
     previewSearches += 1;
     assert(query.includes("example.com"));
@@ -434,11 +652,42 @@ const getPreview = createPreviewService({
   },
   now: () => Date.parse("2026-07-11T00:00:00Z"),
 });
-assert.deepEqual(await getPreview({ url: "http://insecure.example.com/", title: "Unsafe" }), { ok: false, imageUrl: "", url: "http://insecure.example.com/" });
-assert.equal((await getPreview({ url: "https://example.com/design", title: "Example Design" })).imageUrl, "https://imgs.search.brave.com/preview");
+assert.equal((await getPreview({ url: "http://insecure.example.com/", title: "Unsafe" })).originalStatus, "invalid");
+const braveFallbackPreview = await getPreview({ url: "https://example.com/design", title: "Example Design" });
+assert.equal(braveFallbackPreview.imageUrl, "https://imgs.search.brave.com/preview");
+assert.equal(braveFallbackPreview.source, "brave");
+assert.equal(braveFallbackPreview.originalStatus, "missing");
 assert.equal((await getPreview({ url: "https://example.com/design", title: "Example Design" })).cached, true);
-assert.equal(previewSearches, 1, "successful previews must be reused from cache");
-assert.equal(previewCacheEpoch, 17, "preview writes must retain the permission/cache epoch captured before the request");
+assert.equal(previewSearches, 1, "successful Brave fallbacks must be reused from their own cache");
+
+let disallowedTargetTouched = false;
+const getDisallowedPreview = createPreviewService({
+  async isAllowedTarget() { return false; },
+  async getSettings() { disallowedTargetTouched = true; return {}; },
+  async readSecrets() { disallowedTargetTouched = true; return {}; },
+  async getRecord() { disallowedTargetTouched = true; return null; },
+  async setRecord() { disallowedTargetTouched = true; },
+  async hasOriginPermission() { disallowedTargetTouched = true; return true; },
+  async fetchSourceImage() { disallowedTargetTouched = true; return ""; },
+  async searchImage() { disallowedTargetTouched = true; return ""; },
+});
+assert.equal((await getDisallowedPreview({ url: "https://not-an-inspiration.example/", title: "Blocked" })).originalStatus, "unavailable");
+assert.equal(disallowedTargetTouched, false, "preview:get must not become a general fetch endpoint for non-inspiration URLs");
+
+let skippedSourceFetches = 0;
+const getPermissionFallback = createPreviewService({
+  async getSettings() { return { webImageSearchEnabled: true }; },
+  async readSecrets() { return { braveSearchApiKey: "preview-key" }; },
+  async getRecord(_key, fallback) { return fallback; },
+  async setRecord() {},
+  async hasOriginPermission(value) { return String(value).startsWith("https://api.search.brave.com/"); },
+  async fetchSourceImage() { skippedSourceFetches += 1; return "https://denied.example/hero.jpg"; },
+  async searchImage() { return "https://imgs.search.brave.com/permission-fallback"; },
+});
+const permissionFallback = await getPermissionFallback({ url: "https://denied.example/", title: "Denied" });
+assert.equal(permissionFallback.imageUrl, "https://imgs.search.brave.com/permission-fallback");
+assert.equal(permissionFallback.originalStatus, "unavailable");
+assert.equal(skippedSourceFetches, 0, "an ungranted source origin must never be fetched");
 
 let revokedPreviewCacheRead = false;
 const getRevokedPreview = createPreviewService({
@@ -447,15 +696,18 @@ const getRevokedPreview = createPreviewService({
   async getRecord() { revokedPreviewCacheRead = true; return { imageUrl: "https://imgs.search.brave.com/stale" }; },
   async setRecord() { assert.fail("revoked preview access must not write cache"); },
   async hasOriginPermission() { return false; },
+  async fetchSourceImage() { assert.fail("revoked source access must not fetch HTML"); },
   async searchImage() { assert.fail("revoked Brave access must not issue a search"); },
 });
-assert.deepEqual(await getRevokedPreview({ url: "https://example.com/", title: "Example" }), {
-  ok: false,
-  imageUrl: "",
-  url: "https://example.com/",
-});
-assert.equal(revokedPreviewCacheRead, false, "revoked Brave access must fail closed before reading cached previews");
+const revokedPreview = await getRevokedPreview({ url: "https://example.com/", title: "Example" });
+assert.equal(revokedPreview.ok, false);
+assert.equal(revokedPreview.imageUrl, "");
+assert.equal(revokedPreview.originalStatus, "unavailable");
+assert.equal(revokedPreviewCacheRead, false, "revoked capabilities must fail closed before reading either cache");
+
 let emptyPreviewSearches = 0;
+let emptySourceFetches = 0;
+let emptyPreviewNow = Date.parse("2026-07-11T00:00:00Z");
 const emptyPreviewRecords = new Map();
 const getEmptyPreview = createPreviewService({
   async getSettings() { return { webImageSearchEnabled: true }; },
@@ -463,12 +715,36 @@ const getEmptyPreview = createPreviewService({
   async getRecord(key, fallback) { return emptyPreviewRecords.get(key) || fallback; },
   async setRecord(key, value) { emptyPreviewRecords.set(key, value); },
   async hasOriginPermission() { return true; },
+  async fetchSourceImage() { emptySourceFetches += 1; return ""; },
   async searchImage() { emptyPreviewSearches += 1; return ""; },
-  now: () => Date.parse("2026-07-11T00:00:00Z"),
+  now: () => emptyPreviewNow,
 });
 await getEmptyPreview({ url: "https://empty.example/", title: "Empty" });
 assert.equal((await getEmptyPreview({ url: "https://empty.example/", title: "Empty" })).cached, true);
-assert.equal(emptyPreviewSearches, 1, "empty previews must be negative-cached for the current day");
+assert.equal(emptySourceFetches, 1);
+assert.equal(emptyPreviewSearches, 1, "confirmed empty previews must be negative-cached for the current day");
+emptyPreviewNow += 2 * 60 * 60 * 1000 + 1;
+await getEmptyPreview({ url: "https://empty.example/", title: "Empty" });
+assert.equal(emptySourceFetches, 2, "original misses must retry after two hours so transient consent or bot pages do not hide images all day");
+assert.equal(emptyPreviewSearches, 1, "a refreshed original miss must continue reusing the 24-hour Brave negative cache");
+emptyPreviewNow += 22 * 60 * 60 * 1000 + 1;
+await getEmptyPreview({ url: "https://empty.example/", title: "Empty" });
+assert.equal(emptySourceFetches, 3, "original misses must continue their shorter retry cadence");
+assert.equal(emptyPreviewSearches, 2, "expired Brave misses must be retried");
+
+let sourceErrorFetches = 0;
+const getSourceErrorPreview = createPreviewService({
+  async getSettings() { return { webImageSearchEnabled: false }; },
+  async readSecrets() { return { braveSearchApiKey: "" }; },
+  async getRecord(_key, fallback) { return fallback; },
+  async setRecord() { assert.fail("source network errors must not be negative-cached"); },
+  async hasOriginPermission(value) { return !String(value).startsWith("https://api.search.brave.com/"); },
+  async fetchSourceImage() { sourceErrorFetches += 1; throw new Error("offline"); },
+  async searchImage() { assert.fail("disabled Brave fallback must not run"); },
+});
+await getSourceErrorPreview({ url: "https://source-error.example/", title: "Error" });
+await getSourceErrorPreview({ url: "https://source-error.example/", title: "Error" });
+assert.equal(sourceErrorFetches, 2, "source failures must remain retryable across service calls");
 
 let concurrentPreviewSearches = 0;
 let releaseConcurrentPreview;
@@ -479,6 +755,7 @@ const getConcurrentPreview = createPreviewService({
   async getRecord(_key, fallback) { return fallback; },
   async setRecord() {},
   async hasOriginPermission() { return true; },
+  async fetchSourceImage() { return ""; },
   async searchImage() {
     concurrentPreviewSearches += 1;
     await concurrentPreviewGate;
@@ -489,7 +766,7 @@ const concurrentPreviewA = getConcurrentPreview({ url: "https://concurrent.examp
 const concurrentPreviewB = getConcurrentPreview({ url: "https://concurrent.example/", title: "Concurrent" });
 releaseConcurrentPreview();
 const concurrentPreviewResults = await Promise.all([concurrentPreviewA, concurrentPreviewB]);
-assert.equal(concurrentPreviewSearches, 1, "concurrent preview requests for one cache key must share a search");
+assert.equal(concurrentPreviewSearches, 1, "concurrent preview requests must share the complete origin-to-Brave pipeline");
 assert.deepEqual(concurrentPreviewResults[0], concurrentPreviewResults[1]);
 
 let failedPreviewCacheWrites = 0;
@@ -502,20 +779,23 @@ const getPreviewWithUnavailableCache = createPreviewService({
     throw new Error("cache unavailable");
   },
   async hasOriginPermission() { return true; },
+  async fetchSourceImage() { return ""; },
   async searchImage() { return "https://imgs.search.brave.com/uncached-preview"; },
 });
 const uncachedPreview = await getPreviewWithUnavailableCache({ url: "https://uncached.example/", title: "Uncached" });
 assert.equal(uncachedPreview.ok, true, "cache write failures must not discard a valid preview result");
 assert.equal(uncachedPreview.imageUrl, "https://imgs.search.brave.com/uncached-preview");
-assert.equal(failedPreviewCacheWrites, 1);
+assert.equal(failedPreviewCacheWrites, 2, "origin and Brave cache failures must both remain isolated");
 
 let retryablePreviewSearches = 0;
+const retryablePreviewRecords = new Map();
 const getRetryablePreview = createPreviewService({
   async getSettings() { return { webImageSearchEnabled: true }; },
   async readSecrets() { return { braveSearchApiKey: "preview-key" }; },
-  async getRecord(_key, fallback) { return fallback; },
-  async setRecord() {},
+  async getRecord(key, fallback) { return retryablePreviewRecords.get(key) || fallback; },
+  async setRecord(key, value) { retryablePreviewRecords.set(key, value); },
   async hasOriginPermission() { return true; },
+  async fetchSourceImage() { return ""; },
   async searchImage() {
     retryablePreviewSearches += 1;
     if (retryablePreviewSearches === 1) throw Object.assign(new Error("temporary failure"), { retryable: true });
@@ -530,7 +810,7 @@ assert.equal(retryablePreviewSearches, 1, "concurrent failed preview requests mu
 assert.equal(failedPreviewRequests[0].retryable, true);
 assert.deepEqual(failedPreviewRequests[0], failedPreviewRequests[1]);
 const retriedPreview = await getRetryablePreview({ url: "https://retry.example/", title: "Retry" });
-assert.equal(retryablePreviewSearches, 2, "a failed in-flight preview request must be cleared so the next call can retry");
+assert.equal(retryablePreviewSearches, 2, "a failed Brave request must be cleared so the next call can retry");
 assert.equal(retriedPreview.imageUrl, "https://imgs.search.brave.com/retried-preview");
 assert.throws(() => normalizeFeedback({ action: "unknown", articleId: "article" }), (error) => error.code === "INVALID_FEEDBACK" && error.retryable === false);
 assert.throws(() => normalizeFeedback({ action: "read", articleId: "" }), (error) => error.code === "INVALID_FEEDBACK");
@@ -643,6 +923,74 @@ assert.deepEqual(diffSettingsDraft({
   openaiBaseUrl: "https://new-provider.example/v1",
   aiDisclosureAccepted: true,
 }, "renewed consent must be submitted even when its boolean matches the old provider baseline");
+assert.equal(aiProviderOrigin("https://api.example.com/v1"), "https://api.example.com");
+assert.equal(aiProviderOrigin("https://api.example.com/v1?api-version=1"), "", "provider query strings must stay locked because saved provider URLs reject them");
+assert.equal(aiProviderOriginPattern("http://localhost:8787/v1"), "http://localhost:8787/*");
+assert.equal(aiProviderOrigin("http://api.example.com/v1"), "", "insecure remote AI origins must stay locked");
+assert.equal(aiProviderOrigin("https://user:pass@api.example.com/v1"), "", "credentialed AI URLs must stay locked");
+assert.deepEqual(deriveAiSetupControlState({
+  providerUrl: "https://api.example.com/v1",
+  consentAccepted: false,
+  permissionGranted: true,
+}), {
+  stage: AI_SETUP_STAGE.NEEDS_CONSENT,
+  origin: "https://api.example.com",
+  originPattern: "https://api.example.com/*",
+  formUnlocked: false,
+  providerUrlDisabled: false,
+  consentDisabled: false,
+  grantDisabled: true,
+  protectedFieldsDisabled: true,
+}, "website permission alone must never unlock the AI form without consent");
+assert.equal(deriveAiSetupControlState({
+  providerUrl: "https://api.example.com/v1",
+  consentAccepted: true,
+  permissionGranted: false,
+}).grantDisabled, false, "consent plus a valid origin must enable the exact-origin grant action");
+assert.deepEqual(deriveAiSetupControlState({
+  providerUrl: "https://api.example.com/v1",
+  consentAccepted: true,
+  permissionGranted: true,
+}), {
+  stage: AI_SETUP_STAGE.READY,
+  origin: "https://api.example.com",
+  originPattern: "https://api.example.com/*",
+  formUnlocked: true,
+  providerUrlDisabled: false,
+  consentDisabled: false,
+  grantDisabled: true,
+  protectedFieldsDisabled: false,
+}, "consent and current-origin access must unlock the AI form while leaving the completed grant action disabled");
+assert.deepEqual(deriveAiSetupControlState({
+  providerUrl: "https://api.example.com/v1",
+  consentAccepted: true,
+  permissionGranted: false,
+  grantPending: true,
+}), {
+  stage: AI_SETUP_STAGE.NEEDS_PERMISSION,
+  origin: "https://api.example.com",
+  originPattern: "https://api.example.com/*",
+  formUnlocked: false,
+  providerUrlDisabled: true,
+  consentDisabled: true,
+  grantDisabled: true,
+  protectedFieldsDisabled: true,
+}, "an in-flight permission prompt must freeze the provider identity and keep protected fields locked");
+assert.deepEqual(deriveAiSetupControlState({
+  providerUrl: "https://api.example.com/v1",
+  consentAccepted: true,
+  permissionGranted: true,
+  busy: true,
+}), {
+  stage: AI_SETUP_STAGE.READY,
+  origin: "https://api.example.com",
+  originPattern: "https://api.example.com/*",
+  formUnlocked: true,
+  providerUrlDisabled: true,
+  consentDisabled: true,
+  grantDisabled: true,
+  protectedFieldsDisabled: true,
+}, "busy state must temporarily lock a logically authorized AI form without losing its ready state");
 let currentPreviewItem = { key: "bookmark-1", url: "https://a.example/", title: "A" };
 let previewApiCalls = 0;
 let resolvePreviewRequest;
@@ -653,6 +1001,7 @@ const previewController = createInspirationPreviewController({
   normalizeUrl: (value) => String(value || ""),
   isHttpUrl: (value) => /^https?:\/\//.test(value),
   isEnabled: () => true,
+  canFallback: () => true,
   isCurrent: (item, fingerprint) => inspirationPreviewFingerprint(currentPreviewItem, String) === fingerprint,
   onImage: (item, imageUrl) => appliedPreviewImages.push([item.key, imageUrl]),
 });
@@ -664,9 +1013,20 @@ currentPreviewItem = { key: "bookmark-1", url: "https://b.example/", title: "B" 
 resolvePreviewRequest({ imageUrl: "https://images.example/a.jpg" });
 await oldPreviewRequest;
 assert.deepEqual(appliedPreviewImages, [], "a preview response must not update a bookmark whose URL changed in flight");
-previewApi = async () => ({ imageUrl: "https://images.example/b.jpg" });
+previewApi = async () => ({ imageUrl: "https://images.example/b.jpg", source: "origin" });
 await previewController.request(currentPreviewItem);
 assert.deepEqual(appliedPreviewImages, [["bookmark-1", "https://images.example/b.jpg"]]);
+let fallbackRequestUrl = "";
+previewApi = async (url) => {
+  fallbackRequestUrl = url;
+  return { imageUrl: "https://imgs.search.brave.com/b.jpg", source: "brave" };
+};
+await previewController.reject(currentPreviewItem, "https://images.example/b.jpg");
+assert(new URL(fallbackRequestUrl, "https://ampira.invalid").searchParams.get("mode") === "brave-only", "a failed original image must request Brave-only fallback");
+assert.deepEqual(appliedPreviewImages.at(-1), ["bookmark-1", "https://imgs.search.brave.com/b.jpg"]);
+const previewCallsAfterBrave = previewApiCalls;
+await previewController.reject(currentPreviewItem, "https://imgs.search.brave.com/b.jpg");
+assert.equal(previewApiCalls, previewCallsAfterBrave, "a failed Brave image must fall back to the favicon without looping");
 previewController.invalidate();
 assert.equal(previewController.get(currentPreviewItem), null);
 const referenceItems = [
@@ -701,9 +1061,23 @@ for (const leakedCopy of ["视频内容", "网站返回 HTTP", "在线正文暂�
   assert(!readerSource.includes(leakedCopy), `reader core must not hardcode localized UI copy: ${leakedCopy}`);
 }
 const appSource = await fs.readFile(path.join(root, "assets/client/app.mjs"), "utf8");
+const serviceWorkerSource = await fs.readFile(path.join(root, "extension/service-worker.mjs"), "utf8");
 const readerPolicySource = await fs.readFile(path.join(root, "assets/client/reader-policy.mjs"), "utf8");
+const readerUiSource = await fs.readFile(path.join(root, "assets/client/reader-ui.mjs"), "utf8");
 assert(readerPolicySource.includes('READER_HTTP_ERROR: "reader.error.httpTitle"'));
+assert(readerUiSource.includes("markReadOnOpen(item);"), "opening a bookmark or news card must mark it as read");
 assert(appSource.includes('t("settings.bookmarks.folderOption"'));
+assert(appSource.includes('isEnabled: () => state.settings?.bookmarkConsentGranted === true'), "original previews must not depend on Brave configuration");
+assert(appSource.includes('event.detail?.payload?.permissionsChanged || event.detail?.payload?.imageSearchChanged'), "permission and Brave configuration changes must invalidate previews in every open tab");
+assert(serviceWorkerSource.includes('urls.push(...inspirationPreviewSourceUrls(model.bookmarks))'), "inspiration origins must appear in the exact-origin permission list");
+assert(serviceWorkerSource.includes("await pruneStalePreviewCaches(settings)"), "bookmark changes must prune preview caches for removed inspiration targets");
+assert(serviceWorkerSource.includes("if (bookmarkSourceChanged) await pruneStalePreviewCaches(normalized)"), "changing the selected inspiration folder must prune stale preview caches");
+assert(serviceWorkerSource.includes("if (imageSearchChanged) await pruneBravePreviewCaches()"), "Brave setting or key changes must prune Brave preview caches");
+assert(appSource.includes('removeAttribute("data-i18n")'), "dynamic AI gate copy must not be overwritten by a later whole-document translation pass");
+assert(appSource.includes('visibilitychange'), "the AI permission gate must refresh after the page becomes visible again");
+assert(appSource.includes('settings.service.aiFormDeclined'), "AI permission denial must be reported in the adjacent live setup status");
+assert(!serviceWorkerSource.includes("fallbackFeedFromBookmarks"), "missing or empty feed caches must remain empty");
+assert(!serviceWorkerSource.includes("bookmark-article-"), "empty feeds must not synthesize news cards from bookmark names");
 
 const now = Date.now();
 const tooLarge = [

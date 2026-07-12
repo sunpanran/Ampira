@@ -4,8 +4,8 @@ import {
   REFRESH_ALARM,
   REFRESH_PERIOD_MINUTES,
 } from "./core/constants.mjs";
-import { buildBookmarkModel, hashText, originsFromUrls } from "./core/bookmarks.mjs";
-import { buildFallbackDigest, buildTopics, fetchSourceArticles, rankAndDedupe } from "./core/feed.mjs";
+import { buildBookmarkModel, hashText, inspirationPreviewSourceUrls, inspirationPreviewTargets, originsFromUrls } from "./core/bookmarks.mjs";
+import { buildFallbackDigest, buildTopics, feedCacheOrEmpty, fetchSourceArticles, rankAndDedupe } from "./core/feed.mjs";
 import { normalizeFeedback } from "./core/feedback.mjs";
 import { clearRecords, deleteRecord, getRecord, listRecords, pruneCache, setRecord, setRecords } from "./core/db.mjs";
 import { fetchReader, loadReaderWithCache, readerTextFromBlocks } from "./core/reader.mjs";
@@ -28,6 +28,7 @@ import { requestAiCompletion, testImageSearchConnection } from "./core/ai.mjs";
 import { createClientStateStore } from "./core/client-state.mjs";
 import { createQuotaManager } from "./core/quota.mjs";
 import { createPreviewService } from "./core/preview.mjs";
+import { bravePreviewCacheKeys, previewCacheKeysOutsideTargets } from "./core/preview-cache.mjs";
 import { retainActiveUnrefreshedItems, selectRefreshBatch } from "./core/refresh.mjs";
 import { createRefreshCoordinator } from "./core/refresh-coordinator.mjs";
 import { createEpochMutationQueue } from "./core/mutation-queue.mjs";
@@ -39,7 +40,7 @@ import {
   originPattern,
   revokedSourceKeys,
 } from "./core/permission-state.mjs";
-import { normalizeSettings, providerOrigin } from "./core/settings.mjs";
+import { isValidServiceUrl, normalizeSettings, providerOrigin } from "./core/settings.mjs";
 import { createSettingsStore } from "./core/settings-store.mjs";
 
 let bookmarkRefreshTimer = 0;
@@ -60,6 +61,7 @@ const getSitePreview = createPreviewService({
   getRecord,
   setRecord: storePreviewCache,
   hasOriginPermission,
+  isAllowedTarget: isInspirationPreviewTarget,
   captureCacheEpoch: () => cacheMutations.capture(),
 });
 const refreshCoordinator = createRefreshCoordinator({
@@ -276,11 +278,33 @@ async function performSaveSettings(body, transaction) {
   for (const key of ["openaiBaseUrl", "openaiApiStyle", "openaiSummaryModel"]) {
     if (Object.hasOwn(body, key)) providerPatch[key] = body[key];
   }
-  if (typeof body.openaiApiKey === "string" && body.openaiApiKey.trim()) providerPatch.openaiApiKey = body.openaiApiKey.trim();
+  const submittedOpenAIKey = body.clearOpenAIKey === true
+    ? ""
+    : (typeof body.openaiApiKey === "string" ? body.openaiApiKey.trim() : "");
+  if (submittedOpenAIKey) providerPatch.openaiApiKey = submittedOpenAIKey;
   if (body.clearOpenAIKey === true) providerPatch.openaiApiKey = "";
   if (Object.keys(providerPatch).length) {
     const currentProvider = await readProviderProfile(previous);
     providerPatch = bindProviderPatchToOrigin(providerPatch, currentProvider);
+    if (submittedOpenAIKey) {
+      const candidateBaseUrl = providerPatch.openaiBaseUrl || currentProvider.openaiBaseUrl;
+      if (!isValidServiceUrl(candidateBaseUrl)) {
+        throw typedError("INVALID_URL", "background.error.invalidUrl", {}, false);
+      }
+      const consentAllowed = providerTestConsentAllowed({
+        payloadHasConsent: Object.hasOwn(body, "aiDisclosureAccepted"),
+        payloadAccepted: body.aiDisclosureAccepted === true,
+        savedAccepted: previous.aiDisclosureAccepted === true,
+        draftBaseUrl: candidateBaseUrl,
+        savedBaseUrl: currentProvider.openaiBaseUrl,
+      });
+      if (!consentAllowed) {
+        throw typedError("AI_CONSENT_REQUIRED", "background.error.aiConsentRequired", {}, false);
+      }
+      if (!await hasOriginPermission(candidateBaseUrl)) {
+        throw typedError("ORIGIN_PERMISSION_REQUIRED", "background.error.aiOriginPermission", {}, false);
+      }
+    }
   }
   let provider = Object.keys(providerPatch).length
     ? await updateProviderProfile(providerPatch, previous)
@@ -308,10 +332,12 @@ async function performSaveSettings(body, transaction) {
     || Object.hasOwn(bravePatch, "braveSearchApiKey");
   const aiConfigurationChanged = previous.aiDisclosureAccepted !== normalized.aiDisclosureAccepted
     || previous.credentialGeneration !== normalized.credentialGeneration;
-  if (localeChanged || bookmarkSourceChanged || aiConfigurationChanged) {
+  if (localeChanged || bookmarkSourceChanged || aiConfigurationChanged || imageSearchChanged) {
     cacheMutations.invalidate();
     if (bookmarkSourceChanged) refreshCoordinator.invalidate();
     await cacheMutations.run(() => setRecord("daily-digest", null, "cache"));
+    if (bookmarkSourceChanged) await pruneStalePreviewCaches(normalized);
+    if (imageSearchChanged) await pruneBravePreviewCaches();
   }
   broadcast("settings.changed", { bookmarkSourceChanged, localeChanged, imageSearchChanged });
   return { ...(await publicSettings()), bookmarkSourceChanged, localeChanged, imageSearchChanged };
@@ -324,8 +350,7 @@ async function buildDashboardPayload(attempt = 0) {
   const locale = settingsLocale(settings);
   const secrets = await secretStatus();
   const model = settings.bookmarkConsentGranted ? await currentBookmarkModel(settings) : emptyBookmarkModel();
-  let feed = await getRecord("feed", null);
-  if (!feed?.items?.length) feed = fallbackFeedFromBookmarks(model.bookmarks, settings, locale);
+  let feed = feedCacheOrEmpty(await getRecord("feed", null));
   const [status, cachedDigest, quota, rawSourceQuality] = await Promise.all([
     getRefreshStatus(),
     getRecord("daily-digest", null),
@@ -738,8 +763,7 @@ async function refreshDailyDigest() {
   const settings = await getSettings();
   const locale = settingsLocale(settings);
   const model = settings.bookmarkConsentGranted ? await currentBookmarkModel(settings) : emptyBookmarkModel();
-  let feed = await getRecord("feed", null);
-  if (!feed?.items) feed = fallbackFeedFromBookmarks(model.bookmarks, settings, locale);
+  const feed = feedCacheOrEmpty(await getRecord("feed", null));
   const feedPermissions = await currentFeedPermissionState(settings, model);
   const permittedItems = filterFeedItemsBySources(feed.items, feedPermissions.permitted);
   const contextItems = permittedItems.slice(0, 12);
@@ -1229,13 +1253,60 @@ async function storeReaderCache(reader, cacheEpoch = cacheMutations.capture()) {
 
 function storePreviewCache(key, value, kind = "cache", cacheEpoch) {
   const commit = async (isCurrent) => {
-    if (!isCurrent() || !await hasOriginPermission("https://api.search.brave.com/")) return;
+    if (!isCurrent() || !await previewCachePermitted(value)) return;
     if (!isCurrent()) return;
     await setRecord(key, value, kind);
   };
   return Number.isInteger(cacheEpoch)
     ? cacheMutations.run(commit, cacheEpoch)
     : cacheMutations.run(commit);
+}
+
+async function isInspirationPreviewTarget(value) {
+  const settings = await getSettings();
+  if (settings.bookmarkConsentGranted !== true) return false;
+  const model = await currentBookmarkModel(settings);
+  return previewTargetInModel(value, model);
+}
+
+async function previewCachePermitted(value, context = {}) {
+  const settings = context.settings || await getSettings();
+  if (settings.bookmarkConsentGranted !== true) return false;
+  const model = context.model || await currentBookmarkModel(settings);
+  const requestedUrl = previewIdentityUrl(value?.requestedUrl);
+  if (!requestedUrl || !previewTargetInModel(requestedUrl, model)) return false;
+  if (value.capability === "site-preview-origin") {
+    if (value.strategyVersion !== 3) return false;
+    if (value.sourceOrigin !== new URL(requestedUrl).origin) return false;
+    return hasOriginPermission(requestedUrl);
+  }
+  if (value.capability === "site-preview-brave") {
+    if (value.strategyVersion !== 2) return false;
+    const secrets = context.secrets || await secretStatus();
+    return value.providerOrigin === "https://api.search.brave.com"
+      && settings.webImageSearchEnabled === true
+      && secrets.hasImageSearchKey === true
+      && await hasOriginPermission("https://api.search.brave.com/");
+  }
+  return false;
+}
+
+function previewTargetInModel(value, model) {
+  const requestedUrl = previewIdentityUrl(value);
+  if (!requestedUrl) return false;
+  return inspirationPreviewSourceUrls(model?.bookmarks).some((url) => previewIdentityUrl(url) === requestedUrl);
+}
+
+function previewIdentityUrl(value) {
+  const normalized = normalizeUserUrl(value);
+  if (!normalized) return "";
+  try {
+    const url = new URL(normalized);
+    url.hash = "";
+    return url.href;
+  } catch {
+    return "";
+  }
 }
 
 function readerAliasKey(url) {
@@ -1268,6 +1339,7 @@ async function selectedOrigins(modelArg, settingsArg) {
   const urls = settings.bookmarkConsentGranted === true
     ? model.bookmarks.filter((item) => item.cardType === "news" && !item.feedExcluded).map((item) => item.url)
     : [];
+  if (settings.bookmarkConsentGranted === true) urls.push(...inspirationPreviewSourceUrls(model.bookmarks));
   if (settings.bookmarkConsentGranted === true && settings.publicFeedSupplementEnabled !== false) urls.push(...PUBLIC_FEEDS.map((feed) => feed.url));
   const secrets = await secretStatus();
   if (settings.openaiBaseUrl && settings.aiDisclosureAccepted === true && secrets.hasOpenAIKey) urls.push(settings.openaiBaseUrl);
@@ -1370,9 +1442,6 @@ async function applyEffectivePermissionCachePolicy(removedOrigins, isCurrent) {
     secretStatus(),
     getRefreshStatus(),
   ]);
-  const braveAvailable = settings.webImageSearchEnabled === true
-    && secrets.hasImageSearchKey
-    && await hasOriginPermission("https://api.search.brave.com/");
   if (!isCurrent()) return null;
 
   const [feed, sourceQuality, dailyDigest, cacheRecords] = await Promise.all([
@@ -1409,8 +1478,8 @@ async function applyEffectivePermissionCachePolicy(removedOrigins, isCurrent) {
         providerCapability,
       );
       if (!permitted) directKeys.add(record.key);
-    } else if ((record.key.startsWith("preview-") || record.value?.capability === "image-preview") && !braveAvailable) {
-      directKeys.add(record.key);
+    } else if (record.key.startsWith("preview-") || /^(?:image-preview|site-preview-)/.test(record.value?.capability || "")) {
+      if (!await previewCachePermitted(record.value, { settings, model, secrets })) directKeys.add(record.key);
     } else if (record.key.startsWith("reader-content-v2-") || record.value?.capability === "reader") {
       const permitted = await cacheUrlsPermitted([
         record.value?.requestedUrl,
@@ -1457,6 +1526,38 @@ async function applyEffectivePermissionCachePolicy(removedOrigins, isCurrent) {
     feedItems: items.length,
     deleted: directKeys.size,
   };
+}
+
+async function pruneStalePreviewCaches(settings, expectedEpoch = cacheMutations.capture()) {
+  return cacheMutations.run(async (isCurrent) => {
+    if (!isCurrent()) return null;
+    const model = settings.bookmarkConsentGranted ? await currentBookmarkModel(settings) : emptyBookmarkModel();
+    if (!isCurrent()) return null;
+    const cacheRecords = await listRecords("cache");
+    if (!isCurrent()) return null;
+    const staleKeys = previewCacheKeysOutsideTargets(
+      cacheRecords,
+      inspirationPreviewTargets(model.bookmarks),
+    );
+    for (const key of staleKeys) {
+      if (!isCurrent()) return null;
+      await deleteRecord(key);
+    }
+    return staleKeys.length;
+  }, expectedEpoch);
+}
+
+async function pruneBravePreviewCaches(expectedEpoch = cacheMutations.capture()) {
+  return cacheMutations.run(async (isCurrent) => {
+    if (!isCurrent()) return null;
+    const staleKeys = bravePreviewCacheKeys(await listRecords("cache"));
+    if (!isCurrent()) return null;
+    for (const key of staleKeys) {
+      if (!isCurrent()) return null;
+      await deleteRecord(key);
+    }
+    return staleKeys.length;
+  }, expectedEpoch);
 }
 
 function schedulePermissionCleanup(values, resetAttempts = false) {
@@ -1600,36 +1701,6 @@ function defaultRefreshStatus(messageKey = "background.waitingFirstRefresh") {
   };
 }
 
-function fallbackFeedFromBookmarks(bookmarks, settings, locale = settingsLocale(settings)) {
-  const waitingText = translate(locale, "background.feed.waitingAuthorizedRefresh");
-  const items = bookmarks
-    .filter((item) => item.cardType === "news" && !item.feedExcluded)
-    .slice(0, settings.hotNewsCacheSize)
-    .map((item, index) => ({
-      schemaVersion: 1,
-      extractorVersion: 1,
-      policyVersion: 1,
-      articleId: `bookmark-article-${hashText(item.url)}`,
-      entryKey: `bookmark-article-${hashText(item.url)}`,
-      sourceKey: item.key,
-      source: item.title,
-      sourceOrigin: safeOrigin(item.url),
-      host: item.host,
-      category: item.category,
-      title: item.title,
-      url: item.url,
-      excerpt: waitingText,
-      summary: [waitingText],
-      publishedAt: "",
-      fetchedAt: new Date().toISOString(),
-      timeUnverified: true,
-      externalDiscovery: false,
-      score: Math.max(20, 80 - index),
-      scoreBreakdown: { source: 30, position: Math.max(0, 30 - index) },
-    }));
-  return { schemaVersion: 2, generatedAt: new Date().toISOString(), items, localCount: items.length, publicCount: 0, deniedOrigins: [] };
-}
-
 function summarizeQuality(quality, denied) {
   const records = Object.values(quality);
   const warnings = records.filter((record) => record.status !== "healthy");
@@ -1661,11 +1732,12 @@ function scheduleBookmarkRefresh() {
   if (bookmarkRefreshTimer) clearTimeout(bookmarkRefreshTimer);
   bookmarkRefreshTimer = setTimeout(() => {
     bookmarkRefreshTimer = 0;
-    getSettings().then((settings) => {
+    getSettings().then(async (settings) => {
       if (!settings.bookmarkConsentGranted) return;
+      await pruneStalePreviewCaches(settings).catch(() => {});
       broadcast("dashboard.updated", { reason: "bookmarks-changed" });
       startRefresh(true).catch(() => {});
-    });
+    }).catch(() => {});
   }, 800);
 }
 

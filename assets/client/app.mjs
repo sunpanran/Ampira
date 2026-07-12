@@ -14,6 +14,7 @@ import { createReaderController } from "./reader-ui.mjs";
 import { createAiSearchController } from "./ai-search-ui.mjs";
 import { cloneSettingsDraft, diffSettingsDraft, snapshotSettingsDraft } from "./settings-draft.mjs";
 import { createInspirationPreviewController, inspirationPreviewFingerprint } from "./inspiration-preview-controller.mjs";
+import { AI_SETUP_STAGE, aiProviderOrigin, deriveAiSetupControlState } from "./ai-settings-policy.mjs";
 import {
   ACCENT_THEMES,
   DEFAULT_ACCENT_THEME,
@@ -90,7 +91,8 @@ const inspirationPreviews = createInspirationPreviewController({
   apiGet,
   normalizeUrl,
   isHttpUrl,
-  isEnabled: () => state.settings?.webImageSearchEnabled === true && state.settings?.hasImageSearchKey === true,
+  isEnabled: () => state.settings?.bookmarkConsentGranted === true,
+  canFallback: () => state.settings?.webImageSearchEnabled === true && state.settings?.hasImageSearchKey === true,
   isCurrent: (item, fingerprint) => {
     const current = (state.data?.bookmarks || []).find((candidate) => candidate.key === item.key);
     return inspirationPreviewFingerprint(current, normalizeUrl) === fingerprint;
@@ -114,6 +116,13 @@ let settingsSession = 0;
 let settingsActionGeneration = 0;
 let searchRenderFrame = 0;
 let seenRetentionMode = null;
+let settingsBusy = false;
+let aiGrantPending = false;
+let aiDraftPermissionGranted = false;
+let aiPermissionCheckedOrigin = "";
+let aiPermissionCheckGeneration = 0;
+let aiSetupState = deriveAiSetupControlState();
+let aiSetupFeedback = null;
 
 if ("scrollRestoration" in history) history.scrollRestoration = "manual";
 initialize();
@@ -121,14 +130,16 @@ initialize();
 window.addEventListener("ampira:runtime-message", (event) => {
   if (event.detail?.type === "dashboard.updated") loadDashboard();
   if (event.detail?.type === "settings.changed") {
+    if (event.detail?.payload?.permissionsChanged || event.detail?.payload?.imageSearchChanged) {
+      inspirationPreviews.invalidate();
+    }
     if (els.settingsModal.classList.contains("open")) {
       inspirationPreviews.invalidate();
-      els.refreshPermissionStatus?.click();
+      if (event.detail?.payload?.permissionsChanged) refreshAiSetupPermission({ focusOnLock: true });
       loadDashboard();
       return;
     }
     loadSettings().then(() => {
-      els.refreshPermissionStatus?.click();
       return loadDashboard();
     });
   }
@@ -136,6 +147,10 @@ window.addEventListener("ampira:runtime-message", (event) => {
     state.data.status = event.detail.payload;
     renderStatus();
   }
+});
+
+window.addEventListener("ampira:favicon-permission-changed", () => {
+  if (state.data) renderAll();
 });
 
 async function initialize() {
@@ -153,6 +168,7 @@ async function initialize() {
 function bindEvents() {
   initializePointerHighlights();
   initializeScrollSpy();
+  bindAiPermissionEvents();
   syncNavExpandedWidth();
   document.fonts?.ready?.then(syncNavExpandedWidth).catch(() => {});
   window.addEventListener("resize", () => {
@@ -327,7 +343,21 @@ function bindEvents() {
     input.addEventListener("input", () => renderSettingsStatus());
     input.addEventListener("change", () => renderSettingsStatus());
   });
-  els.apiBaseUrlInput.addEventListener("input", resetAiConsentForProviderChange);
+  els.apiBaseUrlInput.addEventListener("input", () => {
+    aiSetupFeedback = null;
+    resetAiConsentForProviderChange();
+    refreshAiSetupPermission();
+  });
+  els.aiDisclosureConsent.addEventListener("change", () => {
+    aiSetupFeedback = null;
+    refreshAiSetupPermission();
+  });
+  els.grantAiOrigin.addEventListener("click", grantAiProviderOrigin);
+  document.addEventListener("ampira:locale-changed", syncAiSetupControls);
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) refreshAiSetupPermission({ focusOnLock: true });
+  });
+  window.addEventListener("focus", () => refreshAiSetupPermission({ focusOnLock: true }));
   els.addExclude.addEventListener("click", addNewsExclusion);
   els.addExcludeFolder.addEventListener("click", addNewsFolderExclusion);
   els.clearSourceSuggestions.addEventListener("click", clearSourceSuggestions);
@@ -347,6 +377,11 @@ function bindEvents() {
   els.resetQuota.addEventListener("click", resetQuota);
   els.resetPreferences.addEventListener("click", resetPreferences);
   els.deepseekPreset.addEventListener("click", applyDeepSeekPreset);
+}
+
+function bindAiPermissionEvents() {
+  globalThis.chrome?.permissions?.onAdded?.addListener(() => refreshAiSetupPermission());
+  globalThis.chrome?.permissions?.onRemoved?.addListener(() => refreshAiSetupPermission({ focusOnLock: true }));
 }
 
 function syncViewportMetrics() {
@@ -738,6 +773,8 @@ async function loadSettings() {
     els.publicFeedSupplementEnabledInput.checked = state.settings.publicFeedSupplementEnabled !== false;
     els.webImageSearchEnabledInput.checked = state.settings.webImageSearchEnabled !== false;
     els.aiDisclosureConsent.checked = state.settings.aiDisclosureAccepted === true;
+    await refreshAiSetupPermission();
+    if (token !== settingsLoadToken) return false;
     syncSeenArchiveRetention({ render: false });
     syncAppearanceControls(state.settings);
     applyAppearanceSettings(state.settings);
@@ -803,7 +840,7 @@ async function saveSettings() {
   setSettingsBusy(true);
   try {
     const draft = {
-      openaiApiKey: els.apiKeyInput.value,
+      openaiApiKey: aiSetupState.formUnlocked ? els.apiKeyInput.value : "",
       openaiBaseUrl: els.apiBaseUrlInput.value,
       openaiApiStyle: els.apiStyleSelect.value,
       openaiSummaryModel: els.modelInput.value,
@@ -858,6 +895,10 @@ async function saveSettings() {
 }
 
 function testKey() {
+  if (!aiSetupState.formUnlocked) {
+    focusAiSetupRequirement();
+    return;
+  }
   return runSettingsAction(async (isCurrent) => {
     renderSettingsStatus(t("settings.test.testing"));
     try {
@@ -939,6 +980,7 @@ function clearCache() {
       const result = await apiPost("/api/cache/clear");
       if (!isCurrent()) return;
       if (!result.ok) throw new Error(localizedResponseMessage(result, "error.requestFailed"));
+      inspirationPreviews.invalidate();
       renderSettingsStatus(localizedResponseMessage(result, "settings.cache.cleared"));
       await loadDashboard();
     } catch (error) {
@@ -1401,18 +1443,37 @@ function normalizeFolderPath(value) {
 async function openSettings() {
   const session = ++settingsSession;
   settingsActionGeneration += 1;
+  aiSetupFeedback = null;
   settingsLocaleAtOpen = getLocale();
   settingsSnapshot = snapshotSettingsDraft(state.settings, selectedUiLocale());
   resetSecretDrafts();
   document.querySelectorAll(".nav-btn").forEach((item) => item.classList.toggle("active", item.id === "settingsNav"));
   els.settingsModal.classList.add("open");
-  els.apiKeyInput.focus({ preventScroll: true });
+  els.closeSettings.focus({ preventScroll: true });
   setSettingsBusy(true);
   try {
     if (await loadSettings() && session === settingsSession) settingsSnapshot = snapshotSettingsDraft(state.settings, selectedUiLocale());
   } finally {
-    if (session === settingsSession) setSettingsBusy(false);
+    if (session === settingsSession) {
+      setSettingsBusy(false);
+      focusSettingsStart();
+    }
   }
+}
+
+function focusSettingsStart() {
+  const servicePanel = els.settingsForm.querySelector('[data-settings-panel="service"]');
+  if (!servicePanel?.classList.contains("active")) {
+    els.settingsTabs.querySelector("button.active")?.focus({ preventScroll: true });
+    return;
+  }
+  syncAiSetupControls();
+  const target = aiSetupState.stage === AI_SETUP_STAGE.INVALID_ORIGIN
+    ? els.apiBaseUrlInput
+    : (aiSetupState.stage === AI_SETUP_STAGE.NEEDS_CONSENT
+      ? els.aiDisclosureConsent
+      : (aiSetupState.stage === AI_SETUP_STAGE.NEEDS_PERMISSION ? els.grantAiOrigin : els.apiKeyInput));
+  target.focus({ preventScroll: true });
 }
 
 function closeSettings(commit = false) {
@@ -1516,6 +1577,7 @@ function scheduleSearchRender() {
 }
 
 function setSettingsBusy(busy) {
+  settingsBusy = busy;
   els.saveSettings.disabled = busy;
   els.testKey.disabled = busy;
   els.clearKey.disabled = busy;
@@ -1564,6 +1626,7 @@ function setSettingsBusy(busy) {
   els.bookmarkOnlyFolderList.querySelectorAll("button").forEach((button) => {
     button.disabled = busy;
   });
+  syncAiSetupControls();
 }
 
 async function runSettingsAction(action) {
@@ -1861,6 +1924,7 @@ function applyUiLocale(value, { persist = false, render = true } = {}) {
   renderTodayMeta();
   if (state.data && render) renderAll();
   syncNavExpandedWidth();
+  syncAiSetupControls();
   return locale;
 }
 
@@ -1944,26 +2008,169 @@ function applyDeepSeekPreset() {
   els.apiStyleSelect.value = "chat_completions";
   els.modelInput.value = "deepseek-v4-flash";
   resetAiConsentForProviderChange();
+  refreshAiSetupPermission();
   renderSettingsStatus(t("settings.deepseekApplied"));
 }
 
 function resetAiConsentForProviderChange() {
-  const savedOrigin = providerOriginForUi(state.settings?.savedBaseUrl || state.settings?.baseUrl || "");
-  const draftOrigin = providerOriginForUi(els.apiBaseUrlInput.value);
+  const savedOrigin = aiProviderOrigin(state.settings?.savedBaseUrl || state.settings?.baseUrl || "");
+  const draftOrigin = aiProviderOrigin(els.apiBaseUrlInput.value);
   if (!savedOrigin || savedOrigin === draftOrigin || !els.aiDisclosureConsent.checked) return;
   els.aiDisclosureConsent.checked = false;
+  els.apiKeyInput.value = "";
   renderSettingsStatus(t("settings.service.providerConsentReset"));
 }
 
-function providerOriginForUi(value) {
-  try {
-    const url = new URL(String(value || "").trim());
-    if (url.protocol === "https:") return url.origin;
-    if (url.protocol === "http:" && ["localhost", "127.0.0.1"].includes(url.hostname)) return url.origin;
-  } catch {
-    // The settings validation reports malformed provider URLs.
+function syncAiSetupControls() {
+  aiSetupState = deriveAiSetupControlState({
+    providerUrl: els.apiBaseUrlInput.value,
+    consentAccepted: els.aiDisclosureConsent.checked,
+    permissionGranted: aiDraftPermissionGranted,
+    busy: settingsBusy,
+    grantPending: aiGrantPending,
+  });
+  const permissionApiAvailable = Boolean(
+    globalThis.chrome?.permissions?.contains
+    && globalThis.chrome?.permissions?.request
+  );
+  const grantDisabled = aiSetupState.grantDisabled || !permissionApiAvailable;
+
+  els.apiBaseUrlInput.disabled = aiSetupState.providerUrlDisabled;
+  els.aiDisclosureConsent.disabled = aiSetupState.consentDisabled;
+  els.deepseekPreset.disabled = settingsBusy || aiGrantPending;
+  els.grantAiOrigin.disabled = grantDisabled;
+  els.aiProviderFields.disabled = aiSetupState.protectedFieldsDisabled;
+  if (grantDisabled && !settingsBusy && !aiGrantPending) {
+    els.grantAiOrigin.dataset.disabledReason = "prerequisite";
+  } else {
+    delete els.grantAiOrigin.dataset.disabledReason;
   }
-  return "";
+
+  const label = els.grantAiOrigin.querySelector(".btn-label");
+  if (label) {
+    label.removeAttribute("data-i18n");
+    label.textContent = t(aiSetupState.stage === AI_SETUP_STAGE.READY
+      ? "settings.service.aiOriginGranted"
+      : "settings.service.grantAi");
+  }
+  els.aiFormAccessStatus.removeAttribute("data-i18n");
+  const statusKey = aiSetupFeedback?.key
+    || (aiGrantPending
+      ? "settings.service.aiFormRequesting"
+      : ({
+      [AI_SETUP_STAGE.INVALID_ORIGIN]: "settings.service.aiFormInvalidOrigin",
+      [AI_SETUP_STAGE.NEEDS_CONSENT]: "settings.service.aiFormNeedsConsent",
+      [AI_SETUP_STAGE.NEEDS_PERMISSION]: "settings.service.aiFormNeedsPermission",
+      [AI_SETUP_STAGE.READY]: "settings.service.aiFormReady",
+    })[aiSetupState.stage]);
+  els.aiFormAccessStatus.dataset.stage = aiSetupFeedback ? "error" : (aiGrantPending ? "grant-pending" : aiSetupState.stage);
+  els.aiFormAccessStatus.textContent = t(statusKey, {
+    origin: aiSetupState.origin,
+    ...(aiSetupFeedback?.params || {}),
+  });
+}
+
+async function refreshAiSetupPermission({ focusOnLock = false } = {}) {
+  const generation = ++aiPermissionCheckGeneration;
+  const snapshot = deriveAiSetupControlState({
+    providerUrl: els.apiBaseUrlInput.value,
+    consentAccepted: els.aiDisclosureConsent.checked,
+  });
+  const wasGranted = aiDraftPermissionGranted;
+  const focusedProtectedControl = els.aiProviderFields.contains(document.activeElement);
+  const canReuseCurrentCheck = aiPermissionCheckedOrigin === snapshot.origin && els.aiDisclosureConsent.checked;
+  if (!canReuseCurrentCheck) {
+    aiDraftPermissionGranted = false;
+    aiPermissionCheckedOrigin = snapshot.origin;
+    syncAiSetupControls();
+  }
+  if (!snapshot.originPattern || !els.aiDisclosureConsent.checked || !globalThis.chrome?.permissions?.contains) {
+    aiDraftPermissionGranted = false;
+    aiPermissionCheckedOrigin = snapshot.origin;
+    syncAiSetupControls();
+    moveFocusAfterAiLock({ focusOnLock, wasGranted, focusedProtectedControl });
+    return false;
+  }
+
+  try {
+    const granted = await chrome.permissions.contains({ origins: [snapshot.originPattern] });
+    if (generation !== aiPermissionCheckGeneration) return false;
+    if (aiProviderOrigin(els.apiBaseUrlInput.value) !== snapshot.origin || !els.aiDisclosureConsent.checked) return false;
+    aiDraftPermissionGranted = granted === true;
+  } catch {
+    if (generation !== aiPermissionCheckGeneration) return false;
+    aiDraftPermissionGranted = false;
+  }
+  aiPermissionCheckedOrigin = snapshot.origin;
+  if (aiDraftPermissionGranted) aiSetupFeedback = null;
+  syncAiSetupControls();
+  moveFocusAfterAiLock({ focusOnLock, wasGranted, focusedProtectedControl });
+  return aiDraftPermissionGranted;
+}
+
+function moveFocusAfterAiLock({ focusOnLock, wasGranted, focusedProtectedControl }) {
+  if (!focusOnLock || !wasGranted || aiDraftPermissionGranted || !focusedProtectedControl) return;
+  if (!els.settingsModal.classList.contains("open") || aiSetupState.stage !== AI_SETUP_STAGE.NEEDS_PERMISSION) return;
+  els.grantAiOrigin.focus({ preventScroll: true });
+}
+
+async function grantAiProviderOrigin() {
+  const requested = deriveAiSetupControlState({
+    providerUrl: els.apiBaseUrlInput.value,
+    consentAccepted: els.aiDisclosureConsent.checked,
+    permissionGranted: aiDraftPermissionGranted,
+  });
+  if (requested.stage !== AI_SETUP_STAGE.NEEDS_PERMISSION) {
+    focusAiSetupRequirement();
+    return;
+  }
+  if (!globalThis.chrome?.permissions?.request) {
+    renderSettingsStatus(t("api.notExtensionPage"));
+    return;
+  }
+
+  aiSetupFeedback = null;
+  aiGrantPending = true;
+  syncAiSetupControls();
+  let feedback = null;
+  try {
+    const granted = await chrome.permissions.request({ origins: [requested.originPattern] });
+    if (granted !== true) {
+      feedback = { key: "settings.service.aiFormDeclined", params: { origin: requested.origin } };
+    }
+  } catch (error) {
+    feedback = {
+      key: "settings.service.aiFormGrantFailed",
+      params: { origin: requested.origin, message: String(error.message || error) },
+    };
+  } finally {
+    aiGrantPending = false;
+    const permissionGranted = await refreshAiSetupPermission();
+    if (!permissionGranted && feedback) {
+      aiSetupFeedback = feedback;
+      syncAiSetupControls();
+      renderSettingsStatus(t(feedback.key, feedback.params));
+    } else if (permissionGranted && els.settingsModal.classList.contains("open")) {
+      els.apiKeyInput.focus({ preventScroll: true });
+    }
+  }
+}
+
+function focusAiSetupRequirement() {
+  syncAiSetupControls();
+  if (aiSetupState.stage === AI_SETUP_STAGE.INVALID_ORIGIN) {
+    els.apiBaseUrlInput.focus({ preventScroll: true });
+    renderSettingsStatus(t("permission.invalidServiceUrl"));
+    return;
+  }
+  if (aiSetupState.stage === AI_SETUP_STAGE.NEEDS_CONSENT) {
+    els.aiDisclosureConsent.focus({ preventScroll: true });
+    renderSettingsStatus(t("background.error.aiConsentRequired"));
+    return;
+  }
+  if (aiSetupState.stage === AI_SETUP_STAGE.NEEDS_PERMISSION) {
+    els.grantAiOrigin.focus({ preventScroll: true });
+  }
 }
 
 function renderSettingsStatus(extra) {
@@ -3102,7 +3309,7 @@ function renderInspirationImageThumb(thumb, item, imageUrl) {
   img.loading = "lazy";
   img.referrerPolicy = "no-referrer";
   img.addEventListener("error", () => {
-    inspirationPreviews.reject(item);
+    inspirationPreviews.reject(item, imageUrl);
     renderInspirationFallbackThumb(thumb, item);
   }, { once: true });
   thumb.replaceChildren(img);
