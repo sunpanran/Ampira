@@ -1,6 +1,8 @@
 (() => {
   const storageKey = "ampira.colorMode";
   const coverStorageKey = "ampira.headerCover";
+  const shortcutLayoutStorageKey = "ampira.websiteShortcutsLayout";
+  const settingsStorageKey = "ampira.settings.v1";
   const allowedModes = new Set(["system", "dark", "light"]);
   let colorMode = "dark";
 
@@ -12,6 +14,14 @@
   }
 
   document.documentElement.dataset.colorMode = colorMode;
+
+  const shortcutLayout = readWebsiteShortcutLayoutHint();
+  applyWebsiteShortcutLayout(shortcutLayout);
+  globalThis.ampiraLayoutBootstrap = {
+    websiteShortcutsReady: shortcutLayout.known
+      ? Promise.resolve(shortcutLayout)
+      : hydrateWebsiteShortcutLayout(),
+  };
 
   try {
     const cachedCover = localStorage.getItem(coverStorageKey);
@@ -43,6 +53,51 @@
       observer.disconnect();
     });
     observer.observe(document.documentElement, { childList: true, subtree: true });
+  }
+
+  function readWebsiteShortcutLayoutHint() {
+    try {
+      const value = localStorage.getItem(shortcutLayoutStorageKey);
+      if (!value) return { known: false, enabled: false, count: 0 };
+      if (value === "on" || value === "off") {
+        return { known: true, enabled: value === "on", count: value === "on" ? 1 : 0 };
+      }
+      const parsed = JSON.parse(value);
+      return normalizeWebsiteShortcutLayout(parsed, true);
+    } catch {
+      return { known: false, enabled: false, count: 0 };
+    }
+  }
+
+  async function hydrateWebsiteShortcutLayout() {
+    if (location.protocol !== "chrome-extension:" || !globalThis.chrome?.storage?.sync?.get) return shortcutLayout;
+    try {
+      const records = await chrome.storage.sync.get(settingsStorageKey);
+      const settings = records?.[settingsStorageKey];
+      const layout = normalizeWebsiteShortcutLayout({
+        enabled: settings?.websiteShortcutsEnabled === true,
+        count: Array.isArray(settings?.websiteShortcuts) ? settings.websiteShortcuts.length : 0,
+      }, true);
+      try { localStorage.setItem(shortcutLayoutStorageKey, JSON.stringify(layout)); } catch {}
+      applyWebsiteShortcutLayout(layout);
+      return layout;
+    } catch {
+      return shortcutLayout;
+    }
+  }
+
+  function normalizeWebsiteShortcutLayout(value, known = false) {
+    return {
+      known: known === true,
+      enabled: value?.enabled === true,
+      count: Math.min(10, Math.max(0, Math.floor(Number(value?.count) || 0))),
+    };
+  }
+
+  function applyWebsiteShortcutLayout(layout) {
+    const root = document.documentElement;
+    root.classList.toggle("has-website-shortcuts", layout.enabled === true);
+    root.dataset.websiteShortcutCount = String(layout.count || 0);
   }
 
   function isSafeImageUrl(value) {

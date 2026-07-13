@@ -153,13 +153,46 @@ button,
 }
 
 .nav-logo {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 10px;
   overflow: visible;
+  padding: 0;
+  border: 1px solid transparent;
   border-radius: 0;
   background: transparent;
+  cursor: pointer;
+  transition: border-color var(--motion-state-duration) ease, transform var(--motion-press-duration) ease;
+}
+
+.nav-logo::after {
+  content: "";
+  position: absolute;
+  inset: 4px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-button);
+  pointer-events: none;
+  transform: scale(.78);
+  opacity: 0;
+}
+
+.nav-logo:focus-visible {
+  outline: 2px solid rgb(var(--accent-rgb));
+  outline-offset: 2px;
+}
+
+.nav-logo:active {
+  transform: scale(.96);
+}
+
+.nav-logo.is-returning::after {
+  animation: nav-logo-return .44s cubic-bezier(.22, .86, .34, 1);
+}
+
+.nav-logo.is-returning img {
+  animation: nav-logo-mark-return .44s cubic-bezier(.22, .86, .34, 1);
 }
 
 .nav-logo img {
@@ -167,6 +200,18 @@ button,
   height: 24px;
   flex: 0 0 auto;
   object-fit: contain;
+}
+
+@keyframes nav-logo-return {
+  0% { border-color: rgba(var(--accent-rgb), .72); opacity: 0; transform: scale(.72); }
+  34% { opacity: 1; }
+  100% { border-color: rgba(var(--accent-rgb), 0); opacity: 0; transform: scale(1.08); }
+}
+
+@keyframes nav-logo-mark-return {
+  0% { transform: scale(.9); }
+  45% { transform: scale(1.08); }
+  100% { transform: scale(1); }
 }
 
 .nav-btn {
@@ -244,23 +289,26 @@ button,
   position: absolute;
   left: calc((var(--nav-icon-track-width) + 1rem) / 2 + var(--nav-expanded-gap));
   top: 50%;
-  display: none;
+  display: block;
   overflow: hidden;
+  visibility: hidden;
   opacity: 0;
+  pointer-events: none;
   color: inherit;
   font-size: 13px;
   font-weight: 700;
   text-align: left;
   white-space: nowrap;
-  transform: translateY(-50%);
-  transition: opacity .16s ease;
+  transform: translateY(-50%) translateX(-4px);
+  transition: opacity .16s ease, transform .18s cubic-bezier(.22, .86, .34, 1), visibility 0s linear .18s;
 }
 
 .sidebar:hover .nav-label,
 .sidebar:focus-within .nav-label {
-  display: block;
+  visibility: visible;
   opacity: 1;
   transform: translateY(-50%);
+  transition-delay: .04s, .04s, 0s;
 }
 
 .main {
@@ -502,4 +550,3 @@ button,
 .summary-tools {
   justify-content: flex-end;
 }
-

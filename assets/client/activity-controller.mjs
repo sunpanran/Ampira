@@ -200,7 +200,7 @@ function sendFeedback(item, action) {
   apiPost("/api/feedback", {
     articleId: article.articleId,
     action,
-    source: article.source || item.title || "",
+    source: article.publisher || article.source || item.title || "",
     category: article.category || item.category || "",
     topics: article.topics || [],
   }).catch(() => {});

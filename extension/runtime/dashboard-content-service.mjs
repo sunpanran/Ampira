@@ -5,7 +5,8 @@ export function createDashboardContentService(options) {
     feedCacheOrEmpty, getRecord, getRefreshStatus, readQuota, emptySourceQuality,
     getAiAutoStatus, filterFeedItemsBySources, originsFromUrls, buildPermissionRows,
     originPattern, sanitizeCardAiSummaries, buildFallbackDigest, summarizeQuality,
-    pipelineStages, publicFeeds, hashText, chrome, safeOrigin, typedError,
+    buildDailyCandidates, dailyCandidateFingerprint, rankingPolicyVersion, localDateKey,
+    pipelineStages, publicFeedsForLocale, chrome, safeOrigin, typedError,
     uniqueStrings, normalizeUserUrl, aiSearchResultPermitted,
   } = options;
 
@@ -38,7 +39,7 @@ async function buildDashboardPayload(attempt = 0) {
     getAiAutoStatus(),
   ]);
   const feedPermissions = await currentFeedPermissionState(settings, model);
-  const visibleFeedItems = filterFeedItemsBySources(feed.items || [], feedPermissions.permitted);
+  const visibleFeedItems = filterFeedItemsBySources(feed.items || [], feedPermissions.permitted, feedPermissions.grantedOrigins);
   feed = {
     ...feed,
     items: visibleFeedItems,
@@ -54,9 +55,18 @@ async function buildDashboardPayload(attempt = 0) {
     && secrets.hasOpenAIKey
     && aiPermissionGranted;
   feed = { ...feed, items: sanitizeCardAiSummaries(feed.items, settings, configuredForAi) };
+  const digestCandidates = buildDailyCandidates(feed.items, {
+    limit: 12,
+    recentLimit: 3,
+    publisherLimit: settings.todayNewsPerPublisherLimit,
+    aiRankingEnabled: configuredForAi,
+  });
   const fallbackDigest = withFeedCacheMetadata(
-    buildFallbackDigest(feed.items, secrets.hasOpenAIKey ? "pending" : "no-api-key", locale),
-    feed.items,
+    buildFallbackDigest(digestCandidates, secrets.hasOpenAIKey ? "pending" : "no-api-key", locale, {
+      preselected: true,
+      publisherLimit: settings.todayNewsPerPublisherLimit,
+    }),
+    digestCandidates,
     "daily-digest",
   );
   let digest = cachedDigest?.locale === locale
@@ -76,8 +86,11 @@ async function buildDashboardPayload(attempt = 0) {
     };
     aiPermissionGranted = false;
     configuredForAi = false;
-    digest = withFeedCacheMetadata(buildFallbackDigest([], "local", locale), [], "daily-digest");
-    sourceQuality = summarizeQuality({}, feedPermissions.sources);
+    digest = withFeedCacheMetadata(buildFallbackDigest([], "local", locale, {
+      preselected: true,
+      publisherLimit: settings.todayNewsPerPublisherLimit,
+    }), [], "daily-digest");
+    sourceQuality = summarizeQuality({}, feedPermissions.sources, feedPermissions.sources);
     ready = 0;
   }
   return {
@@ -140,7 +153,7 @@ function configuredFeedSources(settings, model) {
   const localSources = (model?.bookmarks || []).filter((item) => item.cardType === "news" && !item.feedExcluded);
   const publicSources = settings.publicFeedSupplementEnabled === false
     ? []
-    : publicFeeds.map((feed) => ({ ...feed, key: `public-${hashText(feed.url)}`, externalDiscovery: true }));
+    : publicFeedsForLocale(settingsLocale(settings)).map((feed) => ({ ...feed, externalDiscovery: true }));
   return [...localSources, ...publicSources];
 }
 
@@ -180,8 +193,9 @@ function withFeedCacheMetadata(value, items, capability, providerUrl = "") {
   for (const item of Array.isArray(items) ? items : []) {
     const sourceKey = String(item?.sourceKey || "");
     const sourceOrigin = safeOrigin(item?.sourceOrigin || "");
+    const fetchOrigin = safeOrigin(item?.fetchOrigin || item?.sourceOrigin || "");
     if (!sourceKey || !sourceOrigin) continue;
-    identities.set(`${sourceKey}|${sourceOrigin}`, { sourceKey, sourceOrigin });
+    identities.set(`${sourceKey}|${sourceOrigin}|${fetchOrigin}`, { sourceKey, sourceOrigin, fetchOrigin });
   }
   const result = {
     ...value,
@@ -196,7 +210,11 @@ function cacheSourceIdentitiesPermitted(value, permissionState, requireMetadata 
   if (!Array.isArray(value?.sourceIdentities)) return !requireMetadata;
   return value.sourceIdentities.every((identity) => {
     const expected = permissionState.permittedByKey.get(String(identity?.sourceKey || ""));
-    return Boolean(expected && expected === originPattern(identity?.sourceOrigin || ""));
+    if (!expected || expected !== originPattern(identity?.sourceOrigin || "")) return false;
+    const fetchPattern = originPattern(identity?.fetchOrigin || identity?.sourceOrigin || "");
+    if (!fetchPattern) return false;
+    return buildPermissionRows([fetchPattern], permissionState.grantedOrigins)
+      .some((row) => row.required && row.granted);
   });
 }
 
@@ -209,7 +227,7 @@ async function assertFeedItemsStillPermitted(items) {
     throw typedError("SOURCE_PERMISSION_CHANGED", "background.error.sourcePermission", {}, false);
   }
   return {
-    origins: context.sourceIdentities.map((identity) => identity.sourceOrigin),
+    origins: uniqueStrings(context.sourceIdentities.flatMap((identity) => [identity.sourceOrigin, identity.fetchOrigin])),
     code: "SOURCE_PERMISSION_CHANGED",
     messageKey: "background.error.sourcePermission",
   };
@@ -229,6 +247,20 @@ async function assertUrlsStillPermitted(urls) {
 }
 
 function digestCachePermitted(digest, visibleItems, permissionState, settings, configuredForAi) {
+  const candidates = buildDailyCandidates(visibleItems, {
+    limit: 12,
+    recentLimit: 3,
+    publisherLimit: settings.todayNewsPerPublisherLimit,
+    aiRankingEnabled: configuredForAi,
+  });
+  const expectedFingerprint = dailyCandidateFingerprint(candidates, {
+    policyVersion: rankingPolicyVersion,
+    publisherLimit: settings.todayNewsPerPublisherLimit,
+  });
+  if (digest?.schemaVersion !== 2
+    || digest?.rankingPolicyVersion !== rankingPolicyVersion
+    || digest?.date !== localDateKey()
+    || digest?.candidateFingerprint !== expectedFingerprint) return false;
   const visibleIds = new Set((visibleItems || []).flatMap((item) => [item?.articleId, item?.entryKey, item?.url]).filter(Boolean));
   const digestItemsVisible = (Array.isArray(digest?.items) ? digest.items : []).every((item) => (
     visibleIds.has(item?.id) || visibleIds.has(item?.url)
@@ -244,8 +276,23 @@ function filterSourceQuality(sourceQuality, permissionState) {
   const records = Object.fromEntries(Object.entries(sourceQuality?.records || {}).filter(([key, record]) => {
     const expected = permissionState.permittedByKey.get(String(key || ""));
     return Boolean(expected && expected === originPattern(record?.sourceOrigin || ""));
+  }).map(([key, record]) => {
+    const fetchPattern = originPattern(record?.fetchOrigin || record?.sourceOrigin || "");
+    const fetchGranted = !fetchPattern || buildPermissionRows([fetchPattern], permissionState.grantedOrigins)
+      .some((row) => row.required && row.granted);
+    if (fetchGranted) return [key, record];
+    return [key, {
+      ...record,
+      status: "permissionRequired",
+      pendingFeed: record.resolvedUrl && record.fetchOrigin
+        ? { url: record.resolvedUrl, origin: record.fetchOrigin }
+        : record.pendingFeed || null,
+      resolvedUrl: "",
+      fetchOrigin: "",
+      validators: { etag: "", lastModified: "" },
+    }];
   }));
-  return summarizeQuality(records, permissionState.denied);
+  return summarizeQuality(records, permissionState.denied, permissionState.sources);
 }
 
 async function sanitizeDailyDigest(digest, attempt = 0) {
@@ -256,7 +303,7 @@ async function sanitizeDailyDigest(digest, attempt = 0) {
   const model = settings.bookmarkConsentGranted ? await currentBookmarkModel(settings) : emptyBookmarkModel();
   const feed = await getRecord("feed", { items: [] });
   const permissions = await currentFeedPermissionState(settings, model);
-  const items = filterFeedItemsBySources(feed.items || [], permissions.permitted);
+  const items = filterFeedItemsBySources(feed.items || [], permissions.permitted, permissions.grantedOrigins);
   const aiPermitted = digest?.status === "ai"
     ? await aiSearchResultPermitted({
       usedAi: true,
@@ -266,11 +313,25 @@ async function sanitizeDailyDigest(digest, attempt = 0) {
     : false;
   const sanitized = digest?.locale === locale && digestCachePermitted(digest, items, permissions, settings, aiPermitted)
     ? digest
-    : withFeedCacheMetadata(buildFallbackDigest(items, "local", locale), items.slice(0, 12), "daily-digest");
+    : (() => {
+        const candidates = buildDailyCandidates(items, {
+          limit: 12,
+          recentLimit: 3,
+          publisherLimit: settings.todayNewsPerPublisherLimit,
+          aiRankingEnabled: aiPermitted,
+        });
+        return withFeedCacheMetadata(buildFallbackDigest(candidates, "local", locale, {
+          preselected: true,
+          publisherLimit: settings.todayNewsPerPublisherLimit,
+        }), candidates, "daily-digest");
+      })();
   if (!cacheMutations.isCurrent(expectedCacheEpoch) || !isPermissionEpochCurrent(expectedPermissionEpoch)) {
     if (attempt < 2) return sanitizeDailyDigest(digest, attempt + 1);
     return {
-      digest: withFeedCacheMetadata(buildFallbackDigest([], "local", locale), [], "daily-digest"),
+      digest: withFeedCacheMetadata(buildFallbackDigest([], "local", locale, {
+        preselected: true,
+        publisherLimit: settings.todayNewsPerPublisherLimit,
+      }), [], "daily-digest"),
       cacheEpoch: expectedCacheEpoch,
       permissionEpoch: expectedPermissionEpoch,
     };

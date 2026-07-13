@@ -15,9 +15,9 @@
   <div class="app">
     <aside class="sidebar" aria-label="主导航" data-i18n-aria-label="nav.main">
       <nav class="side-nav">
-        <div class="nav-logo" aria-hidden="true">
-          <img src="favicon.svg" alt="">
-        </div>
+        <button class="nav-logo" id="navLogo" type="button" aria-label="返回顶部" title="返回顶部" data-i18n-aria-label="nav.backToTop" data-i18n-title="nav.backToTop">
+          <img src="favicon.svg" alt="" aria-hidden="true">
+        </button>
         <div class="nav-main">
           <button class="nav-btn active" type="button" data-scroll="daily" aria-label="今日" title="今日" data-i18n-aria-label="nav.today" data-i18n-title="nav.today">
             <img class="nav-icon" data-icon="calendar" alt="" aria-hidden="true">
@@ -64,6 +64,9 @@
             </div>
           </div>
         </div>
+        <nav class="website-shortcuts" id="websiteShortcuts" aria-label="网站快捷方式" data-i18n-aria-label="shortcuts.label" hidden>
+          <div class="website-shortcut-list" id="websiteShortcutList"></div>
+        </nav>
         <div class="daily-shell">
           <div class="daily-primary">
             <div class="efficiency-panel" id="efficiencyPanel" aria-label="信息效率" data-i18n-aria-label="dashboard.efficiency"></div>
@@ -335,6 +338,11 @@
                 <input id="newsPerCategoryInput" type="number" min="0" max="100" step="1" inputmode="numeric" placeholder="12">
                 <div class="help" data-i18n="settings.cache.perCategoryHelp">每个资讯分类一次最多读取的入口条数；设为 0 时不限制。</div>
               </div>
+              <div class="field">
+                <label for="todayNewsPerPublisherInput" data-i18n="settings.cache.todayPublisherLimit">今日单发布方上限</label>
+                <input id="todayNewsPerPublisherInput" type="number" min="0" max="10" step="1" inputmode="numeric" placeholder="2">
+                <div class="help" data-i18n="settings.cache.todayPublisherLimitHelp">每批今日资讯优先限制同一发布方的条数；设为 0 时不限制，候选不足时会自动补满。</div>
+              </div>
             </div>
             <div class="settings-row-list">
               <label class="switch-field" for="cardSummaryEnabledInput">
@@ -350,6 +358,12 @@
                 <span class="toggle"><input id="publicFeedSupplementEnabledInput" type="checkbox" checked><span aria-hidden="true"></span></span>
               </label>
             </div>
+          </section>
+          <section class="settings-section" aria-labelledby="sourceCoverageTitle">
+            <div class="settings-section-head"><div><h4 id="sourceCoverageTitle" data-i18n="settings.sources.coverageTitle">来源覆盖率</h4><p data-i18n="settings.sources.coverageHelp">查看已启用来源的抓取结果、解析方式和精确域名授权缺口。</p></div></div>
+            <div class="source-coverage-summary" id="sourceCoverageSummary" aria-live="polite"></div>
+            <div class="settings-cache-note settings-inline-status" id="sourceCoverageStatus" data-i18n="settings.sources.waiting">等待首次来源检查。</div>
+            <div class="source-health-list settings-compact-list" id="sourceCoverageList"></div>
           </section>
           <section class="settings-section" aria-labelledby="cacheReadingTitle">
             <div class="settings-section-head"><div><h4 id="cacheReadingTitle" data-i18n="settings.section.reading">阅读与留存</h4><p data-i18n="settings.section.readingHelp">决定入口打开方式和已读内容的保留规则。</p></div></div>
@@ -546,6 +560,31 @@
               <button class="btn" id="openExtensionManager" type="button"><img class="btn-icon" data-icon="link-external-01" alt="" aria-hidden="true"><span class="btn-label" data-i18n="settings.browser.openManager">打开扩展管理页</span></button>
             </div>
           </section>
+          <section class="settings-section" id="websiteShortcutsSettings" aria-labelledby="browserShortcutsTitle">
+            <div class="settings-section-head"><div><h4 id="browserShortcutsTitle" class="feature-title"><img class="feature-title-icon" data-icon="bookmark" alt="" aria-hidden="true"><span data-i18n="settings.shortcuts.title">网站快捷方式</span></h4><p data-i18n="settings.shortcuts.help">在每日 Dashboard 顶部显示手动添加的网站入口。关闭后保留已保存的快捷方式。</p></div></div>
+            <label class="switch-field" for="websiteShortcutsEnabledInput">
+              <span class="switch-copy"><span class="switch-title" data-i18n="settings.shortcuts.enabled">显示网站快捷方式</span><span class="switch-help" data-i18n="settings.shortcuts.enabledHelp">默认关闭；开启后显示在 Dashboard 标题与每日内容之间。</span></span>
+              <span class="toggle"><input id="websiteShortcutsEnabledInput" type="checkbox"><span aria-hidden="true"></span></span>
+            </label>
+            <div class="website-shortcut-editor">
+              <div class="settings-field-grid">
+                <div class="field">
+                  <label for="websiteShortcutTitleInput" data-i18n="settings.shortcuts.name">名称</label>
+                  <input id="websiteShortcutTitleInput" type="text" maxlength="60" autocomplete="off" placeholder="OpenAI" data-i18n-placeholder="settings.shortcuts.namePlaceholder">
+                </div>
+                <div class="field">
+                  <label for="websiteShortcutUrlInput" data-i18n="settings.shortcuts.url">网站地址</label>
+                  <input id="websiteShortcutUrlInput" type="text" maxlength="2048" inputmode="url" autocomplete="url" placeholder="https://openai.com" data-i18n-placeholder="settings.shortcuts.urlPlaceholder">
+                </div>
+              </div>
+              <div class="settings-panel-actions settings-section-actions website-shortcut-editor-actions">
+                <button class="btn" id="addWebsiteShortcut" type="button"><img class="btn-icon" data-icon="plus" alt="" aria-hidden="true"><span class="btn-label" data-i18n="settings.shortcuts.add">添加快捷方式</span></button>
+                <button class="btn ghost" id="cancelWebsiteShortcutEdit" type="button" hidden><span class="btn-label" data-i18n="settings.shortcuts.cancelEdit">取消编辑</span></button>
+                <span class="website-shortcut-count" id="websiteShortcutCount" aria-live="polite"></span>
+              </div>
+            </div>
+            <div class="website-shortcut-settings-list settings-compact-list" id="websiteShortcutSettingsList"></div>
+          </section>
           <section class="settings-section" aria-labelledby="browserFaviconTitle">
             <div class="settings-section-head"><div><h4 id="browserFaviconTitle" class="feature-title"><img class="feature-title-icon" data-icon="eye" alt="" aria-hidden="true"><span data-i18n="settings.browser.faviconTitle">网站图标</span></h4><p data-i18n="settings.browser.faviconHelp">通过 Chrome 内置图标接口显示书签与页面的网站图标；不会读取浏览历史，也不会把这些地址发送给第三方图标服务。</p></div></div>
             <div class="browser-status-card settings-status-row">
@@ -610,7 +649,7 @@
                 <div class="about-title">Ampira</div>
                 <div class="about-meta" data-i18n="settings.about.tagline">把书签、资讯和网页内容提纯成每日信号</div>
               </div>
-              <span class="about-version">v26.1.9</span>
+              <span class="about-version">v26.1.10</span>
             </div>
             <a class="about-source-link" href="https://github.com/sunpanran/Ampira" target="_blank" rel="noopener noreferrer"><span data-i18n="settings.about.githubLink">GitHub</span><span aria-hidden="true">↗</span></a>
           </div>
@@ -680,11 +719,11 @@
   <div class="onboarding-overlay" id="onboardingOverlay" role="dialog" aria-modal="true" aria-labelledby="onboardingTitle" hidden>
     <div class="onboarding-dialog">
       <div class="onboarding-progress" aria-label="首次设置进度" data-i18n-aria-label="onboarding.progress">
-        <span class="active"></span><span></span><span></span><span></span><span></span>
+        <span class="active"></span><span></span><span></span>
       </div>
       <section class="onboarding-step active" data-onboarding-step="0">
         <div class="onboarding-step-icon"><img data-icon="monitor-01" alt="" aria-hidden="true"></div>
-        <div class="section-kicker" data-i18n="onboarding.step1.kicker">首次设置 · 1/5</div>
+        <div class="section-kicker" data-i18n="onboarding.step1.kicker">首次设置 · 1/3</div>
         <h1 id="onboardingTitle" data-i18n="onboarding.step1.title">让收藏已久的书签，重新流动起来</h1>
         <p data-i18n="onboarding.step1.body">Ampira 把书签变成持续更新的资讯源，再用 AI 帮你阅读、提炼和整理。你收藏的灵感，也会每天以不同的方式重新出现。</p>
         <div class="onboarding-feature-list" aria-label="产品能力" data-i18n-aria-label="onboarding.step1.featuresLabel">
@@ -692,22 +731,11 @@
           <span><img class="inline-icon" data-icon="rss-01" alt="" aria-hidden="true"><span data-i18n="onboarding.step1.featureFeeds">用 AI 摘要和整理每日资讯</span></span>
           <span><img class="inline-icon" data-icon="key-01" alt="" aria-hidden="true"><span data-i18n="onboarding.step1.featureLocal">每天重新发现收藏过的灵感</span></span>
         </div>
-        <button class="btn primary onboarding-next" type="button" data-consent="bookmarks"><img class="btn-icon" data-icon="arrow-up-right" alt="" aria-hidden="true"><span class="btn-label" data-i18n="onboarding.step1.action">开始整理我的书签</span></button>
+        <button class="btn primary" id="onboardingStart" type="button"><img class="btn-icon" data-icon="arrow-up-right" alt="" aria-hidden="true"><span class="btn-label" data-i18n="onboarding.step1.action">开始整理我的书签</span></button>
       </section>
       <section class="onboarding-step" data-onboarding-step="1" hidden>
-        <div class="onboarding-step-icon"><img data-icon="key-01" alt="" aria-hidden="true"></div>
-        <div class="section-kicker" data-i18n="onboarding.step2.kicker">首次设置 · 2/5</div>
-        <h1 id="onboardingPermissionTitle" data-i18n="onboarding.step2.title">只授权你需要的内容</h1>
-        <p data-i18n="onboarding.step2.body">Ampira 只在读取具体网站的资讯、正文和图片时申请对应域名。所有网站权限都可以跳过；书签仍然可以正常打开，只会暂停对应内容的自动获取。</p>
-        <div class="onboarding-permission-status"><img class="inline-icon" data-icon="link-external-01" alt="" aria-hidden="true"><span id="onboardingPermissionStatus" data-i18n="onboarding.step2.loading">正在整理可选来源域名…</span></div>
-        <div class="onboarding-actions">
-          <button class="btn primary" id="onboardingGrantSources" type="button"><img class="btn-icon" data-icon="rss-01" alt="" aria-hidden="true"><span class="btn-label" data-i18n="onboarding.step2.grant">授权来源并启用网站图标</span></button>
-          <button class="btn ghost onboarding-next" type="button"><span class="btn-label" data-i18n="onboarding.step2.skip">暂不授权</span><img class="btn-icon" data-icon="arrow-up-right" alt="" aria-hidden="true"></button>
-        </div>
-      </section>
-      <section class="onboarding-step" data-onboarding-step="2" hidden>
         <div class="onboarding-step-icon"><img data-icon="bookmark" alt="" aria-hidden="true"></div>
-        <div class="section-kicker" data-i18n="onboarding.step3.kicker">首次设置 · 3/5 · 可跳过</div>
+        <div class="section-kicker" data-i18n="onboarding.step3.kicker">首次设置 · 2/3 · 可跳过</div>
         <h1 id="onboardingFoldersTitle" data-i18n="onboarding.step3.title">从两个书签文件夹开始</h1>
         <p data-i18n="onboarding.step3.body">选择资讯文件夹，Ampira 会把其中的网站转化为持续更新的资讯源；选择灵感文件夹，每天重新呈现不同收藏。Ampira 只读取和整理，不会修改原书签。</p>
         <div class="onboarding-field-grid">
@@ -723,40 +751,19 @@
         <div class="onboarding-inline-status" id="onboardingFolderStatus" aria-live="polite"></div>
         <div class="onboarding-actions">
           <button class="btn primary" id="onboardingSaveFolders" type="button"><img class="btn-icon" data-icon="check" alt="" aria-hidden="true"><span class="btn-label" data-i18n="onboarding.step3.save">启用这些书签</span></button>
-          <button class="btn ghost onboarding-next" type="button"><span class="btn-label" data-i18n="onboarding.step3.skip">稍后设置</span><img class="btn-icon" data-icon="arrow-up-right" alt="" aria-hidden="true"></button>
+          <button class="btn ghost" id="onboardingSkipFolders" type="button"><span class="btn-label" data-i18n="onboarding.step3.skip">稍后设置</span><img class="btn-icon" data-icon="arrow-up-right" alt="" aria-hidden="true"></button>
         </div>
       </section>
-      <section class="onboarding-step" data-onboarding-step="3" hidden>
+      <section class="onboarding-step" data-onboarding-step="2" hidden>
         <div class="onboarding-step-icon"><img data-icon="key-01" alt="" aria-hidden="true"></div>
-        <div class="section-kicker" data-i18n="onboarding.step4.kicker">首次设置 · 4/5 · 可跳过</div>
-        <h1 id="onboardingAiTitle" data-i18n="onboarding.step4.title">让 AI 帮你整理每日资讯</h1>
-        <p data-i18n="onboarding.step4.body">连接自己的 AI 服务后，Ampira 可以提炼文章重点，并基于选定资讯回答问题。API Key 只保存在当前 Chrome 配置的扩展本地存储中。</p>
-        <div class="field onboarding-key-field">
-          <label for="onboardingApiKey" data-i18n="onboarding.step4.apiKey">OpenAI / 兼容服务 API Key</label>
-          <input id="onboardingApiKey" type="password" placeholder="sk-..." autocomplete="new-password" autocapitalize="off" spellcheck="false">
-          <div class="help" id="onboardingProviderOrigin"></div>
-        </div>
-        <label class="credential-consent onboarding-ai-consent" for="onboardingAiConsent">
-          <input id="onboardingAiConsent" type="checkbox">
-          <span data-i18n="onboarding.step4.consent">我了解：使用 AI 功能时，我提交的问题、选定的文章内容及相关网址会发送给所配置的 AI 服务商。</span>
-        </label>
-        <div class="onboarding-inline-status" id="onboardingAiStatus" aria-live="polite"></div>
+        <div class="section-kicker" data-i18n="onboarding.step2.kicker">首次设置 · 3/3</div>
+        <h1 id="onboardingPermissionTitle" data-i18n="onboarding.step2.title">只授权你需要的内容</h1>
+        <p data-i18n="onboarding.step2.body">Ampira 只在读取具体网站的资讯、正文和图片时申请对应域名。所有网站权限都可以跳过；书签仍然可以正常打开，只会暂停对应内容的自动获取。</p>
+        <div class="onboarding-permission-status"><img class="inline-icon" data-icon="link-external-01" alt="" aria-hidden="true"><span id="onboardingPermissionStatus" data-i18n="onboarding.step2.loading">正在整理可选来源域名…</span></div>
         <div class="onboarding-actions">
-          <button class="btn primary" id="onboardingSaveApiKey" type="button"><img class="btn-icon" data-icon="check" alt="" aria-hidden="true"><span class="btn-label" data-i18n="onboarding.step4.save">连接并继续</span></button>
-          <button class="btn ghost onboarding-next" id="onboardingSkipApiKey" type="button"><span class="btn-label" data-i18n="onboarding.step4.skip">暂不使用 AI</span><img class="btn-icon" data-icon="arrow-up-right" alt="" aria-hidden="true"></button>
+          <button class="btn primary" id="onboardingGrantSources" type="button"><img class="btn-icon" data-icon="rss-01" alt="" aria-hidden="true"><span class="btn-label" data-i18n="onboarding.step2.grant">授权来源并启用网站图标</span></button>
+          <button class="btn ghost" id="onboardingSkipPermissions" type="button"><span class="btn-label" data-i18n="onboarding.step2.skip">暂不授权</span><img class="btn-icon" data-icon="arrow-up-right" alt="" aria-hidden="true"></button>
         </div>
-      </section>
-      <section class="onboarding-step" data-onboarding-step="4" hidden>
-        <div class="onboarding-step-icon"><img data-icon="check" alt="" aria-hidden="true"></div>
-        <div class="section-kicker" data-i18n="onboarding.step5.kicker">首次设置 · 5/5</div>
-        <h1 id="onboardingReadyTitle" data-i18n="onboarding.step5.title">你的书签已经重新开始工作</h1>
-        <p data-i18n="onboarding.step5.body">Ampira 将持续从书签中获取资讯、整理重点，并每天呈现不同灵感。未配置的可选功能可以随时在设置中开启。</p>
-        <div class="onboarding-summary" aria-label="设置摘要" data-i18n-aria-label="onboarding.step5.summaryLabel">
-          <div><span data-i18n="onboarding.step5.permissions">网站权限</span><strong id="onboardingPermissionSummary">—</strong></div>
-          <div><span data-i18n="onboarding.step5.folders">书签来源</span><strong id="onboardingFolderSummary">—</strong></div>
-          <div><span data-i18n="onboarding.step5.ai">AI 服务</span><strong id="onboardingAiSummary">—</strong></div>
-        </div>
-        <button class="btn primary" id="finishOnboarding" type="button"><img class="btn-icon" data-icon="arrow-up-right" alt="" aria-hidden="true"><span class="btn-label" data-i18n="onboarding.step5.finish">查看我的资讯</span></button>
       </section>
     </div>
   </div>

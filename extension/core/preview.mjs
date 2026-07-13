@@ -2,8 +2,9 @@ import { hashText } from "./bookmarks.mjs";
 import { searchImagePreview } from "./ai.mjs";
 import { decodeResponseBuffer, fetchBounded } from "./network.mjs";
 import { extractPageMetadata } from "./reader.mjs";
+import { normalizeImageCandidates } from "./image-candidates.mjs";
 
-const ORIGIN_PREVIEW_STRATEGY_VERSION = 3;
+const ORIGIN_PREVIEW_STRATEGY_VERSION = 4;
 const BRAVE_PREVIEW_STRATEGY_VERSION = 2;
 const PREVIEW_HIT_CACHE_MS = 24 * 60 * 60 * 1000;
 const ORIGIN_MISS_CACHE_MS = 2 * 60 * 60 * 1000;
@@ -12,7 +13,7 @@ const SOURCE_PREFIX_BYTES = 1024 * 1024;
 const BRAVE_SEARCH_URL = "https://api.search.brave.com/";
 
 export function createPreviewService(adapters) {
-  const fetchSourceImage = adapters.fetchSourceImage || fetchSourceImagePreview;
+  const fetchSourceImage = adapters.fetchSourceImage || fetchSourceImageCandidates;
   const searchImage = adapters.searchImage || searchImagePreview;
   const now = adapters.now || Date.now;
   const pending = new Map();
@@ -34,6 +35,7 @@ export function createPreviewService(adapters) {
         return {
           ok: true,
           imageUrl: original.imageUrl,
+          imageUrls: original.imageUrls,
           url,
           source: "origin",
           originalStatus: "found",
@@ -46,42 +48,45 @@ export function createPreviewService(adapters) {
 
   async function getOriginPreview({ url, cacheEpoch }) {
     if (!await hasPermission(url)) return { status: "unavailable", imageUrl: "" };
-    const cacheKey = `preview-origin-v3-${hashText(url)}`;
+    const cacheKey = `preview-origin-v4-${hashText(url)}`;
     return withPending(`origin:${cacheKey}`, async () => {
       const cached = await adapters.getRecord(cacheKey, null);
       if (validOriginCache(cached, url, now()) && await hasPermission(url)) {
         return {
           status: cached.outcome === "hit" ? "found" : "missing",
           imageUrl: cached.imageUrl || "",
+          imageUrls: normalizePreviewImageUrls(cached.imageUrls?.length ? cached.imageUrls : [cached.imageUrl], url),
           cached: true,
         };
       }
 
-      let imageUrl;
+      let imageUrls;
       try {
-        imageUrl = normalizePreviewImageUrl(await fetchSourceImage(url, {
+        const fetched = await fetchSourceImage(url, {
           validateResponse: async (response) => {
             const finalUrl = normalizePreviewUrl(response?.url || url);
             if (!finalUrl || !await hasPermission(finalUrl)) throw previewSourceError("SOURCE_PERMISSION_CHANGED", false);
           },
-        }), url);
+        });
+        imageUrls = normalizePreviewImageUrls(Array.isArray(fetched) ? fetched : [fetched], url);
       } catch {
-        return { status: "error", imageUrl: "" };
+        return { status: "error", imageUrl: "", imageUrls: [] };
       }
       if (!await hasPermission(url) || !await targetAllowed(url)) return { status: "unavailable", imageUrl: "" };
 
       const record = {
         strategyVersion: ORIGIN_PREVIEW_STRATEGY_VERSION,
         capability: "site-preview-origin",
-        outcome: imageUrl ? "hit" : "miss",
+        outcome: imageUrls.length ? "hit" : "miss",
         requestedUrl: url,
         sourceOrigin: new URL(url).origin,
-        imageUrl,
+        imageUrl: imageUrls[0] || "",
+        imageUrls,
         checkedAt: new Date(now()).toISOString(),
         requiredOrigins: [new URL(url).origin],
       };
       await safeStore(cacheKey, record, cacheEpoch);
-      return { status: imageUrl ? "found" : "missing", imageUrl };
+      return { status: imageUrls.length ? "found" : "missing", imageUrl: imageUrls[0] || "", imageUrls };
     });
   }
 
@@ -121,6 +126,7 @@ export function createPreviewService(adapters) {
         title,
         providerOrigin: new URL(BRAVE_SEARCH_URL).origin,
         imageUrl,
+        imageUrls: imageUrl ? [imageUrl] : [],
         checkedAt: new Date(now()).toISOString(),
         requiredOrigins: [new URL(BRAVE_SEARCH_URL).origin],
       };
@@ -167,6 +173,10 @@ export function createPreviewService(adapters) {
 }
 
 export async function fetchSourceImagePreview(url, options = {}) {
+  return (await fetchSourceImageCandidates(url, options))[0] || "";
+}
+
+export async function fetchSourceImageCandidates(url, options = {}) {
   const target = normalizePreviewUrl(url);
   if (!target) throw previewSourceError("SOURCE_INVALID_URL", false);
   const { response, buffer } = await fetchBounded(target, {
@@ -186,7 +196,8 @@ export async function fetchSourceImagePreview(url, options = {}) {
   const contentType = response.headers.get("content-type") || "";
   const text = decodeResponseBuffer(buffer, contentType);
   if (!looksLikePreviewHtml(text, contentType)) throw previewSourceError("SOURCE_UNSUPPORTED_CONTENT", false);
-  return extractPageMetadata(text, response.url || target).heroImageUrl || "";
+  const metadata = extractPageMetadata(text, response.url || target);
+  return normalizePreviewImageUrls(metadata.heroImageUrls?.length ? metadata.heroImageUrls : [metadata.heroImageUrl], response.url || target);
 }
 
 function validOriginCache(value, url, timestamp) {
@@ -216,6 +227,7 @@ function publicBravePreview(value, url, cached) {
   return {
     ok: value?.outcome === "hit" && Boolean(value?.imageUrl),
     imageUrl: value?.imageUrl || "",
+    imageUrls: normalizePreviewImageUrls(value?.imageUrls?.length ? value.imageUrls : [value?.imageUrl], url),
     url,
     source: value?.imageUrl ? "brave" : "",
     ...(cached ? { cached: true } : {}),
@@ -266,6 +278,12 @@ function normalizePreviewImageUrl(value, pageUrl) {
   }
 }
 
+function normalizePreviewImageUrls(values, pageUrl) {
+  return normalizeImageCandidates(values, pageUrl, { limit: 3 })
+    .map((value) => normalizePreviewImageUrl(value, pageUrl))
+    .filter(Boolean);
+}
+
 function isPrivateAddressLiteral(hostname) {
   const host = String(hostname || "").toLowerCase().replace(/^\[|\]$/g, "");
   if (["localhost", "::1"].includes(host)) return true;
@@ -285,7 +303,7 @@ function cleanTitle(value) {
 }
 
 function emptyPreview(url, originalStatus = "skipped") {
-  return { ok: false, imageUrl: "", url: String(url || ""), source: "", originalStatus };
+  return { ok: false, imageUrl: "", imageUrls: [], url: String(url || ""), source: "", originalStatus };
 }
 
 function previewSourceError(code, retryable, details = {}) {

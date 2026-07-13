@@ -1,15 +1,21 @@
 import { cleanAiAnswerMarkup, extractDirectAnswer, parseAiAnswer } from "./ai-answer-format.mjs";
 
+const AI_SEARCH_CLOSE_MOTION_MS = 180;
+
 export function createAiSearchController(options) {
   const { state, els, t, apiPost } = options;
   let generation = 0;
+  let closeTimer = 0;
 
   return { open, close, run };
 
   function open(query = "", shouldRun = false) {
     generation += 1;
+    if (closeTimer) window.clearTimeout(closeTimer);
+    closeTimer = 0;
     state.aiSearchBusy = false;
     els.aiSearchSubmit.disabled = false;
+    els.aiSearchOverlay.classList.remove("closing");
     els.aiSearchOverlay.classList.add("open");
     document.querySelectorAll(".nav-btn").forEach((item) => item.classList.toggle("active", item.id === "aiSearchNav"));
     resetAnswer();
@@ -20,13 +26,19 @@ export function createAiSearchController(options) {
   }
 
   function close() {
+    if (!els.aiSearchOverlay.classList.contains("open") || els.aiSearchOverlay.classList.contains("closing")) return;
     generation += 1;
     state.aiSearchBusy = false;
     els.aiSearchSubmit.disabled = false;
-    els.aiSearchOverlay.classList.remove("open");
     if (state.aiSearchTypeTimer) clearInterval(state.aiSearchTypeTimer);
     state.aiSearchTypeTimer = null;
-    options.syncNavToCurrentSection();
+    els.aiSearchOverlay.classList.add("closing");
+    const closeDelay = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : AI_SEARCH_CLOSE_MOTION_MS;
+    closeTimer = window.setTimeout(() => {
+      closeTimer = 0;
+      els.aiSearchOverlay.classList.remove("open", "closing");
+      options.syncNavToCurrentSection();
+    }, closeDelay);
   }
 
   async function run(rawQuery) {

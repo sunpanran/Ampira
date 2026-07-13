@@ -1,3 +1,5 @@
+import { animatePanelEntrance } from "./dom.mjs";
+
 export function createEfficiencyView(options) {
   const {
     state, els, t, tc, apiPost, createEmptyState, createIcon, createThemedIcon,
@@ -6,8 +8,8 @@ export function createEfficiencyView(options) {
     openAndMarkReadingQueue, openDailyItem, renderStatus,
     allTranslations, createBookmarkFavicon, displayBookmarkTitle,
     findNewsItemByReference, hostFromUrl, isNewsCard, openExternal,
-    readingQueueOpenOnReadAll, renderDaily, renderOverviewStatus, renderSummaries,
-    setIconLabel,
+    readingQueueOpenOnReadAll, renderDaily, renderOverviewStatus, renderSummaries, selectDailyEvents,
+    openSettings,
   } = options;
   return { renderEfficiencyPanel, refreshDailyDigest };
 function dailyDigestStatusLabel(digest) {
@@ -40,7 +42,9 @@ function createDailyDigestEmptyState(digest) {
   if (digest?.status === "fallback") {
     return createEmptyState({
       title: t("digest.failed.title"),
-      body: t("digest.failed.body"),
+      body: digest.errorKey
+        ? localizedErrorMessage({ messageKey: digest.errorKey, messageParams: digest.errorParams || {} })
+        : t("digest.failed.body"),
       variant: "compact",
       actionLabel: t("action.reorganize"),
       onAction: refreshDailyDigest,
@@ -83,6 +87,7 @@ function isFallbackDailyDigestOverview(line) {
 function createDailyDigestPanelCard() {
   const digest = state.data?.dailyDigest;
   const card = createEfficiencyCard(t("digest.cardTitle"), dailyDigestStatusLabel(digest), "sparkling");
+  card.classList.add("digest-card");
   const overview = document.createElement("div");
   overview.className = "ai-digest-overview";
   const overviewLines = Array.isArray(digest?.overview)
@@ -103,27 +108,36 @@ function dailyDigestBriefNodes(digest) {
     ? digest.overview.map((line) => String(line || "").trim()).filter(Boolean).slice(0, 3)
     : [];
   if (overviewLines.length) {
-    const summary = document.createElement("div");
+    const summary = document.createElement("button");
     summary.className = "ai-digest-summary";
-    summary.append(...overviewLines.map((line) => {
-      const paragraph = document.createElement("p");
+    summary.type = "button";
+    summary.disabled = state.dailyDigestRefreshing;
+    summary.title = t("action.reorganize");
+    summary.setAttribute("aria-label", t("action.reorganize"));
+    summary.addEventListener("click", refreshDailyDigest);
+    summary.append(...dailyDigestParagraphs(overviewLines).map((line) => {
+      const paragraph = document.createElement("span");
+      paragraph.className = "ai-digest-paragraph";
       paragraph.textContent = line;
       return paragraph;
     }));
     nodes.push(summary);
   }
-  nodes.push(createDigestRefreshButton());
   return nodes;
 }
 
-function createDigestRefreshButton() {
-  const retry = document.createElement("button");
-  retry.className = "ai-digest-refresh-mini";
-  retry.type = "button";
-  retry.disabled = state.dailyDigestRefreshing;
-  setIconLabel(retry, "refresh-cw-01", t(state.dailyDigestRefreshing ? "action.organizing" : "action.reorganize"), "inline-icon", "btn-label");
-  retry.addEventListener("click", refreshDailyDigest);
-  return retry;
+function dailyDigestParagraphs(lines) {
+  if (lines.length !== 1) return lines;
+  const segments = lines[0].match(/[^；;。！？]+(?:[；;。！？]+|$)/gu)
+    ?.map((segment) => segment.trim())
+    .filter(Boolean) || [];
+  if (segments.length < 2) return lines;
+  const groupCount = Math.min(4, segments.length);
+  const groups = Array.from({ length: groupCount }, () => []);
+  segments.forEach((segment, index) => {
+    groups[Math.min(groupCount - 1, Math.floor(index * groupCount / segments.length))].push(segment);
+  });
+  return groups.map((group) => group.join(""));
 }
 
 function openDigestItem(digestItem) {
@@ -138,21 +152,42 @@ function openDigestItem(digestItem) {
 function renderEfficiencyPanel() {
   if (!els.efficiencyPanel) return;
   const isSearching = Boolean(state.query);
+  const isInitialEntrance = els.efficiencyPanel.dataset.loading === "true";
   els.efficiencyPanel.hidden = isSearching;
   if (isSearching) {
     els.efficiencyPanel.replaceChildren();
     return;
   }
   const queueItems = readingQueueItems();
-  const dailyEvents = [...(state.data?.dailyDigest?.items || [])]
-    .sort((left, right) => Number(right.importanceScore || 0) - Number(left.importanceScore || 0))
-    .slice(0, 3);
+  const dailyEvents = selectDailyEvents(state.data?.dailyDigest?.items || [], { limit: 3, recentLimit: 1 });
   const cards = [
     createDailyEventsPanelCard(dailyEvents),
     createDailyDigestPanelCard(),
     createQueuePanelCard(queueItems),
   ];
-  els.efficiencyPanel.replaceChildren(...cards);
+  const renderedCards = syncEfficiencyCards(els.efficiencyPanel, cards);
+  if (isInitialEntrance) {
+    delete els.efficiencyPanel.dataset.loading;
+    animatePanelEntrance(renderedCards);
+  }
+}
+
+function syncEfficiencyCards(panel, nextCards) {
+  const currentCards = Array.from(panel.children);
+  const renderedCards = nextCards.map((nextCard, index) => {
+    const currentCard = currentCards[index];
+    return currentCard?.matches?.(".efficiency-card") && currentCard.isEqualNode(nextCard)
+      ? currentCard
+      : nextCard;
+  });
+  const retainedCards = new Set(renderedCards);
+  renderedCards.forEach((card, index) => {
+    if (panel.children[index] !== card) panel.insertBefore(card, panel.children[index] || null);
+  });
+  Array.from(panel.children).forEach((card) => {
+    if (!retainedCards.has(card)) card.remove();
+  });
+  return renderedCards;
 }
 
 function createQueuePanelCard(items) {
@@ -253,7 +288,10 @@ function createDailyEventPanelRow(item) {
   title.textContent = item.title || item.source || t("digest.importantNews");
   const meta = document.createElement("span");
   meta.className = "efficiency-row-meta";
-  meta.textContent = item.source || item.host || "";
+  meta.textContent = [
+    item.publisher || item.source || item.host || "",
+    tc("unit.sources", Number(item.sourceCount || 1)),
+  ].filter(Boolean).join(" · ");
   main.append(title, meta);
   const badge = document.createElement("span");
   badge.className = "efficiency-score";

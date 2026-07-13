@@ -63,8 +63,14 @@ export function createContextMenuController(options) {
     menu.style.left = "0px";
     menu.style.top = "0px";
     const rect = menu.getBoundingClientRect();
-    menu.style.left = `${Math.min(Math.max(8, event.clientX), Math.max(8, window.innerWidth - rect.width - 8))}px`;
-    menu.style.top = `${Math.min(Math.max(8, event.clientY), Math.max(8, window.innerHeight - rect.height - 8))}px`;
+    const left = Math.min(Math.max(8, event.clientX), Math.max(8, window.innerWidth - rect.width - 8));
+    const top = Math.min(Math.max(8, event.clientY), Math.max(8, window.innerHeight - rect.height - 8));
+    const opensUpward = event.clientY + rect.height + 8 > window.innerHeight;
+    menu.style.left = `${left}px`;
+    menu.style.top = `${top}px`;
+    menu.style.setProperty("--context-menu-origin-x", event.clientX - left >= rect.width / 2 ? "right" : "left");
+    menu.style.setProperty("--context-menu-origin-y", opensUpward ? "bottom" : "top");
+    menu.style.setProperty("--context-menu-shift-y", opensUpward ? "4px" : "-4px");
     menu.querySelector("button")?.focus({ preventScroll: true });
   }
 

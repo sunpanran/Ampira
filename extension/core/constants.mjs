@@ -39,6 +39,8 @@ export const DEFAULT_SETTINGS = Object.freeze({
   headerImageFixed: false,
   headerImageFullscreen: false,
   headerImageUrl: "https://images.unsplash.com/photo-1782827286498-241b8af47185?q=80&w=2487&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D",
+  websiteShortcutsEnabled: false,
+  websiteShortcuts: [],
   newsBookmarkFolder: "",
   inspirationBookmarkFolder: "",
   bookmarkOnlyFolders: [],
@@ -58,18 +60,8 @@ export const DEFAULT_SETTINGS = Object.freeze({
   hotNewsCacheSize: 192,
   hotNewsEntriesPerSource: 5,
   newsEntriesPerCategory: 12,
+  todayNewsPerPublisherLimit: 2,
 });
-
-export const PUBLIC_FEEDS = Object.freeze([
-  { title: "Google News", url: "https://news.google.com/rss?hl=zh-CN&gl=US&ceid=US:zh-Hans", categoryKey: "global" },
-  { title: "BBC World", url: "https://feeds.bbci.co.uk/news/world/rss.xml", categoryKey: "international" },
-  { title: "BBC Technology", url: "https://feeds.bbci.co.uk/news/technology/rss.xml", categoryKey: "technology" },
-  { title: "The Verge", url: "https://www.theverge.com/rss/index.xml", categoryKey: "technology" },
-  { title: "Engadget", url: "https://www.engadget.com/rss.xml", categoryKey: "technology" },
-  { title: "MacRumors", url: "https://www.macrumors.com/macrumors.xml", categoryKey: "consumerTechnology" },
-  { title: "IT之家", url: "https://www.ithome.com/rss/", categoryKey: "technology" },
-  { title: "Solidot", url: "https://www.solidot.org/index.rss", categoryKey: "technology" }
-]);
 
 export const PREFERRED_FEEDS = Object.freeze({
   "ithome.com": ["https://www.ithome.com/rss/"],
@@ -78,5 +70,6 @@ export const PREFERRED_FEEDS = Object.freeze({
   "ifanr.com": ["https://www.ifanr.com/feed"],
   "theverge.com": ["https://www.theverge.com/rss/index.xml"],
   "engadget.com": ["https://www.engadget.com/rss.xml"],
-  "macrumors.com": ["https://www.macrumors.com/macrumors.xml"]
+  "macrumors.com": ["https://feeds.macrumors.com/MacRumors-Front"],
+  "feeds.macrumors.com": ["https://feeds.macrumors.com/MacRumors-Front"]
 });

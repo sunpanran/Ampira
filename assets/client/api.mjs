@@ -58,6 +58,7 @@ function routeFor(method, rawUrl) {
     "POST /api/settings/test": "settings:test",
     "POST /api/settings/image-search/test": "settings:image-test",
     "POST /api/refresh": "refresh:start",
+    "POST /api/feed/source/refresh": "feed:refresh-source",
     "POST /api/daily-summary/refresh": "digest:refresh",
     "POST /api/summary/refresh": "summary:refresh",
     "POST /api/ai/search": "ai:search",

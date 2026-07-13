@@ -12,6 +12,7 @@ export function createSummaryView(options) {
     activateCardFromKeyboard, matchesQuery, findNewsItemByReference, createPriorityRanker,
     mergeRankedUnique, selectUnseenPool, shuffle, pageForItems, newsCardType,
     hotSummaryPageSize, summaryCardSelector, cardSummaryEnabled,
+    summaryDetailMaxLength,
     animateCardsIn, animateCardsOut, batchLabel, canReuseCard, clearCardAnimationState,
     createEmptyState, isNewsCard, loadDashboard, newsSectionName, openSummaryItem,
     prefersReducedMotion, renderOverviewStatus, renderStatus, setCardItemIdentity,
@@ -79,24 +80,24 @@ function applySummaryGridDiff(grid, nodes) {
   const currentByKey = new Map(directSummaryCards(grid)
     .filter((card) => card.dataset.key && !card.classList.contains("is-leaving"))
     .map((card) => [card.dataset.key, card]));
-  const fragment = document.createDocumentFragment();
   const enteringCards = [];
-  nodes.forEach((node) => {
+  const resolvedNodes = nodes.map((node) => {
     if (!node.matches?.(summaryCardSelector)) {
-      fragment.append(node);
-      return;
+      return node;
     }
     const currentCard = currentByKey.get(node.dataset.key || "");
     if (currentCard) {
       clearCardAnimationState(node);
       clearCardAnimationState(currentCard);
-      fragment.append(canReuseCard(currentCard, node) ? currentCard : syncSummaryCard(currentCard, node));
-      return;
+      return canReuseCard(currentCard, node) ? currentCard : syncSummaryCard(currentCard, node);
     }
     enteringCards.push(node);
-    fragment.append(node);
+    return node;
   });
-  grid.replaceChildren(fragment);
+  resolvedNodes.forEach((node, index) => {
+    if (grid.children[index] !== node) grid.insertBefore(node, grid.children[index] || null);
+  });
+  while (grid.children.length > resolvedNodes.length) grid.lastElementChild?.remove();
   animateCardsIn(enteringCards);
 }
 
@@ -125,6 +126,8 @@ function unifiedFeedItem(feedItem) {
     cardType: newsCardType,
     title: feedItem.source || feedItem.host || t("category.news"),
     host: feedItem.host || hostFromUrl(feedItem.url || ""),
+    publisher: feedItem.publisher || feedItem.source || "",
+    publisherHost: feedItem.publisherHost || feedItem.host || "",
     category: feedItem.category || t("category.news"),
     categoryKey: feedItem.categoryKey || "",
     url: feedItem.url,
@@ -143,15 +146,20 @@ function unifiedFeedItem(feedItem) {
       summary: lines,
       description: feedItem.excerpt || "",
       imageUrl: feedItem.imageUrl || "",
+      imageUrls: Array.isArray(feedItem.imageUrls) ? feedItem.imageUrls : [],
       publishedAt,
       fetchedAt: feedItem.fetchedAt || "",
       hotScore: Number(feedItem.score || 0),
       isHotNews: true,
       newsStatus: "hot",
       summaryStatus: feedItem.summaryStatus === "ai" ? "ai" : (lines.length ? "excerpt" : "raw"),
+      summaryPolicyVersion: Number(feedItem.summaryPolicyVersion || 0),
       timeUnverified: feedItem.timeUnverified === true,
       externalDiscovery: feedItem.externalDiscovery === true,
       clusterId: feedItem.clusterId || "",
+      eventId: feedItem.eventId || "",
+      eventSourceCount: Number(feedItem.eventSourceCount || 1),
+      eventRepresentative: feedItem.eventRepresentative !== false,
       scoreBreakdown: feedItem.scoreBreakdown || {},
     },
   };
@@ -284,7 +292,7 @@ function createSummaryCard(item) {
   source.textContent = item.host || item.url;
   const lines = document.createElement("div");
   lines.className = "summary-lines";
-  const detailText = truncateText(summaryDetailLines(item, cardTitle).slice(0, 3).join(" "), SUMMARY_DETAIL_MAX_LENGTH);
+  const detailText = truncateText(summaryDetailLines(item, cardTitle).slice(0, 3).join(" "), summaryDetailMaxLength);
   if (detailText) {
     const node = document.createElement("div");
     node.className = "summary-line";
@@ -299,16 +307,26 @@ function createSummaryCard(item) {
 function createSummaryThumb(item) {
   const thumb = document.createElement("div");
   const imageUrl = item.summary?.imageUrl || "";
+  const imageUrls = [...new Set((Array.isArray(item.summary?.imageUrls) ? item.summary.imageUrls : [imageUrl])
+    .map((value) => String(value || "").trim()).filter(Boolean))];
   const fallbackUrl = faviconUrl({ ...item, url: itemUrl(item) });
   thumb.className = `thumb ${imageUrl ? "" : "is-favicon-thumb"}`.trim();
 
   if (imageUrl) {
     const img = document.createElement("img");
-    img.src = imageUrl;
+    let imageIndex = Math.max(0, imageUrls.indexOf(imageUrl));
+    img.src = imageUrls[imageIndex] || imageUrl;
     img.alt = "";
     img.loading = "lazy";
     img.referrerPolicy = "no-referrer";
-    img.addEventListener("error", () => renderSummaryFaviconThumb(thumb, fallbackUrl), { once: true });
+    img.addEventListener("error", () => {
+      imageIndex += 1;
+      if (imageUrls[imageIndex]) {
+        img.src = imageUrls[imageIndex];
+        return;
+      }
+      renderSummaryFaviconThumb(thumb, fallbackUrl);
+    });
     thumb.append(img);
   } else {
     renderSummaryFaviconThumb(thumb, fallbackUrl);

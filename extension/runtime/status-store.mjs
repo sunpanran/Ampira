@@ -22,7 +22,7 @@ export function createRuntimeStatusStore({ getRecord, setRecord, broadcast, crea
   function defaultAiAutoStatus() {
     return {
       phase: "never", running: false, processed: 0, total: 0, eligible: 0,
-      startedAt: "", lastRunAt: "", errorKey: "",
+      startedAt: "", lastRunAt: "", errorKey: "", errorParams: {}, errorStage: "",
     };
   }
 

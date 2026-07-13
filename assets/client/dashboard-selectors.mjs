@@ -1,3 +1,5 @@
+import { newsTimeScope, publisherIdentity } from "../../extension/core/news-ranking.mjs";
+
 export function createPriorityRanker(options = {}) {
   const digestKeys = typeof options.digestKeys === "function" ? options.digestKeys : () => [];
   const itemKeys = typeof options.itemKeys === "function" ? options.itemKeys : () => [];
@@ -44,6 +46,79 @@ export function createPriorityRanker(options = {}) {
         : compareImportant;
     },
   };
+}
+
+export function selectTodayNewsItems(items, options = {}) {
+  const compare = typeof options.compare === "function" ? options.compare : () => 0;
+  const now = options.now ?? Date.now();
+  const recentLimit = Math.max(0, Math.floor(options.recentLimit === undefined ? 3 : Number(options.recentLimit) || 0));
+  const pageSize = Math.max(1, Math.floor(Number(options.pageSize) || 10));
+  const pageCount = Math.max(1, Math.floor(Number(options.pageCount) || 3));
+  const publisherLimit = Math.max(0, Math.min(10, Math.floor(Number(options.publisherLimit) || 0)));
+  const seenEvents = new Set();
+  const eligible = (Array.isArray(items) ? items : []).map((item) => {
+    const article = item?.feedItem || item;
+    if (article?.eventRepresentative === false || article?.rankingEligible === false) return null;
+    const eventKey = article?.eventId || article?.articleId || article?.entryKey || item?.key || item?.url;
+    if (!eventKey || seenEvents.has(eventKey)) return null;
+    const scope = newsTimeScope(article, now);
+    if (!scope) return null;
+    seenEvents.add(eventKey);
+    return { item, scope };
+  }).filter(Boolean);
+  const today = eligible.filter((entry) => entry.scope === "today").map((entry) => entry.item).sort(compare);
+  const recent = eligible.filter((entry) => entry.scope === "recent").map((entry) => entry.item).sort(compare).slice(0, recentLimit);
+  return arrangePublisherBatches([...today, ...recent], pageSize, pageCount, publisherLimit);
+}
+
+export function selectDailyEvents(items, options = {}) {
+  const now = options.now ?? Date.now();
+  const limit = Math.max(1, Math.floor(Number(options.limit) || 3));
+  const recentLimit = Math.max(0, Math.floor(options.recentLimit === undefined ? 1 : Number(options.recentLimit) || 0));
+  const compare = (left, right) => Number(right?.importanceScore || 0) - Number(left?.importanceScore || 0)
+    || Number(right?.localImportanceScore || 0) - Number(left?.localImportanceScore || 0);
+  const scoped = (Array.isArray(items) ? items : []).map((item) => ({
+    ...item,
+    resolvedTimeScope: newsTimeScope(item, now) || item?.timeScope || "",
+  })).filter((item) => item.resolvedTimeScope);
+  const today = scoped.filter((item) => item.resolvedTimeScope === "today").sort(compare);
+  const recent = scoped.filter((item) => item.resolvedTimeScope === "recent").sort(compare).slice(0, recentLimit);
+  return [...today, ...recent].slice(0, limit);
+}
+
+function arrangePublisherBatches(items, pageSize, pageCount, publisherLimit) {
+  const remaining = [...items];
+  const output = [];
+  const maxItems = pageSize * pageCount;
+  while (remaining.length && output.length < maxItems) {
+    const batch = [];
+    const deferred = [];
+    const counts = new Map();
+    for (const item of remaining) {
+      const publisher = publisherIdentity(item?.feedItem || item) || "unknown";
+      if (publisherLimit && (counts.get(publisher) || 0) >= publisherLimit) {
+        deferred.push(item);
+        continue;
+      }
+      counts.set(publisher, (counts.get(publisher) || 0) + 1);
+      batch.push(item);
+      if (batch.length >= pageSize) break;
+    }
+    if (batch.length < pageSize) {
+      for (const item of deferred) {
+        if (batch.includes(item)) continue;
+        batch.push(item);
+        if (batch.length >= pageSize) break;
+      }
+    }
+    if (!batch.length) break;
+    const selected = new Set(batch);
+    output.push(...batch);
+    for (let index = remaining.length - 1; index >= 0; index -= 1) {
+      if (selected.has(remaining[index])) remaining.splice(index, 1);
+    }
+  }
+  return output.slice(0, maxItems);
 }
 
 export function mergeRankedUnique(groups, options = {}) {

@@ -5,7 +5,7 @@ const BOOLEAN_FIELDS = [
   "bookmarkConsentGranted", "onboardingCompleted", "aiDisclosureAccepted", "pointerGlowEnabled",
   "headerImageEnabled", "headerImageFixed", "headerImageFullscreen", "cardSummaryEnabled",
   "floatingWebOpenEnabled", "readingQueueOpenOnReadAll", "retainSeenArchive",
-  "personalizedRankingEnabled", "publicFeedSupplementEnabled", "webImageSearchEnabled",
+  "personalizedRankingEnabled", "publicFeedSupplementEnabled", "webImageSearchEnabled", "websiteShortcutsEnabled",
 ];
 const COLOR_MODES = new Set(["system", "dark", "light"]);
 const ACCENT_THEMES = new Set(["violet", "cyan", "emerald", "amber", "rose", "custom"]);
@@ -31,6 +31,9 @@ const EXCLUSION_FIELD_LIMITS = {
   addedAt: 40,
 };
 const MAX_EXCLUSION_BYTES = 55 * 1024;
+export const MAX_WEBSITE_SHORTCUTS = 10;
+export const MAX_WEBSITE_SHORTCUT_TITLE_LENGTH = 60;
+export const MAX_WEBSITE_SHORTCUT_URL_LENGTH = 2048;
 
 export function normalizeSettings(value = {}) {
   const input = value && typeof value === "object" ? value : {};
@@ -50,6 +53,7 @@ export function normalizeSettings(value = {}) {
     Object.hasOwn(input, "headerImageUrl") ? input.headerImageUrl : DEFAULT_SETTINGS.headerImageUrl,
   );
   settings.headerImageFullscreen = settings.headerImageFixed && settings.headerImageFullscreen;
+  settings.websiteShortcuts = normalizeWebsiteShortcuts(input.websiteShortcuts);
   settings.newsBookmarkFolder = cleanString(input.newsBookmarkFolder, 200, DEFAULT_SETTINGS.newsBookmarkFolder);
   settings.inspirationBookmarkFolder = cleanString(input.inspirationBookmarkFolder, 200, DEFAULT_SETTINGS.inspirationBookmarkFolder);
   settings.bookmarkOnlyFolders = uniqueStrings(input.bookmarkOnlyFolders, 200, 100)
@@ -60,6 +64,7 @@ export function normalizeSettings(value = {}) {
   settings.hotNewsCacheSize = boundedInteger(input.hotNewsCacheSize, 16, 500, DEFAULT_SETTINGS.hotNewsCacheSize);
   settings.hotNewsEntriesPerSource = boundedInteger(input.hotNewsEntriesPerSource, 0, 12, DEFAULT_SETTINGS.hotNewsEntriesPerSource);
   settings.newsEntriesPerCategory = boundedInteger(input.newsEntriesPerCategory, 0, 100, DEFAULT_SETTINGS.newsEntriesPerCategory);
+  settings.todayNewsPerPublisherLimit = boundedInteger(input.todayNewsPerPublisherLimit, 0, 10, DEFAULT_SETTINGS.todayNewsPerPublisherLimit);
   return settings;
 }
 
@@ -108,6 +113,37 @@ export function normalizePublicUrl(value) {
     return "";
   }
   return "";
+}
+
+export function normalizeWebsiteShortcutUrl(value) {
+  let text = String(value || "").trim();
+  if (!text) return "";
+  if (!/^[a-z][a-z\d+.-]*:/i.test(text)) text = `https://${text}`;
+  try {
+    const url = new URL(text);
+    if (url.href.length > MAX_WEBSITE_SHORTCUT_URL_LENGTH || url.username || url.password) return "";
+    if (url.protocol === "https:") return url.href;
+    if (url.protocol === "http:" && isLocalHost(url.hostname)) return url.href;
+  } catch {
+    return "";
+  }
+  return "";
+}
+
+function normalizeWebsiteShortcuts(value) {
+  if (!Array.isArray(value)) return [];
+  const output = [];
+  const seen = new Set();
+  for (const item of value) {
+    if (output.length >= MAX_WEBSITE_SHORTCUTS) break;
+    if (!item || typeof item !== "object") continue;
+    const title = cleanString(item.title, MAX_WEBSITE_SHORTCUT_TITLE_LENGTH, "");
+    const url = normalizeWebsiteShortcutUrl(item.url);
+    if (!title || !url || seen.has(url)) continue;
+    seen.add(url);
+    output.push({ title, url });
+  }
+  return output;
 }
 
 function normalizeExclusions(value) {

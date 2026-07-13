@@ -237,7 +237,7 @@ function createManualSummaryButton(item, isRefreshing) {
   button.disabled = isRefreshing;
   button.title = label;
   button.setAttribute("aria-label", label);
-  button.append(createIcon(isRefreshing ? "synchronize" : "sparkling", "action-toggle-icon"), srOnly(label));
+  button.append(createThemedIcon(isRefreshing ? "synchronize" : "sparkling", "action-toggle-icon"), srOnly(label));
   button.addEventListener("click", (event) => refreshSummaryItem(item, event));
   return button;
 }

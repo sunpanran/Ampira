@@ -3,7 +3,7 @@ export function createDashboardController(options) {
     state, els, t, apiGet, apiPost, preloadDailyInspiration,
     inspirationPreloadTimeoutMs, renderConnectionError, renderStatus,
     renderOverviewStatus, localizedErrorMessage, renderExclusionList,
-    renderExcludeFolderOptions, renderTodayMetaValue, renderEfficiencyPanel,
+    renderExcludeFolderOptions, renderTodayMetaValue, renderWebsiteShortcuts, renderEfficiencyPanel,
     renderDaily, renderSummaries, renderSectionFilters, renderCategoryFilters,
     renderCategories, formatFullDateTime, getTodayKey, readNumber, writeJson,
     retainSeenArchiveEnabled, readSeenRecords, replaceSeenRecords,
@@ -82,6 +82,7 @@ function renderAll() {
   else renderExcludeFolderOptions();
   renderStatus();
   renderTodayMeta();
+  renderWebsiteShortcuts();
   renderEfficiencyPanel();
   renderDaily();
   renderSummaries();

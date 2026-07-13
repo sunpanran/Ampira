@@ -2,6 +2,8 @@ import { formatDateTime } from "./time.mjs";
 import { faviconUrl, hostFromUrl, isReaderUrl } from "./urls.mjs";
 import { readerErrorBodyKey, readerErrorTitleKey, safeReaderOrigin, sameOrigin } from "./reader-policy.mjs";
 
+const READER_CLOSE_MOTION_MS = 180;
+
 export function createReaderController(context) {
   const {
     state,
@@ -17,6 +19,7 @@ export function createReaderController(context) {
     localizedErrorMessage,
   } = context;
   let readerRequestGeneration = 0;
+  let readerCloseTimer = 0;
 
   function openExternal(url, title = "", item = null) {
     markReadOnOpen(item);
@@ -52,6 +55,9 @@ export function createReaderController(context) {
       openExternalWindow(url);
       return;
     }
+    if (readerCloseTimer) window.clearTimeout(readerCloseTimer);
+    readerCloseTimer = 0;
+    els.webFrameOverlay.classList.remove("closing");
     const requestGeneration = ++readerRequestGeneration;
     if (!options.preserveHistory) state.webFrameHistory = [];
     clearFloatingReadTracking();
@@ -213,19 +219,27 @@ export function createReaderController(context) {
     const media = document.createElement("div");
     media.className = "reader-image-media";
     const image = document.createElement("img");
-    image.src = block.url;
+    const imageUrls = [...new Set((Array.isArray(block.imageUrls) ? block.imageUrls : [block.url])
+      .map((value) => String(value || "").trim()).filter(Boolean))];
+    let imageIndex = 0;
+    image.src = imageUrls[imageIndex] || block.url;
     image.alt = block.alt || "";
     image.loading = "lazy";
     image.decoding = "async";
     image.referrerPolicy = "no-referrer";
     image.addEventListener("error", () => {
+      imageIndex += 1;
+      if (imageUrls[imageIndex]) {
+        image.src = imageUrls[imageIndex];
+        return;
+      }
       const fallback = document.createElement("button");
       fallback.type = "button";
       fallback.className = "reader-media-fallback";
       fallback.textContent = t("reader.imageFailed");
       fallback.addEventListener("click", () => openExternalWindow(result.url || state.webFrameUrl));
       media.replaceChildren(fallback);
-    }, { once: true });
+    });
     media.append(image);
     figure.append(media);
     if (block.caption) {
@@ -357,9 +371,19 @@ export function createReaderController(context) {
   }
 
   function closeFloatingWeb() {
+    if (!els.webFrameOverlay.classList.contains("open") || els.webFrameOverlay.classList.contains("closing")) return;
     readerRequestGeneration += 1;
     clearFloatingReadTracking();
-    els.webFrameOverlay.classList.remove("open");
+    els.webFrameOverlay.classList.add("closing");
+    const closeDelay = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : READER_CLOSE_MOTION_MS;
+    readerCloseTimer = window.setTimeout(() => {
+      readerCloseTimer = 0;
+      finalizeFloatingWebClose();
+    }, closeDelay);
+  }
+
+  function finalizeFloatingWebClose() {
+    els.webFrameOverlay.classList.remove("open", "closing");
     document.body.classList.remove("web-frame-open");
     els.webFrame.replaceChildren();
     els.webFrame.classList.remove("is-loading", "is-error");

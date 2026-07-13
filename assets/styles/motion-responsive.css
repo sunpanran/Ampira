@@ -58,7 +58,7 @@
 .daily-card.is-leaving,
 .news-list-card.is-leaving,
 .summary-card.is-leaving {
-  animation: cardOut var(--card-motion-duration, 160ms) ease both;
+  animation: cardOut var(--card-motion-duration, 110ms) ease both;
   animation-delay: var(--card-motion-delay, 0ms);
 }
 
@@ -101,27 +101,71 @@
   to { opacity: 0; transform: translateY(8px) scale(.994); }
 }
 
+@keyframes settingsPanelIn {
+  from { opacity: .35; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 @keyframes aiSearchOverlayIn {
   from { opacity: 0; }
   to { opacity: 1; }
 }
 
+@keyframes aiSearchOverlayOut {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
 @keyframes aiSearchPanelOpen {
   from {
     opacity: 0;
-    clip-path: inset(0 48% 0 48% round var(--radius-control));
-    transform: translateY(-10px);
+    transform: translateY(8px) scale(.985);
   }
   to {
     opacity: 1;
-    clip-path: inset(0 0 0 0 round var(--radius-control));
-    transform: translateY(0);
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes aiSearchPanelClose {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(6px) scale(.99);
   }
 }
 
 @keyframes aiSearchControlIn {
   from { opacity: 0; transform: translateY(3px); }
   to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes webFrameBackdropIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes webFrameBackdropOut {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+@keyframes webFrameDialogIn {
+  from { opacity: 0; transform: translateY(10px) scale(.995); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes webFrameDialogOut {
+  from { opacity: 1; transform: translateY(0) scale(1); }
+  to { opacity: 0; transform: translateY(8px) scale(.996); }
+}
+
+@keyframes contextMenuIn {
+  from { opacity: 0; transform: translateY(var(--context-menu-shift-y, -4px)) scale(.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
 @keyframes spin {
@@ -562,6 +606,30 @@
     min-width: 0;
   }
 
+  .website-shortcut-list {
+    grid-template-columns: repeat(auto-fit, minmax(76px, 96px));
+  }
+
+  .website-shortcut {
+    grid-template-columns: 24px minmax(0, 1fr);
+    gap: 7px;
+    padding-inline: 7px;
+  }
+
+  .website-shortcut-icon {
+    width: 24px;
+    height: 24px;
+  }
+
+  .website-shortcut-settings-row {
+    align-items: stretch;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .website-shortcut-settings-actions {
+    flex-wrap: wrap;
+  }
+
   .section-actions,
   .summary-tools {
     justify-content: flex-start;
@@ -653,6 +721,18 @@
 
   .settings-field-grid.settings-field-grid-three {
     grid-template-columns: 1fr;
+  }
+
+  .source-coverage-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .source-coverage-metric:nth-child(2) {
+    border-right: 0;
+  }
+
+  .source-coverage-metric:nth-child(-n + 2) {
+    border-bottom: 1px solid var(--line-faint);
   }
 
   .settings-section-head,
@@ -747,6 +827,31 @@
     margin-top: 14px;
   }
 
+  .website-shortcuts {
+    margin-top: -12px;
+  }
+
+  .website-shortcut-list {
+    grid-template-columns: repeat(auto-fit, minmax(72px, 1fr));
+  }
+
+  .website-shortcut {
+    min-height: 58px;
+    grid-template-columns: 1fr;
+    justify-items: center;
+    gap: 5px;
+    text-align: center;
+  }
+
+  .website-shortcuts-empty {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .website-shortcuts-empty-skeleton {
+    min-height: 71px;
+  }
+
   .source-suggestion-head,
   .source-suggestion-tools {
     align-items: stretch;
@@ -758,6 +863,15 @@
   }
 
   .source-suggestion-actions .btn {
+    flex: 1 1 0;
+  }
+
+  .source-health-row {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .source-health-actions .btn {
     flex: 1 1 0;
   }
 

@@ -23,7 +23,7 @@ async function loadQuestionSearchContext(settings, query) {
   const model = settings.bookmarkConsentGranted ? await currentBookmarkModel(settings) : emptyBookmarkModel();
   const feed = await getRecord("feed", { items: [] });
   const permissions = await currentFeedPermissionState(settings, model);
-  const permittedItems = filterFeedItemsBySources(feed.items || [], permissions.permitted);
+  const permittedItems = filterFeedItemsBySources(feed.items || [], permissions.permitted, permissions.grantedOrigins);
   return {
     permissions,
     candidates: searchFeed(permittedItems, query).slice(0, 8),
@@ -94,7 +94,7 @@ async function aiSearchResultPermitted(
     requiredOrigins.push(...normalized);
   } else {
     if (!feedPermissions || !cacheSourceIdentitiesPermitted(result, feedPermissions, true)) return false;
-    requiredOrigins.push(...result.sourceIdentities.map((identity) => identity.sourceOrigin));
+    requiredOrigins.push(...result.sourceIdentities.flatMap((identity) => [identity.sourceOrigin, identity.fetchOrigin]).filter(Boolean));
   }
   const granted = await hasOriginPermissions(requiredOrigins);
   return granted && (expectedEpoch === null || cacheMutations.isCurrent(expectedEpoch));
@@ -248,7 +248,7 @@ async function answerWithOptionalAi(settings, options) {
   }
 }
 
-async function callProvider(settings, system, input, maxTokens, apiKeyOverride = "", validateRequest = null) {
+async function callProvider(settings, system, input, maxTokens, apiKeyOverride = "", validateRequest = null, completionOptions = {}) {
   let providerSettings = settings;
   let apiKey = apiKeyOverride;
   if (!apiKeyOverride) {
@@ -295,6 +295,7 @@ async function callProvider(settings, system, input, maxTokens, apiKeyOverride =
     hasOriginPermission,
     hasOriginPermissions,
     validateRequest: validateCurrentRequest,
+    ...completionOptions,
   });
 }
 

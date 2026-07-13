@@ -6,8 +6,13 @@
   backdrop-filter: var(--search-overlay-backdrop);
 }
 
-.search-overlay.open {
+.search-overlay.open:not(.closing) {
   animation: aiSearchOverlayIn 180ms ease-out both;
+}
+
+.search-overlay.open.closing {
+  pointer-events: none;
+  animation: aiSearchOverlayOut 160ms ease-in both;
 }
 
 .ai-search-panel {
@@ -21,16 +26,21 @@
   box-shadow: none;
 }
 
-.search-overlay.open .ai-search-panel {
+.search-overlay.open:not(.closing) .ai-search-panel {
   transform-origin: center;
-  animation: aiSearchPanelOpen 360ms cubic-bezier(.22, 1, .36, 1) both;
+  animation: aiSearchPanelOpen 280ms cubic-bezier(.22, 1, .36, 1) both;
 }
 
-.search-overlay.open .ai-search-form > * {
+.search-overlay.open.closing .ai-search-panel {
+  transform-origin: center;
+  animation: aiSearchPanelClose 180ms cubic-bezier(.4, 0, 1, 1) both;
+}
+
+.search-overlay.open:not(.closing) .ai-search-form > * {
   animation: aiSearchControlIn 180ms 110ms ease-out both;
 }
 
-.search-overlay.open .ai-search-form .btn {
+.search-overlay.open:not(.closing) .ai-search-form .btn {
   animation-delay: 150ms;
 }
 
@@ -185,6 +195,25 @@
 .web-frame-overlay {
   z-index: 75;
   padding: clamp(32px, 3vw, 48px);
+}
+
+.web-frame-overlay.open:not(.closing) {
+  animation: webFrameBackdropIn 180ms ease-out both;
+}
+
+.web-frame-overlay.open:not(.closing) .web-frame-dialog {
+  transform-origin: center;
+  animation: webFrameDialogIn 240ms cubic-bezier(.22, 1, .36, 1) both;
+}
+
+.web-frame-overlay.open.closing {
+  pointer-events: none;
+  animation: webFrameBackdropOut 180ms ease-in both;
+}
+
+.web-frame-overlay.open.closing .web-frame-dialog {
+  transform-origin: center;
+  animation: webFrameDialogOut 180ms cubic-bezier(.4, 0, 1, 1) both;
 }
 
 .web-frame-dialog {
@@ -519,6 +548,8 @@
   display: grid;
   gap: 4px;
   padding: 6px;
+  transform-origin: var(--context-menu-origin-x, left) var(--context-menu-origin-y, top);
+  animation: contextMenuIn 110ms cubic-bezier(.22, .86, .34, 1) both;
 }
 
 .context-menu button {
@@ -539,4 +570,3 @@
 body.web-frame-open {
   overflow: hidden;
 }
-

@@ -7,20 +7,29 @@ import { providerEndpoint, requestAiCompletion, searchImagePreview, testImageSea
 import { createClientStateStore } from "../extension/core/client-state.mjs";
 import { DEFAULT_SETTINGS, SETTINGS_KEY } from "../extension/core/constants.mjs";
 import { recordsToPrune } from "../extension/core/db.mjs";
-import { feedCacheOrEmpty, fetchSourceArticles, filterLikelyNewsItems, isDisplayableFeedItem, parseFeedDocument, rankAndDedupe } from "../extension/core/feed.mjs";
+import { buildFallbackDigest, feedCacheOrEmpty, fetchSourceArticles, filterLikelyNewsItems, isDisplayableFeedItem, parseFeedDocument, rankAndDedupe } from "../extension/core/feed.mjs";
+import {
+  buildDailyCandidates, dailyCandidateFingerprint, newsTimeScope, rankNewsItems, scoreNewsArticle,
+} from "../extension/core/news-ranking.mjs";
 import { normalizeFeedback } from "../extension/core/feedback.mjs";
 import { createQuotaManager } from "../extension/core/quota.mjs";
 import { createPreviewService, fetchSourceImagePreview } from "../extension/core/preview.mjs";
 import { bravePreviewCacheKeys, previewCacheKeysOutsideTargets } from "../extension/core/preview-cache.mjs";
 import { retainActiveUnrefreshedItems, selectRefreshBatch, selectRefreshSources } from "../extension/core/refresh.mjs";
 import { fetchBounded } from "../extension/core/network.mjs";
+import { PUBLIC_FEED_PACKS, publicFeedsForLocale } from "../extension/core/public-feeds.mjs";
 import { extractPageMetadata, loadReaderWithCache, readerTextFromBlocks } from "../extension/core/reader.mjs";
-import { normalizeSettings } from "../extension/core/settings.mjs";
+import {
+  MAX_WEBSITE_SHORTCUTS, normalizeSettings, normalizeWebsiteShortcutUrl,
+} from "../extension/core/settings.mjs";
 import { decodeSettingsFromSync, encodeSettingsForSync, settingsChunkKeys } from "../extension/core/settings-storage.mjs";
 import { createSettingsStore } from "../extension/core/settings-store.mjs";
 import { faviconUrl, isReaderUrl, normalizeUrl as normalizeClientUrl } from "../assets/client/urls.mjs";
 import { findNewsItemByReference, pageForItems, seededShuffle } from "../assets/client/dashboard-model.mjs";
-import { createPriorityRanker, groupItemsByKey, mergeRankedUnique, selectUnseenPool } from "../assets/client/dashboard-selectors.mjs";
+import {
+  createPriorityRanker, groupItemsByKey, mergeRankedUnique,
+  selectDailyEvents, selectTodayNewsItems, selectUnseenPool,
+} from "../assets/client/dashboard-selectors.mjs";
 import { readerErrorBodyKey, safeReaderOrigin, sameOrigin } from "../assets/client/reader-policy.mjs";
 import { normalizeAccentTheme, normalizeColorMode, normalizeHexColor, paletteFromAccent } from "../assets/client/appearance-model.mjs";
 import { cloneSettingsDraft, diffSettingsDraft, snapshotSettingsDraft } from "../assets/client/settings-draft.mjs";
@@ -30,7 +39,11 @@ import { permissionRowCounts, requiredUngrantedOrigins } from "../assets/client/
 import { textLength, truncateText } from "../assets/client/text.mjs";
 import { cleanGeneratedSummaryLine, extractGeneratedSummaryTitle, hasStructuralSummaryPrefix, normalizeSummaryMarkup, parseGeneratedDailyDigest } from "../extension/core/summary-text.mjs";
 import { cleanAiAnswerMarkup, extractDirectAnswer, parseAiAnswer } from "../assets/client/ai-answer-format.mjs";
-import { cleanSummaryLines as cleanPresentedSummaryLines, cleanSummaryTitle as cleanPresentedSummaryTitle } from "../assets/client/item-presenter.mjs";
+import { cleanSummaryLines as cleanPresentedSummaryLines, cleanSummaryTitle as cleanPresentedSummaryTitle, isCorrectlySummarized } from "../assets/client/item-presenter.mjs";
+import { animatePanelEntrance } from "../assets/client/dom.mjs";
+import {
+  moveWebsiteShortcut, removeWebsiteShortcut, upsertWebsiteShortcut,
+} from "../assets/client/website-shortcuts-controller.mjs";
 import { searchQueryTerms } from "../extension/core/search.mjs";
 import {
   DEFAULT_LOCALE,
@@ -53,9 +66,75 @@ if (!globalThis.crypto) globalThis.crypto = webcrypto;
 if (!globalThis.btoa) globalThis.btoa = (value) => Buffer.from(value, "binary").toString("base64");
 if (!globalThis.atob) globalThis.atob = (value) => Buffer.from(value, "base64").toString("binary");
 
+const expectedPublicFeedPacks = {
+  "zh-CN": ["google-news", "bbc-world", "ithome", "solidot"],
+  "zh-Hant": ["google-news", "bbc-world", "the-verge", "macrumors"],
+  en: ["google-news", "bbc-world", "the-verge", "macrumors"],
+};
+const expectedResolvedPublicFeedIds = {
+  "zh-CN": ["google-news-zh-cn", "bbc-world", "ithome", "solidot"],
+  "zh-Hant": ["google-news-zh-hant", "bbc-world", "the-verge", "macrumors"],
+  en: ["google-news-en", "bbc-world", "the-verge", "macrumors"],
+};
+assert.deepEqual(PUBLIC_FEED_PACKS, expectedPublicFeedPacks, "public Feed packs must stay explicit and reviewable");
+for (const [locale, expectedIds] of Object.entries(expectedResolvedPublicFeedIds)) {
+  const feeds = publicFeedsForLocale(locale);
+  assert.deepEqual(feeds.map((feed) => feed.id), expectedIds, `${locale} must receive its intended public Feed pack`);
+  assert.equal(new Set(feeds.map((feed) => feed.key)).size, feeds.length, "public Feed keys must be stable and unique");
+  assert(feeds.every((feed) => feed.key === `public-${feed.id}` && feed.url.startsWith("https://")), "public Feeds must use stable IDs and HTTPS URLs");
+  assert.equal(feeds.filter((feed) => feed.coverageGroup === "headlines").length, 2, "each locale must keep two headline sources");
+  assert.equal(feeds.filter((feed) => feed.coverageGroup === "technology").length, 2, "each locale must keep two technology sources");
+}
+assert.equal(publicFeedsForLocale("zh-TW")[0].url, "https://news.google.com/rss?hl=zh-TW&gl=TW&ceid=TW:zh-Hant");
+assert.equal(publicFeedsForLocale("en-US")[0].url, "https://news.google.com/rss?hl=en-US&gl=US&ceid=US:en");
+assert.equal(publicFeedsForLocale("zh-CN")[0].url, "https://news.google.com/rss?hl=zh-CN&gl=CN&ceid=CN:zh-Hans");
+assert.equal(new Set(["zh-CN", "zh-Hant", "en"].map((locale) => publicFeedsForLocale(locale)[0].key)).size, 3, "Google News locale variants must not reuse cached resolved URLs across regions");
+assert.equal(publicFeedsForLocale("en").find((feed) => feed.id === "macrumors")?.url, "https://feeds.macrumors.com/MacRumors-Front");
+
+const originalMatchMedia = globalThis.matchMedia;
+const panelAnimationCalls = [];
+globalThis.matchMedia = () => ({ matches: false });
+animatePanelEntrance(Array.from({ length: 3 }, (_, index) => ({
+  animate(keyframes, timing) {
+    panelAnimationCalls.push({ index, keyframes, timing });
+    return { index };
+  },
+})), { delay: 60 });
+assert.deepEqual(panelAnimationCalls.map(({ timing }) => timing.delay), [60, 108, 156], "dashboard panels must enter with a short stagger");
+assert.equal(panelAnimationCalls[0].keyframes[0].transform, "translate3d(0, 8px, 0)", "dashboard panels must begin gently below their resting position");
+assert.equal(panelAnimationCalls[0].keyframes[0].opacity, .2, "dashboard panel contents must remain partially visible at entrance start");
+assert.equal(panelAnimationCalls[0].timing.duration, 520, "dashboard panel entrance must use the softer duration");
+assert.equal(panelAnimationCalls[0].timing.easing, "cubic-bezier(.16, 1, .3, 1)", "dashboard panel entrance must settle with gentle deceleration");
+let panelShellAnimated = false;
+let panelContentAnimated = false;
+animatePanelEntrance([{
+  children: [{ animate() { panelContentAnimated = true; } }],
+  animate() { panelShellAnimated = true; },
+}]);
+assert.equal(panelContentAnimated, true, "dashboard panel contents must receive the entrance motion");
+assert.equal(panelShellAnimated, false, "dashboard panel shells must stay aligned with their loading placeholders");
+globalThis.matchMedia = () => ({ matches: true });
+assert.deepEqual(animatePanelEntrance([{ animate() { throw new Error("reduced motion must skip animation"); } }]), [], "dashboard panel entrance must respect reduced motion");
+if (originalMatchMedia) globalThis.matchMedia = originalMatchMedia;
+else delete globalThis.matchMedia;
+
 const root = path.dirname(path.dirname(new URL(import.meta.url).pathname.replace(/^\/(?:[A-Za-z]:)/, (match) => match.slice(1))));
 await runArchitectureTests(root);
 const { dashboardSource, localeKeys } = await runManifestSecurityTests(root);
+const settingsWorkflowSource = await fs.readFile(path.join(root, "extension", "runtime", "settings-workflow.mjs"), "utf8");
+assert.match(settingsWorkflowSource, /"websiteShortcutsEnabled", "websiteShortcuts"/, "settings saves must allow the shortcut switch and ordered list");
+assert.match(
+  settingsWorkflowSource,
+  /localeChanged && \(previous\.publicFeedSupplementEnabled !== false \|\| normalized\.publicFeedSupplementEnabled !== false\)/,
+  "changing locale while public coverage is active must invalidate and refresh the locale-specific source pack",
+);
+assert.match(dashboardSource, /id="websiteShortcuts"/);
+assert.match(dashboardSource, /id="websiteShortcutSettingsList"/);
+assert.match(
+  dashboardSource,
+  /<label class="switch-field" for="websiteShortcutsEnabledInput">/,
+  "the shortcut toggle must reuse the sized settings switch component",
+);
 runActivityStoreTests();
 await runDashboardControllerTests();
 runBookmarkFeedPolicyTests();
@@ -184,6 +263,18 @@ try {
     hasOriginPermission: async () => true,
   }), "Nested response answer");
   globalThis.fetch = async () => new Response(JSON.stringify({
+    status: "incomplete",
+    incomplete_details: { reason: "max_output_tokens" },
+    output: [],
+  }), { status: 200, headers: { "content-type": "application/json" } });
+  await assert.rejects(requestAiCompletion(DEFAULT_SETTINGS, {
+    apiKey: "test-key",
+    system: "System",
+    input: "Input",
+    maxTokens: 20,
+    hasOriginPermission: async () => true,
+  }), (error) => error.code === "AI_OUTPUT_LIMIT" && error.messageKey === "background.error.aiOutputLimit");
+  globalThis.fetch = async () => new Response(JSON.stringify({
     choices: [{ message: { content: [{ type: "text", text: "Array chat answer" }] } }],
   }), { status: 200, headers: { "content-type": "application/json" } });
   assert.equal(await requestAiCompletion({ ...DEFAULT_SETTINGS, openaiApiStyle: "chat_completions" }, {
@@ -193,6 +284,28 @@ try {
     maxTokens: 20,
     hasOriginPermission: async () => true,
   }), "Array chat answer");
+  let deepSeekRequestBody = null;
+  globalThis.fetch = async (url, options) => {
+    deepSeekRequestBody = JSON.parse(options.body);
+    return new Response(JSON.stringify({ choices: [{ message: { content: "Visible brief" } }] }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+  assert.equal(await requestAiCompletion({
+    ...DEFAULT_SETTINGS,
+    openaiBaseUrl: "https://api.deepseek.com",
+    openaiApiStyle: "chat_completions",
+    openaiSummaryModel: "deepseek-v4-flash",
+  }, {
+    apiKey: "test-key",
+    system: "System",
+    input: "Input",
+    maxTokens: 2400,
+    preferVisibleOutput: true,
+    hasOriginPermission: async () => true,
+  }), "Visible brief");
+  assert.deepEqual(deepSeekRequestBody.thinking, { type: "disabled" }, "automatic briefs must reserve DeepSeek output for visible text");
   globalThis.fetch = async () => new Response(JSON.stringify({ choices: [{ text: "Legacy completion answer" }] }), {
     status: 200,
     headers: { "content-type": "application/json" },
@@ -390,9 +503,58 @@ assert.equal(normalizedSettings.accentTheme, "violet");
 assert.equal(normalizedSettings.customAccentColor, "#9152FF");
 assert.equal(normalizedSettings.dailyAiLimit, 500);
 assert.equal(normalizedSettings.hotNewsEntriesPerSource, 0);
+assert.equal(DEFAULT_SETTINGS.todayNewsPerPublisherLimit, 2);
+assert.equal(normalizeSettings({ todayNewsPerPublisherLimit: 0 }).todayNewsPerPublisherLimit, 0);
+assert.equal(normalizeSettings({ todayNewsPerPublisherLimit: 1 }).todayNewsPerPublisherLimit, 1);
+assert.equal(normalizeSettings({ todayNewsPerPublisherLimit: 2 }).todayNewsPerPublisherLimit, 2);
+assert.equal(normalizeSettings({ todayNewsPerPublisherLimit: 10 }).todayNewsPerPublisherLimit, 10);
+assert.equal(normalizeSettings({ todayNewsPerPublisherLimit: 11 }).todayNewsPerPublisherLimit, 10);
+assert.equal(normalizeSettings({ todayNewsPerPublisherLimit: -1 }).todayNewsPerPublisherLimit, 0);
 assert.equal(normalizedSettings.aiDisclosureAccepted, false);
 assert.equal(normalizedSettings.headerImageUrl, DEFAULT_SETTINGS.headerImageUrl);
 assert.equal(normalizeSettings({ headerImageUrl: "" }).headerImageUrl, "", "the default cover URL must remain removable");
+assert.equal(DEFAULT_SETTINGS.websiteShortcutsEnabled, false, "website shortcuts must remain opt-in");
+assert.deepEqual(DEFAULT_SETTINGS.websiteShortcuts, []);
+assert.equal(normalizeWebsiteShortcutUrl("openai.com"), "https://openai.com/");
+assert.equal(normalizeWebsiteShortcutUrl("http://localhost:4173/start"), "http://localhost:4173/start");
+assert.equal(normalizeWebsiteShortcutUrl("http://127.0.0.1:4173/start"), "http://127.0.0.1:4173/start");
+assert.equal(normalizeWebsiteShortcutUrl("http://example.com"), "", "insecure remote shortcuts must be rejected");
+assert.equal(normalizeWebsiteShortcutUrl("https://user:secret@example.com"), "", "shortcut URLs must reject embedded credentials");
+assert.equal(normalizeWebsiteShortcutUrl("javascript:alert(1)"), "", "shortcut URLs must reject active protocols");
+assert.equal(normalizeWebsiteShortcutUrl(`https://example.com/${"x".repeat(2048)}`), "", "shortcut URLs must enforce the storage length limit");
+const normalizedShortcuts = normalizeSettings({
+  websiteShortcutsEnabled: true,
+  websiteShortcuts: [
+    { title: "  OpenAI   Docs  ", url: "openai.com/docs" },
+    { title: "Duplicate", url: "https://openai.com/docs" },
+    { title: "Unsafe", url: "http://example.com" },
+    ...Array.from({ length: 20 }, (_, index) => ({ title: `Site ${index}`, url: `https://site-${index}.example/` })),
+  ],
+});
+assert.equal(normalizedShortcuts.websiteShortcutsEnabled, true);
+assert.equal(normalizedShortcuts.websiteShortcuts.length, MAX_WEBSITE_SHORTCUTS);
+assert.deepEqual(normalizedShortcuts.websiteShortcuts[0], { title: "OpenAI Docs", url: "https://openai.com/docs" });
+const disabledShortcuts = normalizeSettings({
+  websiteShortcutsEnabled: false,
+  websiteShortcuts: [{ title: "x".repeat(80), url: "retained.example" }],
+});
+assert.equal(disabledShortcuts.websiteShortcuts[0].title.length, 60, "shortcut titles must be capped at 60 characters");
+assert.deepEqual(disabledShortcuts.websiteShortcuts.map((item) => item.url), ["https://retained.example/"], "disabling shortcuts must retain their normalized list");
+const shortcutDraft = [{ title: "A", url: "https://a.example/" }];
+assert.deepEqual(upsertWebsiteShortcut(shortcutDraft, { title: "B", url: "https://b.example/" }), [
+  ...shortcutDraft,
+  { title: "B", url: "https://b.example/" },
+]);
+assert.deepEqual(upsertWebsiteShortcut(shortcutDraft, { title: "A2", url: "https://a.example/2" }, 0), [
+  { title: "A2", url: "https://a.example/2" },
+]);
+assert.deepEqual(removeWebsiteShortcut([...shortcutDraft, { title: "B", url: "https://b.example/" }], 0), [
+  { title: "B", url: "https://b.example/" },
+]);
+assert.deepEqual(moveWebsiteShortcut([
+  ...shortcutDraft,
+  { title: "B", url: "https://b.example/" },
+], 1, -1).map((item) => item.title), ["B", "A"]);
 let originalPreviewFetches = 0;
 let originalPreviewSearches = 0;
 let previewCacheEpoch = -1;
@@ -419,7 +581,7 @@ assert.equal((await getOriginalPreview({ url: "https://origin.example/design", t
 assert.equal(originalPreviewFetches, 1);
 assert.equal(originalPreviewSearches, 0, "Brave must not run when the original page supplies an image");
 assert.equal(previewCacheEpoch, 17, "preview writes must retain the permission/cache epoch captured before the request");
-assert([...originalPreviewRecords.keys()].some((key) => key.startsWith("preview-origin-v3-")), "the optimized extractor must bypass legacy v2 misses with a new cache identity");
+assert([...originalPreviewRecords.keys()].some((key) => key.startsWith("preview-origin-v4-")), "the optimized extractor must bypass legacy preview misses with the current cache identity");
 
 let previewSearches = 0;
 const previewRecords = new Map();
@@ -613,6 +775,11 @@ assert.equal(normalizedFeedback.category.length, 200);
 assert.equal(normalizedFeedback.topics.length, 20);
 const largeNormalizedSettings = normalizeSettings({
   bookmarkOnlyFolders: Array.from({ length: 100 }, (_, index) => `Folder ${index} ${"x".repeat(150)}`),
+  websiteShortcutsEnabled: true,
+  websiteShortcuts: Array.from({ length: 10 }, (_, index) => ({
+    title: `Shortcut ${index}`,
+    url: `https://shortcut-${index}.example/`,
+  })),
   excludedNewsSources: Array.from({ length: 250 }, (_, index) => ({
     id: `exclude-${index}`,
     type: "source",
@@ -632,6 +799,7 @@ assert(Object.entries(encodedSettings).reduce((total, [key, value]) => (
 ), 0) <= 90 * 1024, "chunked settings must stay below the sync total safety budget");
 const decodedSettings = decodeSettingsFromSync(encodedSettings);
 assert.deepEqual(decodedSettings.bookmarkOnlyFolders, largeNormalizedSettings.bookmarkOnlyFolders);
+assert.deepEqual(decodedSettings.websiteShortcuts, largeNormalizedSettings.websiteShortcuts);
 assert.deepEqual(decodedSettings.excludedNewsSources, largeNormalizedSettings.excludedNewsSources);
 const settingsSyncStorage = memoryStorage();
 const settingsStore = createSettingsStore(settingsSyncStorage);
@@ -682,6 +850,165 @@ const zeroPriorityRanker = createPriorityRanker({
   itemKeys: (item) => [item.title],
 });
 assert.deepEqual([{ title: "zero" }, { title: "ranked" }].sort(zeroPriorityRanker.compareImportant).map((item) => item.title), ["ranked", "zero"], "an explicit zero priority must not receive the positional default score");
+const rankingNow = new Date(2026, 6, 13, 12, 0, 0).getTime();
+let rankingArticleSequence = 0;
+const rankingArticle = (overrides = {}) => ({
+  articleId: overrides.articleId || `article-${rankingArticleSequence += 1}`,
+  title: "监管机构公布新的数据安全法规",
+  url: overrides.url || `https://${overrides.publisherHost || "publisher.example"}/story-${rankingArticleSequence}`,
+  source: overrides.publisher || "Publisher",
+  host: overrides.publisherHost || "publisher.example",
+  publisher: overrides.publisher || "Publisher",
+  publisherHost: overrides.publisherHost || "publisher.example",
+  category: overrides.category || "科技",
+  publishedAt: new Date(rankingNow - 60 * 60 * 1000).toISOString(),
+  timeUnverified: false,
+  excerpt: "监管变化将影响大量用户和企业，报道提供了具体生效时间、适用范围与后续安排。",
+  feedPosition: 0,
+  ...overrides,
+});
+const freshRankingScore = scoreNewsArticle(rankingArticle(), rankingNow).score;
+const agedRankingScore = scoreNewsArticle(rankingArticle(), rankingNow + 5 * 24 * 60 * 60 * 1000).score;
+assert(freshRankingScore > agedRankingScore, "cached stories must lose freshness whenever ranking is recomputed");
+const localMidnight = new Date(2026, 6, 13, 0, 5, 0).getTime();
+assert.equal(newsTimeScope(rankingArticle({ publishedAt: new Date(2026, 6, 13, 0, 1, 0).toISOString() }), localMidnight), "today");
+assert.equal(newsTimeScope(rankingArticle({ publishedAt: new Date(2026, 6, 12, 23, 59, 0).toISOString() }), localMidnight), "recent", "Today must follow the device-local calendar boundary");
+assert.equal(scoreNewsArticle(rankingArticle({ publishedAt: new Date(rankingNow + 60 * 60 * 1000).toISOString() }), rankingNow).rankingEligible, false, "timestamps beyond the future-skew allowance must not enter Today");
+assert.equal(scoreNewsArticle(rankingArticle({ publishedAt: "", timeUnverified: true }), rankingNow).rankingEligible, false, "unverified timestamps must not enter Today");
+const genericRelease = scoreNewsArticle(rankingArticle({ title: "公司宣布发布常规产品更新", excerpt: "本次更新提供若干常规功能。" }), rankingNow);
+const publicEmergency = scoreNewsArticle(rankingArticle({ title: "台风登陆，多地公共交通中断", excerpt: "多地启动应急响应并发布避险通知。" }), rankingNow);
+assert(publicEmergency.score > genericRelease.score, "generic release wording must not outrank concrete public consequences");
+const clusteredEvents = rankNewsItems([
+  rankingArticle({ articleId: "event-a", publisher: "Publisher A", publisherHost: "a.example", title: "监管机构宣布新的数据安全法规" }),
+  rankingArticle({ articleId: "event-b", publisher: "Publisher B", publisherHost: "b.example", title: "新的数据安全法规由监管机构正式公布", publishedAt: new Date(rankingNow - 2 * 60 * 60 * 1000).toISOString() }),
+], { now: rankingNow });
+assert.equal(new Set(clusteredEvents.map((item) => item.eventId)).size, 1, "reordered Chinese event wording must cluster within the time window");
+assert.equal(clusteredEvents.find((item) => item.eventRepresentative)?.eventSourceCount, 2, "independent publishers must raise corroboration count");
+assert(clusteredEvents.find((item) => item.eventRepresentative)?.scoreBreakdown.corroboration > 0);
+const numericConflictEvents = rankNewsItems([
+  rankingArticle({ articleId: "layoff-1000", publisherHost: "one.example", title: "公司宣布裁员 1000 人" }),
+  rankingArticle({ articleId: "layoff-2000", publisherHost: "two.example", title: "公司宣布裁员 2000 人" }),
+], { now: rankingNow });
+assert.equal(new Set(numericConflictEvents.map((item) => item.eventId)).size, 2, "conflicting numeric facts must not be merged into one event");
+const sharedDateNumericConflict = rankNewsItems([
+  rankingArticle({ articleId: "year-layoff-1000", publisherHost: "year-one.example", title: "公司 2026 年裁员 - 1000 人" }),
+  rankingArticle({ articleId: "year-layoff-2000", publisherHost: "year-two.example", title: "公司 2026 年裁员 - 2000 人" }),
+], { now: rankingNow });
+assert.equal(new Set(sharedDateNumericConflict.map((item) => item.eventId)).size, 2, "a shared date must not hide a conflicting event quantity");
+const samePublisherDuplicates = rankNewsItems([
+  rankingArticle({ articleId: "same-a", publisher: "Same", publisherHost: "same.example", title: "监管机构宣布新的数据安全法规" }),
+  rankingArticle({ articleId: "same-b", publisher: "Same", publisherHost: "same.example", title: "新的数据安全法规由监管机构正式公布" }),
+], { now: rankingNow });
+assert.equal(samePublisherDuplicates.find((item) => item.eventRepresentative)?.eventSourceCount, 1, "same-publisher duplicates must not increase corroboration");
+const singleSourceEmergency = rankNewsItems([
+  rankingArticle({ articleId: "single-emergency", title: "台风登陆，多地启动防汛应急响应", excerpt: "" }),
+], { now: rankingNow })[0];
+assert.equal(singleSourceEmergency.rankingEligible, true, "a concrete high-impact single-source event must remain eligible without corroboration");
+assert.equal(singleSourceEmergency.scoreBreakdown.corroboration, 0);
+const personalizedItem = rankNewsItems([rankingArticle({ publisher: "Preferred", publisherHost: "preferred.example" })], {
+  now: rankingNow,
+  feedback: [{ action: "more_like_this", source: "Preferred", category: "科技", recordedAt: new Date(rankingNow).toISOString() }],
+})[0];
+assert(personalizedItem.scoreBreakdown.personalization > 0 && personalizedItem.scoreBreakdown.personalization <= 4, "recent local feedback must remain a bounded adjustment");
+const aiPersonalizedItem = rankNewsItems([rankingArticle({ publisher: "Preferred", publisherHost: "preferred.example" })], {
+  now: rankingNow,
+  aiRankingEnabled: true,
+  feedback: [{ action: "more_like_this", source: "Preferred", category: "科技", recordedAt: new Date(rankingNow).toISOString() }],
+})[0];
+assert.equal(aiPersonalizedItem.score, aiPersonalizedItem.neutralImportanceScore, "when AI ranking is enabled, personalization must only break equal local scores");
+assert(aiPersonalizedItem.scoreBreakdown.personalization > 0, "AI mode may retain local personalization only as a tie-break signal");
+const publicPriorityCandidate = {
+  ...rankingArticle({ articleId: "public-priority", url: "https://public.example/story" }),
+  eventId: "public-priority-event", eventRepresentative: true, rankingEligible: true,
+  publicImportanceScore: 51, localImportanceScore: 51, scoreBreakdown: { personalization: 0 },
+};
+const personalizedPriorityCandidate = {
+  ...rankingArticle({ articleId: "personal-priority", url: "https://personal.example/story" }),
+  eventId: "personal-priority-event", eventRepresentative: true, rankingEligible: true,
+  publicImportanceScore: 50, localImportanceScore: 54, scoreBreakdown: { personalization: 4 },
+};
+assert.equal(buildDailyCandidates([personalizedPriorityCandidate, publicPriorityCandidate], { now: rankingNow, aiRankingEnabled: true })[0].articleId, "public-priority", "AI candidate order must not let personalization override public importance");
+assert.equal(buildDailyCandidates([personalizedPriorityCandidate, publicPriorityCandidate], { now: rankingNow, aiRankingEnabled: false })[0].articleId, "personal-priority", "local fallback order may apply the bounded personalization adjustment");
+const expiredPersonalization = rankNewsItems([rankingArticle({ publisher: "Preferred", publisherHost: "preferred.example" })], {
+  now: rankingNow,
+  feedback: [{ action: "more_like_this", source: "Preferred", category: "科技", recordedAt: new Date(rankingNow - 31 * 24 * 60 * 60 * 1000).toISOString() }],
+})[0];
+assert.equal(expiredPersonalization.scoreBreakdown.personalization, 0, "feedback older than 30 days must not affect ranking");
+const todayRankedFeed = rankNewsItems([
+  ...Array.from({ length: 5 }, (_, index) => rankingArticle({
+    articleId: `dominant-${index}`,
+    title: `主要发布方政策事件 ${index + 1}`,
+    publisher: "Dominant",
+    publisherHost: "dominant.example",
+    url: `https://dominant.example/${index}`,
+  })),
+  ...Array.from({ length: 9 }, (_, index) => rankingArticle({
+    articleId: `diverse-${index}`,
+    title: `独立发布方监管事件 ${index + 20}`,
+    publisher: `Publisher ${index}`,
+    publisherHost: `publisher-${index}.example`,
+    url: `https://publisher-${index}.example/story`,
+  })),
+  ...Array.from({ length: 5 }, (_, index) => rankingArticle({
+    articleId: `recent-${index}`,
+    title: `跨日公共政策事件 ${index + 40}`,
+    publisher: `Recent ${index}`,
+    publisherHost: `recent-${index}.example`,
+    url: `https://recent-${index}.example/story`,
+    publishedAt: new Date(rankingNow - 18 * 60 * 60 * 1000).toISOString(),
+  })),
+], { now: rankingNow });
+const todayCandidates = buildDailyCandidates(todayRankedFeed, { now: rankingNow, limit: 20, recentLimit: 3, publisherLimit: 0 });
+assert.equal(todayCandidates.filter((item) => item.timeScope === "recent").length, 3, "daily candidate selection must cap cross-day news at three");
+assert(todayCandidates.every((item) => ["today", "recent"].includes(newsTimeScope(item, rankingNow))));
+const fallbackDigestV2 = buildFallbackDigest(todayCandidates, "local", "zh-CN", { now: rankingNow, preselected: true, publisherLimit: 2 });
+assert.equal(fallbackDigestV2.schemaVersion, 2);
+assert.equal(fallbackDigestV2.rankingPolicyVersion, 3);
+assert(fallbackDigestV2.candidateFingerprint);
+assert(fallbackDigestV2.items.every((item) => item.eventId && item.sourceCount >= 1 && item.articleCount >= 1 && item.timeScope && Number.isFinite(item.localImportanceScore) && Number.isFinite(item.importanceScore)));
+assert.notEqual(
+  dailyCandidateFingerprint(todayCandidates, { publisherLimit: 2 }),
+  dailyCandidateFingerprint(todayCandidates, { publisherLimit: 0 }),
+  "publisher policy changes must invalidate the daily candidate fingerprint",
+);
+assert.notEqual(
+  dailyCandidateFingerprint(todayCandidates, { publisherLimit: 2 }),
+  dailyCandidateFingerprint(todayCandidates.slice(1), { publisherLimit: 2 }),
+  "source permission or candidate-set changes must invalidate the daily candidate fingerprint",
+);
+const unifiedToday = todayRankedFeed.map((feedItem, index) => ({
+  key: feedItem.articleId,
+  feedItem,
+  score: (feedItem.publisherHost === "dominant.example" ? 200 : 100) - index,
+}));
+const compareToday = (left, right) => right.score - left.score;
+const limitedToday = selectTodayNewsItems(unifiedToday, { now: rankingNow, compare: compareToday, recentLimit: 3, pageSize: 10, pageCount: 1, publisherLimit: 2 });
+assert.equal(limitedToday.filter((item) => item.feedItem.publisherHost === "dominant.example").length, 2, "the default Today batch must prefer at most two stories per publisher when alternatives exist");
+const onePerPublisherToday = selectTodayNewsItems(unifiedToday, { now: rankingNow, compare: compareToday, recentLimit: 3, pageSize: 10, pageCount: 1, publisherLimit: 1 });
+assert.equal(onePerPublisherToday.filter((item) => item.feedItem.publisherHost === "dominant.example").length, 1);
+const unlimitedToday = selectTodayNewsItems(unifiedToday, { now: rankingNow, compare: compareToday, recentLimit: 3, pageSize: 10, pageCount: 1, publisherLimit: 0 });
+assert(unlimitedToday.filter((item) => item.feedItem.publisherHost === "dominant.example").length > 2, "a zero publisher limit must leave the ranking unrestricted");
+const tenPerPublisherToday = selectTodayNewsItems(unifiedToday, { now: rankingNow, compare: compareToday, recentLimit: 3, pageSize: 10, pageCount: 1, publisherLimit: 10 });
+assert.deepEqual(tenPerPublisherToday.map((item) => item.key), unlimitedToday.map((item) => item.key));
+const twoPublisherBatches = selectTodayNewsItems(unifiedToday, { now: rankingNow, compare: compareToday, recentLimit: 3, pageSize: 5, pageCount: 2, publisherLimit: 2 });
+assert(twoPublisherBatches.every((_, index, list) => index % 5 || list.slice(index, index + 5).filter((item) => item.feedItem.publisherHost === "dominant.example").length <= 2), "the publisher limit must reset for each Today batch");
+const relaxedPublisherLimit = selectTodayNewsItems(unifiedToday.filter((item) => item.feedItem.publisherHost === "dominant.example"), { now: rankingNow, compare: compareToday, pageSize: 5, pageCount: 1, publisherLimit: 1 });
+assert.equal(relaxedPublisherLimit.length, 5, "publisher diversity must relax instead of leaving a batch empty when candidates are insufficient");
+assert(limitedToday.filter((item) => newsTimeScope(item.feedItem, rankingNow) === "recent").length <= 3);
+const selectedEvents = selectDailyEvents([
+  ...todayCandidates.filter((item) => item.timeScope === "today").slice(0, 2).map((item, index) => ({ ...item, importanceScore: 90 - index })),
+  ...todayCandidates.filter((item) => item.timeScope === "recent").map((item, index) => ({ ...item, importanceScore: 100 - index })),
+], { now: rankingNow, limit: 3, recentLimit: 1 });
+assert.equal(selectedEvents.filter((item) => newsTimeScope(item, rankingNow) === "recent").length, 1, "Today events must admit at most one cross-day fallback even when AI scores it highest");
+const validAiRanking = parseGeneratedDailyDigest("OVERVIEW: 第一段。\nOVERVIEW: 第二段。\nRANK 1: 92\nTITLE 1: 事件一\nRANK 2: 71\nTITLE 2: 事件二", 2);
+assert.equal(validAiRanking.rankingValid, true);
+assert.deepEqual(validAiRanking.aiScores, [92, 71]);
+const partialAiRanking = parseGeneratedDailyDigest("RANK 1: 90\nTITLE 1: 事件一\nTITLE 2: 事件二", 2);
+assert.equal(partialAiRanking.rankingValid, false, "partial AI scores must fall back as one complete ranking");
+assert.deepEqual(partialAiRanking.eventTitles, ["事件一", "事件二"], "valid AI titles may survive a ranking fallback");
+assert.equal(parseGeneratedDailyDigest("RANK 1: 80\nRANK 2: 80", 2).rankingValid, false, "an undifferentiated AI score set must not replace local order");
+assert.equal(parseGeneratedDailyDigest("RANK 1: 101\nRANK 2: 70", 2).rankingValid, false, "out-of-range AI scores must invalidate the complete ranking");
+assert.equal(parseGeneratedDailyDigest("RANK 1: 90\nRANK 1: 70\nRANK 2: 60", 2).rankingValid, false, "duplicate AI score rows must invalidate the complete ranking");
 assert.deepEqual(mergeRankedUnique([
   [selectorItems[1], selectorItems[0]],
   [selectorItems[0]],
@@ -701,6 +1028,20 @@ const settingsDraftBaseline = snapshotSettingsDraft({ uiLocale: "", dailyAiLimit
 const settingsDraftClone = cloneSettingsDraft(settingsDraftBaseline);
 settingsDraftClone.excludedNewsSources.push({ id: "local-only" });
 assert.equal(settingsDraftBaseline.excludedNewsSources.length, 0, "settings cancellation snapshots must be restored from an independent clone");
+const websiteShortcutSnapshot = snapshotSettingsDraft({
+  websiteShortcutsEnabled: false,
+  websiteShortcuts: shortcutDraft,
+}, "zh-CN");
+const websiteShortcutClone = cloneSettingsDraft(websiteShortcutSnapshot);
+websiteShortcutClone.websiteShortcuts.push({ title: "B", url: "https://b.example/" });
+assert.equal(websiteShortcutSnapshot.websiteShortcuts.length, 1, "shortcut cancellation snapshots must remain independent");
+assert.deepEqual(diffSettingsDraft({
+  websiteShortcutsEnabled: true,
+  websiteShortcuts: websiteShortcutClone.websiteShortcuts,
+}, websiteShortcutSnapshot), {
+  websiteShortcutsEnabled: true,
+  websiteShortcuts: websiteShortcutClone.websiteShortcuts,
+}, "shortcut drafts must save only their changed switch and ordered list");
 assert.deepEqual(diffSettingsDraft({
   uiLocale: "zh-CN",
   dailyAiLimit: "50",
@@ -816,7 +1157,11 @@ currentPreviewItem = { key: "bookmark-1", url: "https://b.example/", title: "B" 
 resolvePreviewRequest({ imageUrl: "https://images.example/a.jpg" });
 await oldPreviewRequest;
 assert.deepEqual(appliedPreviewImages, [], "a preview response must not update a bookmark whose URL changed in flight");
-previewApi = async () => ({ imageUrl: "https://images.example/b.jpg", source: "origin" });
+previewApi = async () => ({
+  imageUrl: "https://images.example/b.jpg",
+  imageUrls: ["https://images.example/b.jpg", "https://images.example/b-alternate.jpg"],
+  source: "origin",
+});
 await previewController.request(currentPreviewItem);
 assert.deepEqual(appliedPreviewImages, [["bookmark-1", "https://images.example/b.jpg"]]);
 let fallbackRequestUrl = "";
@@ -825,6 +1170,9 @@ previewApi = async (url) => {
   return { imageUrl: "https://imgs.search.brave.com/b.jpg", source: "brave" };
 };
 await previewController.reject(currentPreviewItem, "https://images.example/b.jpg");
+assert.equal(fallbackRequestUrl, "", "a failed original image must try the next original candidate before Brave");
+assert.deepEqual(appliedPreviewImages.at(-1), ["bookmark-1", "https://images.example/b-alternate.jpg"]);
+await previewController.reject(currentPreviewItem, "https://images.example/b-alternate.jpg");
 assert(new URL(fallbackRequestUrl, "https://ampira.invalid").searchParams.get("mode") === "brave-only", "a failed original image must request Brave-only fallback");
 assert.deepEqual(appliedPreviewImages.at(-1), ["bookmark-1", "https://imgs.search.brave.com/b.jpg"]);
 const previewCallsAfterBrave = previewApiCalls;
@@ -844,7 +1192,11 @@ previewApi = async (url) => {
   const mode = new URL(url, "https://ampira.invalid").searchParams.get("mode");
   return mode === "brave-only"
     ? { imageUrl: "https://imgs.search.brave.com/preloaded-fallback.jpg", source: "brave" }
-    : { imageUrl: "https://images.example/preload-failure.jpg", source: "origin" };
+    : {
+        imageUrl: "https://images.example/preload-failure.jpg",
+        imageUrls: ["https://images.example/preload-failure.jpg", "https://images.example/preload-alternate-failure.jpg"],
+        source: "origin",
+      };
 };
 previewImageLoader = async (imageUrl) => {
   preloadedPreviewImages.push(imageUrl);
@@ -853,8 +1205,9 @@ previewImageLoader = async (imageUrl) => {
 await previewController.preload([currentPreviewItem], { timeoutMs: 50 });
 assert.deepEqual(preloadedPreviewImages, [
   "https://images.example/preload-failure.jpg",
+  "https://images.example/preload-alternate-failure.jpg",
   "https://imgs.search.brave.com/preloaded-fallback.jpg",
-], "a failed original preload must resolve and warm the Brave fallback before cards render");
+], "failed original preload candidates must be exhausted before resolving and warming the Brave fallback");
 assert.equal(previewController.get(currentPreviewItem)?.source, "brave");
 previewController.invalidate();
 currentPreviewItem = { key: "bookmark-4", url: "https://slow-preload.example/", title: "Slow preload" };
@@ -926,10 +1279,52 @@ const serviceWorkerSource = (await Promise.all(
     .filter((file) => file.endsWith(".mjs"))
     .map((file) => fs.readFile(file, "utf8")),
 )).join("\n");
+const aiCoreSource = await fs.readFile(path.join(root, "extension/core/ai.mjs"), "utf8");
 const readerPolicySource = await fs.readFile(path.join(root, "assets/client/reader-policy.mjs"), "utf8");
 const readerUiSource = await fs.readFile(path.join(root, "assets/client/reader-ui.mjs"), "utf8");
+const aiSearchUiSource = await fs.readFile(path.join(root, "assets/client/ai-search-ui.mjs"), "utf8");
+const settingsControllerSource = await fs.readFile(path.join(root, "assets/client/settings-controller.mjs"), "utf8");
+const contextMenuSource = await fs.readFile(path.join(root, "assets/client/context-menu-controller.mjs"), "utf8");
+const themeBootstrapSource = await fs.readFile(path.join(root, "assets/client/theme-bootstrap.mjs"), "utf8");
+const overlaysCssSource = await fs.readFile(path.join(root, "assets/styles/overlays.css"), "utf8");
+const settingsCssSource = await fs.readFile(path.join(root, "assets/styles/settings.css"), "utf8");
+const motionCssSource = await fs.readFile(path.join(root, "assets/styles/motion-responsive.css"), "utf8");
+const baseLayoutCssSource = await fs.readFile(path.join(root, "assets/styles/base-layout.css"), "utf8");
+const dashboardSectionsCssSource = await fs.readFile(path.join(root, "assets/styles/dashboard-sections.css"), "utf8");
+assert(serviceWorkerSource.includes("digest?.schemaVersion !== 2")
+  && serviceWorkerSource.includes("digest?.rankingPolicyVersion !== rankingPolicyVersion")
+  && serviceWorkerSource.includes("digest?.date !== localDateKey()")
+  && serviceWorkerSource.includes("digest?.candidateFingerprint !== expectedFingerprint"), "daily digest cache reuse must require the current schema, policy, local date, and candidate fingerprint");
+assert(serviceWorkerSource.includes('originPattern(digest.providerOrigin || "") === originPattern(settings.openaiBaseUrl)'), "AI digest cache reuse must remain bound to the configured Provider origin");
 assert(readerPolicySource.includes('READER_HTTP_ERROR: "reader.error.httpTitle"'));
 assert(readerUiSource.includes("markReadOnOpen(item);"), "opening a bookmark or news card must mark it as read");
+assert(serviceWorkerSource.includes('record.value?.capability === "feed-image"')
+  && serviceWorkerSource.includes('expectedOrigin === originPattern(record.value?.sourceOrigin || "")'), "Feed image caches must be removed when their exact source permission no longer matches");
+assert(readerUiSource.includes("Array.isArray(block.imageUrls)") && readerUiSource.includes("imageIndex += 1"), "Reader images must exhaust safe original candidates before showing the source fallback");
+assert(aiSearchUiSource.includes('classList.add("closing")') && aiSearchUiSource.includes("AI_SEARCH_CLOSE_MOTION_MS = 180"), "AI search must retain the overlay while its close motion completes");
+assert(aiSearchUiSource.includes('classList.remove("open", "closing")') && aiSearchUiSource.includes("prefers-reduced-motion: reduce"), "AI search close cleanup must complete immediately for reduced motion");
+assert(overlaysCssSource.includes(".search-overlay.open.closing") && motionCssSource.includes("@keyframes aiSearchPanelClose"), "AI search must define a visible closing state");
+const aiSearchMotionSource = motionCssSource.slice(motionCssSource.indexOf("@keyframes aiSearchPanelOpen"), motionCssSource.indexOf("@keyframes aiSearchControlIn"));
+assert(!aiSearchMotionSource.includes("clip-path") && aiSearchMotionSource.includes("scale(.985)"), "AI search must enter as one continuous surface without clipping its controls");
+assert(readerUiSource.includes('classList.add("closing")') && readerUiSource.includes("READER_CLOSE_MOTION_MS = 180"), "the floating reader must retain its overlay while closing");
+assert(readerUiSource.includes("finalizeFloatingWebClose();") && readerUiSource.includes("clearTimeout(readerCloseTimer)"), "the floating reader must clean up after close and cancel stale close timers on reopen");
+assert(overlaysCssSource.includes(".web-frame-overlay.open.closing") && motionCssSource.includes("@keyframes webFrameDialogIn") && motionCssSource.includes("@keyframes webFrameDialogOut"), "the floating reader must animate both entrance and exit");
+assert(settingsControllerSource.includes('classList.add("is-entering")') && settingsControllerSource.includes('event.animationName !== "settingsPanelIn"'), "settings panels must use a guarded entrance animation cleanup");
+assert(settingsCssSource.includes(".settings-panel.active.is-entering") && motionCssSource.includes("@keyframes settingsPanelIn"), "settings tab changes must define a restrained incoming transition");
+assert(appSource.includes("const CARD_EXIT_MS = 110") && appSource.includes("const CARD_ENTER_MS = 240"), "card replacement must use a short exit and settle duration");
+assert(appSource.includes("Math.min(index * 12, 84)"), "card replacement stagger must stay within the shortened motion budget");
+const navLabelSource = baseLayoutCssSource.slice(baseLayoutCssSource.indexOf(".nav-label {"), baseLayoutCssSource.indexOf(".main {"));
+assert(navLabelSource.includes("visibility: hidden") && navLabelSource.includes("visibility: visible") && navLabelSource.includes("opacity: 1"), "desktop navigation labels must fade and slide instead of popping between display states");
+assert(contextMenuSource.includes('setProperty("--context-menu-origin-x"') && contextMenuSource.includes('setProperty("--context-menu-origin-y"'), "context menus must derive their entrance origin from the pointer");
+assert(overlaysCssSource.includes("animation: contextMenuIn 110ms") && motionCssSource.includes("@keyframes contextMenuIn"), "context menus must use a lightweight entrance animation");
+assert(motionCssSource.includes("@media (prefers-reduced-motion: reduce)") && motionCssSource.includes("animation-duration: .01ms !important"), "new motion must remain covered by the global reduced-motion override");
+assert(themeBootstrapSource.includes('shortcutLayoutStorageKey = "ampira.websiteShortcutsLayout"') && themeBootstrapSource.includes("chrome.storage.sync.get(settingsStorageKey)"), "the first frame must restore the non-sensitive shortcut layout hint or hydrate it from Chrome Sync");
+assert(themeBootstrapSource.includes("websiteShortcutsReady") && appSource.includes("await globalThis.ampiraLayoutBootstrap?.websiteShortcutsReady"), "dashboard loading placeholders must wait for the shortcut layout hint before mounting");
+assert(appSource.includes("function renderWebsiteShortcutLoadingState()") && appSource.includes("dataset.websiteShortcutCount"), "shortcut loading placeholders must preserve the saved shortcut row count");
+assert(appSource.includes("cacheWebsiteShortcutLayout(settings)") && appSource.includes('delete els.websiteShortcuts.dataset.loading'), "resolved settings must cache the next first-frame layout and clear the shortcut loading state");
+assert(dashboardSectionsCssSource.includes(".website-shortcut-skeleton") && dashboardSectionsCssSource.includes(".website-shortcuts-empty-skeleton") && motionCssSource.includes(".website-shortcuts-empty-skeleton"), "shortcut loading placeholders must reuse the final rail geometry for populated, empty, and narrow states");
+assert(dashboardSectionsCssSource.includes("padding: 7px 6px 7px 10px;"), "website shortcut cards must retain a comfortable left content inset");
+assert(dashboardSectionsCssSource.includes("repeat(auto-fit, minmax(88px, 104px))"), "the desktop shortcut grid must fit ten entries at the 1280px QA viewport");
 assert(appSource.includes('t("settings.bookmarks.folderOption"'));
 assert(appSource.includes('isEnabled: () => state.settings?.bookmarkConsentGranted === true'), "original previews must not depend on Brave configuration");
 assert(appSource.includes('detail?.payload?.permissionsChanged || detail?.payload?.imageSearchChanged'), "permission and Brave configuration changes must invalidate previews in every open tab");
@@ -938,6 +1333,11 @@ assert(appSource.includes('els.headerImage.addEventListener("error", handleHeade
 assert(appSource.includes('if (els.headerImage.complete && els.headerImage.naturalWidth > 0)'), "a cached header cover must become visible without waiting for another load event");
 assert(appSource.includes('if (board.dataset.loading === "true")'), "loading placeholders must be replaced through the dedicated initial render path");
 assert(appSource.includes("animateCardsIn(dailyBoardCards(board));"), "initial daily cards must animate after replacing their loading placeholders");
+assert(appSource.includes('els.efficiencyPanel.dataset.loading = "true"'), "efficiency cards must retain the initial-loading entrance boundary");
+assert(appSource.includes("animatePanelEntrance(renderedCards);"), "efficiency cards must animate when initial loading completes");
+assert(appSource.includes("function syncEfficiencyCards(panel, nextCards)"), "unchanged efficiency cards must retain their animated DOM roots during the first refresh");
+assert(appSource.includes("animatePanelEntrance(nodes, { delay: 60 });"), "daily columns must join the staggered dashboard entrance");
+assert(appSource.includes("currentHead && nextHead && !currentHead.isEqualNode(nextHead)"), "unchanged daily column headers must keep their entrance animation targets");
 assert(appSource.includes('dailyInspirationCount * dailyInspirationBatchLimit'), "daily preload must include all configured cards across reshuffle batches");
 assert(appSource.includes('img.loading = "eager"'), "preloaded daily inspiration images must not be deferred again by lazy loading");
 assert(serviceWorkerSource.includes('urls.push(...inspirationPreviewSourceUrls(model.bookmarks))'), "inspiration origins must appear in the exact-origin permission list");
@@ -955,6 +1355,9 @@ assert(!manualSummaryHandlerSource.includes("requestWebsitePermission"), "manual
 assert(appSource.includes(".filter(isDisplayableFeedItem)"), "the dashboard must hide unreadable undated items already present in an older cache");
 assert(appSource.includes("syncSummaryCard(current, createSummaryCard(item))"), "organizing one card must update it in place instead of replacing the whole card");
 assert(appSource.includes("syncSummaryCard(currentCard, node)"), "cache updates must preserve existing summary card roots when their content changes");
+const summaryGridDiffSource = appSource.slice(appSource.indexOf("function applySummaryGridDiff"), appSource.indexOf("function directSummaryCards"));
+assert(summaryGridDiffSource.includes("if (grid.children[index] !== node) grid.insertBefore(node, grid.children[index] || null)"), "summary cache updates must leave unchanged cards attached to the document");
+assert(!summaryGridDiffSource.includes("grid.replaceChildren"), "summary cache updates must not detach and reattach the complete card grid");
 assert(appSource.includes("card.ampiraItem = item"), "preserved card roots must resolve interactions against their latest item data");
 assert(appSource.includes("state.data?.ai?.enabled === true"), "manual summary actions must stay hidden until AI consent, credentials, and provider permission are configured");
 assert(appSource.includes('options.t("context.explainArticle")') && appSource.includes("action: () => options.explain(url)"), "configured AI must expose article explanation through the context-menu controller");
@@ -963,6 +1366,8 @@ assert(appSource.includes('feedItem.summaryStatus === "ai" && feedItem.summaryTi
 assert.deepEqual(cleanPresentedSummaryLines(["### 核心内容", "**核心内容**：有效摘要。"]), ["有效摘要。"], "cached card summaries must strip Markdown and structural AI headings before rendering");
 assert.equal(cleanPresentedSummaryTitle("### 核心内容"), "", "structural AI headings must never render as card titles");
 assert.equal([...cleanPresentedSummaryTitle("标题".repeat(80))].length, 64, "card titles must retain their explicit character cap");
+assert.equal(isCorrectlySummarized({ summary: { summaryStatus: "ai", summaryTitle: "旧摘要", summary: ["第一段。", "第二段。"] } }), false, "legacy short card summaries must be eligible for reorganization");
+assert.equal(isCorrectlySummarized({ summary: { summaryStatus: "ai", summaryPolicyVersion: 2, summaryTitle: "新版摘要", summary: ["第一段。", "第二段。", "第三段。"] } }), true, "current dense card summaries must not be reorganized again");
 assert(serviceWorkerSource.includes('const summaryText = await callProvider('), "manual card organization must invoke the configured AI provider");
 assert(serviceWorkerSource.includes(".map(cleanGeneratedSummaryLine)"), "new AI card summaries must discard Markdown and structural headings before caching");
 assert(serviceWorkerSource.includes('summaryStatus: "ai"'), "manual card organization must persist AI summary status in the feed cache");
@@ -972,7 +1377,12 @@ assert(serviceWorkerSource.includes("parseGeneratedDailyDigest(result.value, dig
 assert(serviceWorkerSource.includes("originalTitle: item.title, title: aiTitle, aiTitle"), "daily events must display the AI title while retaining the Feed title as fallback data");
 assert(serviceWorkerSource.includes('const excerptText = String(target.excerpt || "").trim().slice(0, CARD_SUMMARY_EXCERPT_MAX_CHARS)'), "manual summaries must use only the bounded feed excerpt");
 assert(serviceWorkerSource.includes("AI_CONNECTION_TEST_MAX_TOKENS = 900"), "AI connection tests must match the proven search budget so reasoning models can emit visible text");
+assert(serviceWorkerSource.includes("AI_DIGEST_MAX_TOKENS = 2400"), "automatic daily briefs must leave enough output budget for ranking and visible text");
+assert(serviceWorkerSource.includes("{ preferVisibleOutput: true }") && aiCoreSource.includes("isOfficialDeepSeekEndpoint(endpoint)"), "automatic DeepSeek briefs must disable thinking without changing manual AI calls");
 assert(serviceWorkerSource.includes("AI_ARTICLE_SUMMARY_MAX_TOKENS = 1200"), "article organization must leave enough output budget after processing long source text");
+assert(serviceWorkerSource.includes("CARD_SUMMARY_MAX_CHARS = 280") && serviceWorkerSource.includes("limitGeneratedSummaryLines(summaryLines, CARD_SUMMARY_MAX_CHARS, 3)"), "organized card summaries must enforce the denser 280-character cache boundary");
+assert(appSource.includes("SUMMARY_DETAIL_MAX_LENGTH = 280"), "summary cards must expose the expanded detail budget");
+assert((await fs.readFile(path.join(root, "assets/styles/dashboard-sections.css"), "utf8")).includes("-webkit-line-clamp: 6"), "summary cards must reveal enough lines to use the denser organized text");
 assert(serviceWorkerSource.includes("const remainingQuota = Math.max(0, settings.dailyAiLimit - quota.used)"), "automatic card summaries must use the remaining shared daily quota");
 assert(serviceWorkerSource.includes("Math.min(availableCards, Math.max(0, remainingQuota - Number(digestEligible)))"), "automatic card summaries must process every eligible card that fits in the remaining daily quota");
 assert(serviceWorkerSource.includes("const automatic = await automaticallySummarizeCards(settings, items, cacheEpoch, generation,"), "the refresh pipeline must run automatic card summaries after committing fresh feed items");
@@ -993,12 +1403,20 @@ assert(searchQueryTerms("人工智能发布").includes("人工"), "dashboard AI 
 assert(!serviceWorkerSource.includes("result = candidates.length\n      ? await answerWithOptionalAi"), "dashboard questions without a local keyword match must still invoke the configured AI provider");
 assert(serviceWorkerSource.includes("content: candidates.length"), "dashboard AI search must explicitly tell the provider when no matching local context exists");
 assert(appSource.includes('summary.className = "ai-digest-summary"'), "the daily brief must render provider-generated overview text instead of hiding it behind local lanes");
+assert(appSource.includes('summary.type = "button"') && appSource.includes('summary.addEventListener("click", refreshDailyDigest)'), "organized daily brief text must be the refresh trigger");
+assert(!appSource.includes('retry.className = "ai-digest-refresh-mini"'), "the organized daily brief must not keep a separate refresh button visible");
+assert(appSource.includes("function dailyDigestParagraphs(lines)"), "single-line daily briefs must be split into balanced text paragraphs when punctuation allows");
+assert(appSource.includes("digest.errorKey") && appSource.includes("messageKey: digest.errorKey"), "failed daily brief cards must show the localized provider reason");
 assert(dashboardSource.includes('id="settingsAutoAiStatus"') && dashboardSource.includes('id="settingsAutoAiDetail"'), "AI settings must expose automatic organization phase and progress");
 assert(dashboardSource.includes('id="settingsQuotaDetail"') && dashboardSource.includes('id="settingsCacheOverviewDetail"'), "AI settings must expose quota meaning and cache timing details");
 assert(dashboardSource.includes('id="settingsCacheLoadingIcon" data-icon="synchronize" alt="" aria-hidden="true" hidden'), "the cache loading icon must be local, decorative, and hidden while idle");
 assert(serviceWorkerSource.includes('getRecord("ai-auto-status", null)'), "automatic AI status must persist across service-worker suspension");
 assert(serviceWorkerSource.includes('"running-digest"') && serviceWorkerSource.includes('phase: "no-candidates"'), "automatic AI status must distinguish active work from an empty candidate queue");
 assert(appSource.includes("function renderAutoAiStatus(ai)"), "the AI settings overview must render persisted automatic organization status");
+assert(appSource.includes('localizedErrorMessage({ messageKey: auto.errorKey, messageParams: auto.errorParams || {} })'), "automatic organization errors must render their localized persisted reason");
+assert(serviceWorkerSource.includes('errorParams: error?.messageParams || {}'), "automatic organization status must retain safe error translation parameters such as HTTP status");
+assert(appSource.includes('digest: "settings.auto.stageDigest"') && serviceWorkerSource.includes('errorStage = "digest"'), "automatic organization errors must identify the failed stage");
+assert(serviceWorkerSource.includes('if (phase !== "quota" && cardEligible') && !serviceWorkerSource.includes('if (!errorKey && phase !== "quota" && cardEligible'), "daily brief failures must not block automatic card organization");
 assert(appSource.includes("function renderQuotaOverview(ai = {})") && appSource.includes('t("settings.overview.quotaDetail", { used, remaining })'), "the runtime overview must explain used and remaining automatic quota");
 assert(appSource.includes("function renderCacheOverview(status = {})") && appSource.includes("status.finishedAt") && appSource.includes("status.progress"), "the runtime overview must show cache progress and the last completed refresh");
 assert(appSource.includes('classList.toggle("is-loading", isLoading)') && appSource.includes("els.settingsCacheLoadingIcon.hidden = !isLoading"), "the cache spinner must only appear while background caching is active");
@@ -1009,9 +1427,9 @@ assert(serviceWorkerSource.includes("automaticAiStarted = true") && serviceWorke
 assert(serviceWorkerSource.includes("const aiAutoReady = aiOriginAdded"), "granting the saved provider origin must start automatic work when the remaining configuration is ready");
 assert(!appSource.includes("createDigestLanes"), "the daily brief must not restore the important, follow, and skip card lanes");
 assert(appSource.includes('createEfficiencyCard(t("events.cardTitle"), tc("unit.entries", items.length), "news")'), "the former topic card must render today's events");
-assert(appSource.includes("Number(right.importanceScore || 0) - Number(left.importanceScore || 0)"), "today's events must rank digest stories by importance");
+assert(appSource.includes("selectDailyEvents(state.data?.dailyDigest?.items") && appSource.includes("Number(right?.importanceScore || 0)"), "today's events must rank digest stories by importance");
 assert(appSource.includes('row.className = "efficiency-row topic-row"'), "today's event rows must preserve the former topic card styling hook");
-assert(appSource.includes('meta.textContent = item.source || item.host || ""'), "today's event rows must show the source without the redundant high-priority reason");
+assert(appSource.includes('item.publisher || item.source || item.host || ""') && appSource.includes('tc("unit.sources", Number(item.sourceCount || 1))'), "today's event rows must show the publisher and independent-source count");
 assert(!serviceWorkerSource.includes("buildTopics("), "the dashboard payload must not run the removed cross-source topic aggregation");
 
 const now = Date.now();
@@ -1202,6 +1620,8 @@ for (const suite of [
   "provider-consent.mjs",
   "provider-policy.mjs",
   "reader.mjs",
+  "feed-coverage.mjs",
+  "image-candidates.mjs",
   "redirect-policy.mjs",
   "refresh-coordinator.mjs",
   "settings-store.mjs",

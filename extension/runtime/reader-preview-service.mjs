@@ -99,7 +99,7 @@ async function readReaderCache(url) {
   const alias = await getRecord(readerAliasKey(url), null);
   if (!alias?.contentKey) return null;
   const value = await getRecord(alias.contentKey, null);
-  return value?.schemaVersion === 2 && Array.isArray(value.blocks) ? value : null;
+  return value?.schemaVersion === 2 && value?.imageStrategyVersion === 2 && Array.isArray(value.blocks) ? value : null;
 }
 
 async function storeReaderCache(reader, cacheEpoch = cacheMutations.capture()) {
@@ -142,7 +142,7 @@ async function previewCachePermitted(value, context = {}) {
   const requestedUrl = previewIdentityUrl(value?.requestedUrl);
   if (!requestedUrl || !previewTargetInModel(requestedUrl, model)) return false;
   if (value.capability === "site-preview-origin") {
-    if (value.strategyVersion !== 3) return false;
+    if (value.strategyVersion !== 4) return false;
     if (value.sourceOrigin !== new URL(requestedUrl).origin) return false;
     return hasOriginPermission(requestedUrl);
   }
