@@ -7,7 +7,7 @@ import { providerEndpoint, requestAiCompletion, searchImagePreview, testImageSea
 import { createClientStateStore } from "../extension/core/client-state.mjs";
 import { DEFAULT_SETTINGS, SETTINGS_KEY } from "../extension/core/constants.mjs";
 import { recordsToPrune } from "../extension/core/db.mjs";
-import { feedCacheOrEmpty, fetchSourceArticles, filterLikelyNewsItems, parseFeedDocument, rankAndDedupe } from "../extension/core/feed.mjs";
+import { feedCacheOrEmpty, fetchSourceArticles, filterLikelyNewsItems, isDisplayableFeedItem, parseFeedDocument, rankAndDedupe } from "../extension/core/feed.mjs";
 import { normalizeFeedback } from "../extension/core/feedback.mjs";
 import { createQuotaManager } from "../extension/core/quota.mjs";
 import { createPreviewService, fetchSourceImagePreview } from "../extension/core/preview.mjs";
@@ -29,6 +29,9 @@ import { AI_SETUP_STAGE, aiProviderOrigin, aiProviderOriginPattern, deriveAiSetu
 import { permissionRowCounts, requiredUngrantedOrigins } from "../assets/client/permission-ui-model.mjs";
 import { textLength, truncateText } from "../assets/client/text.mjs";
 import { cleanGeneratedSummaryLine, extractGeneratedSummaryTitle, hasStructuralSummaryPrefix, normalizeSummaryMarkup, parseGeneratedDailyDigest } from "../extension/core/summary-text.mjs";
+import { cleanAiAnswerMarkup, extractDirectAnswer, parseAiAnswer } from "../assets/client/ai-answer-format.mjs";
+import { cleanSummaryLines as cleanPresentedSummaryLines, cleanSummaryTitle as cleanPresentedSummaryTitle } from "../assets/client/item-presenter.mjs";
+import { searchQueryTerms } from "../extension/core/search.mjs";
 import {
   DEFAULT_LOCALE,
   SUPPORTED_LOCALES,
@@ -40,351 +43,25 @@ import {
   translate,
   translateCount,
 } from "../extension/core/i18n.mjs";
+import { runArchitectureTests } from "./suites/architecture.mjs";
+import { runManifestSecurityTests } from "./suites/manifest-security.mjs";
+import { runActivityStoreTests } from "./suites/activity-store.mjs";
+import { runDashboardControllerTests } from "./suites/dashboard-controller.mjs";
+import { runBookmarkFeedPolicyTests } from "./suites/bookmark-feed-policy.mjs";
 
 if (!globalThis.crypto) globalThis.crypto = webcrypto;
 if (!globalThis.btoa) globalThis.btoa = (value) => Buffer.from(value, "binary").toString("base64");
 if (!globalThis.atob) globalThis.atob = (value) => Buffer.from(value, "base64").toString("binary");
 
 const root = path.dirname(path.dirname(new URL(import.meta.url).pathname.replace(/^\/(?:[A-Za-z]:)/, (match) => match.slice(1))));
-const manifest = JSON.parse(await fs.readFile(path.join(root, "manifest.json"), "utf8"));
-
-assert.equal(manifest.manifest_version, 3);
-assert.equal(manifest.chrome_url_overrides.newtab, "dashboard.html");
-assert.deepEqual(manifest.permissions.sort(), ["alarms", "bookmarks", "storage"]);
-assert.deepEqual([...(manifest.optional_permissions || [])].sort(), ["favicon"], "website icons must use an optional named permission so upgrades do not disable existing installs");
-for (const forbidden of ["tabs", "history", "scripting", "webRequest", "management", "unlimitedStorage"]) {
-  assert(!manifest.permissions.includes(forbidden), `manifest must not request ${forbidden}`);
-}
-assert.deepEqual([...manifest.optional_host_permissions].sort(), ["http://127.0.0.1/*", "http://localhost/*", "https://*/*"], "optional origins must stay on the reviewed allowlist");
-assert(!manifest.host_permissions, "host permissions must remain optional");
-const extensionCsp = manifest.content_security_policy?.extension_pages || "";
-assert(extensionCsp.includes("script-src 'self'"), "extension CSP must only execute packaged scripts");
-assert(extensionCsp.includes("object-src 'none'"), "extension CSP must disable plugin objects");
-assert(extensionCsp.includes("base-uri 'none'"), "extension CSP must disable remote base URLs");
-assert(!/unsafe-(?:eval|inline)/.test(extensionCsp), "extension CSP must not allow unsafe script execution");
-const cspDirectives = new Map(extensionCsp.split(";").map((directive) => directive.trim().split(/\s+/)).filter((parts) => parts[0]).map(([name, ...values]) => [name, values]));
-assert.deepEqual(cspDirectives.get("script-src"), ["'self'"], "extension scripts must only come from the package");
-assert(cspDirectives.get("img-src")?.includes("'self'"), "the native favicon endpoint must remain available as a same-extension image");
-
-assert.equal(DEFAULT_LOCALE, "zh-CN");
-assert.deepEqual(SUPPORTED_LOCALES, ["en", "zh-CN", "zh-Hant"]);
-assert.equal(normalizeLocale("en-US"), "en");
-assert.equal(normalizeLocale("zh_TW"), "zh-Hant");
-assert.equal(normalizeLocale("zh-HK"), "zh-Hant");
-assert.equal(normalizeLocale("zh-Hans-SG"), "zh-CN");
-assert.equal(detectSupportedLocale(["fr-FR", "en-GB"]), "en");
-assert.equal(detectSupportedLocale(["fr-FR"]), "zh-CN");
-assert.equal(translate("en", "context.openAll", { count: 3 }), "Open all in new tabs (3)");
-assert(translate("en", "settings.service.consent").includes("article URLs used for context"), "the prominent AI disclosure must include context article URLs");
-assert(translate("zh-CN", "settings.service.consent").includes("文章网址"), "the Chinese AI disclosure must include context article URLs");
-assert.equal(translateCount("en", "unit.entries", 1), "1 entry");
-assert.equal(translateCount("en", "unit.entries", 2), "2 entries");
-assert.equal(formatListForLocale("en", ["News", "Design"]), "News and Design");
-assert.deepEqual(defaultBookmarkFoldersForLocale("en"), { news: "News", inspiration: "Inspiration" });
-assert.deepEqual(defaultBookmarkFoldersForLocale("zh-Hant"), { news: "資訊", inspiration: "審美" });
-assert.equal(translate("en", "settings.bookmarks.folderOption", { name: "Design", count: 5 }), "Design (5)");
-assert.equal(DEFAULT_SETTINGS.newsBookmarkFolder, "");
-assert.equal(DEFAULT_SETTINGS.inspirationBookmarkFolder, "");
-assert.equal(DEFAULT_SETTINGS.colorMode, "dark", "appearance must default to dark mode");
-assert.equal(DEFAULT_SETTINGS.headerImageEnabled, true, "the header image must be enabled by default");
-assert.equal(truncateText("标题", 4), "标题");
-assert.equal(truncateText("这是一个过长标题", 5), "这是一个…");
-assert.equal(textLength(truncateText("😀😀😀😀", 3)), 3, "text caps must count Unicode characters without splitting emoji");
-assert.equal(normalizeSummaryMarkup("### **核心内容**"), "核心内容");
-assert.equal(cleanGeneratedSummaryLine("**核心内容**：这是一段摘要。"), "这是一段摘要。");
-assert.equal(cleanGeneratedSummaryLine("核心内容：第一点。 **重要性**：第二点。"), "第一点。 第二点。");
-assert.equal(cleanGeneratedSummaryLine("### 核心内容"), "");
-assert.equal(cleanGeneratedSummaryLine("- **行动建议**：继续观察。"), "继续观察。");
-assert.equal(hasStructuralSummaryPrefix("**核心内容**：正文"), false, "prefix checks run after Markdown normalization");
-assert.equal(hasStructuralSummaryPrefix(normalizeSummaryMarkup("**核心内容**：正文")), true);
-assert.equal(extractGeneratedSummaryTitle("**标题：AI 精炼标题**"), "AI 精炼标题");
-assert.equal(extractGeneratedSummaryTitle(`标题：${"长".repeat(80)}`).length, 64, "generated card titles must be capped before caching");
-assert.equal(cleanGeneratedSummaryLine("标题：AI 精炼标题"), "", "generated title rows must not leak into summary text");
-const generatedDigest = parseGeneratedDailyDigest("OVERVIEW: 第一段。\nOVERVIEW: 第二段。\nEVENT 1: AI 事件标题\nEVENT 2: 第二个标题", 3);
-assert.deepEqual(generatedDigest.overview, ["第一段。", "第二段。"]);
-assert.deepEqual(generatedDigest.eventTitles, ["AI 事件标题", "第二个标题", ""]);
-assert.equal(parseGeneratedDailyDigest(`EVENT 1: ${"长".repeat(80)}`, 1).eventTitles[0].length, 64, "daily event AI titles must be capped at 64 characters");
-assert.equal(DEFAULT_SETTINGS.floatingWebOpenEnabled, false, "in-app reading must be opt-in by default");
-
-const permissionUiRows = [
-  { origin: "https://allowed.example/*", required: true, granted: true },
-  { origin: "https://pending.example/*", required: true, granted: false },
-  { origin: "https://legacy.example/*", required: false, granted: true, legacy: true },
-];
-assert.deepEqual(permissionRowCounts(permissionUiRows), {
-  required: 2,
-  granted: 1,
-  pending: 1,
-  legacy: 1,
-  broadRequired: 0,
-});
-assert.deepEqual(requiredUngrantedOrigins(permissionUiRows), ["https://pending.example/*"]);
-assert.equal(permissionRowCounts(permissionUiRows.map((row) => ({ ...row, granted: true }))).pending, 0, "fully granted rows must not leave an active bulk action");
-assert.equal(permissionRowCounts(permissionUiRows.filter((row) => row.legacy)).pending, 0, "legacy-only rows must not enable bulk authorization");
-
-const localeKeys = Object.keys(localeMessages(DEFAULT_LOCALE)).sort();
-const defaultMessages = localeMessages(DEFAULT_LOCALE);
-for (const locale of SUPPORTED_LOCALES) {
-  const messages = localeMessages(locale);
-  assert.deepEqual(Object.keys(messages).sort(), localeKeys, `${locale} catalog keys must match ${DEFAULT_LOCALE}`);
-  for (const key of localeKeys) {
-    const expected = [...String(defaultMessages[key]).matchAll(/\{([a-zA-Z0-9_]+)\}/g)].map((match) => match[1]).sort();
-    const actual = [...String(messages[key]).matchAll(/\{([a-zA-Z0-9_]+)\}/g)].map((match) => match[1]).sort();
-    assert.deepEqual(actual, expected, `${locale} placeholders must match ${DEFAULT_LOCALE} for ${key}`);
-  }
-}
-for (const file of ["en.mjs", "zh-CN.mjs", "zh-Hant.mjs"]) {
-  const source = await fs.readFile(path.join(root, "assets", "client", "locales", file), "utf8");
-  const declaredKeys = [...source.matchAll(/^\s*"([^"]+)"\s*:/gm)].map((match) => match[1]);
-  assert.equal(new Set(declaredKeys).size, declaredKeys.length, `${file} must not declare duplicate translation keys`);
-}
-
-const manifestMessageKeys = [];
-for (const locale of ["en", "zh_CN", "zh_TW"]) {
-  const rawMessages = await fs.readFile(path.join(root, "_locales", locale, "messages.json"), "utf8");
-  const declaredKeys = [...rawMessages.matchAll(/^\s{2}"([^"]+)"\s*:/gm)].map((match) => match[1]);
-  assert.equal(new Set(declaredKeys).size, declaredKeys.length, `${locale} manifest messages must not declare duplicate keys`);
-  const messages = JSON.parse(rawMessages);
-  const keys = Object.keys(messages).sort();
-  if (!manifestMessageKeys.length) manifestMessageKeys.push(...keys);
-  assert.deepEqual(keys, manifestMessageKeys, `${locale} manifest messages must have matching keys`);
-}
-
-const dashboardSource = await fs.readFile(path.join(root, "dashboard.html"), "utf8");
-const dashboardI18nKeys = [...dashboardSource.matchAll(/(?:data-i18n(?:-[\w-]+)?|data-dynamic-i18n)="([^"]+)"/g)].map((match) => match[1]);
-for (const key of dashboardI18nKeys) assert(localeKeys.includes(key), `dashboard translation key must exist: ${key}`);
-const untranslatedDashboardLines = dashboardSource.split(/\r?\n/).filter((line) => (
-  /[\u3400-\u9fff]/u.test(line)
-  && !line.includes("data-i18n")
-  && !line.includes("data-dynamic-i18n")
-  && !/<option value="zh-(?:CN|Hant)">/.test(line)
-  && !/id="currentUiLanguage"/.test(line)
-));
-assert.deepEqual(untranslatedDashboardLines, [], "dashboard-owned Chinese copy must be marked for translation");
-assert(dashboardSource.includes('id="sourcePermissionSummary"'), "website access must expose a visible settings-page status");
-assert.equal((dashboardSource.match(/class="ai-service-group"/g) || []).length, 2, "AI settings must separate provider configuration from optional image search");
-assert(dashboardSource.includes('class="ai-image-layout"') && dashboardSource.includes('class="ai-image-controls"'), "optional image-search controls must have a dedicated responsive layout");
-assert(!dashboardSource.includes('id="refreshPermissionStatus"'), "website access must sync automatically without a no-op refresh button");
-assert(dashboardSource.includes('id="toggleFaviconPermission"'), "existing users must be able to manage the optional favicon permission in settings");
-assert(!dashboardSource.includes('data-permission="favicon"'), "onboarding must not duplicate the favicon permission action beside the combined primary action");
-assert.equal((dashboardSource.match(/data-onboarding-step="\d"/g) || []).length, 5, "onboarding must retain the five-step product, permission, folder, API key, and start flow");
-assert(dashboardSource.includes('id="onboardingNewsFolder"') && dashboardSource.includes('id="onboardingInspirationFolder"'), "onboarding must let users choose bookmark folders in place");
-assert(dashboardSource.includes('id="onboardingApiKey"') && dashboardSource.includes('id="onboardingSkipApiKey"'), "onboarding must offer an optional in-place API key step");
-assert(dashboardSource.includes('data-i18n="onboarding.step3.skip"') && dashboardSource.includes('data-i18n="onboarding.step4.skip"'), "folder and API key onboarding steps must both remain skippable");
-const permissionUiSource = await fs.readFile(path.join(root, "assets", "client", "extension-ui.mjs"), "utf8");
-assert(permissionUiSource.includes('request("settings:save", { newsBookmarkFolder, inspirationBookmarkFolder })'), "onboarding folder choices must persist through the settings boundary");
-assert(permissionUiSource.includes('request("settings:save", { openaiApiKey, aiDisclosureAccepted: true })'), "onboarding API keys must keep the existing consent and local-secret boundary");
-assert(permissionUiSource.includes('permissions: ["favicon"]'), "the onboarding primary permission action must also request website icons from its user gesture");
-assert(permissionUiSource.includes('event.detail?.type === "settings.changed"'), "website access must react to extension permission updates");
-assert(permissionUiSource.includes('"visibilitychange"'), "website access must recheck when the page becomes visible");
-const aiFieldsetStart = dashboardSource.indexOf('<fieldset class="ai-provider-fields"');
-const aiFieldsetEnd = dashboardSource.indexOf("</fieldset>", aiFieldsetStart);
-assert(aiFieldsetStart > 0 && aiFieldsetEnd > aiFieldsetStart, "AI provider controls must use a semantic fieldset");
-assert(dashboardSource.slice(aiFieldsetStart, aiFieldsetEnd).includes(" disabled"), "AI provider fields must start locked before permission state hydrates");
-assert(dashboardSource.slice(aiFieldsetStart, aiFieldsetEnd).includes('aria-describedby="aiFormAccessStatus"'), "locked AI fields must reference the live setup status");
-assert(dashboardSource.indexOf('id="apiBaseUrlInput"') < aiFieldsetStart, "the provider URL must remain available before the gated AI fields");
-assert(dashboardSource.indexOf('id="clearKey"') < aiFieldsetStart, "credential removal must remain available outside the gated AI fields");
-assert(dashboardSource.indexOf('id="grantBraveOrigin"') > aiFieldsetEnd, "Brave authorization must remain independent of the AI provider gate");
-
-for (const file of ["assets/client/api.mjs", "assets/client/extension-ui.mjs"]) {
-  const text = await fs.readFile(path.join(root, file), "utf8");
-  assert(!/[\u3400-\u9fff]/u.test(text), `${file} must not hardcode Chinese UI copy`);
-}
-
-for (const file of ["extension/service-worker.mjs", "extension/core/feed.mjs", "extension/core/secrets.mjs", "extension/core/db.mjs"]) {
-  const text = await fs.readFile(path.join(root, file), "utf8");
-  for (const match of text.matchAll(/["'](background\.[\w.]+)["']/g)) {
-    assert(localeKeys.includes(match[1]), `${file} background translation key must exist: ${match[1]}`);
-  }
-}
-
-for (const [file, expectedLang] of [
-  ["docs/index.html", "zh-CN"],
-  ["docs/en/index.html", "en"],
-  ["docs/zh-TW/index.html", "zh-Hant"],
-]) {
-  const text = await fs.readFile(path.join(root, file), "utf8");
-  assert(text.includes(`<html lang="${expectedLang}">`), `${file} must declare ${expectedLang}`);
-  for (const hreflang of ["zh-CN", "zh-TW", "en"]) assert(text.includes(`hreflang="${hreflang}"`), `${file} must link ${hreflang}`);
-}
-
-const fixtureTree = [{
-  id: "0",
-  children: [{
-    id: "1",
-    title: "书签栏",
-    children: [{
-      id: "10",
-      title: "资讯",
-      children: [{ id: "11", title: "科技", children: [
-        { id: "12", title: "Example News", url: "https://news.example.com/" },
-        { id: "13", title: "Local Feed", url: "http://127.0.0.1:9000/feed.xml" },
-      ] }],
-    }, {
-      id: "20",
-      title: "审美",
-      children: [{ id: "21", title: "设计", children: [
-        { id: "22", title: "Design", url: "https://design.example.com/" },
-      ] }],
-    }],
-  }],
-}];
-
-const model = buildBookmarkModel(fixtureTree, { newsBookmarkFolder: "资讯", inspirationBookmarkFolder: "审美", newsEntriesPerCategory: 12 });
-assert.equal(model.sections.length, 2);
-assert.equal(model.bookmarks.length, 3);
-assert.equal(model.bookmarks.filter((item) => item.cardType === "news").length, 2);
-assert.deepEqual(inspirationPreviewSourceUrls(model.bookmarks), ["https://design.example.com/"], "only inspiration bookmarks should require original-preview origins");
-assert.deepEqual(previewCacheKeysOutsideTargets([
-  { key: "preview-origin-v2-kept", value: { capability: "site-preview-origin", requestedUrl: "https://design.example.com/#work" } },
-  { key: "preview-brave-v2-kept", value: { capability: "site-preview-brave", requestedUrl: "https://design.example.com/", title: "Design" } },
-  { key: "preview-brave-v2-renamed", value: { capability: "site-preview-brave", requestedUrl: "https://design.example.com/", title: "Old name" } },
-  { key: "preview-brave-v2-removed", value: { capability: "site-preview-brave", requestedUrl: "https://removed.example.com/" } },
-  { key: "preview-origin-v2-insecure", value: { capability: "site-preview-origin", requestedUrl: "http://design.example.com/" } },
-  { key: "preview-origin-v2-invalid", value: { capability: "site-preview-origin", requestedUrl: "" } },
-  { key: "feed", value: { requestedUrl: "https://removed.example.com/" } },
-], inspirationPreviewTargets(model.bookmarks)), [
-  "preview-brave-v2-renamed",
-  "preview-brave-v2-removed",
-  "preview-origin-v2-insecure",
-  "preview-origin-v2-invalid",
-], "bookmark changes must identify stale v2 preview records without touching unrelated cache entries");
-assert.deepEqual(bravePreviewCacheKeys([
-  { key: "preview-origin-v2-kept", value: { capability: "site-preview-origin" } },
-  { key: "preview-brave-v2-current", value: { capability: "site-preview-brave" } },
-  { key: "preview-legacy", value: { capability: "image-preview" } },
-  { key: "preview-brave-v2-unknown", value: {} },
-]), ["preview-brave-v2-current", "preview-legacy", "preview-brave-v2-unknown"], "Brave setting or key changes must target only Brave preview cache records");
-assert.equal(model.availableNewsFolders[0].value, "资讯/科技");
-const urlExcludedModel = buildBookmarkModel(fixtureTree, {
-  newsBookmarkFolder: "资讯",
-  inspirationBookmarkFolder: "审美",
-  newsEntriesPerCategory: 12,
-  excludedNewsSources: [{ url: "https://news.example.com/path" }],
-});
-assert.equal(urlExcludedModel.bookmarks.find((item) => item.host === "news.example.com")?.feedExcluded, true, "URL exclusions must be matched by host, not treated as folder paths");
-
-const nestedLimitTree = [{ id: "0", children: [{ id: "1", children: [{
-  id: "30", title: "资讯", children: [{ id: "31", title: "科技", children: [
-    { id: "32", title: "First", url: "https://first.example/" },
-    { id: "33", title: "Nested", children: [{ id: "34", title: "Second", url: "https://second.example/" }] },
-  ] }],
-}, { id: "40", title: "审美", children: [] }] }] }];
-const limitedModel = buildBookmarkModel(nestedLimitTree, { newsBookmarkFolder: "资讯", inspirationBookmarkFolder: "审美", newsEntriesPerCategory: 1 });
-assert.equal(limitedModel.bookmarks.filter((item) => item.cardType === "news" && item.category === "科技").length, 1, "nested folders must share the category limit");
-
-const singleFolderTree = [{ id: "0", children: [{ id: "1", children: [{ id: "50", title: "资讯", children: [
-  { id: "51", title: "Only", url: "https://only.example/" },
-] }] }] }];
-const singleFolderModel = buildBookmarkModel(singleFolderTree, { newsBookmarkFolder: "资讯", inspirationBookmarkFolder: "审美", newsEntriesPerCategory: 12 });
-assert.deepEqual(singleFolderModel.sections.map((section) => [section.name, section.cardType, Boolean(section.missing)]), [
-  ["资讯", "news", false],
-  ["审美", "inspiration", true],
-]);
-assert.equal(singleFolderModel.bookmarks.length, 1, "one folder must not be reused for both primary roles");
-
-assert.deepEqual(originsFromUrls([
-  "https://news.example.com/path",
-  "http://127.0.0.1:9000/feed.xml",
-  "http://insecure.example.com/feed",
-]), ["http://127.0.0.1:9000/*", "https://news.example.com/*"]);
-
-const source = { key: "source", title: "Fixture", category: "科技" };
-const rss = `<?xml version="1.0"?><rss><channel><item><title>第一条资讯</title><link>https://example.com/news/one</link><description><![CDATA[<script>alert(1)</script><p>安全摘要</p>]]></description><pubDate>Fri, 10 Jul 2026 10:00:00 GMT</pubDate></item></channel></rss>`;
-const atom = `<feed><entry><title>Atom item</title><link href="https://example.com/article/two"/><summary>Atom summary</summary><updated>2026-07-10T11:00:00Z</updated></entry></feed>`;
-const jsonFeed = JSON.stringify({ version: "https://jsonfeed.org/version/1.1", items: [{ id: "3", url: "https://example.com/story/three", title: "JSON item", content_text: "JSON summary", date_published: "2026-07-10T12:00:00Z" }] });
-const rssItems = parseFeedDocument(rss, "https://example.com/feed.xml", source, 5, "application/rss+xml");
-const atomItems = parseFeedDocument(atom, "https://example.com/atom.xml", source, 5, "application/atom+xml");
-const jsonItems = parseFeedDocument(jsonFeed, "https://example.com/feed.json", source, 5, "application/feed+json");
-assert.equal(rssItems.length, 1);
-assert.equal(atomItems.length, 1);
-assert.equal(jsonItems.length, 1);
-assert(!rssItems[0].excerpt.includes("<script>"), "remote markup must never survive as executable HTML");
-assert.equal(rankAndDedupe([...rssItems, ...rssItems, ...atomItems, ...jsonItems]).length, 3);
-const importanceFixture = parseFeedDocument(
-  `<rss><channel>
-    <item><title>限时优惠：桌面配件购买指南</title><link>https://example.com/deals/desk</link><description>热门配件推荐与优惠券汇总</description><pubDate>Sun, 12 Jul 2026 10:00:00 GMT</pubDate></item>
-    <item><title>台风登陆，多地启动防汛应急响应</title><link>https://example.com/news/storm</link><description>公共交通中断，相关部门发布避险通知</description><pubDate>Sun, 12 Jul 2026 10:00:00 GMT</pubDate></item>
-  </channel></rss>`,
-  "https://example.com/feed.xml",
-  source,
-  5,
-  "application/rss+xml",
-);
-const importanceRanked = rankAndDedupe(importanceFixture);
-assert.equal(importanceRanked[0].url, "https://example.com/news/storm", "impact signals must outrank a source-leading promotional guide");
-assert(importanceRanked[0].scoreBreakdown.impact > 0, "importance scores must expose their impact contribution");
-assert(importanceRanked[1].scoreBreakdown.lowPriorityPenalty > 0, "soft or commercial content must expose its ranking penalty");
-const legacyImportanceRanked = rankAndDedupe([{ ...importanceFixture[0], score: 99, scorePolicyVersion: 1 }]);
-assert.equal(legacyImportanceRanked[0].scorePolicyVersion, 2, "legacy cached scores must be recalculated under the current policy");
-assert.notEqual(legacyImportanceRanked[0].score, 99, "legacy feed-position scores must not survive policy migration");
-const locallyFilteredItems = filterLikelyNewsItems([
-  { articleId: "privacy", title: "Privacy Policy", source: "Example", url: "https://example.com/privacy" },
-  { articleId: "promotion", title: "【广告】限时推广", source: "Example", url: "https://example.com/news/promotion" },
-  { articleId: "login", title: "Account access", source: "Example", url: "https://example.com/login" },
-  { articleId: "root-home", title: "Latest reporting from around the world", source: "Example", url: "https://example.com/?utm_source=rss" },
-  { articleId: "index-home", title: "Example front page", source: "Example", url: "https://example.com/index.html?ref=feed" },
-  { articleId: "news-landing", title: "All current news", source: "Example", url: "https://example.com/news?from=rss" },
-  { articleId: "blog-landing", title: "Company writing", source: "Example", url: "https://example.com/blog/" },
-  { articleId: "sparse-news", title: "真实但没有摘要和日期的新闻", source: "Example", url: "https://example.com/updates/alpha" },
-  { articleId: "nested-news", title: "A specific article remains eligible", source: "Example", url: "https://example.com/news/specific-story" },
-]);
-assert.deepEqual(locallyFilteredItems.map((item) => item.articleId), ["sparse-news", "nested-news"], "local filtering must reject utility, promotional, root-homepage, and section-landing entries without requiring AI");
-const entityUrlItems = parseFeedDocument(
-  "<rss><channel><item><title>Entity URL</title><link>https://example.com/story?a=1&amp;b=2</link></item></channel></rss>",
-  "https://example.com/feed.xml",
-  source,
-  5,
-  "application/rss+xml",
-);
-assert.equal(entityUrlItems[0].url, "https://example.com/story?a=1&b=2");
-assert.doesNotThrow(() => parseFeedDocument(
-  "<rss><channel><item><title>Invalid &#99999999; entity</title><link>https://example.com/entity</link></item></channel></rss>",
-  "https://example.com/feed.xml",
-  source,
-  5,
-  "application/rss+xml",
-), "invalid remote numeric entities must not abort feed parsing");
-assert.notEqual(normalizeClientUrl("http://127.0.0.1:3000/a"), normalizeClientUrl("http://127.0.0.1:4000/a"));
-assert.equal(isReaderUrl("http://news.example.com/article"), false);
-
-const faviconPageUrl = "https://example.com/path?q=one&size=128#section";
-const faviconRuntime = {
-  id: "test-extension",
-  getURL(pathname) {
-    assert.equal(pathname, "/_favicon/");
-    return `chrome-extension://test-extension${pathname}`;
-  },
-};
-const nativeFavicon = new URL(faviconUrl({
-  url: faviconPageUrl,
-  faviconUrl: "https://tracker.example/icon.png",
-}, { runtime: faviconRuntime, nativeEnabled: true }));
-assert.equal(nativeFavicon.protocol, "chrome-extension:");
-assert.equal(nativeFavicon.hostname, "test-extension");
-assert.equal(nativeFavicon.pathname, "/_favicon/");
-assert.equal(nativeFavicon.searchParams.get("pageUrl"), faviconPageUrl);
-assert.deepEqual(nativeFavicon.searchParams.getAll("size"), ["32"]);
-assert.equal(faviconUrl({ url: faviconPageUrl }, { runtime: faviconRuntime, nativeEnabled: false }), "favicon.svg", "ungranted optional favicon access must use the packaged fallback");
-assert.equal(faviconUrl({ faviconUrl: "https://tracker.example/icon.png" }, { runtime: faviconRuntime, nativeEnabled: false }), "favicon.svg", "remote favicon candidates must never bypass Chrome's native icon service");
-assert.equal(faviconUrl({ url: "javascript:alert(1)" }, { runtime: faviconRuntime, nativeEnabled: true }), "favicon.svg");
-assert.equal(faviconUrl({ url: "not a url" }, { runtime: faviconRuntime, nativeEnabled: true }), "favicon.svg");
-assert.equal(faviconUrl({ url: faviconPageUrl }, {
-  nativeEnabled: true,
-  runtime: { id: "test-extension", getURL() { throw new Error("unavailable"); } },
-}), "favicon.svg");
-
-const emptyFeedCache = feedCacheOrEmpty(null);
-assert.deepEqual(emptyFeedCache.items, [], "a missing feed cache must remain empty instead of falling back to bookmark cards");
-const cachedEmptyFeed = { schemaVersion: 2, items: [] };
-assert.equal(feedCacheOrEmpty(cachedEmptyFeed), cachedEmptyFeed, "an empty feed cache must remain the authoritative empty result");
-const cachedFeed = { schemaVersion: 2, items: [{ articleId: "real-article", title: "Real article" }] };
-assert.equal(feedCacheOrEmpty(cachedFeed), cachedFeed, "real cached news must remain available");
-assert.equal(isReaderUrl("http://127.0.0.1:3000/article"), true);
-
+await runArchitectureTests(root);
+const { dashboardSource, localeKeys } = await runManifestSecurityTests(root);
+runActivityStoreTests();
+await runDashboardControllerTests();
+runBookmarkFeedPolicyTests();
 const originalFetch = globalThis.fetch;
 try {
-  const manyItems = Array.from({ length: 15 }, (_, index) => ({ id: String(index), url: `https://example.com/${index}`, title: `Item ${index}` }));
+  const manyItems = Array.from({ length: 15 }, (_, index) => ({ id: String(index), url: `https://example.com/${index}`, title: `Item ${index}`, content_text: `Summary ${index}` }));
   globalThis.fetch = async () => new Response(JSON.stringify({ version: "https://jsonfeed.org/version/1.1", items: manyItems }), {
     status: 200,
     headers: { "content-type": "application/feed+json" },
@@ -393,7 +70,7 @@ try {
   globalThis.fetch = async (url) => {
     if (String(url).endsWith("/bad.xml")) return new Response("failure", { status: 503 });
     if (String(url).endsWith("/good.json")) {
-      return new Response(JSON.stringify({ version: "https://jsonfeed.org/version/1.1", items: [{ id: "ok", url: "https://fixture.example/ok", title: "Recovered" }] }), {
+      return new Response(JSON.stringify({ version: "https://jsonfeed.org/version/1.1", items: [{ id: "ok", url: "https://fixture.example/ok", title: "Recovered", content_text: "Recovered summary" }] }), {
         status: 200,
         headers: { "content-type": "application/feed+json" },
       });
@@ -1239,17 +916,29 @@ const readerSource = await fs.readFile(path.join(root, "extension/core/reader.mj
 for (const leakedCopy of ["视频内容", "网站返回 HTTP", "在线正文暂时不可用"]) {
   assert(!readerSource.includes(leakedCopy), `reader core must not hardcode localized UI copy: ${leakedCopy}`);
 }
-const appSource = await fs.readFile(path.join(root, "assets/client/app.mjs"), "utf8");
-const serviceWorkerSource = await fs.readFile(path.join(root, "extension/service-worker.mjs"), "utf8");
+const appSource = (await Promise.all(
+  (await listFilesRecursively(path.join(root, "assets", "client")))
+    .filter((file) => file.endsWith(".mjs"))
+    .map((file) => fs.readFile(file, "utf8")),
+)).join("\n");
+const serviceWorkerSource = (await Promise.all(
+  (await listFilesRecursively(path.join(root, "extension", "runtime")))
+    .filter((file) => file.endsWith(".mjs"))
+    .map((file) => fs.readFile(file, "utf8")),
+)).join("\n");
 const readerPolicySource = await fs.readFile(path.join(root, "assets/client/reader-policy.mjs"), "utf8");
 const readerUiSource = await fs.readFile(path.join(root, "assets/client/reader-ui.mjs"), "utf8");
 assert(readerPolicySource.includes('READER_HTTP_ERROR: "reader.error.httpTitle"'));
 assert(readerUiSource.includes("markReadOnOpen(item);"), "opening a bookmark or news card must mark it as read");
 assert(appSource.includes('t("settings.bookmarks.folderOption"'));
 assert(appSource.includes('isEnabled: () => state.settings?.bookmarkConsentGranted === true'), "original previews must not depend on Brave configuration");
-assert(appSource.includes('event.detail?.payload?.permissionsChanged || event.detail?.payload?.imageSearchChanged'), "permission and Brave configuration changes must invalidate previews in every open tab");
-assert(appSource.includes('await preloadDailyInspiration(INITIAL_INSPIRATION_PRELOAD_TIMEOUT_MS)'), "the fixed daily inspiration selection must preload before the initial render");
-assert(appSource.includes('DAILY_INSPIRATION_COUNT * DAILY_INSPIRATION_BATCH_LIMIT'), "daily preload must include all 15 cards across the three reshuffle batches");
+assert(appSource.includes('detail?.payload?.permissionsChanged || detail?.payload?.imageSearchChanged'), "permission and Brave configuration changes must invalidate previews in every open tab");
+assert(appSource.includes('renderAll();\n  preloadDailyInspiration(UPDATE_INSPIRATION_PRELOAD_TIMEOUT_MS);'), "the initial dashboard must render before inspiration previews preload");
+assert(appSource.includes('els.headerImage.addEventListener("error", handleHeaderImageError);\n  syncHeaderImageLoadState();'), "the header cover must reconcile an image that completed before its runtime listeners were bound");
+assert(appSource.includes('if (els.headerImage.complete && els.headerImage.naturalWidth > 0)'), "a cached header cover must become visible without waiting for another load event");
+assert(appSource.includes('if (board.dataset.loading === "true")'), "loading placeholders must be replaced through the dedicated initial render path");
+assert(appSource.includes("animateCardsIn(dailyBoardCards(board));"), "initial daily cards must animate after replacing their loading placeholders");
+assert(appSource.includes('dailyInspirationCount * dailyInspirationBatchLimit'), "daily preload must include all configured cards across reshuffle batches");
 assert(appSource.includes('img.loading = "eager"'), "preloaded daily inspiration images must not be deferred again by lazy loading");
 assert(serviceWorkerSource.includes('urls.push(...inspirationPreviewSourceUrls(model.bookmarks))'), "inspiration origins must appear in the exact-origin permission list");
 assert(serviceWorkerSource.includes("await pruneStalePreviewCaches(settings)"), "bookmark changes must prune preview caches for removed inspiration targets");
@@ -1263,12 +952,17 @@ assert(!serviceWorkerSource.includes("bookmark-article-"), "empty feeds must not
 assert(appSource.includes('articleId: item.feedItem?.articleId || item.key'), "manual summaries must identify the clicked article, not only its feed source");
 const manualSummaryHandlerSource = appSource.slice(appSource.indexOf("async function refreshSummaryItem"), appSource.indexOf("function updateSummaryCard"));
 assert(!manualSummaryHandlerSource.includes("requestWebsitePermission"), "manual summaries must not require or request article-origin permission");
+assert(appSource.includes(".filter(isDisplayableFeedItem)"), "the dashboard must hide unreadable undated items already present in an older cache");
+assert(appSource.includes("syncSummaryCard(current, createSummaryCard(item))"), "organizing one card must update it in place instead of replacing the whole card");
+assert(appSource.includes("syncSummaryCard(currentCard, node)"), "cache updates must preserve existing summary card roots when their content changes");
+assert(appSource.includes("card.ampiraItem = item"), "preserved card roots must resolve interactions against their latest item data");
 assert(appSource.includes("state.data?.ai?.enabled === true"), "manual summary actions must stay hidden until AI consent, credentials, and provider permission are configured");
+assert(appSource.includes('options.t("context.explainArticle")') && appSource.includes("action: () => options.explain(url)"), "configured AI must expose article explanation through the context-menu controller");
 assert(appSource.includes('feedItem.summaryStatus === "ai"'), "AI summary status must survive feed-to-card mapping");
 assert(appSource.includes('feedItem.summaryStatus === "ai" && feedItem.summaryTitle ? feedItem.summaryTitle : feedItem.title'), "organized cards must prefer the separately cached AI title and retain the Feed title as fallback");
-assert(appSource.includes(".map(cleanAiSummaryLine)"), "cached card summaries must strip Markdown and structural AI headings before rendering");
-assert(appSource.includes("isStructuralSummaryHeading(title) || hasStructuralSummaryPrefix(title)"), "structural AI headings and labeled summary text must never render as card titles");
-assert(appSource.includes("SUMMARY_TITLE_MAX_LENGTH = 64") && appSource.includes("SUMMARY_DETAIL_MAX_LENGTH = 180"), "card titles and summaries must have explicit character caps");
+assert.deepEqual(cleanPresentedSummaryLines(["### 核心内容", "**核心内容**：有效摘要。"]), ["有效摘要。"], "cached card summaries must strip Markdown and structural AI headings before rendering");
+assert.equal(cleanPresentedSummaryTitle("### 核心内容"), "", "structural AI headings must never render as card titles");
+assert.equal([...cleanPresentedSummaryTitle("标题".repeat(80))].length, 64, "card titles must retain their explicit character cap");
 assert(serviceWorkerSource.includes('const summaryText = await callProvider('), "manual card organization must invoke the configured AI provider");
 assert(serviceWorkerSource.includes(".map(cleanGeneratedSummaryLine)"), "new AI card summaries must discard Markdown and structural headings before caching");
 assert(serviceWorkerSource.includes('summaryStatus: "ai"'), "manual card organization must persist AI summary status in the feed cache");
@@ -1287,20 +981,27 @@ assert(serviceWorkerSource.includes("preserveCardAiSummary(item"), "fresh feed r
 assert(serviceWorkerSource.includes("sanitizeCardAiSummaries(feed.items, settings, configuredForAi)"), "card AI summaries must be hidden after provider consent, key, or permission becomes invalid");
 assert(serviceWorkerSource.includes("await refreshDailyDigest({ automatic: true })"), "a missing daily AI brief must be generated automatically after feed refresh");
 assert(serviceWorkerSource.includes("? await runAiWithinQuota(settings, operation)"), "only automatic daily briefs may consume the automatic AI quota");
-assert(serviceWorkerSource.includes("const value = await callProvider(settings, options.system, options.input, 900"), "manual AI search must not consume the automatic organization quota");
+assert(serviceWorkerSource.includes("AI_SEARCH_MAX_TOKENS = 1400"), "AI search must leave enough output budget for substantial article briefs");
+assert(serviceWorkerSource.includes("const value = await callProvider(settings, options.system, options.input, AI_SEARCH_MAX_TOKENS"), "manual AI search must not consume the automatic organization quota");
+assert(serviceWorkerSource.includes("AI_SEARCH_CACHE_VERSION = 3"), "AI search prompt and presentation changes must invalidate stale cached answers");
 assert(serviceWorkerSource.includes("const context = await automaticCardSummaryContext(candidate)"), "automatic summaries must build a bounded excerpt-only context");
 const automaticSummaryContextSource = serviceWorkerSource.slice(serviceWorkerSource.indexOf("function automaticCardSummaryContext"), serviceWorkerSource.indexOf("function preserveCardAiSummary"));
 assert(!automaticSummaryContextSource.includes("readArticle") && !automaticSummaryContextSource.includes("hasOriginPermission"), "automatic card summaries must never fetch article bodies");
 const manualSummarySource = serviceWorkerSource.slice(serviceWorkerSource.indexOf("async function refreshSingleSummary"), serviceWorkerSource.indexOf("function generatedCardSummary"));
 assert(!manualSummarySource.includes("readArticle") && !manualSummarySource.includes("readerTextFromBlocks"), "manual card summaries must never fetch article bodies");
-assert(serviceWorkerSource.includes("function searchQueryTerms(query)"), "dashboard AI search must segment natural-language and CJK queries before selecting context");
+assert(searchQueryTerms("人工智能发布").includes("人工"), "dashboard AI search must segment CJK queries before selecting context");
 assert(!serviceWorkerSource.includes("result = candidates.length\n      ? await answerWithOptionalAi"), "dashboard questions without a local keyword match must still invoke the configured AI provider");
 assert(serviceWorkerSource.includes("content: candidates.length"), "dashboard AI search must explicitly tell the provider when no matching local context exists");
 assert(appSource.includes('summary.className = "ai-digest-summary"'), "the daily brief must render provider-generated overview text instead of hiding it behind local lanes");
 assert(dashboardSource.includes('id="settingsAutoAiStatus"') && dashboardSource.includes('id="settingsAutoAiDetail"'), "AI settings must expose automatic organization phase and progress");
+assert(dashboardSource.includes('id="settingsQuotaDetail"') && dashboardSource.includes('id="settingsCacheOverviewDetail"'), "AI settings must expose quota meaning and cache timing details");
+assert(dashboardSource.includes('id="settingsCacheLoadingIcon" data-icon="synchronize" alt="" aria-hidden="true" hidden'), "the cache loading icon must be local, decorative, and hidden while idle");
 assert(serviceWorkerSource.includes('getRecord("ai-auto-status", null)'), "automatic AI status must persist across service-worker suspension");
 assert(serviceWorkerSource.includes('"running-digest"') && serviceWorkerSource.includes('phase: "no-candidates"'), "automatic AI status must distinguish active work from an empty candidate queue");
 assert(appSource.includes("function renderAutoAiStatus(ai)"), "the AI settings overview must render persisted automatic organization status");
+assert(appSource.includes("function renderQuotaOverview(ai = {})") && appSource.includes('t("settings.overview.quotaDetail", { used, remaining })'), "the runtime overview must explain used and remaining automatic quota");
+assert(appSource.includes("function renderCacheOverview(status = {})") && appSource.includes("status.finishedAt") && appSource.includes("status.progress"), "the runtime overview must show cache progress and the last completed refresh");
+assert(appSource.includes('classList.toggle("is-loading", isLoading)') && appSource.includes("els.settingsCacheLoadingIcon.hidden = !isLoading"), "the cache spinner must only appear while background caching is active");
 assert(appSource.includes('removeAttribute("data-i18n")'), "dynamic automatic AI status must survive whole-document translation passes");
 assert(appSource.includes('"missing-key": "settings.auto.missingKey"'), "automatic AI status must explain when a tested API key has not been saved");
 assert(appSource.includes("settings.test.successSaveHint"), "a successful draft connection test must tell the user to save settings before automation can run");
@@ -1470,8 +1171,7 @@ delete chrome.runtime;
 const sourceFiles = [
   "dashboard.html",
   ...(await listFilesRecursively(path.join(root, "assets", "client"))).filter((name) => name.endsWith(".mjs")).map((name) => path.relative(root, name).replaceAll("\\", "/")),
-  ...(await listFilesRecursively(path.join(root, "extension", "core"))).filter((name) => name.endsWith(".mjs")).map((name) => path.relative(root, name).replaceAll("\\", "/")),
-  "extension/service-worker.mjs",
+  ...(await listFilesRecursively(path.join(root, "extension"))).filter((name) => name.endsWith(".mjs")).map((name) => path.relative(root, name).replaceAll("\\", "/")),
 ];
 for (const file of sourceFiles) {
   const absoluteFile = path.join(root, file);
@@ -1495,6 +1195,19 @@ for (const file of sourceFiles) {
 }
 const bookmarkRuntimeSource = await Promise.all(sourceFiles.filter((file) => file.startsWith("extension/")).map((file) => fs.readFile(path.join(root, file), "utf8")));
 assert(!/chrome\.bookmarks\.(?:create|update|move|remove|removeTree)\s*\(/.test(bookmarkRuntimeSource.join("\n")), "bookmark access must remain read-only");
+
+for (const suite of [
+  "mutation-queue.mjs",
+  "permission-state.mjs",
+  "provider-consent.mjs",
+  "provider-policy.mjs",
+  "reader.mjs",
+  "redirect-policy.mjs",
+  "refresh-coordinator.mjs",
+  "settings-store.mjs",
+]) {
+  await import(`./suites/${suite}`);
+}
 
 console.log("extension tests passed");
 

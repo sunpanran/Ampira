@@ -6,7 +6,7 @@ import {
   normalizeOriginPattern,
   revokedSourceKeys,
   valueTouchesOrigins,
-} from "../extension/core/permission-state.mjs";
+} from "../../extension/core/permission-state.mjs";
 
 assert.equal(normalizeOriginPattern("https://example.com/path"), "https://example.com/*");
 assert.equal(normalizeOriginPattern("http://localhost:3000/*"), "http://localhost:3000/*");

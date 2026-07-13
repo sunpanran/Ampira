@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { fetchSourceArticles, parseFeedDocument } from "../extension/core/feed.mjs";
-import { fetchReaderHtml } from "../extension/core/reader.mjs";
+import { fetchSourceArticles, parseFeedDocument } from "../../extension/core/feed.mjs";
+import { fetchReaderHtml } from "../../extension/core/reader.mjs";
 
 const rss = "<rss><channel><item><title>Policy fixture</title><link>https://article.example/item</link></item></channel></rss>";
 const secureItem = parseFeedDocument(rss, "https://feed.example/rss.xml", {
@@ -34,7 +34,7 @@ try {
     feedRequest = { url: String(url), options };
     return new Response(JSON.stringify({
       version: "https://jsonfeed.org/version/1.1",
-      items: [{ id: "one", url: "https://article.example/one", title: "Feed item" }],
+      items: [{ id: "one", url: "https://article.example/one", title: "Feed item", date_published: "2026-07-13T00:00:00Z" }],
     }), { status: 200, headers: { "content-type": "application/feed+json" } });
   };
   const articles = await fetchSourceArticles({

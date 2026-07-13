@@ -1,4 +1,18 @@
+export function getElementGroups() {
+  const elements = queryElements();
+  return {
+    shell: pick(elements, SHELL_KEYS),
+    dashboard: pick(elements, DASHBOARD_KEYS),
+    settings: pick(elements, SETTINGS_KEYS),
+    overlay: pick(elements, OVERLAY_KEYS),
+  };
+}
+
 export function getElements() {
+  return Object.assign({}, ...Object.values(getElementGroups()));
+}
+
+function queryElements() {
   return {
     todayMeta: document.querySelector("#todayMeta"),
     dailySection: document.querySelector("#daily"),
@@ -31,7 +45,10 @@ export function getElements() {
     settingsOverviewMeta: document.querySelector("#settingsOverviewMeta"),
     settingsOverviewAction: document.querySelector("#settingsOverviewAction"),
     settingsQuotaStatus: document.querySelector("#settingsQuotaStatus"),
+    settingsQuotaDetail: document.querySelector("#settingsQuotaDetail"),
     settingsCacheOverviewStatus: document.querySelector("#settingsCacheOverviewStatus"),
+    settingsCacheOverviewDetail: document.querySelector("#settingsCacheOverviewDetail"),
+    settingsCacheLoadingIcon: document.querySelector("#settingsCacheLoadingIcon"),
     settingsAutoAiStatus: document.querySelector("#settingsAutoAiStatus"),
     settingsAutoAiDetail: document.querySelector("#settingsAutoAiDetail"),
     settingsTabs: document.querySelector("#settingsTabs"),
@@ -104,4 +121,51 @@ export function getElements() {
     closeWebFrame: document.querySelector("#closeWebFrame"),
     linkContextMenu: document.querySelector("#linkContextMenu")
   }
+}
+
+const SHELL_KEYS = [
+  "search", "topAiSearch", "aiSearchNav",
+];
+
+const DASHBOARD_KEYS = [
+  "todayMeta", "dailySection", "headerImageHero", "headerImage",
+  "efficiencyPanel", "dailyBoard", "summaryMeta", "summaryGrid",
+  "summaryOrder", "summaryBatch", "categoryGrid", "sectionFilter",
+  "categoryFilter", "refresh",
+];
+
+const SETTINGS_KEYS = [
+  "settingsModal", "settingsForm", "settingsStatus", "settingsOverviewTitle",
+  "settingsOverviewMeta", "settingsOverviewAction", "settingsQuotaStatus",
+  "settingsQuotaDetail", "settingsCacheOverviewStatus", "settingsCacheOverviewDetail",
+  "settingsCacheLoadingIcon", "settingsAutoAiStatus", "settingsAutoAiDetail",
+  "settingsTabs", "settingsCacheStatus", "bookmarkSourceStatus",
+  "sourceSuggestionStatus", "sourceSuggestionList", "exclusionStatus",
+  "exclusionList", "clearSourceSuggestions", "blockAllSuggestions",
+  "excludeInput", "addExclude", "excludeFolderSelect", "addExcludeFolder",
+  "apiKeyInput", "aiDisclosureConsent", "aiFormAccessStatus", "aiProviderFields",
+  "grantAiOrigin", "apiBaseUrlInput", "apiStyleSelect", "modelInput",
+  "dailyLimitInput", "imageSearchApiKeyInput", "webImageSearchEnabledInput",
+  "testImageSearchKey", "clearImageSearchKey", "cardSummaryEnabledInput",
+  "cacheSizeInput", "hotNewsPerSourceInput", "newsPerCategoryInput",
+  "newsBookmarkFolderSelect", "inspirationBookmarkFolderSelect",
+  "bookmarkOnlyFolderSelect", "addBookmarkOnlyFolder", "bookmarkOnlyFolderList",
+  "floatingOpenInput", "readingQueueOpenOnReadAllInput", "retainSeenArchiveInput",
+  "personalizedRankingEnabledInput", "publicFeedSupplementEnabledInput",
+  "uiLocaleSelect", "currentUiLanguage", "colorModeGroup", "accentThemeGroup",
+  "customAccentInput", "pointerGlowEnabledInput", "headerImageEnabledInput",
+  "headerImageFixedInput", "headerImageFullscreenField", "headerImageFullscreenInput",
+  "headerImageUrlInput", "saveSettings", "testKey", "clearKey", "clearCache",
+  "resetQuota", "resetPreferences", "deepseekPreset", "closeSettings",
+];
+
+const OVERLAY_KEYS = [
+  "aiSearchOverlay", "aiSearchForm", "aiSearchInput", "aiSearchSubmit",
+  "aiAnswer", "aiSearchMeta", "closeAiSearch", "webFrameOverlay", "webFrame",
+  "webFrameFavicon", "webFrameTitle", "webFrameUrl", "backWebFrame",
+  "reloadWebFrame", "openWebFrameExternal", "closeWebFrame", "linkContextMenu",
+];
+
+function pick(elements, keys) {
+  return Object.fromEntries(keys.map((key) => [key, elements[key]]));
 }

@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
-import { DEFAULT_SETTINGS, SETTINGS_KEY } from "../extension/core/constants.mjs";
-import { normalizeSettings } from "../extension/core/settings.mjs";
-import { settingsChunkKeys } from "../extension/core/settings-storage.mjs";
-import { createSettingsStore } from "../extension/core/settings-store.mjs";
+import { DEFAULT_SETTINGS, SETTINGS_KEY } from "../../extension/core/constants.mjs";
+import { normalizeSettings } from "../../extension/core/settings.mjs";
+import { settingsChunkKeys } from "../../extension/core/settings-storage.mjs";
+import { createSettingsStore } from "../../extension/core/settings-store.mjs";
 
 const storage = memoryStorage();
 const store = createSettingsStore(storage);
