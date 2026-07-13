@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "__MSG_appName__",
   "description": "__MSG_appDescription__",
-  "version": "26.1.8",
+  "version": "26.1.9",
   "default_locale": "zh_CN",
   "icons": {
     "16": "extension/icons/icon-16.png",

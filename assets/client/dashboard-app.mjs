@@ -365,6 +365,11 @@ const {
   localizedExclusionReason,
   formatDateTime,
   normalizeUrl,
+  allTranslations,
+  newsCardType: NEWS_CARD_TYPE,
+  newsSectionName,
+  legacyNewsSection: LEGACY_NEWS_SECTION,
+  legacyInspirationSection: LEGACY_INSPIRATION_SECTION,
 });
 const {
   syncBookmarkFolderControls,

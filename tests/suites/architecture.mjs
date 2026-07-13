@@ -24,10 +24,18 @@ export async function runArchitectureTests(root) {
   const clientFiles = await listFiles(path.join(root, "assets/client"), ".mjs");
   const elementsSource = await fs.readFile(path.join(root, "assets/client/elements.mjs"), "utf8");
   const dashboardAppSource = await fs.readFile(path.join(root, "assets/client/dashboard-app.mjs"), "utf8");
+  const sourceSettingsSource = await fs.readFile(path.join(root, "assets/client/source-settings-controller.mjs"), "utf8");
   for (const group of ["shell", "dashboard", "settings", "overlay"]) {
     assert(elementsSource.includes(`${group}: pick(elements,`), `elements must expose the ${group} group`);
   }
   assert(dashboardAppSource.includes("getElementGroups()") && !dashboardAppSource.includes("getElements()"), "dashboard assembly must use scoped element groups");
+  for (const leakedBinding of ["NEWS_CARD_TYPE", "LEGACY_NEWS_SECTION", "LEGACY_INSPIRATION_SECTION"]) {
+    assert(!sourceSettingsSource.includes(leakedBinding), `source settings must receive ${leakedBinding} through explicit dependencies`);
+  }
+  for (const dependency of ["allTranslations", "newsCardType", "newsSectionName", "legacyNewsSection", "legacyInspirationSection"]) {
+    assert(sourceSettingsSource.slice(0, 600).includes(dependency), `source settings must declare the ${dependency} dependency`);
+    assert(dashboardAppSource.includes(`${dependency}:`) || dashboardAppSource.includes(`  ${dependency},`), `dashboard composition must provide ${dependency}`);
+  }
   for (const file of clientFiles.filter((name) => /-view\.mjs$/.test(name))) {
     const source = await fs.readFile(file, "utf8");
     const imports = importSpecifiers(source);
