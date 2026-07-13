@@ -1,4 +1,6 @@
-const NUMERIC_FIELDS = new Set(["dailyAiLimit", "hotNewsCacheSize", "hotNewsEntriesPerSource", "newsEntriesPerCategory"]);
+const NUMERIC_FIELDS = new Set([
+  "dailyAiLimit", "hotNewsCacheSize", "hotNewsEntriesPerSource", "newsEntriesPerCategory", "todayNewsPerPublisherLimit",
+]);
 const SECRET_FIELDS = new Set(["openaiApiKey", "braveSearchApiKey"]);
 
 export function snapshotSettingsDraft(value, effectiveLocale = "") {

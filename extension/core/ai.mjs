@@ -33,20 +33,24 @@ export async function requestAiCompletion(settings, options) {
   let response;
   let buffer;
   try {
+    const requestBody = chat ? {
+      model: settings.openaiSummaryModel,
+      messages: [{ role: "system", content: options.system }, { role: "user", content: options.input }],
+      max_tokens: options.maxTokens,
+      ...(options.preferVisibleOutput === true && isOfficialDeepSeekEndpoint(endpoint)
+        ? { thinking: { type: "disabled" } }
+        : {}),
+    } : {
+      model: settings.openaiSummaryModel,
+      instructions: options.system,
+      input: options.input,
+      max_output_tokens: options.maxTokens,
+    };
     const bounded = await fetchBounded(endpoint, {
       method: "POST",
       redirect: "error",
       headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
-      body: JSON.stringify(chat ? {
-        model: settings.openaiSummaryModel,
-        messages: [{ role: "system", content: options.system }, { role: "user", content: options.input }],
-        max_tokens: options.maxTokens,
-      } : {
-        model: settings.openaiSummaryModel,
-        instructions: options.system,
-        input: options.input,
-        max_output_tokens: options.maxTokens,
-      }),
+      body: JSON.stringify(requestBody),
     }, { timeoutMs: AI_TIMEOUT_MS, maxBytes: SERVICE_RESPONSE_LIMIT });
     response = bounded.response;
     buffer = bounded.buffer;
@@ -63,9 +67,28 @@ export async function requestAiCompletion(settings, options) {
       { status: response.status, url: response.url || endpoint },
     );
   }
+  const incompleteReason = String(data?.incomplete_details?.reason || "").trim();
+  if (data?.status === "incomplete") {
+    const outputLimitReached = incompleteReason === "max_tokens" || incompleteReason === "max_output_tokens";
+    throw serviceError(
+      outputLimitReached ? "AI_OUTPUT_LIMIT" : "AI_INCOMPLETE_RESPONSE",
+      outputLimitReached ? "background.error.aiOutputLimit" : "background.error.aiIncomplete",
+      {},
+      true,
+      { reason: incompleteReason },
+    );
+  }
   const text = aiResponseText(data, chat);
   if (!text) throw serviceError("AI_EMPTY_RESPONSE", "background.error.aiNoText", {}, true);
   return text;
+}
+
+function isOfficialDeepSeekEndpoint(value) {
+  try {
+    return new URL(value).hostname.toLowerCase() === "api.deepseek.com";
+  } catch {
+    return false;
+  }
 }
 
 function aiResponseText(data, chat) {

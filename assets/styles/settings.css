@@ -464,6 +464,14 @@
   display: grid;
 }
 
+.settings-panel.active.is-entering {
+  animation: settingsPanelIn 160ms cubic-bezier(.22, .86, .34, 1) both;
+}
+
+.settings-panel > :last-child {
+  padding-bottom: 24px;
+}
+
 .settings-panel-intro {
   display: grid;
   gap: 4px;
@@ -698,6 +706,178 @@
 
 .settings-compact-list:not(:empty) > *:last-child {
   border-bottom: 0;
+}
+
+.source-coverage-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  border-block: 1px solid var(--line-faint);
+}
+
+.source-coverage-metric {
+  min-width: 0;
+  padding: 10px 12px;
+  border-right: 1px solid var(--line-faint);
+}
+
+.source-coverage-metric:last-child {
+  border-right: 0;
+}
+
+.source-coverage-metric strong,
+.source-coverage-metric span {
+  display: block;
+}
+
+.source-coverage-metric strong {
+  color: var(--text);
+  font-size: 18px;
+  font-variant-numeric: tabular-nums;
+}
+
+.source-coverage-metric span {
+  margin-top: 2px;
+  overflow: hidden;
+  color: var(--muted-2);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.source-health-list {
+  display: grid;
+  max-height: 420px;
+  overflow-y: auto;
+}
+
+.source-health-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+}
+
+.source-health-row.is-error,
+.source-health-row.is-permissionRequired {
+  box-shadow: inset 2px 0 0 var(--red);
+}
+
+.source-health-row.is-empty {
+  box-shadow: inset 2px 0 0 #E5A93D;
+}
+
+.source-health-row.is-healthy {
+  box-shadow: inset 2px 0 0 #57C785;
+}
+
+.source-health-main {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.source-health-main strong,
+.source-health-main span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.source-health-main strong {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.source-health-main span {
+  color: var(--muted-2);
+  font-size: 11px;
+}
+
+.source-health-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.website-shortcut-editor {
+  display: grid;
+  gap: 12px;
+}
+
+.website-shortcut-editor-actions {
+  align-items: center;
+}
+
+.website-shortcut-count {
+  margin-left: auto;
+  color: var(--muted-2);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.website-shortcut-settings-empty {
+  padding: 12px;
+  color: var(--muted-2);
+  font-size: 12px;
+}
+
+.website-shortcut-settings-row {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+}
+
+.website-shortcut-settings-row.is-editing {
+  background: var(--active-bg) !important;
+}
+
+.website-shortcut-settings-main {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.website-shortcut-settings-main strong,
+.website-shortcut-settings-main span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.website-shortcut-settings-main strong {
+  color: var(--text);
+  font-size: 12px;
+}
+
+.website-shortcut-settings-main span {
+  color: var(--muted-2);
+  font-size: 10px;
+}
+
+.website-shortcut-settings-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.website-shortcut-settings-actions .btn {
+  min-height: 30px;
+  padding: 5px 9px;
+}
+
+.website-shortcut-order {
+  width: 30px;
+  min-width: 30px;
+  padding-inline: 0 !important;
+  font-family: var(--font-display);
+  font-size: 15px;
+}
+
+.website-shortcut-remove .btn-label {
+  display: none;
 }
 
 .field {
@@ -1048,4 +1228,3 @@ section.source-suggestion-panel {
   outline: 2px solid var(--accent);
   outline-offset: 3px;
 }
-

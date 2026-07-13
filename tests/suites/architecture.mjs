@@ -25,6 +25,10 @@ export async function runArchitectureTests(root) {
   const elementsSource = await fs.readFile(path.join(root, "assets/client/elements.mjs"), "utf8");
   const dashboardAppSource = await fs.readFile(path.join(root, "assets/client/dashboard-app.mjs"), "utf8");
   const sourceSettingsSource = await fs.readFile(path.join(root, "assets/client/source-settings-controller.mjs"), "utf8");
+  const summaryViewSource = await fs.readFile(path.join(root, "assets/client/summary-view.mjs"), "utf8");
+  const efficiencyViewSource = await fs.readFile(path.join(root, "assets/client/efficiency-view.mjs"), "utf8");
+  const dailyViewSource = await fs.readFile(path.join(root, "assets/client/daily-view.mjs"), "utf8");
+  const dailyCardViewSource = await fs.readFile(path.join(root, "assets/client/daily-card-view.mjs"), "utf8");
   for (const group of ["shell", "dashboard", "settings", "overlay"]) {
     assert(elementsSource.includes(`${group}: pick(elements,`), `elements must expose the ${group} group`);
   }
@@ -35,6 +39,19 @@ export async function runArchitectureTests(root) {
   for (const dependency of ["allTranslations", "newsCardType", "newsSectionName", "legacyNewsSection", "legacyInspirationSection"]) {
     assert(sourceSettingsSource.slice(0, 600).includes(dependency), `source settings must declare the ${dependency} dependency`);
     assert(dashboardAppSource.includes(`${dependency}:`) || dashboardAppSource.includes(`  ${dependency},`), `dashboard composition must provide ${dependency}`);
+  }
+  assert(!summaryViewSource.includes("SUMMARY_DETAIL_MAX_LENGTH"), "summary view must receive its detail-length policy through dependencies");
+  assert(summaryViewSource.slice(0, 1800).includes("summaryDetailMaxLength"), "summary view must declare its detail-length dependency");
+  assert(dashboardAppSource.includes("summaryDetailMaxLength: SUMMARY_DETAIL_MAX_LENGTH"), "dashboard composition must provide the summary detail length");
+  assert(efficiencyViewSource.slice(0, 1200).includes("openSettings"), "efficiency view must declare its settings action dependency");
+  assert(dashboardAppSource.includes("openSettings: (...args) => settingsController.openSettings(...args)"), "dashboard composition must provide the settings action");
+  const inspirationPreviewCapabilities = new Set(
+    [...dailyViewSource.matchAll(/\binspirationPreviews\.([A-Za-z_$][\w$]*)/g), ...dailyCardViewSource.matchAll(/\binspirationPreviews\.([A-Za-z_$][\w$]*)/g)]
+      .map((match) => match[1]),
+  );
+  const inspirationPreviewProxy = dashboardAppSource.match(/inspirationPreviews:\s*\{([\s\S]*?)\n\s*\},\n\s*apiGet/)?.[1] || "";
+  for (const capability of inspirationPreviewCapabilities) {
+    assert(inspirationPreviewProxy.includes(`${capability}:`), `dashboard composition must proxy inspirationPreviews.${capability}`);
   }
   for (const file of clientFiles.filter((name) => /-view\.mjs$/.test(name))) {
     const source = await fs.readFile(file, "utf8");
@@ -106,6 +123,21 @@ export async function runArchitectureTests(root) {
   });
   assert.equal(await permissionGateway.hasOriginPermission("https://news.example/story"), true);
   assert.equal(await permissionGateway.hasOriginPermission("http://remote.example/story"), false);
+  const zhCnPublicOrigins = await permissionGateway.selectedOrigins({ bookmarks: [] }, {
+    bookmarkConsentGranted: true,
+    publicFeedSupplementEnabled: true,
+    uiLocale: "zh-CN",
+  });
+  assert(zhCnPublicOrigins.some((row) => row.origin === "https://www.ithome.com/*"));
+  assert(!zhCnPublicOrigins.some((row) => row.origin === "https://www.theverge.com/*"));
+  const enPublicOrigins = await permissionGateway.selectedOrigins({ bookmarks: [] }, {
+    bookmarkConsentGranted: true,
+    publicFeedSupplementEnabled: true,
+    uiLocale: "en",
+  });
+  assert(enPublicOrigins.some((row) => row.origin === "https://www.theverge.com/*"));
+  assert(enPublicOrigins.some((row) => row.origin === "https://feeds.macrumors.com/*"));
+  assert(!enPublicOrigins.some((row) => row.origin === "https://www.solidot.org/*"));
 
   const storage = { async get() { return {}; }, async set() {}, async remove() {}, async clear() {} };
   const runtime = createExtensionRuntime({
@@ -120,6 +152,11 @@ export async function runArchitectureTests(root) {
     "ensureReady", "handleMessage", "refresh", "handleAlarm",
     "handleBookmarksChanged", "handlePermissionsAdded", "handlePermissionsRemoved", "start",
   ]) assert.equal(typeof runtime[method], "function", `runtime must expose ${method}`);
+  await assert.rejects(
+    runtime.handleMessage({ type: "feed:refresh-source", payload: {} }),
+    (error) => error?.code === "SOURCE_NOT_FOUND",
+    "the scoped source-refresh message must reach the refresh service rather than an undefined factory export",
+  );
 }
 
 function importSpecifiers(source) {

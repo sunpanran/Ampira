@@ -2,8 +2,8 @@
 :root {
   color-scheme: dark;
   --bg: #050608;
-  --bg-grid: rgba(255, 255, 255, .022);
-  --bg-grid-strong: rgba(255, 255, 255, .045);
+  --bg-grid: rgba(255, 255, 255, .035);
+  --bg-grid-strong: rgba(255, 255, 255, .07);
   --surface-0: #0A0B0D;
   --surface-1: #101114;
   --surface-2: #17191E;
@@ -34,6 +34,7 @@
   --blur-row-hover-bg: color-mix(in srgb, var(--surface-row-hover) 76%, transparent);
   --search-overlay-bg: color-mix(in srgb, var(--bg) 54%, transparent);
   --search-overlay-backdrop: blur(20px) saturate(118%);
+  --summary-media-overlay: rgba(6, 8, 12, .14);
   --inspiration-card-bg: #080A0E;
   --inspiration-media-overlay: rgba(6, 8, 12, .48);
   --inspiration-media-opacity: .76;
@@ -95,8 +96,8 @@
 :root[data-color-mode="light"] {
   color-scheme: light;
   --bg: #EEF0F2;
-  --bg-grid: rgba(18, 22, 28, .018);
-  --bg-grid-strong: rgba(18, 22, 28, .035);
+  --bg-grid: rgba(18, 22, 28, .03);
+  --bg-grid-strong: rgba(18, 22, 28, .06);
   --surface-0: #F0F1F3;
   --surface-1: #FFFFFF;
   --surface-2: #F5F6F7;
@@ -117,6 +118,7 @@
   --control-bg: #FFFFFF;
   --control-hover-bg: #F3F3F3;
   --control-line: rgba(14, 14, 14, .10);
+  --summary-media-overlay: rgba(6, 8, 12, .06);
   --inspiration-card-bg: #E8ECF1;
   --inspiration-media-overlay: rgba(246, 248, 251, .52);
   --inspiration-media-opacity: .64;
@@ -143,8 +145,8 @@
   :root[data-color-mode="system"] {
     color-scheme: light;
     --bg: #EEF0F2;
-    --bg-grid: rgba(18, 22, 28, .018);
-    --bg-grid-strong: rgba(18, 22, 28, .035);
+    --bg-grid: rgba(18, 22, 28, .03);
+    --bg-grid-strong: rgba(18, 22, 28, .06);
     --surface-0: #F0F1F3;
     --surface-1: #FFFFFF;
     --surface-2: #F5F6F7;
@@ -165,6 +167,7 @@
     --control-bg: #FFFFFF;
     --control-hover-bg: #F3F3F3;
     --control-line: rgba(14, 14, 14, .10);
+    --summary-media-overlay: rgba(6, 8, 12, .06);
     --inspiration-card-bg: #E8ECF1;
     --inspiration-media-overlay: rgba(246, 248, 251, .52);
     --inspiration-media-opacity: .64;
@@ -186,4 +189,3 @@
     --icon-active-filter: none;
   }
 }
-

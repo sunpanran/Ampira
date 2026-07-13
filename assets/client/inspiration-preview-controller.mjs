@@ -18,7 +18,16 @@ export function createInspirationPreviewController(options) {
     const key = fingerprint(item);
     const current = key ? cache.get(key) : null;
     if (!key || (failedImageUrl && current?.imageUrl !== failedImageUrl)) return Promise.resolve(null);
-    cache.set(key, { imageUrl: "" });
+    const remaining = [...new Set((Array.isArray(current?.imageUrls) ? current.imageUrls : [])
+      .map((value) => String(value || "").trim())
+      .filter((value) => value && value !== failedImageUrl && value !== current?.imageUrl))];
+    if (current?.source === "origin" && remaining.length) {
+      const next = { ...current, imageUrl: remaining[0], imageUrls: remaining };
+      cache.set(key, next);
+      options.onImage(item, next.imageUrl, key);
+      return Promise.resolve(next);
+    }
+    cache.set(key, { imageUrl: "", imageUrls: [] });
     if (current?.source !== "origin" || (typeof options.canFallback === "function" && !options.canFallback())) {
       return Promise.resolve(null);
     }
@@ -50,12 +59,10 @@ export function createInspirationPreviewController(options) {
 
   async function preloadItem(item) {
     let preview = await request(item);
-    if (!preview?.imageUrl) return preview;
-    if (await preloadImage(preview.imageUrl)) return preview;
-    preview = await reject(item, preview.imageUrl);
-    if (!preview?.imageUrl) return preview;
-    if (await preloadImage(preview.imageUrl)) return preview;
-    await reject(item, preview.imageUrl);
+    for (let attempt = 0; attempt < 5 && preview?.imageUrl; attempt += 1) {
+      if (await preloadImage(preview.imageUrl)) return preview;
+      preview = await reject(item, preview.imageUrl);
+    }
     return null;
   }
 
@@ -87,7 +94,13 @@ export function createInspirationPreviewController(options) {
       .then(() => options.apiGet(`/api/site-preview?url=${encodeURIComponent(item.url)}&title=${encodeURIComponent(item.title || "")}&mode=${mode}`))
       .then((preview) => {
         if (!isCurrent(item, key, requestGeneration)) return null;
-        const normalized = preview && typeof preview === "object" ? preview : {};
+        const normalized = preview && typeof preview === "object"
+          ? {
+              ...preview,
+              imageUrls: [...new Set((Array.isArray(preview.imageUrls) ? preview.imageUrls : [preview.imageUrl])
+                .map((value) => String(value || "").trim()).filter(Boolean))],
+            }
+          : {};
         cache.set(key, normalized);
         if (normalized.imageUrl) options.onImage(item, normalized.imageUrl, key);
         return normalized;

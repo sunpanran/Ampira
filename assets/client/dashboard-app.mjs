@@ -9,7 +9,10 @@ import { cleanTitleText, textLength, truncateText } from "./text.mjs";
 import { formatDateTime, formatFullDateTime, getTodayKey } from "./time.mjs";
 import { faviconUrl, hostFromUrl, isHttpUrl, normalizeUrl } from "./urls.mjs";
 import { findNewsItemByReference as findNewsItemReference, pageForItems, seededShuffle as shuffle } from "./dashboard-model.mjs";
-import { createPriorityRanker, groupItemsByKey, mergeRankedUnique, selectUnseenPool } from "./dashboard-selectors.mjs";
+import {
+  createPriorityRanker, groupItemsByKey, mergeRankedUnique,
+  selectDailyEvents, selectTodayNewsItems, selectUnseenPool,
+} from "./dashboard-selectors.mjs";
 import { createReaderController } from "./reader-ui.mjs";
 import { createAiSearchController } from "./ai-search-ui.mjs";
 import { cloneSettingsDraft, diffSettingsDraft, snapshotSettingsDraft } from "./settings-draft.mjs";
@@ -22,6 +25,7 @@ import { createContextMenuController } from "./context-menu-controller.mjs";
 import { createAppearanceController } from "./appearance-controller.mjs";
 import { createSourceSettingsController } from "./source-settings-controller.mjs";
 import { createBookmarkSettingsController } from "./bookmark-settings-controller.mjs";
+import { createWebsiteShortcutsController } from "./website-shortcuts-controller.mjs";
 import { createActivityController } from "./activity-controller.mjs";
 import { createSummaryView } from "./summary-view.mjs";
 import { createEfficiencyView } from "./efficiency-view.mjs";
@@ -33,6 +37,10 @@ import { createShellController } from "./shell-controller.mjs";
 import { createSettingsController } from "./settings-controller.mjs";
 import { createDashboardController } from "./dashboard-controller.mjs";
 import { cardIconName, cardTone } from "./card-policy.mjs";
+import {
+  MAX_WEBSITE_SHORTCUTS, MAX_WEBSITE_SHORTCUT_TITLE_LENGTH, MAX_WEBSITE_SHORTCUT_URL_LENGTH,
+  normalizeWebsiteShortcutUrl,
+} from "../../extension/core/settings.mjs";
 
 const DAILY_NEWS_COUNT = 10;
 const DAILY_NEWS_BATCH_LIMIT = 3;
@@ -44,15 +52,15 @@ const SETTINGS_SAVE_CLOSE_DELAY_MS = 900;
 const SETTINGS_CLOSE_MOTION_MS = 180;
 const DAILY_BOARD_CARD_SELECTOR = ".news-list-card, .daily-card";
 const SUMMARY_CARD_SELECTOR = ".summary-card";
-const CARD_EXIT_MS = 180;
-const CARD_ENTER_MS = 340;
+const CARD_EXIT_MS = 110;
+const CARD_ENTER_MS = 240;
 const NEWS_CARD_TYPE = "news";
 const INSPIRATION_CARD_TYPE = "inspiration";
 const BOOKMARK_CARD_TYPE = "bookmark";
 const LEGACY_NEWS_SECTION = "资讯";
 const LEGACY_INSPIRATION_SECTION = "审美";
 const ALL_FILTER = "all";
-const SUMMARY_DETAIL_MAX_LENGTH = 180;
+const SUMMARY_DETAIL_MAX_LENGTH = 280;
 
 await hydrateStorage();
 const state = createInitialState();
@@ -72,6 +80,7 @@ let inspirationPreviews;
 let readerController;
 let settingsController;
 let dashboardController;
+let websiteShortcutsController;
 
 const loadDashboard = (...args) => dashboardController.loadDashboard(...args);
 const triggerRefresh = (...args) => dashboardController.triggerRefresh(...args);
@@ -149,7 +158,9 @@ const dailyView = createDailyView({
   defaultSeenSource: (...args) => activityController.defaultSeenSource(...args),
   newsSummaryItems: (...args) => summaryView.newsSummaryItems(...args),
   inspirationPreviews: {
+    fingerprint: (...args) => inspirationPreviews.fingerprint(...args),
     get: (...args) => inspirationPreviews.get(...args),
+    reject: (...args) => inspirationPreviews.reject(...args),
     request: (...args) => inspirationPreviews.request(...args),
     preload: (...args) => inspirationPreviews.preload(...args),
   },
@@ -165,7 +176,7 @@ const dailyView = createDailyView({
   legacyNewsSection: LEGACY_NEWS_SECTION, legacyInspirationSection: LEGACY_INSPIRATION_SECTION,
   createNewsRanker: (...args) => summaryView.createNewsRanker(...args),
   createSeenButton, displayBookmarkTitle, localizedCategory,
-  mergeRankedUnique, selectUnseenPool,
+  mergeRankedUnique, selectTodayNewsItems, selectUnseenPool,
   openExternal: (...args) => readerController.openExternal(...args),
   persistSeen: () => writeJson(
     state.settings?.retainSeenArchive === true ? "dash.seen.retained" : `dash.seen.${state.day}`,
@@ -198,6 +209,7 @@ const {
   shuffle, pageForItems, newsCardType: NEWS_CARD_TYPE,
   hotSummaryPageSize: HOT_SUMMARY_PAGE_SIZE,
   summaryCardSelector: SUMMARY_CARD_SELECTOR,
+  summaryDetailMaxLength: SUMMARY_DETAIL_MAX_LENGTH,
   cardSummaryEnabled,
   animateCardsIn, animateCardsOut, batchLabel, canReuseCard, clearCardAnimationState,
   createEmptyState, isNewsCard, loadDashboard, newsSectionName,
@@ -220,7 +232,8 @@ const {
   hostFromUrl, isNewsCard,
   openExternal: (...args) => readerController.openExternal(...args),
   readingQueueOpenOnReadAll: () => state.settings?.readingQueueOpenOnReadAll !== false,
-  renderDaily, renderOverviewStatus, renderSummaries, setIconLabel,
+  renderDaily, renderOverviewStatus, renderSummaries, selectDailyEvents, setIconLabel,
+  openSettings: (...args) => settingsController.openSettings(...args),
 });
 const {
   readingQueueItems,
@@ -387,6 +400,37 @@ const {
   renderSettingsStatus: (...args) => settingsController.renderSettingsStatus(...args),
   setIconLabel,
 });
+const {
+  syncWebsiteShortcutControls,
+  websiteShortcutsPayload,
+  renderWebsiteShortcuts,
+  addOrUpdateWebsiteShortcut,
+  cancelWebsiteShortcutEdit,
+  setWebsiteShortcutControlsBusy,
+  handleWebsiteShortcutsEnabledChange,
+  refreshWebsiteShortcutTranslations,
+} = websiteShortcutsController = createWebsiteShortcutsController({
+  state,
+  els: { ...dashboardElements, ...settingsElements },
+  t,
+  faviconUrl,
+  createThemedIcon,
+  setIconLabel,
+  normalizeWebsiteShortcutUrl,
+  renderSettingsStatus: (...args) => settingsController.renderSettingsStatus(...args),
+  openBrowserSettings: async () => {
+    await settingsController.openSettings();
+    settingsController.selectSettingsTab("browser");
+    els.websiteShortcutsEnabledInput.focus({ preventScroll: true });
+    els.websiteShortcutsSettings.scrollIntoView({
+      block: "center",
+      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+    });
+  },
+  maxShortcuts: MAX_WEBSITE_SHORTCUTS,
+  maxTitleLength: MAX_WEBSITE_SHORTCUT_TITLE_LENGTH,
+  maxUrlLength: MAX_WEBSITE_SHORTCUT_URL_LENGTH,
+});
 inspirationPreviews = createInspirationPreviewController({
   apiGet,
   normalizeUrl,
@@ -426,7 +470,7 @@ const {
   applyUiLocale, selectedUiLocale, syncLanguageControls, applyAppearanceSettings,
   syncAppearanceControls, renderExcludeFolderOptions, renderExclusionList,
   renderSourceSuggestionList,
-  syncBookmarkFolderControls, syncAiSetupControls, refreshAiSetupPermission,
+  syncBookmarkFolderControls, syncWebsiteShortcutControls, syncAiSetupControls, refreshAiSetupPermission,
   getAiSetupState, clearAiSetupFeedback, focusAiSetupRequirement,
   currentExcludedNewsSources, bookmarkSourcePayload, appearancePayload,
   snapshotSettingsDraft, cloneSettingsDraft, diffSettingsDraft, selectedColorMode,
@@ -438,6 +482,7 @@ const {
   settingsCloseMotionMs: SETTINGS_CLOSE_MOTION_MS,
   inspirationPreviews, syncHeaderImageFullscreenControl, availableNewsFolders,
   syncSourceSuggestionActionState, syncSegmentedIndicator, isHttpUrl,
+  websiteShortcutsPayload, setWebsiteShortcutControlsBusy,
   aiSetupStage: AI_SETUP_STAGE,
 });
 dashboardController = createDashboardController({
@@ -446,7 +491,7 @@ dashboardController = createDashboardController({
   renderConnectionError, renderStatus, renderOverviewStatus, localizedErrorMessage,
   renderExclusionList, renderExcludeFolderOptions,
   renderTodayMetaValue: (value) => { els.todayMeta.textContent = value; },
-  renderEfficiencyPanel, renderDaily, renderSummaries, renderSectionFilters,
+  renderWebsiteShortcuts, renderEfficiencyPanel, renderDaily, renderSummaries, renderSectionFilters,
   renderCategoryFilters, renderCategories, formatFullDateTime, getTodayKey,
   readNumber, writeJson, retainSeenArchiveEnabled, readSeenRecords, replaceSeenRecords,
 });
@@ -495,6 +540,7 @@ async function initialize() {
   resetToDailyView();
   bindEvents();
   startTodayClock();
+  await globalThis.ampiraLayoutBootstrap?.websiteShortcutsReady;
   renderInitialLoadingState();
   await Promise.all([loadSettings(), loadDashboard({ render: false })]);
   renderAll();
@@ -518,6 +564,20 @@ function bindEvents() {
   window.visualViewport?.addEventListener("resize", syncViewportMetrics);
   contextMenu.bind();
   document.addEventListener("keydown", handleGlobalSearchTyping);
+
+  document.querySelector("#navLogo")?.addEventListener("click", (event) => {
+    const logo = event.currentTarget;
+    logo.classList.remove("is-returning");
+    void logo.offsetWidth;
+    logo.classList.add("is-returning");
+    logo.addEventListener("animationend", () => logo.classList.remove("is-returning"), { once: true });
+    window.scrollTo({
+      top: 0,
+      left: 0,
+      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+    });
+    setActiveNavButton(document.querySelector("[data-scroll='daily']"));
+  });
 
   document.querySelectorAll("[data-scroll]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -652,6 +712,17 @@ function bindEvents() {
   }
   els.addBookmarkOnlyFolder.addEventListener("click", addBookmarkOnlyFolder);
   els.bookmarkOnlyFolderSelect.addEventListener("change", () => renderSettingsStatus());
+  els.websiteShortcutsEnabledInput.addEventListener("change", handleWebsiteShortcutsEnabledChange);
+  els.addWebsiteShortcut.addEventListener("click", addOrUpdateWebsiteShortcut);
+  els.cancelWebsiteShortcutEdit.addEventListener("click", cancelWebsiteShortcutEdit);
+  for (const input of [els.websiteShortcutTitleInput, els.websiteShortcutUrlInput]) {
+    input.addEventListener("input", () => renderSettingsStatus());
+    input.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" || event.isComposing) return;
+      event.preventDefault();
+      addOrUpdateWebsiteShortcut();
+    });
+  }
   els.colorModeGroup.addEventListener("click", (event) => {
     const button = event.target.closest("button[data-color-mode]");
     if (!button) return;
@@ -698,6 +769,7 @@ function bindEvents() {
   });
   els.grantAiOrigin.addEventListener("click", grantAiProviderOrigin);
   document.addEventListener("ampira:locale-changed", syncAiSetupControls);
+  document.addEventListener("ampira:locale-changed", refreshWebsiteShortcutTranslations);
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden) refreshAiSetupPermission({ focusOnLock: true });
   });
@@ -794,6 +866,7 @@ function clearTopSearchFilter() {
   searchRenderFrame = 0;
   els.search.value = "";
   state.query = "";
+  renderWebsiteShortcuts();
   renderDaily();
   renderSummaries();
   renderCategories();
@@ -803,6 +876,7 @@ function scheduleSearchRender() {
   if (searchRenderFrame) return;
   searchRenderFrame = requestAnimationFrame(() => {
     searchRenderFrame = 0;
+    renderWebsiteShortcuts();
     renderDaily();
     renderSummaries();
     renderCategories();

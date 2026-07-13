@@ -67,19 +67,25 @@ export function filterRevokedFeedItems(items = [], removedOrigins = [], sourceKe
     if (revokedKeys.has(String(item?.sourceKey || ""))) return false;
     const sourcePattern = originPattern(item?.sourceOrigin || "");
     if (!sourcePattern) return false;
-    return !patternIsRemoved(sourcePattern, removed);
+    const fetchPattern = originPattern(item?.fetchOrigin || item?.sourceOrigin || "");
+    return Boolean(fetchPattern && !patternIsRemoved(sourcePattern, removed) && !patternIsRemoved(fetchPattern, removed));
   });
 }
 
-export function filterFeedItemsBySources(items = [], sources = []) {
+export function filterFeedItemsBySources(items = [], sources = [], grantedOrigins = []) {
   const expectedByKey = new Map((Array.isArray(sources) ? sources : [])
     .map((source) => [String(source?.key || ""), originPattern(source?.url || "")])
     .filter(([key, pattern]) => key && pattern));
+  const granted = normalizedOriginSet(grantedOrigins);
   return (Array.isArray(items) ? items : []).filter((item) => {
     const expected = expectedByKey.get(String(item?.sourceKey || ""));
     if (!expected) return false;
     const actual = originPattern(item?.sourceOrigin || "");
-    return Boolean(actual && actual === expected);
+    if (!actual || actual !== expected) return false;
+    const fetchPattern = originPattern(item?.fetchOrigin || item?.sourceOrigin || "");
+    if (!fetchPattern) return false;
+    if (fetchPattern === actual) return true;
+    return granted.has(fetchPattern) || [...granted].some((pattern) => broadPatternCovers(pattern, fetchPattern));
   });
 }
 

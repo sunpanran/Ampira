@@ -12,9 +12,11 @@ export function createStatusView(options) {
   };
 
 function renderInitialLoadingState() {
+  renderWebsiteShortcutLoadingState();
   els.dailyBoard.setAttribute("aria-busy", "true");
   els.dailyBoard.dataset.loading = "true";
   els.summaryGrid.setAttribute("aria-busy", "true");
+  els.efficiencyPanel.dataset.loading = "true";
   els.efficiencyPanel.replaceChildren(...Array.from({ length: 3 }, () => createLoadingPlaceholder("efficiency-skeleton")));
   els.dailyBoard.replaceChildren(...["news", "inspiration", "archive"].map((columnId) => {
     const column = document.createElement("section");
@@ -29,6 +31,44 @@ function renderInitialLoadingState() {
     return column;
   }));
   els.summaryGrid.replaceChildren(...Array.from({ length: 8 }, () => createLoadingPlaceholder("summary-skeleton")));
+}
+
+function renderWebsiteShortcutLoadingState() {
+  if (!document.documentElement.classList.contains("has-website-shortcuts")) return;
+  const rawCount = Number(document.documentElement.dataset.websiteShortcutCount);
+  const count = Math.min(10, Math.max(0, Number.isFinite(rawCount) ? Math.floor(rawCount) : 0));
+  els.websiteShortcuts.hidden = false;
+  els.websiteShortcuts.dataset.loading = "true";
+  els.websiteShortcuts.setAttribute("aria-busy", "true");
+  els.websiteShortcutList.replaceChildren(...(
+    count > 0
+      ? Array.from({ length: count }, createWebsiteShortcutPlaceholder)
+      : [createWebsiteShortcutEmptyPlaceholder()]
+  ));
+}
+
+function createWebsiteShortcutPlaceholder() {
+  const placeholder = document.createElement("div");
+  placeholder.className = "website-shortcut website-shortcut-skeleton";
+  placeholder.setAttribute("aria-hidden", "true");
+  const icon = document.createElement("span");
+  icon.className = "website-shortcut-icon loading-line";
+  const label = document.createElement("span");
+  label.className = "website-shortcut-label loading-line";
+  placeholder.append(icon, label);
+  return placeholder;
+}
+
+function createWebsiteShortcutEmptyPlaceholder() {
+  const placeholder = document.createElement("div");
+  placeholder.className = "website-shortcuts-empty website-shortcuts-empty-skeleton";
+  placeholder.setAttribute("aria-hidden", "true");
+  const copy = document.createElement("span");
+  copy.className = "loading-line website-shortcuts-empty-copy";
+  const action = document.createElement("span");
+  action.className = "loading-line website-shortcuts-empty-action";
+  placeholder.append(copy, action);
+  return placeholder;
 }
 
 function createLoadingPlaceholder(extraClass = "") {
@@ -133,6 +173,25 @@ function renderAutoAiStatus(ai) {
       "not-ready": "settings.auto.notReadyDetail",
     };
     els.settingsAutoAiDetail.textContent = t(detailKeys[phase] || "settings.auto.neverDetail");
+    return;
+  }
+  if (phase === "error") {
+    const reason = auto.errorKey
+      ? localizedErrorMessage({ messageKey: auto.errorKey, messageParams: auto.errorParams || {} })
+      : t("settings.auto.unknownError");
+    const stageKeys = {
+      digest: "settings.auto.stageDigest",
+      cards: "settings.auto.stageCards",
+      refresh: "settings.auto.stageRefresh",
+    };
+    const stage = t(stageKeys[auto.errorStage] || "settings.auto.stageUnknown");
+    els.settingsAutoAiDetail.textContent = t("settings.auto.errorDetail", {
+      stage,
+      reason,
+      processed,
+      total,
+      time: auto.lastRunAt ? formatDateTime(auto.lastRunAt) : t("settings.auto.noTime"),
+    });
     return;
   }
   els.settingsAutoAiDetail.textContent = t(auto.running ? "settings.auto.runningDetail" : "settings.auto.detail", {

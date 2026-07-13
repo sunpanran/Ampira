@@ -41,10 +41,12 @@ async function publicSettings() {
     savedHotNewsCacheSize: settings.hotNewsCacheSize,
     savedHotNewsEntriesPerSource: settings.hotNewsEntriesPerSource,
     savedNewsEntriesPerCategory: settings.newsEntriesPerCategory,
+    savedTodayNewsPerPublisherLimit: settings.todayNewsPerPublisherLimit,
     dailyLimit: settings.dailyAiLimit,
     hotNewsCacheSize: settings.hotNewsCacheSize,
     hotNewsEntriesPerSource: settings.hotNewsEntriesPerSource,
     newsEntriesPerCategory: settings.newsEntriesPerCategory,
+    todayNewsPerPublisherLimit: settings.todayNewsPerPublisherLimit,
     defaultBaseUrl: defaultSettings.openaiBaseUrl,
     defaultApiStyle: defaultSettings.openaiApiStyle,
     defaultModel: defaultSettings.openaiSummaryModel,
@@ -52,6 +54,7 @@ async function publicSettings() {
     defaultHotNewsCacheSize: defaultSettings.hotNewsCacheSize,
     defaultHotNewsEntriesPerSource: defaultSettings.hotNewsEntriesPerSource,
     defaultNewsEntriesPerCategory: defaultSettings.newsEntriesPerCategory,
+    defaultTodayNewsPerPublisherLimit: defaultSettings.todayNewsPerPublisherLimit,
     defaultNewsBookmarkFolder: bookmarkDefaults.news,
     defaultInspirationBookmarkFolder: bookmarkDefaults.inspiration,
     bookmarkFolderOptions: model.folderOptions,
@@ -71,11 +74,12 @@ async function performSaveSettings(body, transaction) {
   const next = { ...previous };
   const allowed = [
     "webImageSearchEnabled", "dailyAiLimit",
-    "cardSummaryEnabled", "hotNewsCacheSize", "hotNewsEntriesPerSource", "newsEntriesPerCategory",
+    "cardSummaryEnabled", "hotNewsCacheSize", "hotNewsEntriesPerSource", "newsEntriesPerCategory", "todayNewsPerPublisherLimit",
     "newsBookmarkFolder", "inspirationBookmarkFolder", "bookmarkOnlyFolders", "floatingWebOpenEnabled",
     "readingQueueOpenOnReadAll", "retainSeenArchive", "personalizedRankingEnabled", "publicFeedSupplementEnabled",
     "uiLocale", "colorMode", "accentTheme", "customAccentColor", "pointerGlowEnabled", "headerImageEnabled",
-    "headerImageFixed", "headerImageFullscreen", "headerImageUrl", "excludedNewsSources",
+    "headerImageFixed", "headerImageFullscreen", "headerImageUrl", "websiteShortcutsEnabled", "websiteShortcuts",
+    "excludedNewsSources",
   ];
   for (const key of allowed) if (Object.hasOwn(body, key)) next[key] = body[key];
   let providerPatch = {};
@@ -126,12 +130,14 @@ async function performSaveSettings(body, transaction) {
 
   await transaction.write(next);
   const normalized = await getSettings();
+  const localeChanged = settingsLocale(previous) !== settingsLocale(normalized);
   const bookmarkSourceChanged = [
     "newsBookmarkFolder", "inspirationBookmarkFolder", "bookmarkOnlyFolders", "excludedNewsSources",
     "publicFeedSupplementEnabled", "hotNewsCacheSize", "hotNewsEntriesPerSource", "newsEntriesPerCategory",
   ]
-    .some((key) => JSON.stringify(previous[key]) !== JSON.stringify(normalized[key]));
-  const localeChanged = settingsLocale(previous) !== settingsLocale(normalized);
+    .some((key) => JSON.stringify(previous[key]) !== JSON.stringify(normalized[key]))
+    || localeChanged && (previous.publicFeedSupplementEnabled !== false || normalized.publicFeedSupplementEnabled !== false);
+  const rankingChanged = previous.todayNewsPerPublisherLimit !== normalized.todayNewsPerPublisherLimit;
   const imageSearchChanged = previous.webImageSearchEnabled !== normalized.webImageSearchEnabled
     || Object.hasOwn(bravePatch, "braveSearchApiKey");
   const aiConfigurationChanged = previous.aiDisclosureAccepted !== normalized.aiDisclosureAccepted
@@ -139,9 +145,9 @@ async function performSaveSettings(body, transaction) {
   const automaticAiChanged = aiConfigurationChanged
     || previous.cardSummaryEnabled !== normalized.cardSummaryEnabled
     || previous.dailyAiLimit !== normalized.dailyAiLimit;
-  if (localeChanged || bookmarkSourceChanged || aiConfigurationChanged || imageSearchChanged) {
+  if (localeChanged || bookmarkSourceChanged || rankingChanged || aiConfigurationChanged || imageSearchChanged) {
     cacheMutations.invalidate();
-    if (bookmarkSourceChanged) refreshCoordinator.invalidate();
+    if (bookmarkSourceChanged || rankingChanged) refreshCoordinator.invalidate();
     await cacheMutations.run(() => setRecord("daily-digest", null, "cache"));
     if (bookmarkSourceChanged) await pruneStalePreviewCaches(normalized);
     if (imageSearchChanged) await pruneBravePreviewCaches();
@@ -155,10 +161,11 @@ async function performSaveSettings(body, transaction) {
       startRefresh(true).catch(() => {});
     }
   }
-  broadcast("settings.changed", { bookmarkSourceChanged, localeChanged, imageSearchChanged, automaticAiChanged, automaticAiStarted });
+  broadcast("settings.changed", { bookmarkSourceChanged, rankingChanged, localeChanged, imageSearchChanged, automaticAiChanged, automaticAiStarted });
   return {
     ...(await publicSettings()),
     bookmarkSourceChanged,
+    rankingChanged,
     localeChanged,
     imageSearchChanged,
     automaticAiChanged,

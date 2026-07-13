@@ -1,4 +1,9 @@
 import { readerError } from "./reader-errors.mjs";
+import {
+  extractPageImageCandidates,
+  imageAttributeCandidates,
+  normalizeImageCandidates,
+} from "./image-candidates.mjs";
 
 const MAX_TEXT_CHARS = 120000;
 const MAX_BLOCKS = 400;
@@ -24,12 +29,13 @@ const VIDEO_HOST_PATTERN = /(?:youtube(?:-nocookie)?\.com|youtu\.be|vimeo\.com|b
 
 export function extractReaderDocument(html, finalUrl, requestedUrl = finalUrl) {
   const root = parseHtml(html);
-  const metadata = extractMetadata(root, finalUrl);
+  const metadata = extractPageMetadata(html, finalUrl);
   const selection = selectArticleCandidate(root);
   const title = firstNonEmpty(metadata.title, textOf(findFirst(selection.node, (node) => node.tag === "h1")), hostOf(finalUrl));
   const state = createExtractionState(finalUrl, title);
   if (metadata.heroImageUrl) addImageBlock(state, {
     url: metadata.heroImageUrl,
+    imageUrls: metadata.heroImageUrls,
     alt: title,
     caption: "",
   });
@@ -43,6 +49,7 @@ export function extractReaderDocument(html, finalUrl, requestedUrl = finalUrl) {
   return {
     ok: true,
     schemaVersion: 2,
+    imageStrategyVersion: 2,
     requestedUrl: safeHttpUrl(requestedUrl, finalUrl) || finalUrl,
     url: safeHttpUrl(finalUrl, finalUrl) || requestedUrl,
     canonicalUrl: sameOriginUrl(metadata.canonicalUrl, finalUrl) || safeHttpUrl(finalUrl, finalUrl) || requestedUrl,
@@ -63,7 +70,16 @@ export function extractReaderDocument(html, finalUrl, requestedUrl = finalUrl) {
 
 export function extractPageMetadata(html, baseUrl) {
   const source = String(html || "");
-  return extractMetadata(parseHtml(source), baseUrl, structuredImageCandidates(source));
+  const metadata = extractMetadata(parseHtml(source), baseUrl, structuredImageCandidates(source));
+  const heroImageUrls = normalizeImageCandidates([
+    ...extractPageImageCandidates(source, baseUrl, { limit: 3 }).map((url, index) => ({ url, score: 100 - index })),
+    { url: metadata.heroImageUrl, score: 1 },
+  ], baseUrl, { limit: 3 });
+  return {
+    ...metadata,
+    heroImageUrl: heroImageUrls[0] || "",
+    heroImageUrls,
+  };
 }
 
 export function readerTextFromBlocks(blocks) {
@@ -526,20 +542,16 @@ function addImageNode(state, node, caption) {
   const width = Number.parseInt(node.attrs.width || "0", 10) || 0;
   const height = Number.parseInt(node.attrs.height || "0", 10) || 0;
   if (IMAGE_NEGATIVE_PATTERN.test(identity) || width > 0 && height > 0 && width <= 80 && height <= 80) return;
-  const pictureSource = node.parent?.tag === "picture"
-    ? node.parent.children.find((child) => child.tag === "source")
-    : null;
-  const url = firstNonEmpty(
-    bestSrcset(node.attrs["data-srcset"]),
-    bestSrcset(node.attrs.srcset),
-    bestSrcset(pictureSource?.attrs?.srcset),
-    node.attrs["data-src"],
-    node.attrs["data-lazy-src"],
-    node.attrs["data-original"],
-    node.attrs.src,
-  );
+  const pictureSources = node.parent?.tag === "picture"
+    ? node.parent.children.filter((child) => child.tag === "source")
+    : [];
+  const imageUrls = normalizeImageCandidates([
+    ...pictureSources.flatMap((source) => imageAttributeCandidates(source.attrs)),
+    ...imageAttributeCandidates(node.attrs),
+  ], state.baseUrl, { limit: 3 });
   addImageBlock(state, {
-    url: safeImageUrl(url, state.baseUrl),
+    url: imageUrls[0] || "",
+    imageUrls,
     alt: cleanText(node.attrs.alt || ""),
     caption: cleanText(caption || node.attrs.title || ""),
   });
@@ -549,7 +561,13 @@ function addImageBlock(state, image) {
   if (!image.url || state.imageCount >= MAX_IMAGES || state.imageUrls.has(image.url)) return;
   state.imageUrls.add(image.url);
   state.imageCount += 1;
-  addBlock(state, { type: "image", url: image.url, alt: image.alt || "", caption: image.caption || "" });
+  addBlock(state, {
+    type: "image",
+    url: image.url,
+    imageUrls: normalizeImageCandidates(image.imageUrls?.length ? image.imageUrls : [image.url], state.baseUrl, { limit: 3 }),
+    alt: image.alt || "",
+    caption: image.caption || "",
+  });
 }
 
 function addVideoNode(state, node, caption) {

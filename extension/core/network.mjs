@@ -57,12 +57,27 @@ export async function fetchBounded(url, options = {}, limits = {}) {
 }
 
 export function decodeResponseBuffer(buffer, contentType = "") {
-  const charset = String(contentType).match(/charset=([^;\s]+)/i)?.[1]?.trim() || "utf-8";
+  const bytes = new Uint8Array(buffer || new ArrayBuffer(0));
+  const charset = sniffResponseCharset(bytes, contentType);
   try {
-    return new TextDecoder(charset, { fatal: false }).decode(buffer);
+    return new TextDecoder(charset, { fatal: false }).decode(bytes);
   } catch {
-    return new TextDecoder("utf-8", { fatal: false }).decode(buffer);
+    return new TextDecoder("utf-8", { fatal: false }).decode(bytes);
   }
+}
+
+function sniffResponseCharset(bytes, contentType) {
+  if (bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) return "utf-8";
+  if (bytes[0] === 0xff && bytes[1] === 0xfe) return "utf-16le";
+  if (bytes[0] === 0xfe && bytes[1] === 0xff) return "utf-16be";
+  const headerCharset = String(contentType).match(/charset\s*=\s*["']?([^;\s"']+)/i)?.[1]?.trim();
+  if (headerCharset) return headerCharset;
+  const prefix = new TextDecoder("latin1", { fatal: false }).decode(bytes.slice(0, 1024));
+  const xmlCharset = prefix.match(/<\?xml\b[^>]*\bencoding\s*=\s*["']([^"']+)["']/i)?.[1]?.trim();
+  if (xmlCharset) return xmlCharset;
+  const htmlCharset = prefix.match(/<meta\b[^>]*\bcharset\s*=\s*["']?([^\s"'/>]+)/i)?.[1]?.trim()
+    || prefix.match(/<meta\b[^>]*\bcontent\s*=\s*["'][^"']*charset\s*=\s*([^;\s"']+)/i)?.[1]?.trim();
+  return htmlCharset || "utf-8";
 }
 
 async function readBoundedBody(response, maxBytes, controller, truncate = false) {

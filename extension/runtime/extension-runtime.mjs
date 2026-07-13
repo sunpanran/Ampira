@@ -1,11 +1,18 @@
 import {
   DEFAULT_SETTINGS,
-  PUBLIC_FEEDS,
   REFRESH_ALARM,
   REFRESH_PERIOD_MINUTES,
 } from "../core/constants.mjs";
 import { buildBookmarkModel, hashText, inspirationPreviewSourceUrls, inspirationPreviewTargets, originsFromUrls } from "../core/bookmarks.mjs";
-import { buildFallbackDigest, feedCacheOrEmpty, fetchSourceArticles, rankAndDedupe } from "../core/feed.mjs";
+import {
+  NEWS_RANKING_POLICY_VERSION,
+  buildDailyCandidates,
+  buildFallbackDigest,
+  dailyCandidateFingerprint,
+  feedCacheOrEmpty,
+  fetchSourceArticles,
+  rankAndDedupe,
+} from "../core/feed.mjs";
 import { normalizeFeedback } from "../core/feedback.mjs";
 import { clearRecords, deleteRecord, getRecord, listRecords, pruneCache, setRecord, setRecords } from "../core/db.mjs";
 import { extractPageMetadata, fetchReader, fetchReaderHtml, loadReaderWithCache, readerTextFromBlocks } from "../core/reader.mjs";
@@ -27,7 +34,7 @@ import { DEFAULT_LOCALE, defaultBookmarkFoldersForLocale, normalizeLocale, trans
 import { requestAiCompletion, testImageSearchConnection } from "../core/ai.mjs";
 import { createClientStateStore } from "../core/client-state.mjs";
 import { createQuotaManager } from "../core/quota.mjs";
-import { createPreviewService } from "../core/preview.mjs";
+import { createPreviewService, fetchSourceImageCandidates } from "../core/preview.mjs";
 import { bravePreviewCacheKeys, previewCacheKeysOutsideTargets } from "../core/preview-cache.mjs";
 import { retainActiveUnrefreshedItems, selectRefreshBatch } from "../core/refresh.mjs";
 import { createRefreshCoordinator } from "../core/refresh-coordinator.mjs";
@@ -41,8 +48,9 @@ import {
   revokedSourceKeys,
 } from "../core/permission-state.mjs";
 import { isValidServiceUrl, normalizeSettings, providerOrigin } from "../core/settings.mjs";
+import { publicFeedsForLocale } from "../core/public-feeds.mjs";
 import { createSettingsStore } from "../core/settings-store.mjs";
-import { cleanGeneratedSummaryLine, extractGeneratedSummaryTitle, parseGeneratedDailyDigest } from "../core/summary-text.mjs";
+import { CARD_SUMMARY_POLICY_VERSION, cleanGeneratedSummaryLine, extractGeneratedSummaryTitle, limitGeneratedSummaryLines, parseGeneratedDailyDigest } from "../core/summary-text.mjs";
 import { normalizeUserUrl, searchFeed } from "../core/search.mjs";
 import { createMessageRouter } from "./message-router.mjs";
 import { errorResult, publicErrorDetails, resultMessage, settingsLocale, typedError } from "./runtime-result.mjs";
@@ -65,6 +73,7 @@ import {
   pipelineStages,
   safeOrigin,
   summarizeQuality,
+  updateSourceQualityRecord,
   uniqueStrings,
 } from "./runtime-utils.mjs";
 
@@ -93,7 +102,7 @@ const {
   permissionStatus,
   hasOriginPermission,
   hasOriginPermissions,
-} = createPermissionGateway({ chrome, getSettings, secretStatus });
+} = createPermissionGateway({ chrome, getSettings, secretStatus, getRecord });
 let refreshService;
 let permissionWorkflow;
 let aiSearchService;
@@ -117,8 +126,9 @@ const {
   getAiAutoStatus, filterFeedItemsBySources, originsFromUrls, buildPermissionRows,
   originPattern,
   sanitizeCardAiSummaries: (...args) => refreshService.sanitizeCardAiSummaries(...args),
-  buildFallbackDigest, summarizeQuality, pipelineStages, publicFeeds: PUBLIC_FEEDS,
-  hashText, chrome, safeOrigin, typedError, uniqueStrings, normalizeUserUrl,
+  buildFallbackDigest, buildDailyCandidates, dailyCandidateFingerprint, rankingPolicyVersion: NEWS_RANKING_POLICY_VERSION,
+  localDateKey, summarizeQuality, pipelineStages, publicFeedsForLocale,
+  chrome, safeOrigin, typedError, uniqueStrings, normalizeUserUrl,
   aiSearchResultPermitted: (...args) => aiSearchService.aiSearchResultPermitted(...args),
 });
 const {
@@ -170,20 +180,24 @@ refreshService = createRefreshService({
   configuredFeedSources, selectRefreshBatch, getRecord, setRecord, setRecords,
   setRefreshStatus, pipelineStages, broadcast, fetchSourceArticles, sourceFetchOptions,
   mapWithConcurrency, summarizeQuality, retainActiveUnrefreshedItems, rankAndDedupe,
+  updateSourceQualityRecord,
+  buildDailyCandidates, dailyCandidateFingerprint, rankingPolicyVersion: NEWS_RANKING_POLICY_VERSION,
   assertFeedItemsStillPermitted, withFeedCacheMetadata, cacheMutations, aiConfigured,
   getAiAutoStatus, setAiAutoStatus, defaultAiAutoStatus, readQuota, runAiWithinQuota,
   callProvider, translate, settingsLocale, cleanGeneratedSummaryLine,
-  extractGeneratedSummaryTitle, parseGeneratedDailyDigest, buildFallbackDigest,
+  extractGeneratedSummaryTitle, limitGeneratedSummaryLines, parseGeneratedDailyDigest,
+  cardSummaryPolicyVersion: CARD_SUMMARY_POLICY_VERSION, buildFallbackDigest,
   digestCachePermitted, filterFeedItemsBySources, resultMessage, errorResult,
   emptySourceQuality, localDateKey, uniqueStrings, safeOrigin, originPattern,
   sanitizeDailyDigest, typedError, feedCacheOrEmpty, getRefreshStatus, hostOf,
-  originsFromUrls,
+  originsFromUrls, fetchSourceImageCandidates, hasOriginPermission, hashText,
   isPermissionEpochCurrent: (...args) => isPermissionEpochCurrent(...args),
 });
 const {
   startRefresh,
   refreshDailyDigest,
   refreshSingleSummary,
+  refreshSource,
   generatedCardSummary,
   preserveCardAiSummary,
   sanitizeCardAiSummaries,
@@ -208,7 +222,7 @@ const {
   buildDashboardPayload, uniqueStrings, normalizeOriginPattern, filterSourceQuality,
   emptySourceQuality, originsFromUrls, secretStatus, currentProviderCapability, settingsLocale,
   aiSearchResultPermitted, previewCachePermitted, cacheUrlsPermitted, digestCachePermitted,
-  withFeedCacheMetadata, buildFallbackDigest, inspirationPreviewTargets,
+  withFeedCacheMetadata, buildFallbackDigest, buildDailyCandidates, inspirationPreviewTargets,
 });
 ({ publicSettings, saveSettings } = createSettingsWorkflow({
   getSettings, settingsLocale, defaultBookmarkFoldersForLocale, secretStatus,
@@ -254,6 +268,7 @@ const routeMessage = createMessageRouter({
   "settings:test": (payload) => testOpenAISettings(payload),
   "settings:image-test": (payload) => testImageSearchSettings(payload),
   "refresh:start": (payload) => startRefresh(payload.force === true),
+  "feed:refresh-source": (payload) => refreshSource(payload),
   "refresh:status": () => getRefreshStatus(),
   "digest:refresh": () => refreshDailyDigest({ automatic: false }),
   "summary:refresh": (payload) => refreshSingleSummary(payload),

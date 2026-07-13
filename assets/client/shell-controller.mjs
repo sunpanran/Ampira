@@ -146,6 +146,8 @@ function initializePointerHighlights() {
     ".news-list-card",
     ".archive-card",
     ".link-row",
+    ".website-shortcuts",
+    ".website-shortcut",
   ].join(", ");
 
   let frame = 0;

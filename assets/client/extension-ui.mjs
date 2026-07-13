@@ -2,28 +2,24 @@ import { sendExtensionRequest } from "./api.mjs";
 import { getLocale, setLocale, t, tc, translateDocument } from "./i18n.mjs";
 import { createIcon, hydrateIcons } from "./icons.mjs";
 import { permissionRowCounts, requiredUngrantedOrigins } from "./permission-ui-model.mjs";
+import { hydrateStorage, readValue, writeValue } from "./storage.mjs";
 import { setNativeFaviconEnabled } from "./urls.mjs";
+
+const ONBOARDING_PROGRESS_KEY = "dash.onboarding.progress";
 
 const els = {
   overlay: document.querySelector("#onboardingOverlay"),
   steps: [...document.querySelectorAll("[data-onboarding-step]")],
   progress: [...document.querySelectorAll(".onboarding-progress span")],
+  startOnboarding: document.querySelector("#onboardingStart"),
   permissionStatus: document.querySelector("#onboardingPermissionStatus"),
   grantOnboarding: document.querySelector("#onboardingGrantSources"),
+  skipPermissions: document.querySelector("#onboardingSkipPermissions"),
   newsFolder: document.querySelector("#onboardingNewsFolder"),
   inspirationFolder: document.querySelector("#onboardingInspirationFolder"),
   folderStatus: document.querySelector("#onboardingFolderStatus"),
   saveFolders: document.querySelector("#onboardingSaveFolders"),
-  apiKey: document.querySelector("#onboardingApiKey"),
-  aiConsent: document.querySelector("#onboardingAiConsent"),
-  aiStatus: document.querySelector("#onboardingAiStatus"),
-  providerOrigin: document.querySelector("#onboardingProviderOrigin"),
-  saveApiKey: document.querySelector("#onboardingSaveApiKey"),
-  skipApiKey: document.querySelector("#onboardingSkipApiKey"),
-  onboardingPermissionSummary: document.querySelector("#onboardingPermissionSummary"),
-  folderSummary: document.querySelector("#onboardingFolderSummary"),
-  aiSummary: document.querySelector("#onboardingAiSummary"),
-  finishOnboarding: document.querySelector("#finishOnboarding"),
+  skipFolders: document.querySelector("#onboardingSkipFolders"),
   permissionList: document.querySelector("#sourcePermissionList"),
   permissionSummary: document.querySelector("#sourcePermissionSummary"),
   permissionActions: document.querySelector("#sourcePermissionActions"),
@@ -51,14 +47,14 @@ initializeExtensionUi();
 async function initializeExtensionUi() {
   bindEvents();
   try {
+    await hydrateStorage();
     settings = await request("settings:get");
     setLocale(settings.uiLocale || getLocale(), { persist: Boolean(settings.uiLocale) });
     translateDocument(document);
     renderPermissionRows(settings.sourcePermissions || []);
     refreshFaviconPermission({ notify: true });
     syncOnboardingFolderControls();
-    renderOnboardingProviderOrigin();
-    if (settings.onboardingCompleted !== true) showOnboarding(0);
+    if (settings.onboardingCompleted !== true) showOnboarding(initialOnboardingStep());
   } catch (error) {
     renderPermissionRows([]);
     setPermissionFeedback(error.message || String(error));
@@ -66,38 +62,17 @@ async function initializeExtensionUi() {
 }
 
 function bindEvents() {
-  document.querySelectorAll(".onboarding-next").forEach((button) => {
-    button.addEventListener("click", async () => {
-      if (button.dataset.consent === "bookmarks") {
-        button.disabled = true;
-        try {
-          settings = await request("onboarding:consent");
-          renderPermissionRows(settings.sourcePermissions || []);
-          syncOnboardingFolderControls();
-        } catch (error) {
-          const label = button.querySelector(".btn-label");
-          if (label) label.textContent = t("onboarding.actionFailed", { message: error.message || error });
-          return;
-        } finally {
-          button.disabled = false;
-        }
-      }
-      if (button === els.skipApiKey && els.apiKey) els.apiKey.value = "";
-      showOnboarding(Math.min(lastOnboardingStep, onboardingStep + 1));
-    });
-  });
+  els.startOnboarding?.addEventListener("click", acceptBookmarkConsent);
   els.grantOnboarding?.addEventListener("click", (event) => grantOrigins(requiredUngrantedOrigins(permissionRows), {
-    advance: true,
+    finish: true,
     permissions: ["favicon"],
     trigger: event.currentTarget,
   }));
+  els.skipPermissions?.addEventListener("click", (event) => finishOnboarding(event.currentTarget));
   els.newsFolder?.addEventListener("change", renderOnboardingFolderStatus);
   els.inspirationFolder?.addEventListener("change", renderOnboardingFolderStatus);
   els.saveFolders?.addEventListener("click", saveOnboardingFolders);
-  els.aiConsent?.addEventListener("change", () => setOnboardingStatus(els.aiStatus, ""));
-  els.apiKey?.addEventListener("input", () => setOnboardingStatus(els.aiStatus, ""));
-  els.saveApiKey?.addEventListener("click", saveOnboardingApiKey);
-  els.finishOnboarding?.addEventListener("click", finishOnboarding);
+  els.skipFolders?.addEventListener("click", showOnboardingPermissions);
   els.grantAllSources?.addEventListener("click", (event) => grantOrigins(requiredUngrantedOrigins(permissionRows), {
     trigger: event.currentTarget,
   }));
@@ -118,8 +93,6 @@ function bindEvents() {
       renderPermissionRows(permissionRows);
       renderFaviconPermission();
       syncOnboardingFolderControls({ preserveSelection: true });
-      renderOnboardingProviderOrigin();
-      renderOnboardingSummary();
     });
   });
   document.addEventListener("visibilitychange", () => {
@@ -149,11 +122,36 @@ function showOnboarding(index) {
   els.progress.forEach((dot, dotIndex) => dot.classList.toggle("active", dotIndex <= onboardingStep));
   const title = els.steps[onboardingStep]?.querySelector("h1[id]");
   if (title) els.overlay.setAttribute("aria-labelledby", title.id);
-  if (onboardingStep === 1) refreshPermissionRows();
-  if (onboardingStep === 2) syncOnboardingFolderControls({ preserveSelection: true });
-  if (onboardingStep === 3) renderOnboardingProviderOrigin();
-  if (onboardingStep === 4) renderOnboardingSummary();
+  if (onboardingStep === 1) syncOnboardingFolderControls({ preserveSelection: true });
+  if (onboardingStep === 2) refreshPermissionRows();
   els.steps[onboardingStep]?.querySelector("input:not([disabled]), select:not([disabled]), button:not([disabled])")?.focus({ preventScroll: true });
+}
+
+function initialOnboardingStep() {
+  if (settings?.bookmarkConsentGranted !== true) return 0;
+  return readValue(ONBOARDING_PROGRESS_KEY) === "permissions" ? 2 : 1;
+}
+
+async function acceptBookmarkConsent(event) {
+  const button = event.currentTarget;
+  const label = button.querySelector(".btn-label");
+  button.disabled = true;
+  try {
+    settings = await request("onboarding:consent");
+    renderPermissionRows(settings.sourcePermissions || []);
+    syncOnboardingFolderControls();
+    writeValue(ONBOARDING_PROGRESS_KEY, "folders");
+    showOnboarding(1);
+  } catch (error) {
+    if (label) label.textContent = t("onboarding.actionFailed", { message: error.message || error });
+  } finally {
+    button.disabled = false;
+  }
+}
+
+function showOnboardingPermissions() {
+  writeValue(ONBOARDING_PROGRESS_KEY, "permissions");
+  showOnboarding(2);
 }
 
 function syncOnboardingFolderControls({ preserveSelection = false } = {}) {
@@ -221,71 +219,13 @@ async function saveOnboardingFolders() {
     settings = await request("settings:save", { newsBookmarkFolder, inspirationBookmarkFolder });
     renderPermissionRows(settings.sourcePermissions || []);
     setOnboardingStatus(els.folderStatus, t("onboarding.step3.saved"), "success");
-    showOnboarding(3);
+    showOnboardingPermissions();
   } catch (error) {
     setOnboardingStatus(els.folderStatus, t("onboarding.actionFailed", { message: error.message || error }), "error");
   } finally {
     const news = els.newsFolder?.value || "";
     const inspiration = els.inspirationFolder?.value || "";
     els.saveFolders.disabled = !news || !inspiration || news === inspiration;
-  }
-}
-
-function renderOnboardingProviderOrigin() {
-  if (!els.providerOrigin) return;
-  const value = settings?.openaiBaseUrl || settings?.baseUrl || "";
-  const pattern = originPattern(value);
-  els.providerOrigin.textContent = pattern
-    ? t("onboarding.step4.providerOrigin", { origin: pattern.replace(/\/\*$/, "") })
-    : t("permission.invalidServiceUrl");
-}
-
-async function saveOnboardingApiKey() {
-  const openaiApiKey = String(els.apiKey?.value || "").trim();
-  if (!openaiApiKey) {
-    setOnboardingStatus(els.aiStatus, t("onboarding.step4.keyRequired"), "error");
-    els.apiKey?.focus();
-    return;
-  }
-  if (els.aiConsent?.checked !== true) {
-    setOnboardingStatus(els.aiStatus, t("onboarding.step4.consentRequired"), "error");
-    els.aiConsent?.focus();
-    return;
-  }
-  const baseUrl = settings?.openaiBaseUrl || settings?.baseUrl || "";
-  const pattern = originPattern(baseUrl);
-  if (!pattern) {
-    setOnboardingStatus(els.aiStatus, t("permission.invalidServiceUrl"), "error");
-    return;
-  }
-  els.saveApiKey.disabled = true;
-  setOnboardingStatus(els.aiStatus, t("permission.requesting"));
-  try {
-    const granted = await chrome.permissions.request({ origins: [pattern] });
-    if (granted !== true) {
-      setOnboardingStatus(els.aiStatus, t("permission.requestDeclined"), "error");
-      return;
-    }
-    settings = await request("settings:save", { openaiApiKey, aiDisclosureAccepted: true });
-    els.apiKey.value = "";
-    els.aiConsent.checked = false;
-    setOnboardingStatus(els.aiStatus, t("onboarding.step4.saved"), "success");
-    showOnboarding(4);
-  } catch (error) {
-    setOnboardingStatus(els.aiStatus, t("onboarding.actionFailed", { message: error.message || error }), "error");
-  } finally {
-    els.saveApiKey.disabled = false;
-  }
-}
-
-function originPattern(value) {
-  try {
-    const url = new URL(value);
-    const localHttp = url.protocol === "http:" && ["localhost", "127.0.0.1"].includes(url.hostname);
-    if (url.protocol !== "https:" && !localHttp) return "";
-    return `${url.origin}/*`;
-  } catch {
-    return "";
   }
 }
 
@@ -296,31 +236,16 @@ function setOnboardingStatus(element, message, state = "") {
   else delete element.dataset.state;
 }
 
-function renderOnboardingSummary() {
-  if (els.onboardingPermissionSummary) els.onboardingPermissionSummary.textContent = permissionSummaryText();
-  if (els.folderSummary) {
-    const news = settings?.newsBookmarkFolder || settings?.defaultNewsBookmarkFolder || "";
-    const inspiration = settings?.inspirationBookmarkFolder || settings?.defaultInspirationBookmarkFolder || "";
-    els.folderSummary.textContent = news && inspiration
-      ? t("onboarding.step5.folderSummary", { news, inspiration })
-      : t("onboarding.step5.notConfigured");
-  }
-  if (els.aiSummary) {
-    els.aiSummary.textContent = t(settings?.hasOpenAIKey
-      ? "onboarding.step5.configured"
-      : "onboarding.step5.notConfigured");
-  }
-}
-
-async function finishOnboarding() {
-  els.finishOnboarding.disabled = true;
+async function finishOnboarding(trigger) {
+  if (trigger) trigger.disabled = true;
   try {
     await request("onboarding:complete");
+    writeValue(ONBOARDING_PROGRESS_KEY, "");
     els.overlay.hidden = true;
     location.reload();
   } catch (error) {
-    els.finishOnboarding.textContent = error.message || String(error);
-    els.finishOnboarding.disabled = false;
+    setPermissionFeedback(t("onboarding.actionFailed", { message: error.message || error }));
+    if (trigger?.isConnected) trigger.disabled = false;
   }
 }
 
@@ -394,11 +319,11 @@ function renderFaviconPermission() {
   }
 }
 
-async function grantOrigins(origins, { advance = false, permissions = [], trigger = null } = {}) {
+async function grantOrigins(origins, { finish = false, permissions = [], trigger = null } = {}) {
   const requested = Array.isArray(origins) ? origins.filter(Boolean) : [];
   const requestedPermissions = Array.isArray(permissions) ? permissions.filter(Boolean) : [];
   if (!requested.length && !requestedPermissions.length) {
-    if (advance) showOnboarding(Math.min(lastOnboardingStep, onboardingStep + 1));
+    if (finish) await finishOnboarding(trigger);
     return;
   }
   const label = trigger?.querySelector(".btn-label");
@@ -417,7 +342,7 @@ async function grantOrigins(origins, { advance = false, permissions = [], trigge
     }
     await refreshPermissionRows();
     if (requestedPermissions.includes("favicon")) await refreshFaviconPermission({ notify: true });
-    if (advance) showOnboarding(Math.min(lastOnboardingStep, onboardingStep + 1));
+    if (finish) await finishOnboarding(trigger);
   } catch (error) {
     setPermissionFeedback(t("permission.requestDenied", { message: error.message || error }));
   } finally {

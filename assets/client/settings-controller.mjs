@@ -3,7 +3,7 @@ export function createSettingsController(options) {
     state, els, t, apiGet, apiPost, localizedResponseMessage, localizedErrorMessage,
     applyUiLocale, selectedUiLocale, syncLanguageControls, applyAppearanceSettings,
     syncAppearanceControls, renderExcludeFolderOptions, renderExclusionList,
-    renderSourceSuggestionList, syncBookmarkFolderControls,
+    renderSourceSuggestionList, syncBookmarkFolderControls, syncWebsiteShortcutControls,
     syncAiSetupControls, refreshAiSetupPermission, getAiSetupState,
     clearAiSetupFeedback, focusAiSetupRequirement, currentExcludedNewsSources,
     bookmarkSourcePayload, appearancePayload, snapshotSettingsDraft, cloneSettingsDraft,
@@ -14,7 +14,7 @@ export function createSettingsController(options) {
     getLocale, setLocale, settingsSaveCloseDelayMs, settingsCloseMotionMs,
     inspirationPreviews, syncHeaderImageFullscreenControl, availableNewsFolders,
     syncSourceSuggestionActionState, syncSegmentedIndicator, isHttpUrl,
-    aiSetupStage,
+    websiteShortcutsPayload, setWebsiteShortcutControlsBusy, aiSetupStage,
   } = options;
   let settingsLoadToken = 0;
   let settingsLocaleAtOpen = getLocale();
@@ -59,7 +59,12 @@ async function loadSettings() {
       ? (state.settings.newsEntriesPerCategory ?? state.settings.defaultNewsEntriesPerCategory ?? 12)
       : (state.settings.savedNewsEntriesPerCategory ?? state.settings.newsEntriesPerCategory ?? state.settings.defaultNewsEntriesPerCategory ?? 12);
     els.newsPerCategoryInput.placeholder = state.settings.defaultNewsEntriesPerCategory || "12";
+    els.todayNewsPerPublisherInput.value = state.settings.savedTodayNewsPerPublisherLimit === ""
+      ? (state.settings.todayNewsPerPublisherLimit ?? state.settings.defaultTodayNewsPerPublisherLimit ?? 2)
+      : (state.settings.savedTodayNewsPerPublisherLimit ?? state.settings.todayNewsPerPublisherLimit ?? state.settings.defaultTodayNewsPerPublisherLimit ?? 2);
+    els.todayNewsPerPublisherInput.placeholder = state.settings.defaultTodayNewsPerPublisherLimit ?? "2";
     syncBookmarkFolderControls(state.settings);
+    syncWebsiteShortcutControls(state.settings);
     els.cardSummaryEnabledInput.checked = state.settings.cardSummaryEnabled !== false;
     els.floatingOpenInput.checked = state.settings.floatingWebOpenEnabled === true;
     els.readingQueueOpenOnReadAllInput.checked = state.settings.readingQueueOpenOnReadAll !== false;
@@ -99,6 +104,7 @@ async function saveSettings() {
     state.settings = savedSettings;
     syncSeenArchiveRetention();
     const bookmarkSourceChanged = state.settings?.bookmarkSourceChanged === true;
+    const rankingChanged = state.settings?.rankingChanged === true;
     const localeChanged = state.settings?.localeChanged === true;
     const imageSearchChanged = state.settings?.imageSearchChanged === true;
     const automaticAiStarted = state.settings?.automaticAiStarted === true;
@@ -107,18 +113,19 @@ async function saveSettings() {
       inspirationPreviews.invalidate();
     }
     syncBookmarkFolderControls(state.settings);
+    syncWebsiteShortcutControls(state.settings);
     syncAppearanceControls(state.settings);
     applyAppearanceSettings(state.settings);
     applyUiLocale(state.settings.uiLocale || selectedUiLocale(), { persist: true });
     settingsLocaleAtOpen = getLocale();
     renderExclusionList();
-    renderSettingsStatus(t(bookmarkSourceChanged || automaticAiStarted
+    renderSettingsStatus(t(bookmarkSourceChanged || rankingChanged || automaticAiStarted
       ? "settings.status.savedRefreshing"
       : localeChanged ? "settings.status.savedLocale" : "settings.status.saved"));
     await wait(settingsSaveCloseDelayMs);
     if (session === settingsSession && els.settingsModal.classList.contains("open")) closeSettings(true);
     await loadDashboard();
-    if (bookmarkSourceChanged && !automaticAiStarted) await triggerRefresh(true);
+    if ((bookmarkSourceChanged || rankingChanged) && !automaticAiStarted) await triggerRefresh(true);
   } catch (error) {
     if (session !== settingsSession) return;
     renderSettingsStatus(t("settings.status.saveFailed", { message: error.message || error }));
@@ -142,12 +149,14 @@ function currentSettingsDraft() {
     hotNewsCacheSize: els.cacheSizeInput.value,
     hotNewsEntriesPerSource: els.hotNewsPerSourceInput.value,
     newsEntriesPerCategory: els.newsPerCategoryInput.value,
+    todayNewsPerPublisherLimit: els.todayNewsPerPublisherInput.value,
     ...bookmarkSourcePayload(),
     floatingWebOpenEnabled: els.floatingOpenInput.checked,
     readingQueueOpenOnReadAll: els.readingQueueOpenOnReadAllInput.checked,
     retainSeenArchive: els.retainSeenArchiveInput.checked,
     personalizedRankingEnabled: els.personalizedRankingEnabledInput.checked,
     publicFeedSupplementEnabled: els.publicFeedSupplementEnabledInput.checked,
+    ...websiteShortcutsPayload(),
     ...appearancePayload(),
     excludedNewsSources: currentExcludedNewsSources()
   };
@@ -347,6 +356,7 @@ function closeSettings(commit = false) {
   if (!shouldCommit && settingsSnapshot) {
     state.settings = cloneSettingsDraft(settingsSnapshot);
     syncBookmarkFolderControls(state.settings);
+    syncWebsiteShortcutControls(state.settings);
     syncAppearanceControls(state.settings);
     applyAppearanceSettings(state.settings);
     renderExcludeFolderOptions();
@@ -396,6 +406,7 @@ function setSettingsBusy(busy) {
   els.resetPreferences.disabled = busy;
   els.deepseekPreset.disabled = busy;
   els.cardSummaryEnabledInput.disabled = busy;
+  els.todayNewsPerPublisherInput.disabled = busy;
   els.floatingOpenInput.disabled = busy;
   els.readingQueueOpenOnReadAllInput.disabled = busy;
   els.retainSeenArchiveInput.disabled = busy;
@@ -414,6 +425,7 @@ function setSettingsBusy(busy) {
   els.headerImageFixedInput.disabled = busy;
   syncHeaderImageFullscreenControl(busy);
   els.headerImageUrlInput.disabled = busy;
+  setWebsiteShortcutControlsBusy(busy);
   els.colorModeGroup.querySelectorAll("button[data-color-mode]").forEach((button) => {
     button.disabled = busy;
   });
@@ -452,12 +464,28 @@ async function runSettingsAction(action) {
 }
 
 function selectSettingsTab(tab) {
+  const panels = Array.from(els.settingsForm.querySelectorAll("[data-settings-panel]"));
+  const currentPanel = panels.find((panel) => panel.classList.contains("active"));
+  const nextPanel = panels.find((panel) => panel.dataset.settingsPanel === tab);
   for (const button of els.settingsTabs.querySelectorAll("button[data-settings-tab]")) {
     const active = button.dataset.settingsTab === tab;
     button.classList.toggle("active", active);
   }
-  for (const panel of els.settingsForm.querySelectorAll("[data-settings-panel]")) {
+  for (const panel of panels) {
     panel.classList.toggle("active", panel.dataset.settingsPanel === tab);
+    panel.classList.remove("is-entering");
+  }
+  if (nextPanel && currentPanel && nextPanel !== currentPanel
+    && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    nextPanel.classList.add("is-entering");
+    const finishPanelEntrance = (event) => {
+      if (event.target !== nextPanel || event.animationName !== "settingsPanelIn") return;
+      nextPanel.classList.remove("is-entering");
+      nextPanel.removeEventListener("animationend", finishPanelEntrance);
+      nextPanel.removeEventListener("animationcancel", finishPanelEntrance);
+    };
+    nextPanel.addEventListener("animationend", finishPanelEntrance);
+    nextPanel.addEventListener("animationcancel", finishPanelEntrance);
   }
   if (tab === "appearance") syncSegmentedIndicator(els.colorModeGroup);
 }

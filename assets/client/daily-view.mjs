@@ -1,5 +1,6 @@
 import { isHotNewsItem as matchesHotNews, isSummaryFillItem as matchesSummaryFill } from "./card-policy.mjs";
 import { createDailyCardView } from "./daily-card-view.mjs";
+import { animatePanelEntrance } from "./dom.mjs";
 
 export function createDailyView(options) {
   const {
@@ -15,7 +16,7 @@ export function createDailyView(options) {
     inspirationCardType, bookmarkCardType, legacyNewsSection,
     legacyInspirationSection,
     createNewsRanker, createSeenButton, displayBookmarkTitle, localizedCategory,
-    mergeRankedUnique, selectUnseenPool, openExternal, persistSeen, renderAll,
+    mergeRankedUnique, selectTodayNewsItems, selectUnseenPool, openExternal, persistSeen, renderAll,
     renderTodayMeta, setIconLabel,
   } = options;
   let dailyBoardRenderToken = 0;
@@ -77,6 +78,7 @@ function renderDailyBoard(nodes, options = {}) {
   if (board.dataset.loading === "true") {
     delete board.dataset.loading;
     board.replaceChildren(...nodes);
+    animatePanelEntrance(nodes, { delay: 60 });
     animateCardsIn(dailyBoardCards(board));
     return;
   }
@@ -110,7 +112,7 @@ function syncDailyBoardColumns(board, nextColumns, token) {
 function syncDailyBoardColumn(currentColumn, nextColumn, token) {
   const currentHead = currentColumn.querySelector(":scope > .column-head");
   const nextHead = nextColumn.querySelector(":scope > .column-head");
-  if (currentHead && nextHead) currentHead.replaceWith(nextHead);
+  if (currentHead && nextHead && !currentHead.isEqualNode(nextHead)) currentHead.replaceWith(nextHead);
   const currentList = currentColumn.querySelector(":scope > .card-list");
   const nextList = nextColumn.querySelector(":scope > .card-list");
   if (!currentList || !nextList) {
@@ -206,7 +208,7 @@ function animateCardsOut(cards) {
 function animateCardsIn(cards) {
   if (prefersReducedMotion()) return;
   cards.forEach((card, index) => {
-    const delay = Math.min(index * 28, 196);
+    const delay = Math.min(index * 12, 84);
     card.classList.remove("is-leaving");
     card.classList.add("is-entering");
     card.style.setProperty("--card-motion-delay", `${delay}ms`);
@@ -468,12 +470,19 @@ function batchLabel(pageInfo) {
 function dailyNewsItems() {
   const news = newsSummaryItems(false);
   const ranker = createNewsRanker();
-  return mergeRankedUnique([
+  const ranked = mergeRankedUnique([
     news.filter((item) => matchesHotNews(item, isNewsCard)),
     news.filter((item) => matchesSummaryFill(item, isNewsCard)),
   ], {
     compare: ranker.compareImportant,
     keyOf: (item) => item.key || item.url,
+  });
+  return selectTodayNewsItems(ranked, {
+    compare: ranker.compareImportant,
+    recentLimit: 3,
+    pageSize: dailyNewsCount,
+    pageCount: dailyNewsBatchLimit,
+    publisherLimit: state.settings?.todayNewsPerPublisherLimit ?? 2,
   });
 }
 

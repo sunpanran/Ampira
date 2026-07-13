@@ -13,7 +13,7 @@ export function createPermissionWorkflow(options) {
     previewCacheKeysOutsideTargets, bravePreviewCacheKeys, buildDashboardPayload, uniqueStrings,
     normalizeOriginPattern, filterSourceQuality, emptySourceQuality, originsFromUrls, secretStatus,
     currentProviderCapability, settingsLocale, aiSearchResultPermitted, previewCachePermitted,
-    cacheUrlsPermitted, digestCachePermitted, withFeedCacheMetadata, buildFallbackDigest,
+    cacheUrlsPermitted, digestCachePermitted, withFeedCacheMetadata, buildFallbackDigest, buildDailyCandidates,
     inspirationPreviewTargets,
   } = options;
   const nextPermissionEpoch = () => ++permissionEpoch;
@@ -108,7 +108,7 @@ async function applyEffectivePermissionCachePolicy(removedOrigins, isCurrent) {
     listRecords("cache"),
   ]);
   if (!isCurrent()) return null;
-  const items = filterFeedItemsBySources(feed.items || [], feedPermissions.permitted);
+  const items = filterFeedItemsBySources(feed.items || [], feedPermissions.permitted, feedPermissions.grantedOrigins);
   const feedContentChanged = JSON.stringify(items) !== JSON.stringify(feed.items || []);
   const nextFeed = {
     ...feed,
@@ -134,6 +134,12 @@ async function applyEffectivePermissionCachePolicy(removedOrigins, isCurrent) {
         null,
         providerCapability,
       );
+      if (!permitted) directKeys.add(record.key);
+    } else if (record.key.startsWith("feed-image-") || record.value?.capability === "feed-image") {
+      const expectedOrigin = feedPermissions.permittedByKey.get(String(record.value?.sourceKey || ""));
+      const permitted = Boolean(expectedOrigin)
+        && expectedOrigin === originPattern(record.value?.sourceOrigin || "")
+        && await cacheUrlsPermitted([record.value?.requestedUrl]);
       if (!permitted) directKeys.add(record.key);
     } else if (record.key.startsWith("preview-") || /^(?:image-preview|site-preview-)/.test(record.value?.capability || "")) {
       if (!await previewCachePermitted(record.value, { settings, model, secrets })) directKeys.add(record.key);
@@ -163,6 +169,11 @@ async function applyEffectivePermissionCachePolicy(removedOrigins, isCurrent) {
     }, "", settings, feedPermissions, null, providerCapability);
   const digestPermitted = dailyDigest?.locale === locale
     && digestCachePermitted(dailyDigest, items, feedPermissions, settings, aiDigestPermitted);
+  const digestCandidates = buildDailyCandidates(items, {
+    limit: 12,
+    recentLimit: 3,
+    publisherLimit: settings.todayNewsPerPublisherLimit,
+  });
   const matchedSourceKeys = revokedSourceKeys(feedPermissions.sources, removedOrigins);
   const sourceKeys = new Set([...matchedSourceKeys].filter((key) => !feedPermissions.permittedByKey.has(key)));
   const entries = [
@@ -170,7 +181,10 @@ async function applyEffectivePermissionCachePolicy(removedOrigins, isCurrent) {
     { key: "source-quality", value: nextQuality, kind: "cache" },
     ...(!digestPermitted ? [{
       key: "daily-digest",
-      value: withFeedCacheMetadata(buildFallbackDigest(items, "local", locale), items, "daily-digest"),
+      value: withFeedCacheMetadata(buildFallbackDigest(digestCandidates, "local", locale, {
+        preselected: true,
+        publisherLimit: settings.todayNewsPerPublisherLimit,
+      }), digestCandidates, "daily-digest"),
       kind: "cache",
     }] : []),
   ];

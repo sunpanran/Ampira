@@ -1,3 +1,5 @@
+import { createSourceCoverageController } from "./source-coverage-controller.mjs";
+
 export function createSourceSettingsController(options) {
   const {
     state, els, t, tc, apiPost, setIconLabel, createEmptyState, renderSettingsStatus,
@@ -5,6 +7,10 @@ export function createSourceSettingsController(options) {
     localizedSourceReason, localizedExclusionReason, formatDateTime, normalizeUrl,
     allTranslations, newsCardType, newsSectionName, legacyNewsSection, legacyInspirationSection,
   } = options;
+  const { renderSourceCoverage } = createSourceCoverageController({
+    state, els, t, tc, apiPost, setIconLabel, createEmptyState, renderSettingsStatus,
+    localizedErrorMessage, formatDateTime, allTranslations, getSourceQuality: sourceQualitySummary,
+  });
   return {
     currentExcludedNewsSources,
     availableNewsFolders,
@@ -15,6 +21,7 @@ export function createSourceSettingsController(options) {
     blockAllSourceSuggestions,
     renderExclusionList,
     renderSourceSuggestionList,
+    renderSourceCoverage,
     syncSourceSuggestionActionState,
   };
 function currentExcludedNewsSources() {
@@ -208,6 +215,7 @@ function blockAllSourceSuggestions() {
 
 function renderExclusionList() {
   const list = currentExcludedNewsSources();
+  renderSourceCoverage();
   renderExcludeFolderOptions();
   renderSourceSuggestionList();
   syncSourceSuggestionActionState();

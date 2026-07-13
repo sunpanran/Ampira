@@ -2,7 +2,6 @@
 .btn,
 .empty-state-action,
 .column-action,
-.ai-digest-refresh-mini,
 .context-menu button {
   min-height: var(--control-height-button);
   display: inline-flex;
@@ -25,7 +24,6 @@
 .btn:hover,
 .empty-state-action:hover,
 .column-action:hover,
-.ai-digest-refresh-mini:hover,
 .context-menu button:hover,
 .context-menu button:focus-visible {
   border-color: var(--line);
@@ -64,8 +62,7 @@
 
 .btn[disabled],
 .column-action[disabled],
-.action-toggle[disabled],
-.ai-digest-refresh-mini[disabled] {
+.action-toggle[disabled] {
   cursor: wait;
   opacity: .55;
 }
@@ -94,8 +91,7 @@
 }
 
 .btn.is-loading .btn-icon,
-.is-loading .action-toggle-icon,
-.ai-digest-refresh-mini[disabled] .inline-icon {
+.is-loading .action-toggle-icon {
   animation: spin .9s linear infinite;
 }
 
@@ -535,4 +531,3 @@ input::placeholder {
   background: var(--accent);
   transition: width .22s ease;
 }
-

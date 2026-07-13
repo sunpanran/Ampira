@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { buildBookmarkModel, inspirationPreviewSourceUrls, inspirationPreviewTargets, originsFromUrls } from "../../extension/core/bookmarks.mjs";
-import { feedCacheOrEmpty, filterLikelyNewsItems, isDisplayableFeedItem, parseFeedDocument, rankAndDedupe } from "../../extension/core/feed.mjs";
+import {
+  NEWS_RANKING_POLICY_VERSION,
+  feedCacheOrEmpty, filterLikelyNewsItems, isDisplayableFeedItem, parseFeedDocument, rankAndDedupe,
+} from "../../extension/core/feed.mjs";
 import { bravePreviewCacheKeys, previewCacheKeysOutsideTargets } from "../../extension/core/preview-cache.mjs";
 import { faviconUrl, isReaderUrl, normalizeUrl as normalizeClientUrl } from "../../assets/client/urls.mjs";
 
@@ -111,10 +114,20 @@ const importanceFixture = parseFeedDocument(
 const importanceRanked = rankAndDedupe(importanceFixture);
 assert.equal(importanceRanked[0].url, "https://example.com/news/storm", "impact signals must outrank a source-leading promotional guide");
 assert(importanceRanked[0].scoreBreakdown.impact > 0, "importance scores must expose their impact contribution");
-assert(importanceRanked[1].scoreBreakdown.lowPriorityPenalty > 0, "soft or commercial content must expose its ranking penalty");
+assert(importanceRanked[1].scoreBreakdown.penalties > 0, "soft or commercial content must expose its ranking penalty");
 const legacyImportanceRanked = rankAndDedupe([{ ...importanceFixture[0], score: 99, scorePolicyVersion: 1 }]);
-assert.equal(legacyImportanceRanked[0].scorePolicyVersion, 2, "legacy cached scores must be recalculated under the current policy");
+assert.equal(legacyImportanceRanked[0].scorePolicyVersion, NEWS_RANKING_POLICY_VERSION, "legacy cached scores must be recalculated under the current policy");
 assert.notEqual(legacyImportanceRanked[0].score, 99, "legacy feed-position scores must not survive policy migration");
+const publisherFixture = parseFeedDocument(
+  `<rss><channel><item><title>Publisher metadata remains inert</title><link>https://news.google.com/articles/one</link><source url="https://publisher.example/">Publisher Example</source><description>Readable reporting context for publisher identity.</description><pubDate>Sun, 12 Jul 2026 10:00:00 GMT</pubDate></item></channel></rss>`,
+  "https://news.google.com/rss",
+  { ...source, url: "https://news.google.com/rss" },
+  5,
+  "application/rss+xml",
+);
+assert.equal(publisherFixture[0].publisher, "Publisher Example");
+assert.equal(publisherFixture[0].publisherHost, "publisher.example", "aggregated feeds must use the entry publisher for diversity without changing fetch permission identity");
+assert.equal(publisherFixture[0].sourceOrigin, "https://news.google.com");
 const locallyFilteredItems = filterLikelyNewsItems([
   { articleId: "privacy", title: "Privacy Policy", source: "Example", url: "https://example.com/privacy" },
   { articleId: "promotion", title: "【广告】限时推广", source: "Example", url: "https://example.com/news/promotion" },
