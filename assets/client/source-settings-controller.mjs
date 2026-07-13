@@ -3,6 +3,7 @@ export function createSourceSettingsController(options) {
     state, els, t, tc, apiPost, setIconLabel, createEmptyState, renderSettingsStatus,
     runSettingsAction, localizedResponseMessage, localizedErrorMessage, localizedSourceLabel,
     localizedSourceReason, localizedExclusionReason, formatDateTime, normalizeUrl,
+    allTranslations, newsCardType, newsSectionName, legacyNewsSection, legacyInspirationSection,
   } = options;
   return {
     currentExcludedNewsSources,
@@ -25,7 +26,7 @@ function availableNewsFolders() {
   if (settingsFolders.length) return settingsFolders;
   const folders = [];
   for (const section of state.data?.sections || []) {
-    if (section.cardType !== NEWS_CARD_TYPE) continue;
+    if (section.cardType !== newsCardType) continue;
     for (const category of section.categories || []) {
       const name = String(category.name || "").trim();
       if (!name) continue;
@@ -417,8 +418,8 @@ function normalizeFolderValue(value) {
   if (!parts.length) return "";
   const knownSections = new Set([
     ...(state.data?.sections || []).map((section) => section.name),
-    LEGACY_NEWS_SECTION,
-    LEGACY_INSPIRATION_SECTION,
+    legacyNewsSection,
+    legacyInspirationSection,
   ]);
   if (!knownSections.has(parts[0])) parts.unshift(newsSectionName());
   return parts.join("/");
