@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { createEpochMutationQueue } from "../extension/core/mutation-queue.mjs";
+import { createEpochMutationQueue } from "../../extension/core/mutation-queue.mjs";
 
 const queue = createEpochMutationQueue();
 const order = [];

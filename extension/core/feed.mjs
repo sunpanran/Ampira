@@ -2,6 +2,9 @@ import { PREFERRED_FEEDS } from "./constants.mjs";
 import { hashText } from "./bookmarks.mjs";
 import { normalizeLocale, translate } from "./i18n.mjs";
 import { decodeResponseBuffer, fetchBounded } from "./network.mjs";
+import { isDisplayableFeedItem } from "./feed-item-policy.mjs";
+
+export { isDisplayableFeedItem } from "./feed-item-policy.mjs";
 
 const REQUEST_TIMEOUT_MS = 12000;
 const MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
@@ -288,6 +291,7 @@ function extractArticleLinks(html, baseUrl) {
 function isLikelyNewsItem(item) {
   if (!item || isNonNewsTitle(item.title) || isNonNewsUrl(item.url)) return false;
   if (isRootSourceLanding(item)) return false;
+  if (!isDisplayableFeedItem(item)) return false;
   return true;
 }
 

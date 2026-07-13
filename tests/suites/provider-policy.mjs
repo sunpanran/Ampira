@@ -3,7 +3,7 @@ import {
   bindProviderPatchToOrigin,
   providerTestApiKey,
   providerTestConsentAllowed,
-} from "../extension/core/provider-policy.mjs";
+} from "../../extension/core/provider-policy.mjs";
 
 assert.equal(providerTestConsentAllowed({
   payloadHasConsent: true,

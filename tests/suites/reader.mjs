@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { extractReaderDocument, fetchReaderHtml, loadReaderWithCache, readerTextFromBlocks } from "../extension/core/reader.mjs";
+import { extractReaderDocument, fetchReaderHtml, loadReaderWithCache, readerTextFromBlocks } from "../../extension/core/reader.mjs";
 
 const richHtml = `<!doctype html>
 <html>

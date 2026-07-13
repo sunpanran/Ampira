@@ -7,21 +7,21 @@ import {
   LOCAL_PROVIDER_KEY,
   LOCAL_SECRETS_KEY,
   SETTINGS_KEY,
-} from "../extension/core/constants.mjs";
+} from "../../extension/core/constants.mjs";
 import {
   grantBookmarkConsent,
   markOnboardingComplete,
   readDeviceConsent,
   setAiDisclosureConsent,
-} from "../extension/core/device-consent.mjs";
+} from "../../extension/core/device-consent.mjs";
 import {
   readProviderProfile,
   readSecrets,
   updateProviderProfile,
   updateSecrets,
-} from "../extension/core/secrets.mjs";
-import { createSettingsStore } from "../extension/core/settings-store.mjs";
-import { isValidServiceUrl, normalizeServiceUrl, normalizeSettings } from "../extension/core/settings.mjs";
+} from "../../extension/core/secrets.mjs";
+import { createSettingsStore } from "../../extension/core/settings-store.mjs";
+import { isValidServiceUrl, normalizeServiceUrl, normalizeSettings } from "../../extension/core/settings.mjs";
 
 assert.equal(normalizeServiceUrl("https://user:secret@example.com/v1"), DEFAULT_SETTINGS.openaiBaseUrl);
 assert.equal(normalizeServiceUrl("https://example.com/v1?token=secret"), DEFAULT_SETTINGS.openaiBaseUrl);

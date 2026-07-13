@@ -1,3 +1,5 @@
+import { cleanAiAnswerMarkup, extractDirectAnswer, parseAiAnswer } from "./ai-answer-format.mjs";
+
 export function createAiSearchController(options) {
   const { state, els, t, apiPost } = options;
   let generation = 0;
@@ -43,7 +45,7 @@ export function createAiSearchController(options) {
         if (!isCurrent(requestGeneration)) return;
         if (!granted) {
           els.aiSearchMeta.textContent = t("aiSearch.permissionRequired");
-          streamAnswer(t("aiSearch.permissionDeclined"), []);
+          streamAnswer(t("aiSearch.permissionDeclined"), [], "notice");
           return;
         }
         els.aiSearchMeta.textContent = t("aiSearch.readingPage");
@@ -56,11 +58,11 @@ export function createAiSearchController(options) {
         : t("aiSearch.answer");
       els.aiSearchMeta.textContent = result.cached ? t("aiSearch.cached", { label }) : label;
       const answer = result.error ? t("aiSearch.localFallback", { answer: result.answer, error: result.error }) : result.answer;
-      streamAnswer(answer, result.links || []);
+      streamAnswer(answer, result.links || [], result.usedAi ? result.mode : "fallback");
     } catch (error) {
       if (!isCurrent(requestGeneration)) return;
       els.aiSearchMeta.textContent = t("error.requestFailed");
-      streamAnswer(options.localizedErrorMessage(error), []);
+      streamAnswer(options.localizedErrorMessage(error), [], "error");
     } finally {
       if (requestGeneration !== generation) return;
       state.aiSearchBusy = false;
@@ -79,12 +81,16 @@ export function createAiSearchController(options) {
     els.aiAnswer.replaceChildren();
   }
 
-  function streamAnswer(text, links) {
+  function streamAnswer(text, links, mode = "answer") {
     if (state.aiSearchTypeTimer) clearInterval(state.aiSearchTypeTimer);
     els.aiAnswer.replaceChildren();
+    els.aiAnswer.dataset.mode = mode;
     const textNode = document.createTextNode("");
     els.aiAnswer.append(textNode);
-    const content = String(text || "").trim() || t("aiSearch.noAnswer");
+    const rawContent = String(text || "").trim() || t("aiSearch.noAnswer");
+    const content = mode === "dashboard"
+      ? extractDirectAnswer(rawContent)
+      : cleanAiAnswerMarkup(rawContent);
     let index = 0;
     state.aiSearchTypeTimer = setInterval(() => {
       index = Math.min(content.length, index + Math.max(1, Math.ceil(content.length / 90)));
@@ -93,8 +99,35 @@ export function createAiSearchController(options) {
       if (index < content.length) return;
       clearInterval(state.aiSearchTypeTimer);
       state.aiSearchTypeTimer = null;
+      if (mode !== "dashboard") renderStructuredAnswer(content);
       appendLinks(links);
+      els.aiAnswer.scrollTop = 0;
     }, 22);
+  }
+
+  function renderStructuredAnswer(text) {
+    const parsed = parseAiAnswer(text);
+    els.aiAnswer.replaceChildren();
+    const report = document.createElement("div");
+    report.className = "ai-answer-report";
+    parsed.sections.forEach((section, index) => {
+      const block = document.createElement("section");
+      block.className = "ai-answer-section";
+      block.dataset.index = String(index + 1).padStart(2, "0");
+      if (section.title) {
+        const heading = document.createElement("h3");
+        heading.textContent = section.title;
+        block.append(heading);
+      }
+      section.body.split("\n").filter(Boolean).forEach((paragraph) => {
+        const item = document.createElement(paragraph.startsWith("• ") ? "div" : "p");
+        item.className = paragraph.startsWith("• ") ? "ai-answer-point" : "";
+        item.textContent = paragraph.startsWith("• ") ? paragraph.slice(2) : paragraph;
+        block.append(item);
+      });
+      report.append(block);
+    });
+    els.aiAnswer.append(report);
   }
 
   function appendLinks(links) {

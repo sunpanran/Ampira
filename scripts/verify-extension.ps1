@@ -225,9 +225,9 @@ function Assert-ReleaseMetadata([System.IO.FileInfo[]]$DocsHtmlFiles) {
 Push-Location $root
 try {
   Assert-Toolchain
-  $tests = Get-ChildItem -LiteralPath (Join-Path $root "tests") -File -Filter "*.mjs" | Sort-Object Name
-  if (-not $tests.Count) { throw "No top-level tests/*.mjs files found." }
-  foreach ($test in $tests) { Invoke-Node @($test.FullName) }
+  $testEntry = Join-Path $root "tests\extension.mjs"
+  if (-not (Test-Path -LiteralPath $testEntry -PathType Leaf)) { throw "Missing unified extension test entry." }
+  Invoke-Node @($testEntry)
 
   $moduleRoots = @(
     (Join-Path $root "extension"),

@@ -20,7 +20,7 @@ $files = @(
   "assets/extension.css",
   "assets/logo-purple.svg"
 )
-$directories = @("assets/client", "assets/icons", "extension", "_locales")
+$directories = @("assets/client", "assets/icons", "assets/styles", "extension", "_locales")
 
 function Get-Sha256([string]$Path) {
   return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -150,8 +150,10 @@ $files | ForEach-Object { [void]$allowedFiles.Add($_.Replace("\", "/")) }
 $allowedPatterns = @(
   '^assets/client/(?:[a-z0-9-]+/)*[a-z0-9-]+\.mjs$',
   '^assets/icons/[a-z0-9-]+\.svg$',
+  '^assets/styles/[a-z0-9-]+\.css$',
   '^extension/service-worker\.mjs$',
   '^extension/core/[a-z0-9-]+\.mjs$',
+  '^extension/runtime/(?:[a-z0-9-]+/)*[a-z0-9-]+\.mjs$',
   '^extension/icons/icon-(?:16|32|48|128)\.png$',
   '^_locales/(?:en|zh_CN|zh_TW)/messages\.json$'
 )

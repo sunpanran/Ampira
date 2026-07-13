@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { createRefreshCoordinator } from "../extension/core/refresh-coordinator.mjs";
-import { retainActiveUnrefreshedItems } from "../extension/core/refresh.mjs";
+import { createRefreshCoordinator } from "../../extension/core/refresh-coordinator.mjs";
+import { retainActiveUnrefreshedItems } from "../../extension/core/refresh.mjs";
 
 let releaseInitialStatus;
 let releaseFirstRun;
