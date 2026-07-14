@@ -15,7 +15,8 @@ export function createContextMenuController(options) {
 
   function attachLink(element, getLink, getLeadingActions) {
     element.addEventListener("contextmenu", (event) => {
-      if (event.target.closest("button, input, select, textarea")) return;
+      const interactiveTarget = event.target.closest("button, input, select, textarea");
+      if (interactiveTarget && interactiveTarget !== element) return;
       const link = typeof getLink === "function" ? getLink() : getLink;
       const url = String(link?.url || "").trim();
       if (!url) return;
@@ -25,7 +26,7 @@ export function createContextMenuController(options) {
         ? getLeadingActions(link)
         : getLeadingActions;
       const actions = Array.isArray(leadingActions) ? leadingActions.filter(Boolean) : [];
-      if (item?.feedItem?.articleId && options.aiEnabled()) {
+      if ((link?.canExplain || item?.feedItem?.articleId) && options.aiEnabled()) {
         actions.push({ label: options.t("context.explainArticle"), icon: "file-search-01", action: () => options.explain(url) });
       }
       actions.push(
@@ -57,6 +58,17 @@ export function createContextMenuController(options) {
         icon: "arrow-up-right",
         action: () => links.forEach((link) => options.openExternal(link.url)),
       }]);
+    });
+  }
+
+  function attachActions(element, getActions) {
+    element.addEventListener("contextmenu", (event) => {
+      const interactiveTarget = event.target.closest("button, input, select, textarea");
+      if (interactiveTarget && interactiveTarget !== element) return;
+      const actions = typeof getActions === "function" ? getActions() : getActions;
+      if (!Array.isArray(actions) || !actions.length) return;
+      event.preventDefault();
+      show(event, actions.filter(Boolean));
     });
   }
 
@@ -107,7 +119,7 @@ export function createContextMenuController(options) {
     return links;
   }
 
-  return { bind, attachLink, attachGroup, hide };
+  return { bind, attachLink, attachGroup, attachActions, hide };
 }
 
 async function copyToClipboard(text) {

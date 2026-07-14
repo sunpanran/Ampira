@@ -4,7 +4,7 @@ export const WEATHER_ORIGINS = Object.freeze([
   WEATHER_GEOCODING_ORIGIN,
   WEATHER_FORECAST_ORIGIN,
 ]);
-export const WEATHER_CACHE_KEY = "weather-forecast-v1";
+export const WEATHER_CACHE_KEY = "weather-forecast-v2";
 export const WEATHER_CACHE_FRESH_MS = 30 * 60 * 1000;
 export const WEATHER_CACHE_STALE_MS = 6 * 60 * 60 * 1000;
 export const WEATHER_QUERY_MAX_LENGTH = 80;
@@ -68,7 +68,7 @@ export function normalizeWeatherForecastResponse(value) {
   const normalizedDaily = dates.map((date, index) => {
     const day = {
       date: normalizeIsoDate(date),
-      weatherCode: boundedInteger(weatherCodes[index], 0, 99),
+      weatherCode: dominantDaytimeWeatherCode(value?.hourly, date) ?? boundedInteger(weatherCodes[index], 0, 99),
       temperatureMaxC: boundedNumber(maximums[index], -150, 100),
       temperatureMinC: boundedNumber(minimums[index], -150, 100),
       precipitationProbability: boundedInteger(precipitation[index], 0, 100),
@@ -82,6 +82,30 @@ export function normalizeWeatherForecastResponse(value) {
     current: normalizedCurrent,
     daily: normalizedDaily,
   };
+}
+
+function dominantDaytimeWeatherCode(hourly, date) {
+  const times = Array.isArray(hourly?.time) ? hourly.time : [];
+  const codes = Array.isArray(hourly?.weather_code) ? hourly.weather_code : [];
+  if (!date || times.length !== codes.length) return null;
+
+  const counts = new Map();
+  for (let index = 0; index < times.length; index += 1) {
+    const match = String(times[index] || "").match(/^(\d{4}-\d{2}-\d{2})T(\d{2}):/);
+    if (!match || match[1] !== date) continue;
+    const hour = Number(match[2]);
+    const code = boundedInteger(codes[index], 0, 99);
+    if (hour < 8 || hour > 18 || code === null) continue;
+    const condition = weatherConditionKey(code);
+    const entry = counts.get(condition) || { count: 0, codes: new Map() };
+    entry.count += 1;
+    entry.codes.set(code, (entry.codes.get(code) || 0) + 1);
+    counts.set(condition, entry);
+  }
+  if (!counts.size) return null;
+
+  const condition = [...counts.values()].sort((left, right) => right.count - left.count)[0];
+  return [...condition.codes.entries()].sort((left, right) => right[1] - left[1])[0][0];
 }
 
 export function normalizeWeatherCoordinates(latitudeValue, longitudeValue) {

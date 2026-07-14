@@ -80,6 +80,17 @@ export function writeValue(key, value) {
   }
 }
 
+export function applyExternalStoragePatch(values = {}) {
+  if (!values || typeof values !== "object" || Array.isArray(values)) return;
+  for (const [key, value] of Object.entries(values)) {
+    const serialized = String(value);
+    if (!isPersistableEntry(key, serialized)) continue;
+    if (locallyWrittenKeys.has(key) && memory.get(key) !== serialized) continue;
+    memory.set(key, serialized);
+    locallyWrittenKeys.delete(key);
+  }
+}
+
 export async function flushStorage() {
   if (!hasExtensionRuntime()) return;
   if (flushPromise) return flushPromise;

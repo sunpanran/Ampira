@@ -59,6 +59,27 @@ assert.equal(invalidatedCoordinator.isCurrent(observedGeneration), true);
 invalidatedCoordinator.invalidate();
 assert.equal(invalidatedCoordinator.isCurrent(observedGeneration), false, "cache clearing must invalidate an in-flight generation");
 
+let releaseSupersededRun;
+const supersededRun = new Promise((resolve) => { releaseSupersededRun = resolve; });
+const sourceSwitchGenerations = [];
+const sourceSwitchCoordinator = createRefreshCoordinator({
+  getStatus: async () => ({}),
+  run: async (generation) => {
+    sourceSwitchGenerations.push(generation);
+    if (sourceSwitchGenerations.length === 1) await supersededRun;
+  },
+});
+await sourceSwitchCoordinator.start(true);
+await Promise.resolve();
+const supersededGeneration = sourceSwitchGenerations[0];
+sourceSwitchCoordinator.invalidate();
+assert.equal(sourceSwitchCoordinator.isCurrent(supersededGeneration), false);
+assert.equal((await sourceSwitchCoordinator.start(true)).queued, true, "a source switch must queue a forced refresh behind the invalidated run");
+releaseSupersededRun();
+await new Promise((resolve) => setTimeout(resolve, 0));
+assert.equal(sourceSwitchGenerations.length, 2, "the latest source must receive a replacement refresh after the stale run exits");
+assert.equal(sourceSwitchCoordinator.isCurrent(sourceSwitchGenerations[1]), true, "the replacement refresh must own the current cache generation");
+
 const previousItems = [
   { sourceKey: "empty-source", title: "old empty result" },
   { sourceKey: "error-source", title: "last successful result" },

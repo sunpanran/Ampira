@@ -3,8 +3,12 @@ import { DEFAULT_SETTINGS } from "./constants.mjs";
 export function buildBookmarkModel(tree, settings = {}) {
   const folders = topLevelFolders(tree);
   const folderNames = folders.map((folder) => clean(folder.title)).filter(Boolean);
-  const newsName = pickFolderName(settings.newsBookmarkFolder, DEFAULT_SETTINGS.newsBookmarkFolder, folderNames);
-  const inspirationName = pickFolderName(settings.inspirationBookmarkFolder, DEFAULT_SETTINGS.inspirationBookmarkFolder, folderNames, [newsName]);
+  const newsName = settings.newsSourceMode === "public"
+    ? ""
+    : pickFolderName(settings.newsBookmarkFolder, DEFAULT_SETTINGS.newsBookmarkFolder, folderNames);
+  const inspirationName = settings.inspirationSourceMode === "preset"
+    ? ""
+    : pickFolderName(settings.inspirationBookmarkFolder, DEFAULT_SETTINGS.inspirationBookmarkFolder, folderNames, [newsName]);
   const extras = uniqueStrings(settings.bookmarkOnlyFolders).filter((name) => ![newsName, inspirationName].includes(name));
   const specs = [
     { name: newsName, cardType: "news" },
@@ -16,7 +20,7 @@ export function buildBookmarkModel(tree, settings = {}) {
   for (const spec of specs) {
     const folder = folders.find((candidate) => clean(candidate.title) === spec.name);
     if (!folder) {
-      sections.push({ name: spec.name, cardType: spec.cardType, missing: true, categories: [] });
+      sections.push({ name: spec.name, sectionKey: sectionKey(spec), cardType: spec.cardType, sourceKind: "bookmark", missing: true, categories: [] });
       continue;
     }
     const start = bookmarks.length;
@@ -26,17 +30,39 @@ export function buildBookmarkModel(tree, settings = {}) {
     for (const item of sectionItems) categoryCounts.set(item.category, (categoryCounts.get(item.category) || 0) + 1);
     sections.push({
       name: spec.name,
+      sectionKey: sectionKey(spec),
       cardType: spec.cardType,
-      categories: Array.from(categoryCounts, ([name, count]) => ({ name, count })),
+      sourceKind: "bookmark",
+      categories: Array.from(categoryCounts, ([name, count]) => ({
+        name,
+        count,
+        categoryKey: bookmarkCategoryKey(spec.name, name),
+      })),
     });
   }
   return {
-    folderOptions: folderNames.map((name) => ({ name })),
+    folderOptions: folders.map((folder) => ({
+      name: clean(folder.title),
+      count: countFolderBookmarks(folder),
+    })).filter((folder) => folder.name),
     sections,
     bookmarks,
     availableNewsFolders: availableFolders(sections, bookmarks, newsName),
     missingFolders: sections.filter((section) => section.missing).map((section) => section.name),
   };
+}
+
+function countFolderBookmarks(folder) {
+  let count = 0;
+  const pending = [folder];
+  while (pending.length) {
+    const node = pending.pop();
+    for (const child of Array.isArray(node?.children) ? node.children : []) {
+      if (child?.url) count += 1;
+      else if (Array.isArray(child?.children)) pending.push(child);
+    }
+  }
+  return count;
 }
 
 export function originsFromUrls(urls) {
@@ -59,7 +85,7 @@ export function inspirationPreviewSourceUrls(bookmarks) {
 
 export function inspirationPreviewTargets(bookmarks) {
   return (Array.isArray(bookmarks) ? bookmarks : [])
-    .filter((item) => item?.cardType === "inspiration")
+    .filter((item) => item?.cardType === "inspiration" && item?.sourceKind !== "preset" && !item?.coverAsset)
     .map((item) => ({
       url: String(item?.url || "").trim(),
       title: clean(item?.title),
@@ -111,12 +137,24 @@ function bookmarkItem(node, spec, category, pathParts, settings) {
     url,
     host,
     section: spec.name,
+    sectionKey: sectionKey(spec),
     category,
+    categoryKey: bookmarkCategoryKey(spec.name, category),
     folderPath,
     cardType: spec.cardType,
+    sourceKind: "bookmark",
+    coverAsset: "",
     dateAdded: Number(node.dateAdded || 0),
     feedExcluded: isExcluded({ url, host, section: spec.name, category, folderPath }, settings.excludedNewsSources),
   };
+}
+
+function sectionKey(spec) {
+  return `bookmark-${spec.cardType}-${hashText(spec.name)}`;
+}
+
+function bookmarkCategoryKey(section, category) {
+  return `bookmark-${hashText(`${section}\u0000${category}`)}`;
 }
 
 function availableFolders(sections, bookmarks, newsName) {

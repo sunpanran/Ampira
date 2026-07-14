@@ -24,12 +24,18 @@ export const PORTABLE_SETTINGS_FIELDS = Object.freeze([
   "websiteShortcutsEnabled",
   "websiteShortcuts",
   "newsBookmarkFolder",
+  "newsSourceMode",
   "inspirationBookmarkFolder",
+  "inspirationSourceMode",
   "bookmarkOnlyFolders",
+  "hiddenBookmarkCategories",
   "cardSummaryEnabled",
   "floatingWebOpenEnabled",
   "readingQueueOpenOnReadAll",
   "retainSeenArchive",
+  "syncReadingQueueEnabled",
+  "syncTodosEnabled",
+  "syncWeatherLocationEnabled",
   "personalizedRankingEnabled",
   "publicFeedSupplementEnabled",
   "webImageSearchEnabled",
@@ -55,11 +61,14 @@ const BOOLEAN_FIELDS = new Set([
   "floatingWebOpenEnabled",
   "readingQueueOpenOnReadAll",
   "retainSeenArchive",
+  "syncReadingQueueEnabled",
+  "syncTodosEnabled",
+  "syncWeatherLocationEnabled",
   "personalizedRankingEnabled",
   "publicFeedSupplementEnabled",
   "webImageSearchEnabled",
 ]);
-const ARRAY_FIELDS = new Set(["websiteShortcuts", "bookmarkOnlyFolders", "excludedNewsSources"]);
+const ARRAY_FIELDS = new Set(["websiteShortcuts", "bookmarkOnlyFolders", "hiddenBookmarkCategories", "excludedNewsSources"]);
 const NUMBER_RANGES = Object.freeze({
   headerImageBlurAmount: [0, 24],
   dailyAiLimit: [1, 500],
@@ -75,7 +84,9 @@ const STRING_LIMITS = Object.freeze({
   customAccentColor: 7,
   headerImageUrl: 2048,
   newsBookmarkFolder: 200,
+  newsSourceMode: 20,
   inspirationBookmarkFolder: 200,
+  inspirationSourceMode: 20,
   openaiBaseUrl: 2048,
   openaiApiStyle: 40,
   openaiSummaryModel: 200,
@@ -84,6 +95,8 @@ const LOCALES = new Set(["", "en", "zh-CN", "zh-Hant"]);
 const COLOR_MODES = new Set(["system", "dark", "light"]);
 const ACCENT_THEMES = new Set(["violet", "cyan", "emerald", "amber", "rose", "custom"]);
 const API_STYLES = new Set(["responses", "chat_completions"]);
+const NEWS_SOURCE_MODES = new Set(["public", "bookmarks"]);
+const INSPIRATION_SOURCE_MODES = new Set(["preset", "bookmarks"]);
 
 export function createSettingsTransferDocument(settings, {
   appVersion = "",
@@ -188,6 +201,8 @@ function validatePortableValue(field, value) {
   if (field === "headerImageUrl" && value && !normalizePublicUrl(value)) throw invalidValue(field);
   if (field === "openaiBaseUrl" && !isValidServiceUrl(value)) throw invalidValue(field);
   if (field === "openaiApiStyle" && !API_STYLES.has(value)) throw invalidValue(field);
+  if (field === "newsSourceMode" && !NEWS_SOURCE_MODES.has(value)) throw invalidValue(field);
+  if (field === "inspirationSourceMode" && !INSPIRATION_SOURCE_MODES.has(value)) throw invalidValue(field);
 }
 
 function validateCollection(field, value) {

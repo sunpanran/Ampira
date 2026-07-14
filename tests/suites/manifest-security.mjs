@@ -5,7 +5,9 @@ import { DEFAULT_SETTINGS } from "../../extension/core/constants.mjs";
 import { textLength, truncateText } from "../../assets/client/text.mjs";
 import { CARD_SUMMARY_POLICY_VERSION, cleanGeneratedSummaryLine, extractGeneratedSummaryTitle, hasStructuralSummaryPrefix, limitGeneratedSummaryLines, normalizeSummaryMarkup, parseGeneratedDailyDigest } from "../../extension/core/summary-text.mjs";
 import { cleanAiAnswerMarkup, extractDirectAnswer, parseAiAnswer } from "../../assets/client/ai-answer-format.mjs";
-import { permissionRowCounts, requiredUngrantedOrigins } from "../../assets/client/permission-ui-model.mjs";
+import {
+  exactPermissionOrigins, newlyRequiredUngrantedOrigins, permissionRowCounts, requiredUngrantedOrigins,
+} from "../../assets/client/permission-ui-model.mjs";
 import {
   DEFAULT_LOCALE, SUPPORTED_LOCALES, defaultBookmarkFoldersForLocale,
   detectSupportedLocale, formatListForLocale, localeMessages, normalizeLocale,
@@ -17,6 +19,7 @@ const manifest = JSON.parse(await fs.readFile(path.join(root, "manifest.json"), 
 
 assert.equal(manifest.manifest_version, 3);
 assert.equal(manifest.chrome_url_overrides.newtab, "dashboard.html");
+assert.equal(manifest.action.default_popup, undefined, "the toolbar action must use onClicked without a tab-reading popup");
 assert.deepEqual(manifest.permissions.sort(), ["alarms", "bookmarks", "storage"]);
 assert.deepEqual([...(manifest.optional_permissions || [])].sort(), ["favicon"], "website icons must use an optional named permission so upgrades do not disable existing installs");
 for (const forbidden of ["tabs", "history", "scripting", "webRequest", "management", "unlimitedStorage"]) {
@@ -43,6 +46,9 @@ assert.equal(detectSupportedLocale(["fr-FR", "en-GB"]), "en");
 assert.equal(detectSupportedLocale(["fr-FR"]), "zh-CN");
 assert.equal(translate("en", "context.openAll", { count: 3 }), "Open all in new tabs (3)");
 assert.equal(translate("zh-CN", "context.explainArticle"), "解释文章");
+assert.equal(translate("zh-CN", "context.hideBookmarkCategory"), "隐藏此分类");
+assert.equal(translate("zh-Hant", "settings.bookmarks.restoreAll"), "全部恢復");
+assert.equal(translate("en", "empty.hiddenCategories.title"), "All categories are hidden");
 assert(translate("en", "settings.service.consent").includes("article URLs used for context"), "the prominent AI disclosure must include context article URLs");
 assert(translate("zh-CN", "settings.service.consent").includes("文章网址"), "the Chinese AI disclosure must include context article URLs");
 assert.equal(translateCount("en", "unit.entries", 1), "1 entry");
@@ -75,7 +81,7 @@ assert.equal(hasStructuralSummaryPrefix(normalizeSummaryMarkup("**核心内容**
 assert.equal(extractGeneratedSummaryTitle("**标题：AI 精炼标题**"), "AI 精炼标题");
 assert.equal(extractGeneratedSummaryTitle(`标题：${"长".repeat(80)}`).length, 64, "generated card titles must be capped before caching");
 assert.equal(cleanGeneratedSummaryLine("标题：AI 精炼标题"), "", "generated title rows must not leak into summary text");
-assert.equal(CARD_SUMMARY_POLICY_VERSION, 2);
+assert.equal(CARD_SUMMARY_POLICY_VERSION, 4);
 const boundedCardSummary = limitGeneratedSummaryLines(["甲".repeat(120), "乙".repeat(120), "丙".repeat(120), "丁".repeat(20)], 280, 3);
 assert.equal(boundedCardSummary.length, 3, "card summaries must retain at most three information-dense paragraphs");
 assert.equal([...boundedCardSummary.join("")].length, 280, "card summaries must enforce the 280-character cache boundary");
@@ -108,6 +114,8 @@ assert.deepEqual(permissionRowCounts(permissionUiRows), {
   broadRequired: 0,
 });
 assert.deepEqual(requiredUngrantedOrigins(permissionUiRows), ["https://pending.example/*"]);
+assert.deepEqual(newlyRequiredUngrantedOrigins(permissionUiRows, [permissionUiRows[0]]), ["https://pending.example/*"]);
+assert.deepEqual(exactPermissionOrigins(["https://pending.example/path", "http://unsafe.example/", "https://*/*"]), ["https://pending.example/*"]);
 assert.equal(permissionRowCounts(permissionUiRows.map((row) => ({ ...row, granted: true }))).pending, 0, "fully granted rows must not leave an active bulk action");
 assert.equal(permissionRowCounts(permissionUiRows.filter((row) => row.legacy)).pending, 0, "legacy-only rows must not enable bulk authorization");
 
@@ -180,7 +188,13 @@ assert(!/<input[^>]+(?:id|name)="[^"]*(?:new.?tab|override)[^"]*"/i.test(browser
 assert(browserPanelSource.includes('id="websiteShortcutsEnabledInput"'), "browser settings must expose the website-shortcut module switch explicitly");
 assert(dashboardSource.includes('id="sourcePermissionSummary"'), "website access must expose a visible settings-page status");
 assert(dashboardSource.includes('id="sourceCoverageSummary"') && dashboardSource.includes('id="sourceCoverageList"'), "news settings must expose source coverage and per-source diagnostics");
+assert(!dashboardSource.includes('id="sourceCoverageStatus"') && !dashboardSource.includes('id="bookmarkSourceStatus"'), "settings must not repeat source summaries beside the controls that already show them");
+assert(!dashboardSource.includes("IndexedDB") && !dashboardSource.includes("Manifest V3"), "settings and onboarding must not expose storage or extension implementation details");
+assert(dashboardSource.includes('data-i18n="settings.cache.clearHelp"')
+  && dashboardSource.includes('data-i18n="settings.bookmarks.inspirationFolderHelp"')
+  && dashboardSource.includes('data-i18n="settings.sync.security"'), "copy cleanup must retain cache, bookmark, and secret-storage consequences");
 const sourceCoverageControllerSource = await fs.readFile(path.join(root, "assets", "client", "source-coverage-controller.mjs"), "utf8");
+assert(!sourceCoverageControllerSource.includes("settings.sources.method."), "source status rows must not expose internal extraction methods");
 assert(sourceCoverageControllerSource.includes('chrome.permissions.request({ origins: [pattern] })'), "cross-origin Feed discovery must require a direct user-gesture permission request");
 assert(sourceCoverageControllerSource.includes('apiPost("/api/feed/source/refresh", { sourceKey })'), "source diagnostics must support a scoped source retry");
 const refreshServiceSource = await fs.readFile(path.join(root, "extension", "runtime", "refresh-service.mjs"), "utf8");
@@ -192,11 +206,21 @@ assert(dashboardSource.includes('id="toggleFaviconPermission"'), "existing users
 assert(!dashboardSource.includes('data-permission="favicon"'), "onboarding must not duplicate the favicon permission action beside the combined primary action");
 assert.equal((dashboardSource.match(/data-onboarding-step="\d"/g) || []).length, 3, "onboarding must use the three-step product, folder, and permission activation flow");
 assert(dashboardSource.includes('id="onboardingNewsFolder"') && dashboardSource.includes('id="onboardingInspirationFolder"'), "onboarding must let users choose bookmark folders in place");
+assert(dashboardSource.includes('id="inspirationBookmarkFolderSelect"'), "settings must keep inspiration source selection inside the compact folder row");
+assert(!dashboardSource.includes('id="inspirationSourceModeGroup"') && !dashboardSource.includes('id="onboardingInspirationSourceMode"'), "settings and onboarding must not restore the large inspiration-source card selectors");
+assert(!dashboardSource.includes('name="inspirationSourceMode"') && !dashboardSource.includes('name="onboardingInspirationSource"'), "inspiration mode must be represented by the folder selects rather than parallel radio groups");
 assert(dashboardSource.indexOf('id="onboardingNewsFolder"') < dashboardSource.indexOf('id="onboardingGrantSources"'), "folder selection must precede exact-origin permission calculation");
 assert(!dashboardSource.includes('id="onboardingApiKey"') && !dashboardSource.includes('id="finishOnboarding"'), "AI credentials and the redundant summary screen must stay out of onboarding");
 assert(dashboardSource.includes('id="onboardingSkipFolders"') && dashboardSource.includes('id="onboardingSkipPermissions"'), "folder selection and optional website access must both remain skippable");
 const permissionUiSource = await fs.readFile(path.join(root, "assets", "client", "extension-ui.mjs"), "utf8");
-assert(permissionUiSource.includes('request("settings:save", { newsBookmarkFolder, inspirationBookmarkFolder })'), "onboarding folder choices must persist through the settings boundary");
+assert(permissionUiSource.includes("newsSourceMode,")
+  && permissionUiSource.includes("inspirationSourceMode,"), "onboarding news and inspiration source choices must persist through the settings boundary");
+assert(permissionUiSource.includes('INSPIRATION_PRESET_VALUE') && permissionUiSource.includes('inspirationBookmarkValue(item.name)'), "onboarding must build the fixed preset option before encoded personal-folder options");
+const bookmarkSettingsSource = await fs.readFile(path.join(root, "assets", "client", "bookmark-settings-controller.mjs"), "utf8");
+assert(bookmarkSettingsSource.includes('const optionNodes = [createFolderOption(INSPIRATION_PRESET_VALUE'), "settings must place the Ampira preset first in the inspiration folder select");
+assert(permissionUiSource.includes('const optionNodes = [createOption(PUBLIC_FEED_VALUE')
+  && bookmarkSettingsSource.includes('const optionNodes = [createFolderOption(PUBLIC_FEED_VALUE'), "onboarding and settings must place Public Feed first in the news source select");
+assert(bookmarkSettingsSource.includes('t("settings.bookmarks.notFound"'), "settings must retain a visible missing option for a removed personal folder");
 assert(!permissionUiSource.includes('request("settings:save", { openaiApiKey, aiDisclosureAccepted: true })'), "AI credentials must be configured progressively from Settings rather than onboarding");
 assert(permissionUiSource.includes('permissions: ["favicon"]'), "the onboarding primary permission action must also request website icons from its user gesture");
 assert(permissionUiSource.includes('writeValue(ONBOARDING_PROGRESS_KEY, "permissions")'), "onboarding must resume at the final permission step after folder activation");

@@ -2,6 +2,8 @@ import { sendExtensionRequest } from "./api.mjs";
 import { getLocale, setLocale, t, tc, translateDocument } from "./i18n.mjs";
 import { createIcon, hydrateIcons } from "./icons.mjs";
 import { permissionRowCounts, requiredUngrantedOrigins } from "./permission-ui-model.mjs";
+import { INSPIRATION_PRESET_VALUE, inspirationBookmarkValue, inspirationSelectionValue, parseInspirationSelection } from "./inspiration-source-selection.mjs";
+import { PUBLIC_FEED_VALUE, newsBookmarkValue, newsSelectionValue, parseNewsSelection } from "./news-source-selection.mjs";
 import { hydrateStorage, readValue, writeValue } from "./storage.mjs";
 import { setNativeFaviconEnabled } from "./urls.mjs";
 
@@ -70,7 +72,7 @@ function bindEvents() {
   }));
   els.skipPermissions?.addEventListener("click", (event) => finishOnboarding(event.currentTarget));
   els.newsFolder?.addEventListener("change", renderOnboardingFolderStatus);
-  els.inspirationFolder?.addEventListener("change", renderOnboardingFolderStatus);
+  els.inspirationFolder?.addEventListener("change", handleOnboardingInspirationSelection);
   els.saveFolders?.addEventListener("click", saveOnboardingFolders);
   els.skipFolders?.addEventListener("click", showOnboardingPermissions);
   els.grantAllSources?.addEventListener("click", (event) => grantOrigins(requiredUngrantedOrigins(permissionRows), {
@@ -159,48 +161,115 @@ function syncOnboardingFolderControls({ preserveSelection = false } = {}) {
   const options = Array.isArray(settings?.bookmarkFolderOptions) ? settings.bookmarkFolderOptions : [];
   const newsSelection = preserveSelection
     ? els.newsFolder.value
-    : (settings?.newsBookmarkFolder || settings?.defaultNewsBookmarkFolder || "");
+    : newsSelectionValue(
+      settings?.newsSourceMode,
+      settings?.newsBookmarkFolder || settings?.defaultNewsBookmarkFolder,
+    );
   const inspirationSelection = preserveSelection
     ? els.inspirationFolder.value
-    : (settings?.inspirationBookmarkFolder || settings?.defaultInspirationBookmarkFolder || "");
-  populateFolderSelect(els.newsFolder, options, newsSelection);
-  populateFolderSelect(els.inspirationFolder, options, inspirationSelection);
-  if (els.newsFolder.value && els.newsFolder.value === els.inspirationFolder.value) {
-    const alternate = options.find((option) => option?.name && option.name !== els.newsFolder.value)?.name || "";
-    if (alternate) els.inspirationFolder.value = alternate;
-  }
+    : inspirationSelectionValue(
+      settings?.inspirationSourceMode,
+      settings?.inspirationBookmarkFolder || settings?.defaultInspirationBookmarkFolder,
+    );
+  populateNewsSourceSelect(els.newsFolder, options, newsSelection);
+  populateInspirationSourceSelect(els.inspirationFolder, options, inspirationSelection);
   renderOnboardingFolderStatus();
 }
 
-function populateFolderSelect(select, options, selectedValue) {
-  const names = options.map((option) => String(option?.name || "").trim()).filter(Boolean);
-  if (!names.length) {
-    const option = document.createElement("option");
-    option.value = "";
-    option.textContent = t("settings.bookmarks.none");
-    option.disabled = true;
-    select.replaceChildren(option);
-    select.disabled = true;
-    return;
+function handleOnboardingInspirationSelection() {
+  const selection = selectedOnboardingInspirationSource();
+  settings = {
+    ...(settings || {}),
+    inspirationSourceMode: selection.mode,
+    ...(selection.mode === "bookmarks" ? { inspirationBookmarkFolder: selection.folder } : {}),
+  };
+  renderOnboardingFolderStatus();
+}
+
+function populateNewsSourceSelect(select, options, selectedValue) {
+  const folders = options.map((item) => ({
+    name: String(item?.name || "").trim(),
+    count: Number(item?.count || 0),
+  })).filter((item) => item.name);
+  const selected = parseNewsSelection(selectedValue, settings?.newsBookmarkFolder);
+  const optionNodes = [createOption(PUBLIC_FEED_VALUE, t("settings.bookmarks.publicFeedTitle"))];
+  if (selected.mode === "bookmarks" && selected.folder
+    && !folders.some((item) => item.name === selected.folder)) {
+    optionNodes.push(createOption(
+      newsBookmarkValue(selected.folder),
+      t("settings.bookmarks.notFound", { name: selected.folder }),
+    ));
   }
+  optionNodes.push(...folders.map((item) => createOption(
+    newsBookmarkValue(item.name),
+    t("settings.bookmarks.folderOption", { name: item.name, count: item.count }),
+  )));
+  select.replaceChildren(...optionNodes);
+  select.value = newsSelectionValue(selected.mode, selected.folder);
+  if (!select.value) select.value = PUBLIC_FEED_VALUE;
   select.disabled = false;
-  select.replaceChildren(...names.map((name) => {
-    const option = document.createElement("option");
-    option.value = name;
-    option.textContent = name;
-    return option;
-  }));
-  select.value = names.includes(selectedValue) ? selectedValue : names[0];
+}
+
+function populateInspirationSourceSelect(select, options, selectedValue) {
+  const folders = options.map((item) => ({
+    name: String(item?.name || "").trim(),
+    count: Number(item?.count || 0),
+  })).filter((item) => item.name);
+  const selected = parseInspirationSelection(selectedValue, settings?.inspirationBookmarkFolder);
+  const optionNodes = [createOption(INSPIRATION_PRESET_VALUE, t("settings.bookmarks.presetTitle"))];
+  if (selected.folder && !folders.some((item) => item.name === selected.folder)) {
+    optionNodes.push(createOption(
+      inspirationBookmarkValue(selected.folder),
+      t("settings.bookmarks.notFound", { name: selected.folder }),
+    ));
+  }
+  optionNodes.push(...folders.map((item) => createOption(
+    inspirationBookmarkValue(item.name),
+    t("settings.bookmarks.folderOption", { name: item.name, count: item.count }),
+  )));
+  select.replaceChildren(...optionNodes);
+  select.value = inspirationSelectionValue(selected.mode, selected.folder);
+  if (!select.value) select.value = INSPIRATION_PRESET_VALUE;
+  select.disabled = false;
+}
+
+function createOption(value, label) {
+  const option = document.createElement("option");
+  option.value = value;
+  option.textContent = label;
+  return option;
+}
+
+function selectedOnboardingInspirationSource() {
+  return parseInspirationSelection(
+    els.inspirationFolder?.value,
+    settings?.inspirationBookmarkFolder || settings?.defaultInspirationBookmarkFolder,
+  );
+}
+
+function selectedOnboardingNewsSource() {
+  return parseNewsSelection(
+    els.newsFolder?.value,
+    settings?.newsBookmarkFolder || settings?.defaultNewsBookmarkFolder,
+  );
 }
 
 function renderOnboardingFolderStatus() {
   if (!els.folderStatus || !els.saveFolders) return;
-  const news = els.newsFolder?.value || "";
-  const inspiration = els.inspirationFolder?.value || "";
-  const same = Boolean(news && news === inspiration);
-  const complete = Boolean(news && inspiration && !same);
+  const selectedNews = selectedOnboardingNewsSource();
+  const news = selectedNews.mode === "public" ? t("settings.bookmarks.publicFeedTitle") : selectedNews.folder;
+  const selectedInspiration = selectedOnboardingInspirationSource();
+  const inspiration = selectedInspiration.folder;
+  const mode = selectedInspiration.mode;
+  const same = selectedNews.mode === "bookmarks" && Boolean(news && news === inspiration);
+  const complete = mode === "preset" || Boolean(news && inspiration && !same);
   els.saveFolders.disabled = !complete;
-  if (!news || !inspiration) {
+  if (mode === "preset") {
+    setOnboardingStatus(els.folderStatus, t(news ? "onboarding.step3.presetWithNews" : "onboarding.step3.presetReady", {
+      news,
+      inspiration: t("settings.bookmarks.presetTitle"),
+    }));
+  } else if (!news || !inspiration) {
     setOnboardingStatus(els.folderStatus, t("onboarding.step3.noFolders"));
   } else if (same) {
     setOnboardingStatus(els.folderStatus, t("settings.bookmarks.same"), "error");
@@ -210,22 +279,33 @@ function renderOnboardingFolderStatus() {
 }
 
 async function saveOnboardingFolders() {
-  const newsBookmarkFolder = els.newsFolder?.value || "";
-  const inspirationBookmarkFolder = els.inspirationFolder?.value || "";
-  if (!newsBookmarkFolder || !inspirationBookmarkFolder || newsBookmarkFolder === inspirationBookmarkFolder) return;
+  const selectedNews = selectedOnboardingNewsSource();
+  const newsBookmarkFolder = selectedNews.folder;
+  const newsSourceMode = selectedNews.mode;
+  const selectedInspiration = selectedOnboardingInspirationSource();
+  const inspirationBookmarkFolder = selectedInspiration.folder;
+  const inspirationSourceMode = selectedInspiration.mode;
+  if (newsSourceMode === "bookmarks" && inspirationSourceMode === "bookmarks"
+    && (!newsBookmarkFolder || !inspirationBookmarkFolder || newsBookmarkFolder === inspirationBookmarkFolder)) return;
   els.saveFolders.disabled = true;
   setOnboardingStatus(els.folderStatus, t("onboarding.step3.saving"));
   try {
-    settings = await request("settings:save", { newsBookmarkFolder, inspirationBookmarkFolder });
+    settings = await request("settings:save", {
+      newsBookmarkFolder,
+      newsSourceMode,
+      inspirationBookmarkFolder,
+      inspirationSourceMode,
+    });
     renderPermissionRows(settings.sourcePermissions || []);
     setOnboardingStatus(els.folderStatus, t("onboarding.step3.saved"), "success");
     showOnboardingPermissions();
   } catch (error) {
     setOnboardingStatus(els.folderStatus, t("onboarding.actionFailed", { message: error.message || error }), "error");
   } finally {
-    const news = els.newsFolder?.value || "";
-    const inspiration = els.inspirationFolder?.value || "";
-    els.saveFolders.disabled = !news || !inspiration || news === inspiration;
+    const news = selectedOnboardingNewsSource();
+    const inspiration = selectedOnboardingInspirationSource();
+    els.saveFolders.disabled = news.mode === "bookmarks" && inspiration.mode === "bookmarks"
+      && (!news.folder || !inspiration.folder || news.folder === inspiration.folder);
   }
 }
 

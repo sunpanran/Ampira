@@ -1,5 +1,5 @@
 {
   "appName": { "message": "Ampira New Tab" },
-  "appDescription": { "message": "Turn selected Chrome bookmarks and feeds into a searchable new-tab information dashboard." },
+  "appDescription": { "message": "Turn Inspiration preset (Ampira), selected Chrome bookmarks, and feeds into a searchable new-tab dashboard." },
   "actionTitle": { "message": "Open Ampira" }
 }

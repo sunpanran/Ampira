@@ -91,6 +91,10 @@
   text-shadow: 0 1px 2px var(--bg), 0 0 20px var(--bg);
 }
 
+.has-fullscreen-header-cover .today-meta {
+  text-shadow: none;
+}
+
 .daily-shell,
 .daily-primary,
 .efficiency-panel,
@@ -240,6 +244,21 @@
   white-space: normal;
 }
 
+.library-feedback.is-visible-error {
+  position: static;
+  width: auto;
+  height: auto;
+  padding: 7px 9px;
+  margin: 8px 0 0;
+  overflow: visible;
+  clip: auto;
+  white-space: normal;
+  color: var(--red);
+  border: 1px solid color-mix(in srgb, var(--red) 44%, var(--line-soft));
+  border-radius: var(--radius-button);
+  background: color-mix(in srgb, var(--surface-1) 92%, var(--red) 8%);
+}
+
 .website-shortcut-icon {
   width: 24px;
   height: 24px;
@@ -323,6 +342,7 @@
 
 #daily {
   --daily-workbench-h: clamp(520px, calc(100dvh - 248px), 720px);
+  --inspiration-card-h: 120px;
 }
 
 .efficiency-panel {
@@ -421,13 +441,13 @@
 .nav-btn:hover::before,
 .nav-btn.active:hover::before,
 .efficiency-card:hover::before,
-.efficiency-card:focus-within::before,
+.efficiency-card:has(:focus-visible)::before,
 .board-column:hover::before,
-.board-column:focus-within::before,
+.board-column:has(:focus-visible)::before,
 .summary-card:hover::before,
 .summary-card:focus-visible::before,
 .category:hover::before,
-.category:focus-within::before,
+.category:has(:focus-visible)::before,
 .daily-card:hover::before,
 .daily-card:focus-visible::before,
 .news-list-card:hover::before,
@@ -437,7 +457,7 @@
 .link-row:hover::before,
 .link-row:focus-visible::before,
 .website-shortcuts:hover::before,
-.website-shortcuts:focus-within::before,
+.website-shortcuts:has(:focus-visible)::before,
 .website-shortcut:hover::before,
 .website-shortcut:focus-visible::before {
   opacity: 1;
@@ -511,6 +531,30 @@
   height: 168px;
   grid-template-rows: auto minmax(0, 1fr);
   overflow: hidden;
+}
+
+.utility-card[data-utility-mode="events"] .events-list {
+  grid-template-rows: repeat(3, minmax(0, 1fr));
+  align-content: stretch;
+  gap: 0;
+  overflow-y: hidden;
+  padding-right: 0;
+  scrollbar-gutter: auto;
+}
+
+.utility-card[data-utility-mode="events"] .topic-row {
+  min-height: 0;
+  align-items: center;
+  padding: 0 6px;
+}
+
+.utility-card[data-utility-mode="events"] .topic-row .efficiency-row-main {
+  flex: 1 1 auto;
+}
+
+.utility-card[data-utility-mode="events"] .topic-row .efficiency-score {
+  flex: 0 0 auto;
+  margin-top: 1px;
 }
 
 .utility-card-body,
@@ -599,6 +643,7 @@
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 6px;
+  padding: 2px;
 }
 
 .utility-entry-input {
@@ -682,9 +727,12 @@
 }
 
 .todo-list {
-  gap: 0;
   padding-right: 0;
   scrollbar-gutter: auto;
+}
+
+.todo-list {
+  gap: 0;
 }
 
 .weather-location-row {
@@ -1314,9 +1362,18 @@
 
 .board-column.is-inspiration .card-list {
   gap: 12px;
+  scrollbar-width: none;
+}
+
+.board-column.is-inspiration .card-list::-webkit-scrollbar {
+  display: none;
 }
 
 .board-column.is-inspiration .daily-card {
+  height: var(--inspiration-card-h);
+  min-height: var(--inspiration-card-h);
+  grid-template-rows: 22px minmax(0, 1fr) auto;
+  align-content: stretch;
   border: 1px solid var(--card-line);
   gap: 10px;
   padding: 12px;
@@ -1324,8 +1381,7 @@
 }
 
 .board-column.is-inspiration .daily-card.has-inspiration-thumb {
-  min-height: 248px;
-  align-content: end;
+  min-height: var(--inspiration-card-h);
   background: var(--inspiration-card-bg);
 }
 
@@ -1350,6 +1406,7 @@
 }
 
 .board-column.is-inspiration .daily-card.has-inspiration-thumb .item-title {
+  min-height: 0;
   color: var(--inspiration-title);
   font-size: 15px;
   line-height: 1.25;
@@ -1664,7 +1721,7 @@
 }
 
 .summary-card:not(.has-favicon-thumb) .summary-line {
-  -webkit-line-clamp: 4;
+  -webkit-line-clamp: 5;
 }
 
 .summary-card .thumb-favicon-glow {

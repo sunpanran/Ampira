@@ -1,5 +1,5 @@
 {
   "appName": { "message": "Ampira 新分頁" },
-  "appDescription": { "message": "把選取的 Chrome 書籤與資訊來源整理成可搜尋的新分頁資訊看板。" },
+  "appDescription": { "message": "用靈感預設（Ampira）或選取的 Chrome 書籤與資訊來源建立可搜尋的新分頁資訊看板。" },
   "actionTitle": { "message": "開啟 Ampira" }
 }

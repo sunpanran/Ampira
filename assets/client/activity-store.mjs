@@ -1,8 +1,10 @@
+import { normalizeReadingQueueRecords } from "../../extension/core/reading-queue.mjs";
+
 const ACTION_RECORD_LIMIT = 150;
 
 export function createActivityStore({ readJson, day }) {
   const seenRecords = normalizeSeenRecords(readJson(`dash.seen.${day}`, []));
-  const queueRecords = normalizeActionRecords(readJson("dash.readingQueue", []));
+  const queueRecords = normalizeReadingQueueRecords(readJson("dash.readingQueue", []));
   const openedRecords = normalizeActionRecords(readJson("dash.opened", []));
   const dismissedRecords = normalizeActionRecords(readJson("dash.dismissed", []));
   return {

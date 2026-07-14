@@ -31,9 +31,10 @@ import {
   readDeviceConsent,
   setAiDisclosureConsent,
 } from "../core/device-consent.mjs";
-import { DEFAULT_LOCALE, defaultBookmarkFoldersForLocale, normalizeLocale, translate } from "../core/i18n.mjs";
+import { DEFAULT_LOCALE, defaultBookmarkFoldersForLocale, normalizeLocale, translate, translateAiPrompt } from "../core/i18n.mjs";
 import { requestAiCompletion, testImageSearchConnection } from "../core/ai.mjs";
 import { createClientStateStore } from "../core/client-state.mjs";
+import { createContentSyncService } from "../core/content-sync.mjs";
 import { createQuotaManager } from "../core/quota.mjs";
 import { createPreviewService, fetchSourceImageCandidates } from "../core/preview.mjs";
 import { bravePreviewCacheKeys, newsPreviewTargets, previewCacheKeysOutsideTargets } from "../core/preview-cache.mjs";
@@ -88,6 +89,14 @@ const quotaManager = createQuotaManager(chrome.storage.local, localDateKey);
 const settingsStore = createSettingsStore(chrome.storage.sync);
 const settingsService = createRuntimeSettingsService({ store: settingsStore, readProviderProfile, readDeviceConsent });
 const { getSettings, sanitizeLegacySyncedCredentials } = settingsService;
+const contentSyncService = createContentSyncService({
+  storage: chrome.storage.sync,
+  clientStateStore,
+  getSettings,
+  getRecord,
+  setRecord,
+  broadcast,
+});
 let publicSettings;
 let saveSettings;
 let exportSettings;
@@ -160,7 +169,7 @@ const {
   testOpenAISettings,
   testImageSearchSettings,
 } = aiSearchService = createAiSearchService({
-  getRecord, setRecord, searchFeed, settingsLocale, translate, normalizeUserUrl,
+  getRecord, setRecord, searchFeed, settingsLocale, translate, translateAiPrompt, normalizeUserUrl,
   hasOriginPermission, originPattern, secretStatus, currentFeedPermissionState,
   getSettings, currentBookmarkModel, emptyBookmarkModel, assertUrlsStillPermitted,
   cacheSourceIdentitiesPermitted, configuredFeedSources,
@@ -175,9 +184,7 @@ const {
 });
 const refreshCoordinator = createRefreshCoordinator({
   getStatus: getRefreshStatus,
-  run: (generation, context) => refreshService.runRefresh(generation, {
-    prioritizeAutomaticAi: context?.force === true,
-  }),
+  run: (generation) => refreshService.runRefresh(generation),
   isFresh: (status) => {
     const finishedAt = Date.parse(String(status?.finishedAt || ""));
     return Number.isFinite(finishedAt) && Date.now() - finishedAt < 10 * 60 * 1000;
@@ -199,7 +206,7 @@ refreshService = createRefreshService({
   buildDailyCandidates, dailyCandidateFingerprint, rankingPolicyVersion: NEWS_RANKING_POLICY_VERSION,
   assertFeedItemsStillPermitted, withFeedCacheMetadata, cacheMutations, aiConfigured,
   getAiAutoStatus, setAiAutoStatus, defaultAiAutoStatus, readQuota, runAiWithinQuota,
-  callProvider, translate, settingsLocale, cleanGeneratedSummaryLine,
+  callProvider, translate, translateAiPrompt, settingsLocale, cleanGeneratedSummaryLine,
   extractGeneratedSummaryTitle, limitGeneratedSummaryLines, parseGeneratedDailyDigest, dailyDigestEvidence,
   cardSummaryPolicyVersion: CARD_SUMMARY_POLICY_VERSION, buildFallbackDigest,
   digestCachePermitted, filterFeedItemsBySources, resultMessage, errorResult,
@@ -251,6 +258,7 @@ const {
   pruneStalePreviewCaches, pruneBravePreviewCaches, aiConfigured, setAiAutoStatus,
   defaultAiAutoStatus, startRefresh, broadcast,
   createSettingsTransferDocument, parseSettingsTransferDocument,
+  contentSyncService,
   getAppVersion: () => chrome.runtime.getManifest().version,
   now: () => new Date().toISOString(),
 }));
@@ -298,14 +306,22 @@ const routeMessage = createMessageRouter({
   "weather:search": (payload) => searchLocations(payload),
   "weather:get": (payload) => getForecast(payload),
   "reader:get": (payload) => readArticle(payload.url),
+  "reader:translate": (payload) => translateReaderArticle(payload),
   "preview:get": (payload) => getSitePreview(payload),
   "cache:clear": () => clearGeneratedCache(),
   "quota:reset": () => resetQuota(),
   "preferences:reset": () => resetPreferences(),
   "source-quality:reset": () => resetSourceQuality(),
   "feedback:record": (payload) => recordFeedback(payload),
-  "client-state:get": () => clientStateStore.read(),
-  "client-state:set": (payload) => clientStateStore.save(payload),
+  "client-state:get": async () => {
+    await contentSyncService.initialize();
+    return clientStateStore.read();
+  },
+  "client-state:set": async (payload) => {
+    const result = await clientStateStore.save(payload);
+    await contentSyncService.handleLocalPatch(payload.values || {});
+    return result;
+  },
   "permissions:origins": () => selectedOrigins(),
   "permissions:status": (payload) => permissionStatus(payload.origins || []),
   "onboarding:consent": () => recordBookmarkConsent(),
@@ -323,6 +339,7 @@ const routeMessage = createMessageRouter({
     handleBookmarksChanged,
     handlePermissionsAdded,
     handlePermissionsRemoved,
+    handleActionClicked,
     start,
   };
 
@@ -338,9 +355,7 @@ chrome.runtime.onStartup.addListener(() => {
   ensureRuntime().catch(() => {});
 });
 
-chrome.action.onClicked.addListener(() => {
-  chrome.tabs.create({ url: chrome.runtime.getURL("dashboard.html") }).catch(() => {});
-});
+chrome.action.onClicked.addListener(handleActionClicked);
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   handleAlarm(alarm);
@@ -353,6 +368,10 @@ for (const event of [chrome.bookmarks.onCreated, chrome.bookmarks.onChanged, chr
 chrome.permissions.onAdded.addListener(handlePermissionsAdded);
 
 chrome.permissions.onRemoved.addListener(handlePermissionsRemoved);
+
+chrome.storage.onChanged?.addListener((changes, areaName) => {
+  contentSyncService.handleStorageChanged(changes, areaName);
+});
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (!request || typeof request.type !== "string") return false;
@@ -374,6 +393,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 });
 
 ensureRuntime().catch(() => {});
+  }
+
+  function handleActionClicked() {
+    return chrome.tabs.create({ url: chrome.runtime.getURL("dashboard.html") });
   }
 
 function handleAlarm(alarm) {
@@ -407,6 +430,7 @@ function handlePermissionsRemoved(permissions) {
 async function ensureRuntime() {
   await chrome.alarms.create(REFRESH_ALARM, { periodInMinutes: REFRESH_PERIOD_MINUTES });
   await getSettings();
+  await contentSyncService.initialize();
   await sanitizeLegacySyncedCredentials();
   await clearLegacyCredentialData();
   const status = await getRefreshStatus();
@@ -448,6 +472,26 @@ async function aiConfigured(settings) {
     && await hasOriginPermission(provider.openaiBaseUrl);
 }
 
+async function translateReaderArticle(payload = {}) {
+  const settings = await getSettings();
+  if (!await aiConfigured(settings)) throw typedError("AI_NOT_CONFIGURED", "background.error.aiKeyMissing", {}, false);
+  const locale = settingsLocale(settings);
+  const title = String(payload.title || "").trim().slice(0, 500);
+  const text = String(payload.text || "").trim().slice(0, 24000);
+  if (!text) throw typedError("READER_TRANSLATION_EMPTY", "reader.translationEmpty", {}, false);
+  const value = await callProvider(
+    settings,
+    translateAiPrompt(locale, "background.prompt.readerTranslation"),
+    translate(locale, "background.prompt.readerTranslationInput", { title, text }),
+    6000,
+    "",
+    () => assertUrlsStillPermitted([payload.url]),
+  );
+  const parts = String(value || "").split(/\n\s*\n/);
+  const translatedTitle = parts.length > 1 ? parts.shift().trim() : title;
+  return { locale, title: translatedTitle, text: parts.join("\n\n").trim() || value };
+}
+
 async function readQuota(limit) {
   return quotaManager.read(limit);
 }
@@ -464,6 +508,6 @@ async function runAiWithinQuota(settings, operation) {
 }
 
 function broadcast(type, payload) {
-  chrome.runtime.sendMessage({ type, payload }).catch(() => {});
+  chrome.runtime.sendMessage({ type, requestId: crypto.randomUUID(), payload }).catch(() => {});
 }
 }

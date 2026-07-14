@@ -20,6 +20,22 @@
   animation: todoComposerIn 160ms cubic-bezier(.22, .8, .3, 1) both;
 }
 
+.utility-card-body.is-utility-mode-leaving {
+  animation: utilityModeOut 80ms cubic-bezier(.4, 0, 1, 1) both;
+}
+
+.utility-card-body.is-utility-mode-entering {
+  animation: utilityModeIn 140ms cubic-bezier(.22, .8, .3, 1) both;
+}
+
+.is-utility-header-leaving {
+  animation: utilityHeaderOut 70ms ease-in both;
+}
+
+.is-utility-header-entering {
+  animation: utilityHeaderIn 120ms cubic-bezier(.22, .8, .3, 1) both;
+}
+
 .efficiency-skeleton {
   min-height: 168px;
 }
@@ -73,6 +89,26 @@
 
 @keyframes todoComposerIn {
   from { opacity: 0; transform: translateY(-3px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes utilityModeOut {
+  from { opacity: 1; transform: translateX(0); }
+  to { opacity: 0; transform: translateX(-8px); }
+}
+
+@keyframes utilityModeIn {
+  from { opacity: 0; transform: translateX(10px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes utilityHeaderOut {
+  from { opacity: 1; transform: translateY(0); }
+  to { opacity: 0; transform: translateY(-3px); }
+}
+
+@keyframes utilityHeaderIn {
+  from { opacity: .35; transform: translateY(3px); }
   to { opacity: 1; transform: translateY(0); }
 }
 
@@ -377,14 +413,15 @@
   }
 
   .board-column.is-inspiration .card-list:not(.is-empty) {
-    grid-template-rows: repeat(5, minmax(0, 1fr));
-    overflow: hidden;
-    padding-right: 0;
+    grid-template-rows: repeat(5, var(--inspiration-card-h));
+    overflow: auto;
+    padding-right: 3px;
   }
 
   .board-column.is-inspiration .daily-card,
   .board-column.is-inspiration .daily-card.has-inspiration-thumb {
-    min-height: 0;
+    height: var(--inspiration-card-h);
+    min-height: var(--inspiration-card-h);
   }
 
   .summary-grid {
@@ -769,6 +806,16 @@
     justify-content: center;
     text-align: center;
     scroll-snap-align: start;
+  }
+
+  .saved-source-permission-prompt {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .saved-source-permission-actions {
+    grid-column: 2;
+    justify-content: flex-start;
+    flex-wrap: wrap;
   }
 
   .settings-tab-copy small {

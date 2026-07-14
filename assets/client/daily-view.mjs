@@ -1,6 +1,7 @@
 import { isHotNewsItem as matchesHotNews, isSummaryFillItem as matchesSummaryFill } from "./card-policy.mjs";
 import { createDailyCardView } from "./daily-card-view.mjs";
 import { animatePanelEntrance } from "./dom.mjs";
+import { orderPresetInspiration } from "./inspiration-preset-selection.mjs";
 
 export function createDailyView(options) {
   const {
@@ -444,10 +445,12 @@ function fixedDailyPage(items, seenKeys, count, batchLimit, variant) {
 }
 
 function dailyInspirationItems() {
-  return shuffle(
-    (state.data?.bookmarks || []).filter(isInspirationCard),
-    `${state.day}.${inspirationSectionName()}`
-  );
+  const items = (state.data?.bookmarks || []).filter(isInspirationCard);
+  const seed = `${state.day}.${inspirationSectionName()}`;
+  if (items.length && items.every((item) => item.sourceKind === "preset")) {
+    return orderPresetInspiration(items, { seed, shuffle });
+  }
+  return shuffle(items, seed);
 }
 
 function preloadDailyInspiration(timeoutMs = updateInspirationPreloadTimeoutMs) {
@@ -458,7 +461,8 @@ function preloadDailyInspiration(timeoutMs = updateInspirationPreloadTimeoutMs) 
     dailyInspirationCount * dailyInspirationBatchLimit,
   );
   const current = pageForItems(pool, dailyInspirationCount, state.variants.inspiration).items;
-  const items = [...current, ...pool];
+  const items = [...current, ...pool].filter((item) => !item.coverAsset && item.sourceKind !== "preset");
+  if (!items.length) return Promise.resolve([]);
   return inspirationPreviews.preload(items, { timeoutMs }).catch(() => []);
 }
 
@@ -482,7 +486,7 @@ function dailyNewsItems() {
     recentLimit: 3,
     pageSize: dailyNewsCount,
     pageCount: dailyNewsBatchLimit,
-    publisherLimit: state.settings?.todayNewsPerPublisherLimit ?? 2,
+    publisherLimit: state.settings?.todayNewsPerPublisherLimit ?? 0,
   });
 }
 

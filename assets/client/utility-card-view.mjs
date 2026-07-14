@@ -9,6 +9,7 @@ import {
   weatherConditionIconName,
 } from "./utility-card-model.mjs";
 import { createTodoCardView } from "./todo-card-view.mjs";
+import { createUtilityCardMotion } from "./utility-card-motion.mjs";
 
 const MODE_TITLE_KEYS = Object.freeze({
   events: "events.cardTitle",
@@ -69,6 +70,11 @@ export function createUtilityCardView(options) {
   const body = document.createElement("div");
   body.className = "utility-card-body";
   card.append(head, body);
+  const modeMotion = createUtilityCardMotion({
+    body,
+    getHeaderTargets: () => [title, meta, locationButton, todoView.addButton].filter((node) => !node.hidden),
+    render: () => render(eventItems),
+  });
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible" && state.utilityMode === "weather" && expireWeatherForecast({ retryStale: true })) render(eventItems);
   });
@@ -79,15 +85,12 @@ export function createUtilityCardView(options) {
     eventItems = Array.isArray(items) ? items : [];
     state.utilityMode = normalizeUtilityMode(state.utilityMode);
     if (state.utilityMode === "weather") expireWeatherForecast();
-    const nextMode = nextUtilityMode(state.utilityMode);
     card.dataset.utilityMode = state.utilityMode;
     title.replaceChildren(
       createIcon(utilityModeIconName(), "card-icon"),
       document.createTextNode(t(MODE_TITLE_KEYS[state.utilityMode])),
     );
-    switchButton.textContent = t("utility.switch");
-    switchButton.title = t("utility.switchTo", { type: t(MODE_TITLE_KEYS[nextMode]) });
-    switchButton.setAttribute("aria-label", switchButton.title);
+    syncSwitchButton();
     syncHeaderMeta();
 
     const content = state.utilityMode === "events"
@@ -116,7 +119,19 @@ export function createUtilityCardView(options) {
     state.utilityMode = nextUtilityMode(state.utilityMode);
     if (state.utilityMode === "weather") expireWeatherForecast({ retryStale: true });
     writeValue(UTILITY_MODE_KEY, state.utilityMode);
-    render(eventItems, { animate: true });
+    syncSwitchButton();
+    modeMotion.run();
+  }
+
+  function syncSwitchButton() {
+    const nextMode = nextUtilityMode(state.utilityMode);
+    switchButton.textContent = t("utility.switch");
+    switchButton.title = t("utility.switchTo", { type: t(MODE_TITLE_KEYS[nextMode]) });
+    switchButton.setAttribute("aria-label", switchButton.title);
+  }
+
+  function prefersReducedMotion() {
+    return globalThis.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches === true;
   }
 
   function syncHeaderMeta() {
@@ -436,7 +451,7 @@ export function createUtilityCardView(options) {
   }
 
   function animateContent() {
-    if (!body.animate || globalThis.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches) return;
+    if (!body.animate || prefersReducedMotion()) return;
     body.animate([
       { opacity: .35, transform: "translateY(4px)" },
       { opacity: 1, transform: "translateY(0)" },

@@ -1,4 +1,6 @@
 import { cardIconName, cardTone } from "./card-policy.mjs";
+import { inspirationFallbackCoverAsset, resolveInspirationCoverUrl } from "./inspiration-cover.mjs";
+import { recoverInspirationImage } from "./inspiration-image-recovery.mjs";
 
 export function createDailyCardView(options) {
   const {
@@ -170,7 +172,9 @@ function createDailyCard(item) {
   host.textContent = item.host || item.url;
   if (isInspirationCard(item)) {
     card.classList.add("has-inspiration-thumb");
-    card.dataset.previewFingerprint = inspirationPreviews.fingerprint(item);
+    card.dataset.previewFingerprint = item.coverAsset
+      ? `local:${item.coverAsset}`
+      : inspirationPreviews.fingerprint(item);
     card.append(top, title, host, createInspirationThumb(item));
   } else {
     card.append(top, title, host);
@@ -181,6 +185,18 @@ function createDailyCard(item) {
 function createInspirationThumb(item) {
   const thumb = document.createElement("div");
   thumb.className = "inspiration-thumb";
+  if (item.coverAsset) {
+    const imageUrl = resolveInspirationCoverUrl(item.coverAsset);
+    if (imageUrl) {
+      renderInspirationImageThumb(thumb, item, imageUrl, {
+        local: true,
+        onError: () => renderInspirationFaviconThumb(thumb, item),
+      });
+    } else {
+      renderInspirationFaviconThumb(thumb, item);
+    }
+    return thumb;
+  }
   const preview = inspirationPreviews.get(item);
   const imageUrl = preview?.imageUrl || "";
   if (imageUrl) renderInspirationImageThumb(thumb, item, imageUrl);
@@ -191,20 +207,31 @@ function createInspirationThumb(item) {
   return thumb;
 }
 
-function renderInspirationImageThumb(thumb, item, imageUrl) {
+function renderInspirationImageThumb(thumb, item, imageUrl, { local = false, onError } = {}) {
   thumb.className = "inspiration-thumb";
   const img = document.createElement("img");
-  img.src = imageUrl;
   img.alt = "";
   img.loading = "eager";
   img.decoding = "async";
   img.fetchPriority = "high";
   img.referrerPolicy = "no-referrer";
-  img.addEventListener("error", () => {
-    inspirationPreviews.reject(item, imageUrl);
-    renderInspirationFallbackThumb(thumb, item);
+  img.addEventListener("error", async () => {
+    if (thumb.firstElementChild !== img) return;
+    if (local) {
+      if (typeof onError === "function") onError();
+      else renderInspirationFaviconThumb(thumb, item);
+      return;
+    }
+    await recoverInspirationImage({
+      failedUrl: imageUrl,
+      isCurrent: () => thumb.firstElementChild === img,
+      reject: () => inspirationPreviews.reject(item, imageUrl),
+      renderNext: (nextUrl) => renderInspirationImageThumb(thumb, item, nextUrl),
+      renderFallback: () => renderInspirationFallbackThumb(thumb, item),
+    });
   }, { once: true });
   thumb.replaceChildren(img);
+  img.src = imageUrl;
 }
 
 function preloadBrowserImage(imageUrl) {
@@ -230,6 +257,18 @@ function preloadBrowserImage(imageUrl) {
 }
 
 function renderInspirationFallbackThumb(thumb, item) {
+  const coverUrl = resolveInspirationCoverUrl(inspirationFallbackCoverAsset(item));
+  if (coverUrl) {
+    renderInspirationImageThumb(thumb, item, coverUrl, {
+      local: true,
+      onError: () => renderInspirationFaviconThumb(thumb, item),
+    });
+    return;
+  }
+  renderInspirationFaviconThumb(thumb, item);
+}
+
+function renderInspirationFaviconThumb(thumb, item) {
   const fallback = faviconUrl(item) || "favicon.svg";
   thumb.className = "inspiration-thumb is-fallback";
   const glow = document.createElement("img");

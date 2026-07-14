@@ -1,5 +1,7 @@
 import { newsTimeScope, publisherIdentity } from "../../extension/core/news-ranking.mjs";
 
+const HIGH_CONFIDENCE_SINGLE_MAX_AGE_MS = 12 * 60 * 60 * 1000;
+
 export function createPriorityRanker(options = {}) {
   const digestKeys = typeof options.digestKeys === "function" ? options.digestKeys : () => [];
   const itemKeys = typeof options.itemKeys === "function" ? options.itemKeys : () => [];
@@ -83,15 +85,32 @@ export function selectDailyEvents(items, options = {}) {
   const seenEvents = new Set();
   const scoped = (Array.isArray(items) ? items : []).map((item) => {
     const eventKey = item?.eventId || item?.id || item?.url || item?.title;
-    if (!eventKey || seenEvents.has(eventKey) || sourceCount(item) < minSourceCount) return null;
+    if (!eventKey || seenEvents.has(eventKey)) return null;
     const resolvedTimeScope = newsTimeScope(item, now) || item?.timeScope || "";
     if (!resolvedTimeScope) return null;
     seenEvents.add(eventKey);
     return { ...item, resolvedTimeScope };
   }).filter(Boolean);
-  const today = scoped.filter((item) => item.resolvedTimeScope === "today").sort(compare);
-  const recent = scoped.filter((item) => item.resolvedTimeScope === "recent").sort(compare).slice(0, recentLimit);
-  return [...today, ...recent].slice(0, limit);
+  const corroborated = scoped.filter((item) => sourceCount(item) >= minSourceCount);
+  const today = corroborated.filter((item) => item.resolvedTimeScope === "today").sort(compare);
+  const recent = corroborated.filter((item) => item.resolvedTimeScope === "recent").sort(compare).slice(0, recentLimit);
+  const selected = [...today, ...recent].slice(0, limit);
+  if (selected.length >= limit) return selected;
+  const highConfidenceSingle = scoped
+    .filter((item) => sourceCount(item) < minSourceCount
+      && item.eventConfidence === "high-confidence-single"
+      && item.resolvedTimeScope === "today"
+      && isFreshHighConfidenceSingle(item, now))
+    .sort(compare)[0];
+  if (highConfidenceSingle) selected.push(highConfidenceSingle);
+  return selected;
+}
+
+function isFreshHighConfidenceSingle(item, nowValue) {
+  const now = nowValue instanceof Date ? nowValue.getTime() : Number(nowValue);
+  const publishedAt = Date.parse(String(item?.publishedAt || ""));
+  const age = (Number.isFinite(now) ? now : Date.now()) - publishedAt;
+  return Number.isFinite(publishedAt) && age >= 0 && age <= HIGH_CONFIDENCE_SINGLE_MAX_AGE_MS;
 }
 
 function arrangePublisherBatches(items, pageSize, pageCount, publisherLimit) {

@@ -94,6 +94,11 @@ export async function runWeatherUtilityTests() {
   const normalizedForecast = normalizeWeatherForecastResponse(forecastPayload);
   assert.equal(normalizedForecast.daily.length, 3);
   assert.equal(normalizedForecast.current.temperatureC, 27.3);
+  assert.deepEqual(
+    normalizedForecast.daily.map((day) => day.weatherCode),
+    [2, 2, 0],
+    "daily labels must use the predominant daytime condition instead of one severe hourly event",
+  );
   assert.equal(normalizeWeatherForecastResponse({ ...forecastPayload, daily: { ...forecastPayload.daily, time: ["2026-07-14"] } }), null);
   assert.equal(normalizeWeatherForecastResponse({ ...forecastPayload, current: { ...forecastPayload.current, temperature_2m: "hot" } }), null);
 
@@ -209,6 +214,7 @@ async function testWeatherService(forecastPayload) {
   assert.equal(forecastUrl.pathname, "/v1/forecast");
   assert.equal(forecastUrl.searchParams.get("forecast_days"), "3");
   assert.equal(forecastUrl.searchParams.get("temperature_unit"), "celsius");
+  assert.equal(forecastUrl.searchParams.get("hourly"), "weather_code");
   assert.equal(records.get(WEATHER_CACHE_KEY).capability, "weather");
 
   currentTime += WEATHER_CACHE_FRESH_MS;
@@ -256,6 +262,12 @@ function typedError(code, messageKey, messageParams = {}, retryable = false, det
 }
 
 function weatherFixture() {
+  const dates = ["2026-07-14", "2026-07-15", "2026-07-16"];
+  const daytimeCodes = [
+    [2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2],
+    [2, 2, 2, 2, 2, 95, 2, 2, 2, 2, 2],
+    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+  ];
   return {
     timezone: "Europe/Paris",
     current: {
@@ -265,11 +277,15 @@ function weatherFixture() {
       is_day: 1,
     },
     daily: {
-      time: ["2026-07-14", "2026-07-15", "2026-07-16"],
+      time: dates,
       weather_code: [2, 61, 0],
       temperature_2m_max: [29.4, 25.2, 30.1],
       temperature_2m_min: [20.2, 18.4, 19.8],
       precipitation_probability_max: [10, 80, 0],
+    },
+    hourly: {
+      time: dates.flatMap((date) => Array.from({ length: 11 }, (_, index) => `${date}T${String(index + 8).padStart(2, "0")}:00`)),
+      weather_code: daytimeCodes.flat(),
     },
   };
 }

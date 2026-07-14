@@ -1,6 +1,7 @@
 import { LOCAL_ONLY_SETTINGS_FIELDS, SETTINGS_KEY } from "./constants.mjs";
 import { normalizeSettings } from "./settings.mjs";
 import { decodeSettingsFromSync, encodeSettingsForSync, settingsChunkKeys } from "./settings-storage.mjs";
+import { assertSyncStorageBudget } from "./sync-budget.mjs";
 
 export function createSettingsStore(storage) {
   let mutationQueue = Promise.resolve();
@@ -27,12 +28,14 @@ export function createSettingsStore(storage) {
 
   async function writeUnqueued(settings) {
     const normalized = normalizeSettings(settings);
-    const previous = await storage.get(SETTINGS_KEY);
+    const allRecords = await storage.get(null);
+    const previous = { [SETTINGS_KEY]: allRecords[SETTINGS_KEY] };
     const previousChunkKeys = settingsChunkKeys(previous[SETTINGS_KEY]);
     const records = encodeSettingsForSync(withoutLocalOnlyFields(normalized));
-    await storage.set(records);
     const nextKeys = new Set(Object.keys(records));
     const staleKeys = previousChunkKeys.filter((key) => !nextKeys.has(key));
+    assertSyncStorageBudget(allRecords, records, staleKeys);
+    await storage.set(records);
     if (staleKeys.length) await storage.remove(staleKeys);
     return normalized;
   }

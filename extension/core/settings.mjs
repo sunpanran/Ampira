@@ -5,11 +5,14 @@ const BOOLEAN_FIELDS = [
   "bookmarkConsentGranted", "onboardingCompleted", "aiDisclosureAccepted", "pointerGlowEnabled",
   "headerImageEnabled", "headerImageFixed", "headerImageFullscreen", "headerImageBlurEnabled", "cardSummaryEnabled",
   "floatingWebOpenEnabled", "readingQueueOpenOnReadAll", "retainSeenArchive",
+  "syncReadingQueueEnabled", "syncTodosEnabled", "syncWeatherLocationEnabled",
   "personalizedRankingEnabled", "publicFeedSupplementEnabled", "webImageSearchEnabled", "websiteShortcutsEnabled",
 ];
 const COLOR_MODES = new Set(["system", "dark", "light"]);
 const ACCENT_THEMES = new Set(["violet", "cyan", "emerald", "amber", "rose", "custom"]);
 const API_STYLES = new Set(["responses", "chat_completions"]);
+const NEWS_SOURCE_MODES = new Set(["public", "bookmarks"]);
+const INSPIRATION_SOURCE_MODES = new Set(["preset", "bookmarks"]);
 const EXCLUSION_FIELDS = [
   "id", "type", "value", "host", "url", "sourceKey", "title", "reason", "reasonKey",
   "reasonDetail", "section", "category", "folderPath", "addedAt",
@@ -34,6 +37,7 @@ const MAX_EXCLUSION_BYTES = 55 * 1024;
 export const MAX_WEBSITE_SHORTCUTS = 16;
 export const MAX_WEBSITE_SHORTCUT_TITLE_LENGTH = 60;
 export const MAX_WEBSITE_SHORTCUT_URL_LENGTH = 2048;
+export const MAX_HIDDEN_BOOKMARK_CATEGORIES = 100;
 
 export function normalizeSettings(value = {}) {
   const input = value && typeof value === "object" ? value : {};
@@ -56,9 +60,25 @@ export function normalizeSettings(value = {}) {
   settings.headerImageFullscreen = settings.headerImageFixed && settings.headerImageFullscreen;
   settings.websiteShortcuts = normalizeWebsiteShortcuts(input.websiteShortcuts);
   settings.newsBookmarkFolder = cleanString(input.newsBookmarkFolder, 200, DEFAULT_SETTINGS.newsBookmarkFolder);
+  settings.newsSourceMode = enumValue(
+    input.newsSourceMode,
+    NEWS_SOURCE_MODES,
+    Object.hasOwn(input, "schemaVersion") ? "bookmarks" : DEFAULT_SETTINGS.newsSourceMode,
+  );
+  if (settings.newsSourceMode === "public") settings.publicFeedSupplementEnabled = true;
   settings.inspirationBookmarkFolder = cleanString(input.inspirationBookmarkFolder, 200, DEFAULT_SETTINGS.inspirationBookmarkFolder);
+  settings.inspirationSourceMode = enumValue(
+    input.inspirationSourceMode,
+    INSPIRATION_SOURCE_MODES,
+    Object.hasOwn(input, "schemaVersion") ? "bookmarks" : DEFAULT_SETTINGS.inspirationSourceMode,
+  );
+  const primaryBookmarkFolders = [
+    settings.newsSourceMode === "bookmarks" ? settings.newsBookmarkFolder : "",
+    settings.inspirationSourceMode === "bookmarks" ? settings.inspirationBookmarkFolder : "",
+  ];
   settings.bookmarkOnlyFolders = uniqueStrings(input.bookmarkOnlyFolders, 200, 100)
-    .filter((name) => ![settings.newsBookmarkFolder, settings.inspirationBookmarkFolder].includes(name));
+    .filter((name) => !primaryBookmarkFolders.includes(name));
+  settings.hiddenBookmarkCategories = normalizeHiddenBookmarkCategories(input.hiddenBookmarkCategories);
   settings.excludedNewsSources = normalizeExclusions(input.excludedNewsSources);
   Object.assign(settings, normalizeProviderSettings(input));
   settings.dailyAiLimit = boundedInteger(input.dailyAiLimit, 1, 500, DEFAULT_SETTINGS.dailyAiLimit);
@@ -168,6 +188,31 @@ function normalizeExclusions(value) {
       output.push(normalized);
       usedBytes += entryBytes;
     }
+  }
+  return output;
+}
+
+export function normalizeHiddenBookmarkCategories(value) {
+  if (!Array.isArray(value)) return [];
+  const output = [];
+  const seen = new Set();
+  for (const item of value) {
+    if (output.length >= MAX_HIDDEN_BOOKMARK_CATEGORIES) break;
+    if (!item || typeof item !== "object") continue;
+    const section = cleanString(item.section, 200, "");
+    const category = cleanString(item.category, 200, "");
+    const sectionKey = cleanString(item.sectionKey, 120, "");
+    const categoryKey = cleanString(item.categoryKey, 120, "");
+    const hasStableIdentity = Boolean(sectionKey && categoryKey);
+    if (!hasStableIdentity && (!section || !category)) continue;
+    const identity = JSON.stringify(hasStableIdentity ? [sectionKey, categoryKey] : [section, category]);
+    if (seen.has(identity)) continue;
+    seen.add(identity);
+    output.push({
+      section: section || sectionKey,
+      category: category || categoryKey,
+      ...(hasStableIdentity ? { sectionKey, categoryKey } : {}),
+    });
   }
   return output;
 }
