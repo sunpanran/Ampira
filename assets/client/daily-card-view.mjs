@@ -8,6 +8,8 @@ export function createDailyCardView(options) {
     isHttpUrl, hostFromUrl, openExternal, displayBookmarkTitle, isNewsCard,
     isInspirationCard, setCardItemIdentity,
   } = options;
+  let newsTitleReveal = null;
+  let activeNewsTitle = null;
 
   return {
     activateCardFromKeyboard,
@@ -33,7 +35,6 @@ function createNewsListCard(item) {
   card.tabIndex = 0;
   card.setAttribute("role", "link");
   card.setAttribute("aria-label", t("card.openNews", { title: cardTitle }));
-  card.title = cardTitle;
   card.addEventListener("click", () => openDailyItem(item));
   card.addEventListener("keydown", (event) => {
     activateCardFromKeyboard(event, () => openDailyItem(item));
@@ -44,6 +45,7 @@ function createNewsListCard(item) {
   const title = document.createElement("span");
   title.className = "link-title news-list-title";
   title.textContent = cardTitle;
+  attachNewsTitleReveal(card, title, cardTitle);
   const meta = document.createElement("div");
   meta.className = "link-host";
   meta.textContent = newsListMetaText(item);
@@ -60,6 +62,75 @@ function createNewsListCard(item) {
     actions,
   );
   return card;
+}
+
+function attachNewsTitleReveal(card, title, cardTitle) {
+  title.addEventListener("pointerenter", (event) => {
+    if (event.pointerType === "touch") return;
+    showNewsTitleReveal(title, cardTitle);
+  });
+  title.addEventListener("pointerleave", () => {
+    if (activeNewsTitle === title) hideNewsTitleReveal();
+  });
+  card.addEventListener("focus", () => showNewsTitleReveal(title, cardTitle));
+  card.addEventListener("blur", () => {
+    if (activeNewsTitle === title) hideNewsTitleReveal();
+  });
+}
+
+function showNewsTitleReveal(title, cardTitle) {
+  if (!title.isConnected || title.scrollWidth <= title.clientWidth + 1) {
+    if (activeNewsTitle === title) hideNewsTitleReveal();
+    return;
+  }
+  const rect = title.getBoundingClientRect();
+  if (!rect.width || !rect.height) return;
+  const reveal = ensureNewsTitleReveal();
+  const viewportWidth = document.documentElement.clientWidth || window.innerWidth;
+  const viewportHeight = document.documentElement.clientHeight || window.innerHeight;
+  const viewportInset = 8;
+  const width = Math.min(
+    Math.max(rect.width + 12, Math.min(320, viewportWidth - viewportInset * 2)),
+    480,
+    viewportWidth - viewportInset * 2,
+  );
+  const left = Math.min(
+    Math.max(rect.left - 6, viewportInset),
+    viewportWidth - width - viewportInset,
+  );
+  reveal.textContent = cardTitle;
+  reveal.style.width = `${width}px`;
+  reveal.style.left = `${left}px`;
+  reveal.style.top = `${rect.top - 5}px`;
+  reveal.classList.toggle("is-seen", Boolean(title.closest(".seen")));
+  reveal.classList.remove("is-visible", "is-above");
+  const revealHeight = reveal.offsetHeight;
+  const opensAbove = rect.top - 5 + revealHeight > viewportHeight - viewportInset;
+  const top = opensAbove
+    ? Math.max(viewportInset, rect.bottom + 5 - revealHeight)
+    : Math.max(viewportInset, rect.top - 5);
+  reveal.style.top = `${top}px`;
+  reveal.classList.toggle("is-above", opensAbove);
+  activeNewsTitle = title;
+  void reveal.offsetWidth;
+  reveal.classList.add("is-visible");
+}
+
+function ensureNewsTitleReveal() {
+  if (newsTitleReveal?.isConnected) return newsTitleReveal;
+  newsTitleReveal = document.createElement("div");
+  newsTitleReveal.className = "news-title-reveal";
+  newsTitleReveal.setAttribute("aria-hidden", "true");
+  document.body.append(newsTitleReveal);
+  window.addEventListener("scroll", hideNewsTitleReveal, { capture: true, passive: true });
+  window.addEventListener("resize", hideNewsTitleReveal, { passive: true });
+  document.addEventListener("visibilitychange", hideNewsTitleReveal);
+  return newsTitleReveal;
+}
+
+function hideNewsTitleReveal() {
+  activeNewsTitle = null;
+  newsTitleReveal?.classList.remove("is-visible");
 }
 
 function newsListMetaText(item) {

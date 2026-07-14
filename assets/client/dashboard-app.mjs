@@ -6,7 +6,7 @@ import { allTranslations, formatLocaleList, getLocale, setLocale, t, tc } from "
 import { hydrateStorage, readJson, readNumber, writeJson, writeValue } from "./storage.mjs";
 import { createInitialState } from "./state.mjs";
 import { cleanTitleText, textLength, truncateText } from "./text.mjs";
-import { formatDateTime, formatFullDateTime, getTodayKey } from "./time.mjs";
+import { formatDateTime, formatTodayMeta, getTodayKey } from "./time.mjs";
 import { faviconUrl, hostFromUrl, isHttpUrl, normalizeUrl } from "./urls.mjs";
 import { findNewsItemByReference as findNewsItemReference, pageForItems, seededShuffle as shuffle } from "./dashboard-model.mjs";
 import {
@@ -16,13 +16,14 @@ import {
 import { createReaderController } from "./reader-ui.mjs";
 import { createAiSearchController } from "./ai-search-ui.mjs";
 import { cloneSettingsDraft, diffSettingsDraft, snapshotSettingsDraft } from "./settings-draft.mjs";
-import { createInspirationPreviewController, inspirationPreviewFingerprint } from "./inspiration-preview-controller.mjs";
+import { createSitePreviewController, sitePreviewFingerprint } from "./inspiration-preview-controller.mjs";
 import { AI_SETUP_STAGE, aiProviderOrigin, deriveAiSetupControlState } from "./ai-settings-policy.mjs";
 import { isDisplayableFeedItem } from "../../extension/core/feed-item-policy.mjs";
 import { cleanSummaryLines, cleanSummaryTitle, displaySummaryTitle, displayTitle, isCorrectlySummarized, itemUrl, summaryDetailLines, summaryLines, summaryText } from "./item-presenter.mjs";
 import { apiStyleLabel, colorModeLabel, localizedCategory, localizedErrorMessage, localizedExclusionReason, localizedResponseMessage, localizedSourceLabel, localizedSourceReason, localizedStatusMessage, themeLabel } from "./localized-labels.mjs";
 import { createContextMenuController } from "./context-menu-controller.mjs";
 import { createAppearanceController } from "./appearance-controller.mjs";
+import { createCoverBlurPreviewController } from "./cover-blur-preview-controller.mjs";
 import { createSourceSettingsController } from "./source-settings-controller.mjs";
 import { createBookmarkSettingsController } from "./bookmark-settings-controller.mjs";
 import { createWebsiteShortcutsController } from "./website-shortcuts-controller.mjs";
@@ -35,12 +36,19 @@ import { createAiPermissionController } from "./ai-permission-controller.mjs";
 import { createStatusView } from "./status-view.mjs";
 import { createShellController } from "./shell-controller.mjs";
 import { createSettingsController } from "./settings-controller.mjs";
+import { createSettingsTransferController } from "./settings-transfer-controller.mjs";
 import { createDashboardController } from "./dashboard-controller.mjs";
 import { cardIconName, cardTone } from "./card-policy.mjs";
 import {
   MAX_WEBSITE_SHORTCUTS, MAX_WEBSITE_SHORTCUT_TITLE_LENGTH, MAX_WEBSITE_SHORTCUT_URL_LENGTH,
   normalizeWebsiteShortcutUrl,
 } from "../../extension/core/settings.mjs";
+import {
+  MAX_SETTINGS_TRANSFER_BYTES,
+  parseSettingsTransferText,
+  settingsTransferFilename,
+} from "../../extension/core/settings-transfer.mjs";
+import { WEATHER_ORIGINS } from "../../extension/core/weather.mjs";
 
 const DAILY_NEWS_COUNT = 10;
 const DAILY_NEWS_BATCH_LIMIT = 3;
@@ -76,7 +84,7 @@ const appearanceElements = { ...elementGroups.dashboard, ...elementGroups.settin
 let activityController;
 let contextMenu;
 let summaryView;
-let inspirationPreviews;
+let sitePreviews;
 let readerController;
 let settingsController;
 let dashboardController;
@@ -158,11 +166,11 @@ const dailyView = createDailyView({
   defaultSeenSource: (...args) => activityController.defaultSeenSource(...args),
   newsSummaryItems: (...args) => summaryView.newsSummaryItems(...args),
   inspirationPreviews: {
-    fingerprint: (...args) => inspirationPreviews.fingerprint(...args),
-    get: (...args) => inspirationPreviews.get(...args),
-    reject: (...args) => inspirationPreviews.reject(...args),
-    request: (...args) => inspirationPreviews.request(...args),
-    preload: (...args) => inspirationPreviews.preload(...args),
+    fingerprint: (...args) => sitePreviews.fingerprint(...args),
+    get: (...args) => sitePreviews.get(...args),
+    reject: (...args) => sitePreviews.reject(...args),
+    request: (...args) => sitePreviews.request(...args),
+    preload: (...args) => sitePreviews.preload(...args),
   },
   apiGet, normalizeUrl, isHttpUrl, faviconUrl, hostFromUrl, formatDateTime,
   writeValue, writeJson, readJson, pageForItems, shuffle,
@@ -195,6 +203,7 @@ const {
   newsSummaryItems,
   updateSummaryCard,
   reshuffleSummaries,
+  updateVisibleNewsThumbs,
 } = summaryView = createSummaryView({
   state, els: dashboardElements, t, tc, apiPost, isDisplayableFeedItem, itemUrl, displaySummaryTitle,
   summaryDetailLines, cleanSummaryLines, isCorrectlySummarized, localizedCategory,
@@ -216,10 +225,17 @@ const {
   openSummaryItem: (...args) => activityController.openSummaryItem(...args),
   prefersReducedMotion, renderOverviewStatus, renderStatus, setCardItemIdentity,
   syncSegmentedIndicator, triggerRefresh, writeValue,
+  newsPreviews: {
+    fingerprint: (item) => sitePreviews.fingerprint(newsPreviewItem(item)),
+    get: (item) => sitePreviews.get(newsPreviewItem(item)),
+    reject: (item, imageUrl) => sitePreviews.reject(newsPreviewItem(item), imageUrl),
+    request: (item) => sitePreviews.request(newsPreviewItem(item)),
+  },
 });
 const {
   renderEfficiencyPanel,
   refreshDailyDigest,
+  invalidateWeather,
 } = createEfficiencyView({
   state, els: dashboardElements, t, tc, apiPost, createEmptyState, createIcon, createThemedIcon,
   localizedStatusMessage, localizedResponseMessage, localizedErrorMessage,
@@ -233,7 +249,8 @@ const {
   openExternal: (...args) => readerController.openExternal(...args),
   readingQueueOpenOnReadAll: () => state.settings?.readingQueueOpenOnReadAll !== false,
   renderDaily, renderOverviewStatus, renderSummaries, selectDailyEvents, setIconLabel,
-  openSettings: (...args) => settingsController.openSettings(...args),
+  openAiSettings,
+  getLocale, writeJson, writeValue, requestWeatherPermissions,
 });
 const {
   readingQueueItems,
@@ -329,6 +346,7 @@ contextMenu = createContextMenuController({
 const {
   syncControls: syncAppearanceControls,
   syncFullscreenControl: syncHeaderImageFullscreenControl,
+  syncBlurControl: syncHeaderImageBlurControl,
   updatePreview: updateAppearancePreview,
   payload: appearancePayload,
   selectedUiLocale,
@@ -349,6 +367,10 @@ const {
   syncNavExpandedWidth,
   syncAiSetupControls,
   syncSegmentedIndicator,
+});
+const coverBlurPreview = createCoverBlurPreviewController({
+  modal: els.settingsModal,
+  input: els.headerImageBlurAmountInput,
 });
 const {
   currentExcludedNewsSources,
@@ -418,6 +440,9 @@ const {
   setIconLabel,
   normalizeWebsiteShortcutUrl,
   renderSettingsStatus: (...args) => settingsController.renderSettingsStatus(...args),
+  attachLinkContextMenu: (...args) => contextMenu.attachLink(...args),
+  saveWebsiteShortcutOrder: (websiteShortcuts) => apiPost("/api/settings", { websiteShortcuts }),
+  localizedErrorMessage,
   openBrowserSettings: async () => {
     await settingsController.openSettings();
     settingsController.selectSettingsTab("browser");
@@ -431,7 +456,12 @@ const {
   maxTitleLength: MAX_WEBSITE_SHORTCUT_TITLE_LENGTH,
   maxUrlLength: MAX_WEBSITE_SHORTCUT_URL_LENGTH,
 });
-inspirationPreviews = createInspirationPreviewController({
+
+function newsPreviewItem(item) {
+  return item ? { ...item, title: displaySummaryTitle(item) } : item;
+}
+
+sitePreviews = createSitePreviewController({
   apiGet,
   normalizeUrl,
   isHttpUrl,
@@ -439,10 +469,15 @@ inspirationPreviews = createInspirationPreviewController({
   canFallback: () => state.settings?.webImageSearchEnabled === true && state.settings?.hasImageSearchKey === true,
   preloadImage: preloadBrowserImage,
   isCurrent: (item, fingerprint) => {
-    const current = (state.data?.bookmarks || []).find((candidate) => candidate.key === item.key);
-    return inspirationPreviewFingerprint(current, normalizeUrl) === fingerprint;
+    const current = isNewsCard(item)
+      ? newsSummaryItems(false).find((candidate) => candidate.key === item.key)
+      : (state.data?.bookmarks || []).find((candidate) => candidate.key === item.key);
+    return sitePreviewFingerprint(isNewsCard(item) ? newsPreviewItem(current) : current, normalizeUrl) === fingerprint;
   },
-  onImage: updateVisibleInspirationThumbs,
+  onImage: (item, imageUrl, fingerprint) => {
+    if (isNewsCard(item)) updateVisibleNewsThumbs(item, imageUrl, fingerprint);
+    else updateVisibleInspirationThumbs(item, imageUrl, fingerprint);
+  },
 });
 const {
   loadSettings,
@@ -465,6 +500,7 @@ const {
   renderSettingsStatus,
   bookmarkSourceStatusText,
   appearanceStatusText,
+  captureSettingsSnapshot,
 } = settingsController = createSettingsController({
   state, els: settingsElements, t, apiGet, apiPost, localizedResponseMessage, localizedErrorMessage,
   applyUiLocale, selectedUiLocale, syncLanguageControls, applyAppearanceSettings,
@@ -480,21 +516,38 @@ const {
   syncNavToCurrentSection, getLocale, setLocale,
   settingsSaveCloseDelayMs: SETTINGS_SAVE_CLOSE_DELAY_MS,
   settingsCloseMotionMs: SETTINGS_CLOSE_MOTION_MS,
-  inspirationPreviews, syncHeaderImageFullscreenControl, availableNewsFolders,
+  inspirationPreviews: sitePreviews, syncHeaderImageFullscreenControl, syncHeaderImageBlurControl, availableNewsFolders,
   syncSourceSuggestionActionState, syncSegmentedIndicator, isHttpUrl,
   websiteShortcutsPayload, setWebsiteShortcutControlsBusy,
   aiSetupStage: AI_SETUP_STAGE,
 });
+const { exportSettings, importSettingsFile } = createSettingsTransferController({
+  els: settingsElements, state, t, apiGet, apiPost, localizedErrorMessage,
+  runSettingsAction, renderSettingsStatus, loadSettings, captureSettingsSnapshot, resetSecretDrafts,
+  applyUiLocale, getLocale, inspirationPreviews: sitePreviews, loadDashboard, triggerRefresh,
+  parseSettingsTransferText, settingsTransferFilename,
+  maxSettingsTransferBytes: MAX_SETTINGS_TRANSFER_BYTES,
+});
 dashboardController = createDashboardController({
-  state, els: dashboardElements, t, apiGet, apiPost, preloadDailyInspiration,
+  state, els: { ...dashboardElements, settingsRefresh: settingsElements.settingsRefresh }, t, apiGet, apiPost, preloadDailyInspiration,
   inspirationPreloadTimeoutMs: UPDATE_INSPIRATION_PRELOAD_TIMEOUT_MS,
   renderConnectionError, renderStatus, renderOverviewStatus, localizedErrorMessage,
   renderExclusionList, renderExcludeFolderOptions,
-  renderTodayMetaValue: (value) => { els.todayMeta.textContent = value; },
+  renderTodayMetaValue: renderTodayMetaValue,
   renderWebsiteShortcuts, renderEfficiencyPanel, renderDaily, renderSummaries, renderSectionFilters,
-  renderCategoryFilters, renderCategories, formatFullDateTime, getTodayKey,
+  renderCategoryFilters, renderCategories, formatTodayMeta, getTodayKey,
   readNumber, writeJson, retainSeenArchiveEnabled, readSeenRecords, replaceSeenRecords,
 });
+
+function renderTodayMetaValue(value) {
+  els.todayMeta.dateTime = value.dateTime;
+  els.todayMeta.setAttribute("aria-label", value.label);
+  for (const part of ["date", "weekday", "time"]) {
+    const target = els.todayMeta.querySelector(`[data-today-part="${part}"]`);
+    if (target) target.textContent = value[part];
+  }
+}
+
 setLocale(getLocale(), { persist: false });
 hydrateIcons(document);
 let searchRenderFrame = 0;
@@ -510,13 +563,17 @@ export function createDashboardApp() {
 }
 
 function handleRuntimeMessage(detail) {
-  if (detail?.type === "dashboard.updated") loadDashboard();
+  if (detail?.type === "dashboard.updated") {
+    if (detail?.payload?.reason === "cache-cleared") invalidateWeather();
+    loadDashboard();
+  }
   if (detail?.type === "settings.changed") {
     if (detail?.payload?.permissionsChanged || detail?.payload?.imageSearchChanged) {
-      inspirationPreviews.invalidate();
+      sitePreviews.invalidate();
     }
+    if (detail?.payload?.permissionsChanged) invalidateWeather();
     if (els.settingsModal.classList.contains("open")) {
-      inspirationPreviews.invalidate();
+      sitePreviews.invalidate();
       if (detail?.payload?.permissionsChanged) refreshAiSetupPermission({ focusOnLock: true });
       loadDashboard();
       return;
@@ -554,6 +611,7 @@ function bindEvents() {
   initializePointerHighlights();
   initializeScrollSpy();
   bindAiPermissionEvents();
+  coverBlurPreview.bind();
   syncNavExpandedWidth();
   document.fonts?.ready?.then(syncNavExpandedWidth).catch(() => {});
   window.addEventListener("resize", () => {
@@ -679,6 +737,7 @@ function bindEvents() {
   });
 
   els.refresh.addEventListener("click", () => triggerRefresh(true));
+  els.settingsRefresh.addEventListener("click", () => triggerRefresh(true));
   els.summaryBatch.addEventListener("click", reshuffleSummaries);
   els.summaryOrder.addEventListener("click", (event) => {
     const button = event.target.closest("button[data-order]");
@@ -744,6 +803,11 @@ function bindEvents() {
   els.customAccentInput.addEventListener("input", () => updateAppearancePreview({ accentTheme: "custom" }));
   els.pointerGlowEnabledInput.addEventListener("change", () => updateAppearancePreview());
   els.headerImageEnabledInput.addEventListener("change", () => updateAppearancePreview());
+  els.headerImageBlurEnabledInput.addEventListener("change", () => {
+    syncHeaderImageBlurControl();
+    updateAppearancePreview();
+  });
+  els.headerImageBlurAmountInput.addEventListener("input", () => updateAppearancePreview());
   els.headerImageFixedInput.addEventListener("change", () => {
     if (!els.headerImageFixedInput.checked) els.headerImageFullscreenInput.checked = false;
     syncHeaderImageFullscreenControl();
@@ -792,6 +856,9 @@ function bindEvents() {
   els.clearCache.addEventListener("click", clearCache);
   els.resetQuota.addEventListener("click", resetQuota);
   els.resetPreferences.addEventListener("click", resetPreferences);
+  els.exportSettings.addEventListener("click", exportSettings);
+  els.importSettings.addEventListener("click", () => els.settingsImportFile.click());
+  els.settingsImportFile.addEventListener("change", importSettingsFile);
   els.deepseekPreset.addEventListener("click", applyDeepSeekPreset);
 }
 
@@ -815,6 +882,11 @@ function requestWebsitePermission(rawUrl) {
   } catch {
     return Promise.resolve(false);
   }
+}
+
+function requestWeatherPermissions() {
+  if (!globalThis.chrome?.permissions?.request) return Promise.resolve(false);
+  return chrome.permissions.request({ origins: WEATHER_ORIGINS.map((origin) => `${origin}/*`) });
 }
 
 function createEmptyState({ title = "", body = "", variant = "panel", actionLabel = "", onAction } = {}) {
@@ -856,8 +928,16 @@ function createEmptyState({ title = "", body = "", variant = "panel", actionLabe
 
 function emptyActionIcon(label) {
   if (allTranslations("action.openSettings").some((value) => label.includes(value))) return "settings";
+  if (allTranslations("action.configureAi").some((value) => label.includes(value))) return "settings";
+  if (allTranslations("action.generateDigest").some((value) => label.includes(value))) return "refresh-cw-01";
   if (allTranslations("action.reorganize").some((value) => label.includes(value))) return "refresh-cw-01";
   return "arrow-up-right";
+}
+
+async function openAiSettings() {
+  await settingsController.openSettings();
+  settingsController.selectSettingsTab("service");
+  settingsController.focusSettingsStart({ reveal: true });
 }
 
 function clearTopSearchFilter() {

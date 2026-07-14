@@ -53,7 +53,12 @@
         <div class="section-head">
           <div>
             <h2><span class="section-title-line" data-i18n="section.dashboard">DASHBOARD</span></h2>
-            <div class="section-meta today-meta" id="todayMeta"></div>
+            <time class="section-meta today-meta" id="todayMeta">
+              <span class="today-date" data-today-part="date"></span>
+              <span class="today-weekday" data-today-part="weekday"></span>
+              <span class="today-separator" aria-hidden="true"></span>
+              <span class="today-time" data-today-part="time"></span>
+            </time>
           </div>
           <div class="section-actions dashboard-actions">
             <div class="search-wrap daily-search">
@@ -65,7 +70,8 @@
           </div>
         </div>
         <nav class="website-shortcuts" id="websiteShortcuts" aria-label="网站快捷方式" data-i18n-aria-label="shortcuts.label" hidden>
-          <div class="website-shortcut-list" id="websiteShortcutList"></div>
+          <div class="website-shortcut-list" id="websiteShortcutList" tabindex="0" aria-label="网站快捷方式列表，可横向滚动" data-i18n-aria-label="shortcuts.scrollLabel"></div>
+          <div class="website-shortcut-feedback sr-only" id="websiteShortcutFeedback" role="status" aria-live="polite"></div>
         </nav>
         <div class="daily-shell">
           <div class="daily-primary">
@@ -191,7 +197,10 @@
                   <div class="settings-overview-title" id="settingsOverviewTitle" data-i18n="settings.overview.aiService">AI 服务</div>
                   <div class="settings-overview-meta" id="settingsOverviewMeta" data-i18n="settings.overview.aiNotConfigured">配置服务后，可使用 AI 搜索与资讯摘要。</div>
                 </div>
-                <button class="btn" id="settingsOverviewAction" type="button" data-i18n="settings.overview.configure">去配置</button>
+                <div class="settings-overview-actions">
+                  <button class="btn" id="settingsRefresh" type="button"><img class="btn-icon" data-icon="refresh-cw-01" alt="" aria-hidden="true"><span class="btn-label" data-i18n="action.cache">缓存</span></button>
+                  <button class="btn" id="settingsOverviewAction" type="button" data-i18n="settings.overview.configure">去配置</button>
+                </div>
               </div>
               <div class="settings-overview-grid">
                 <div class="settings-overview-item settings-overview-metric settings-overview-quota">
@@ -234,7 +243,10 @@
               <button class="btn" id="deepseekPreset" type="button"><img class="btn-icon" data-icon="zap" alt="" aria-hidden="true"><span class="btn-label" data-i18n="settings.service.deepseek">DeepSeek 模版</span></button>
             </div>
             <label class="credential-consent" for="aiDisclosureConsent">
-              <input id="aiDisclosureConsent" type="checkbox">
+              <span class="toggle toggle-checkbox">
+                <input id="aiDisclosureConsent" type="checkbox">
+                <span aria-hidden="true"><img class="toggle-checkbox-icon" data-icon="check" alt=""></span>
+              </span>
               <span data-i18n="settings.service.consent">我理解：启用 AI 后，问题、文章标题、选定正文和用于上下文的文章网址会发送给我配置的服务商。</span>
             </label>
             <div class="credential-controls">
@@ -285,7 +297,7 @@
                 <div class="field">
                   <label for="imageSearchApiKeyInput" data-i18n="settings.service.imageKey">Brave 图片搜索密钥</label>
                   <input id="imageSearchApiKeyInput" type="password" placeholder="BSA..." autocomplete="new-password" autocapitalize="off" spellcheck="false">
-                  <div class="help"><span data-i18n="settings.service.imageKeyHelp">原站图片不需要 Brave 密钥，但需在“浏览器”页授权对应灵感站点；Brave 仅在原图缺失或加载失败时使用。</span> <a href="https://brave.com/search/api/" target="_blank" rel="noreferrer" data-i18n="settings.service.getImageKey">获取密钥</a></div>
+                  <div class="help"><span data-i18n="settings.service.imageKeyHelp">Feed 与原站图片不需要 Brave 密钥；从网页补取原图时，需在“浏览器”页授权对应资讯或灵感站点。Brave 仅在原图缺失或加载失败时使用。</span> <a href="https://brave.com/search/api/" target="_blank" rel="noreferrer" data-i18n="settings.service.getImageKey">获取密钥</a></div>
                   <div class="credential-controls">
                     <button class="btn" id="grantBraveOrigin" type="button"><img class="btn-icon" data-icon="search-lg" alt="" aria-hidden="true"><span class="btn-label" data-i18n="settings.service.grantBrave">授权 Brave 图片搜索</span></button>
                   </div>
@@ -295,7 +307,7 @@
                 <span class="field-label" id="webImageSearchLabel" data-i18n="settings.service.webImageSearch">全网搜图兜底</span>
                 <label class="switch-field ai-image-switch" for="webImageSearchEnabledInput">
                   <span class="switch-copy">
-                    <span class="switch-help" id="webImageSearchHelp" data-i18n="settings.service.webImageSearchHelp">优先使用原站图片；失败时用站点名称和域名搜索，并过滤 Logo、低清图和无关结果。</span>
+                    <span class="switch-help" id="webImageSearchHelp" data-i18n="settings.service.webImageSearchHelp">优先使用 Feed 与原站图片；失败时用卡片标题和域名搜索，并过滤 Logo、低清图和无关结果。</span>
                   </span>
                   <span class="toggle">
                     <input id="webImageSearchEnabledInput" type="checkbox" checked aria-labelledby="webImageSearchLabel" aria-describedby="webImageSearchHelp">
@@ -363,7 +375,7 @@
             <div class="settings-section-head"><div><h4 id="sourceCoverageTitle" data-i18n="settings.sources.coverageTitle">来源覆盖率</h4><p data-i18n="settings.sources.coverageHelp">查看已启用来源的抓取结果、解析方式和精确域名授权缺口。</p></div></div>
             <div class="source-coverage-summary" id="sourceCoverageSummary" aria-live="polite"></div>
             <div class="settings-cache-note settings-inline-status" id="sourceCoverageStatus" data-i18n="settings.sources.waiting">等待首次来源检查。</div>
-            <div class="source-health-list settings-compact-list" id="sourceCoverageList"></div>
+            <div class="source-health-list settings-compact-list" id="sourceCoverageList" tabindex="0" aria-labelledby="sourceCoverageTitle"></div>
           </section>
           <section class="settings-section" aria-labelledby="cacheReadingTitle">
             <div class="settings-section-head"><div><h4 id="cacheReadingTitle" data-i18n="settings.section.reading">阅读与留存</h4><p data-i18n="settings.section.readingHelp">决定入口打开方式和已读内容的保留规则。</p></div></div>
@@ -503,8 +515,8 @@
           </label>
             </div>
           </section>
-          <section class="settings-section" aria-labelledby="appearanceHeaderTitle">
-            <div class="settings-section-head"><div><h4 id="appearanceHeaderTitle" data-i18n="settings.section.headerImage">首页头图</h4><p data-i18n="settings.section.headerImageHelp">启用头图后，可继续选择固定与全屏展示方式。</p></div></div>
+          <section class="settings-section header-image-settings" aria-labelledby="appearanceHeaderTitle">
+            <div class="settings-section-head"><div><h4 id="appearanceHeaderTitle" data-i18n="settings.section.headerImage">首页头图</h4><p data-i18n="settings.section.headerImageHelp">启用头图后，可调整模糊度，并选择固定与全屏展示方式。</p></div></div>
             <div class="settings-row-list settings-dependent-list">
           <label class="switch-field" for="headerImageEnabledInput">
             <span class="switch-copy">
@@ -516,6 +528,25 @@
               <span aria-hidden="true"></span>
             </span>
           </label>
+          <div class="cover-blur-setting">
+            <label class="switch-field" for="headerImageBlurEnabledInput">
+              <span class="switch-copy">
+                <span class="switch-title" data-i18n="settings.headerImage.blurTitle">模糊头图</span>
+                <span class="switch-help" data-i18n="settings.headerImage.blurHelp">柔化图片细节，让前景信息更易辨认。</span>
+              </span>
+              <span class="toggle">
+                <input id="headerImageBlurEnabledInput" type="checkbox">
+                <span aria-hidden="true"></span>
+              </span>
+            </label>
+            <div class="cover-blur-range" id="headerImageBlurField" aria-disabled="true" aria-hidden="true">
+              <label class="cover-blur-label" for="headerImageBlurAmountInput" data-i18n="settings.headerImage.blurAmount">模糊度</label>
+              <div class="cover-blur-meter">
+                <input id="headerImageBlurAmountInput" type="range" min="0" max="24" step="1" value="12" disabled>
+              </div>
+              <output id="headerImageBlurAmountOutput" for="headerImageBlurAmountInput" aria-hidden="true">12 px</output>
+            </div>
+          </div>
           <label class="switch-field" for="headerImageFixedInput">
             <span class="switch-copy">
               <span class="switch-title" data-i18n="settings.headerImage.fixedTitle">固定头图</span>
@@ -640,7 +671,7 @@
         <div class="settings-panel" data-settings-panel="about">
           <div class="settings-panel-intro">
             <h3 data-i18n="settings.about.title">关于</h3>
-            <p data-i18n="settings.about.intro">查看 Ampira 的版本与项目源码。</p>
+            <p data-i18n="settings.about.intro">查看 Ampira 的版本与项目源码，并迁移已保存的设置。</p>
           </div>
           <div class="about-panel settings-about-panel">
             <div class="about-brand">
@@ -649,10 +680,24 @@
                 <div class="about-title">Ampira</div>
                 <div class="about-meta" data-i18n="settings.about.tagline">把书签、资讯和网页内容提纯成每日信号</div>
               </div>
-              <span class="about-version">v26.1.10</span>
+              <span class="about-version">v26.1.11</span>
             </div>
             <a class="about-source-link" href="https://github.com/sunpanran/Ampira" target="_blank" rel="noopener noreferrer"><span data-i18n="settings.about.githubLink">GitHub</span><span aria-hidden="true">↗</span></a>
           </div>
+          <section class="settings-section settings-transfer-section" aria-labelledby="settingsTransferTitle">
+            <div class="settings-section-head">
+              <div>
+                <h4 id="settingsTransferTitle" data-i18n="settings.transfer.title">配置迁移</h4>
+                <p data-i18n="settings.transfer.help">导出已保存的普通设置，或从 Ampira 配置文件导入。API 密钥、授权、权限和缓存不会写入文件。</p>
+              </div>
+            </div>
+            <div class="settings-panel-actions settings-section-actions settings-transfer-actions">
+              <button class="btn" id="exportSettings" type="button"><img class="btn-icon" data-icon="save-01" alt="" aria-hidden="true"><span class="btn-label" data-i18n="settings.transfer.export">导出配置</span></button>
+              <button class="btn" id="importSettings" type="button"><img class="btn-icon" data-icon="database-01" alt="" aria-hidden="true"><span class="btn-label" data-i18n="settings.transfer.import">导入配置</span></button>
+              <input id="settingsImportFile" type="file" accept=".json,application/json" aria-label="选择 Ampira 配置文件" data-i18n-aria-label="settings.transfer.fileLabel" hidden>
+            </div>
+            <p class="settings-transfer-note" data-i18n="settings.transfer.note">文件会包含文件夹名称、屏蔽规则、快捷方式网址和服务地址，请妥善保管。</p>
+          </section>
         </div>
       </form>
       <div class="modal-actions">

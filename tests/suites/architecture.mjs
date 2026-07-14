@@ -43,8 +43,8 @@ export async function runArchitectureTests(root) {
   assert(!summaryViewSource.includes("SUMMARY_DETAIL_MAX_LENGTH"), "summary view must receive its detail-length policy through dependencies");
   assert(summaryViewSource.slice(0, 1800).includes("summaryDetailMaxLength"), "summary view must declare its detail-length dependency");
   assert(dashboardAppSource.includes("summaryDetailMaxLength: SUMMARY_DETAIL_MAX_LENGTH"), "dashboard composition must provide the summary detail length");
-  assert(efficiencyViewSource.slice(0, 1200).includes("openSettings"), "efficiency view must declare its settings action dependency");
-  assert(dashboardAppSource.includes("openSettings: (...args) => settingsController.openSettings(...args)"), "dashboard composition must provide the settings action");
+  assert(efficiencyViewSource.slice(0, 1200).includes("openAiSettings"), "efficiency view must declare its AI settings action dependency");
+  assert(dashboardAppSource.includes("  openAiSettings,"), "dashboard composition must provide the AI settings action");
   const inspirationPreviewCapabilities = new Set(
     [...dailyViewSource.matchAll(/\binspirationPreviews\.([A-Za-z_$][\w$]*)/g), ...dailyCardViewSource.matchAll(/\binspirationPreviews\.([A-Za-z_$][\w$]*)/g)]
       .map((match) => match[1]),

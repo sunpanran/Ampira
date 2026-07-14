@@ -75,7 +75,7 @@ export function createRefreshService(options) {
     assertFeedItemsStillPermitted, withFeedCacheMetadata, cacheMutations, aiConfigured,
     getAiAutoStatus, setAiAutoStatus, defaultAiAutoStatus, readQuota, runAiWithinQuota,
     callProvider, translate, settingsLocale, cleanGeneratedSummaryLine,
-    extractGeneratedSummaryTitle, limitGeneratedSummaryLines, parseGeneratedDailyDigest, buildFallbackDigest,
+    extractGeneratedSummaryTitle, limitGeneratedSummaryLines, parseGeneratedDailyDigest, dailyDigestEvidence, buildFallbackDigest,
     digestCachePermitted, filterFeedItemsBySources, resultMessage, errorResult,
     emptySourceQuality, localDateKey, uniqueStrings, safeOrigin, originPattern,
     sanitizeDailyDigest, typedError, feedCacheOrEmpty, getRefreshStatus, hostOf,
@@ -91,9 +91,9 @@ async function startRefresh(force) {
   return refreshCoordinator.start(force === true);
 }
 
-async function runRefresh(generation) {
+async function runRefresh(generation, options = {}) {
   try {
-    return await performRefresh(generation);
+    return await performRefresh(generation, options);
   } catch (error) {
     if (!refreshCoordinator.isCurrent(generation)) return;
     try {
@@ -129,7 +129,7 @@ async function runRefresh(generation) {
   }
 }
 
-async function performRefresh(generation) {
+async function performRefresh(generation, { prioritizeAutomaticAi = false } = {}) {
   const cacheEpoch = cacheMutations.capture();
   const settings = await getSettings();
   if (!refreshCoordinator.isCurrent(generation)) return;
@@ -138,10 +138,6 @@ async function performRefresh(generation) {
   const model = await currentBookmarkModel(settings);
   const feedPermissions = await currentFeedPermissionState(settings, model);
   const { permitted, denied } = feedPermissions;
-  const [previousFeedSnapshot, previousQualitySnapshot] = await Promise.all([
-    getRecord("feed", { items: [] }),
-    getRecord("source-quality", emptySourceQuality()),
-  ]);
   const localSources = feedPermissions.sources.filter((source) => !source.externalDiscovery);
   const refreshCursor = await getRecord("refresh-source-cursor", 0);
   const refreshBatch = selectRefreshBatch(permitted, refreshCursor);
@@ -163,6 +159,14 @@ async function performRefresh(generation) {
   if (!refreshCoordinator.isCurrent(generation)) return;
   await setRefreshStatus(status);
   broadcast("refresh.progress", status);
+  if (prioritizeAutomaticAi) {
+    await runAutomaticAiFromCache({ settings, feedPermissions, cacheEpoch, generation });
+  }
+  if (!refreshCoordinator.isCurrent(generation)) return;
+  const [previousFeedSnapshot, previousQualitySnapshot] = await Promise.all([
+    getRecord("feed", { items: [] }),
+    getRecord("source-quality", emptySourceQuality()),
+  ]);
   const quality = {};
   const articles = [];
   const replacedSources = [];
@@ -682,6 +686,28 @@ async function runAutomaticAiAfterRefresh({ settings, items, needsDigest, aiRead
   return { items, errorKey, errorParams, errorStage };
 }
 
+async function runAutomaticAiFromCache({ settings, feedPermissions, cacheEpoch, generation }) {
+  const [feed, digest, aiReady] = await Promise.all([
+    getRecord("feed", { items: [] }),
+    getRecord("daily-digest", null),
+    aiConfigured(settings),
+  ]);
+  if (!refreshCoordinator.isCurrent(generation)) return null;
+  const items = filterFeedItemsBySources(feed.items, feedPermissions.permitted, feedPermissions.grantedOrigins);
+  const needsDigest = Boolean(items.length && aiReady && (
+    digest?.status !== "ai"
+    || !digestCachePermitted(digest, items, feedPermissions, settings, aiReady)
+  ));
+  return runAutomaticAiAfterRefresh({
+    settings,
+    items,
+    needsDigest,
+    aiReady,
+    cacheEpoch,
+    generation,
+  });
+}
+
 async function automaticallySummarizeCards(settings, items, cacheEpoch, generation, candidateLimit, onProgress = null) {
   if (!await aiConfigured(settings)) return { items, errorKey: "", errorParams: {}, processed: 0, eligible: 0, quotaReached: false };
   const locale = settingsLocale(settings);
@@ -820,8 +846,11 @@ async function refreshDailyDigest({ automatic = false } = {}) {
     const context = contextItems.map((item, index) => {
       const related = (eventItems.get(String(item.eventId || "")) || [item]).slice(0, 3);
       const publishers = [...new Set(related.map((entry) => entry.publisher || entry.source).filter(Boolean))].join(", ");
-      const relatedTitles = related.map((entry) => entry.title).filter((title) => title && title !== item.title).join(" / ");
-      return `${index + 1}. time=${item.publishedAt || "unverified"}｜publishers=${publishers}｜sources=${Number(item.eventSourceCount || 1)}｜title=${item.title}｜excerpt=${item.excerpt}｜related=${relatedTitles}｜url=${item.url}`;
+      const evidence = related.map((entry) => {
+        const detail = dailyDigestEvidence(entry.title, entry.excerpt);
+        return `${entry.title}${detail ? ` — ${detail}` : " — [no detail beyond headline]"}`;
+      }).join(" / ");
+      return `${index + 1}. time=${item.publishedAt || "unverified"}｜publishers=${publishers}｜sources=${Number(item.eventSourceCount || 1)}｜evidence=${evidence}`;
     }).join("\n");
     try {
       const operation = () => callProvider(

@@ -1,6 +1,7 @@
 import { buildBookmarkModel, inspirationPreviewSourceUrls, originsFromUrls } from "../core/bookmarks.mjs";
 import { buildPermissionRows, originPattern } from "../core/permission-state.mjs";
 import { publicFeedsForLocale } from "../core/public-feeds.mjs";
+import { WEATHER_ORIGINS } from "../core/weather.mjs";
 
 export function createPermissionGateway({ chrome, getSettings, secretStatus, getRecord }) {
   async function currentBookmarkModel(settings) {
@@ -38,7 +39,14 @@ export function createPermissionGateway({ chrome, getSettings, secretStatus, get
     if (settings.openaiBaseUrl && settings.aiDisclosureAccepted && secrets.hasOpenAIKey) urls.push(settings.openaiBaseUrl);
     if (settings.webImageSearchEnabled && secrets.hasImageSearchKey) urls.push("https://api.search.brave.com/");
     const granted = await chrome.permissions.getAll();
-    return buildPermissionRows(originsFromUrls(urls), granted.origins || []);
+    const clientState = typeof getRecord === "function" ? await getRecord("client-state", {}) : {};
+    const weatherOptedIn = clientState?.["dash.utility.weather.optedIn"] === "true"
+      || Boolean(clientState?.["dash.utility.weather.location.v1"]);
+    const grantedOrigins = granted.origins || [];
+    if (weatherOptedIn || WEATHER_ORIGINS.some((origin) => grantedOrigins.includes(originPattern(origin)))) {
+      urls.push(...WEATHER_ORIGINS);
+    }
+    return buildPermissionRows(originsFromUrls(urls), grantedOrigins);
   }
 
   async function permissionStatus(origins) {

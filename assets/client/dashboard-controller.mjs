@@ -5,7 +5,7 @@ export function createDashboardController(options) {
     renderOverviewStatus, localizedErrorMessage, renderExclusionList,
     renderExcludeFolderOptions, renderTodayMetaValue, renderWebsiteShortcuts, renderEfficiencyPanel,
     renderDaily, renderSummaries, renderSectionFilters, renderCategoryFilters,
-    renderCategories, formatFullDateTime, getTodayKey, readNumber, writeJson,
+    renderCategories, formatTodayMeta, getTodayKey, readNumber, writeJson,
     retainSeenArchiveEnabled, readSeenRecords, replaceSeenRecords,
   } = options;
   let dashboardLoadToken = 0;
@@ -35,6 +35,7 @@ async function loadDashboard(options = {}) {
 async function triggerRefresh(force) {
   if (!state.data) return;
   els.refresh.disabled = true;
+  els.settingsRefresh.disabled = true;
   try {
     const result = await apiPost(`/api/refresh${force ? "?force=1" : ""}`);
     if (state.data && result.status) {
@@ -46,7 +47,9 @@ async function triggerRefresh(force) {
   } catch (error) {
     renderOverviewStatus(t("status.refreshRequestFailed"), localizedErrorMessage(error));
   } finally {
-    els.refresh.disabled = Boolean(state.data?.status?.running);
+    const isRunning = Boolean(state.data?.status?.running);
+    els.refresh.disabled = isRunning;
+    els.settingsRefresh.disabled = isRunning;
   }
 }
 
@@ -93,15 +96,22 @@ function renderAll() {
 
 function startTodayClock() {
   renderTodayMeta();
-  if (todayClockTimer) clearInterval(todayClockTimer);
-  todayClockTimer = setInterval(() => {
+  handleDayRollover();
+  scheduleTodayClock();
+}
+
+function scheduleTodayClock() {
+  if (todayClockTimer) clearTimeout(todayClockTimer);
+  const delay = 60000 - (Date.now() % 60000) + 50;
+  todayClockTimer = setTimeout(() => {
     renderTodayMeta();
     handleDayRollover();
-  }, 1000);
+    scheduleTodayClock();
+  }, delay);
 }
 
 function renderTodayMeta() {
-  renderTodayMetaValue(formatFullDateTime());
+  renderTodayMetaValue(formatTodayMeta());
 }
 
 function handleDayRollover() {

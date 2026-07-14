@@ -55,6 +55,8 @@ assert.equal(DEFAULT_SETTINGS.newsBookmarkFolder, "");
 assert.equal(DEFAULT_SETTINGS.inspirationBookmarkFolder, "");
 assert.equal(DEFAULT_SETTINGS.colorMode, "dark", "appearance must default to dark mode");
 assert.equal(DEFAULT_SETTINGS.headerImageEnabled, true, "the header image must be enabled by default");
+assert.equal(DEFAULT_SETTINGS.headerImageBlurEnabled, false, "header-image blur must be opt-in");
+assert.equal(DEFAULT_SETTINGS.headerImageBlurAmount, 12, "header-image blur must remember a useful default amount");
 assert.equal(truncateText("标题", 4), "标题");
 assert.equal(truncateText("这是一个过长标题", 5), "这是一个…");
 assert.equal(textLength(truncateText("😀😀😀😀", 3)), 3, "text caps must count Unicode characters without splitting emoji");
@@ -159,6 +161,8 @@ for (const id of [
   "apiBaseUrlInput",
   "apiKeyInput",
   "sourcePermissionSummary",
+  "headerImageBlurEnabledInput",
+  "headerImageBlurAmountInput",
   "headerImageFullscreenInput",
   "saveSettings",
 ]) {

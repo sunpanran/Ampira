@@ -13,7 +13,7 @@ export function createContextMenuController(options) {
     window.addEventListener("resize", hide, { passive: true });
   }
 
-  function attachLink(element, getLink) {
+  function attachLink(element, getLink, getLeadingActions) {
     element.addEventListener("contextmenu", (event) => {
       if (event.target.closest("button, input, select, textarea")) return;
       const link = typeof getLink === "function" ? getLink() : getLink;
@@ -21,7 +21,10 @@ export function createContextMenuController(options) {
       if (!url) return;
       event.preventDefault();
       const item = link?.item;
-      const actions = [];
+      const leadingActions = typeof getLeadingActions === "function"
+        ? getLeadingActions(link)
+        : getLeadingActions;
+      const actions = Array.isArray(leadingActions) ? leadingActions.filter(Boolean) : [];
       if (item?.feedItem?.articleId && options.aiEnabled()) {
         actions.push({ label: options.t("context.explainArticle"), icon: "file-search-01", action: () => options.explain(url) });
       }

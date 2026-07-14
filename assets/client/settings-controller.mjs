@@ -12,7 +12,7 @@ export function createSettingsController(options) {
     loadDashboard, triggerRefresh, renderStatus, renderEfficiencyPanel, renderAll,
     resetToDailyView, syncNavToCurrentSection,
     getLocale, setLocale, settingsSaveCloseDelayMs, settingsCloseMotionMs,
-    inspirationPreviews, syncHeaderImageFullscreenControl, availableNewsFolders,
+    inspirationPreviews, syncHeaderImageFullscreenControl, syncHeaderImageBlurControl, availableNewsFolders,
     syncSourceSuggestionActionState, syncSegmentedIndicator, isHttpUrl,
     websiteShortcutsPayload, setWebsiteShortcutControlsBusy, aiSetupStage,
   } = options;
@@ -23,15 +23,15 @@ export function createSettingsController(options) {
   let settingsCloseTimer = 0;
   let settingsActionGeneration = 0;
   let settingsBusy = false;
-
+  const captureSettingsSnapshot = () => { settingsLocaleAtOpen = getLocale(); settingsSnapshot = snapshotSettingsDraft(state.settings, selectedUiLocale()); };
   return {
     loadSettings, saveSettings, testKey, testImageSearchKey, clearImageSearchKey,
     clearKey, clearCache, resetQuota, resetPreferences, openSettings,
+    captureSettingsSnapshot,
     focusSettingsStart, closeSettings, requestCloseSettings, resetSecretDrafts,
     setSettingsBusy, runSettingsAction, selectSettingsTab, renderSettingsStatus,
     bookmarkSourceStatusText, appearanceStatusText, isBusy: () => settingsBusy,
   };
-
 async function loadSettings() {
   const token = ++settingsLoadToken;
   try {
@@ -90,8 +90,6 @@ async function loadSettings() {
     return false;
   }
 }
-
-
 async function saveSettings() {
   const session = settingsSession;
   settingsActionGeneration += 1;
@@ -133,7 +131,6 @@ async function saveSettings() {
     if (session === settingsSession || !els.settingsModal.classList.contains("open")) setSettingsBusy(false);
   }
 }
-
 function currentSettingsDraft() {
   const aiSetupState = getAiSetupState();
   return {
@@ -161,7 +158,6 @@ function currentSettingsDraft() {
     excludedNewsSources: currentExcludedNewsSources()
   };
 }
-
 function testKey() {
   const aiSetupState = getAiSetupState();
   if (!aiSetupState.formUnlocked) {
@@ -388,11 +384,9 @@ function resetSecretDrafts() {
   els.imageSearchApiKeyInput.value = "";
 }
 
-
 function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
-
 
 function setSettingsBusy(busy) {
   settingsBusy = busy;
@@ -422,9 +416,14 @@ function setSettingsBusy(busy) {
   els.customAccentInput.disabled = busy;
   els.pointerGlowEnabledInput.disabled = busy;
   els.headerImageEnabledInput.disabled = busy;
+  els.headerImageBlurEnabledInput.disabled = busy;
+  syncHeaderImageBlurControl(busy);
   els.headerImageFixedInput.disabled = busy;
   syncHeaderImageFullscreenControl(busy);
   els.headerImageUrlInput.disabled = busy;
+  els.exportSettings.disabled = busy;
+  els.importSettings.disabled = busy;
+  els.settingsImportFile.disabled = busy;
   setWebsiteShortcutControlsBusy(busy);
   els.colorModeGroup.querySelectorAll("button[data-color-mode]").forEach((button) => {
     button.disabled = busy;
@@ -513,7 +512,8 @@ function appearanceStatusText() {
   const coverText = t(coverEnabled ? "common.on" : "common.off");
   const fixedText = coverEnabled && els.headerImageFixedInput.checked ? t("settings.status.fixedSuffix") : "";
   const fullscreenText = fixedText && els.headerImageFullscreenInput.checked ? t("settings.status.fullscreenSuffix") : "";
-  return t("settings.status.appearance", { colorModeText, themeText, glowText, coverText, fixedText, fullscreenText });
+  const blurText = coverEnabled && els.headerImageBlurEnabledInput.checked ? t("settings.status.blurSuffix", { amount: Number(els.headerImageBlurAmountInput.value) || 0 }) : "";
+  return t("settings.status.appearance", { colorModeText, themeText, glowText, coverText, fixedText, fullscreenText, blurText });
 }
 
 }

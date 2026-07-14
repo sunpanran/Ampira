@@ -11,6 +11,9 @@ import {
 
 const COLOR_MODE_STORAGE_KEY = "ampira.colorMode";
 const HEADER_COVER_STORAGE_KEY = "ampira.headerCover";
+const HEADER_IMAGE_BLUR_MAX = 24;
+const HEADER_IMAGE_BLUR_DEFAULT = 12;
+const HEADER_IMAGE_BLUR_BLEED_MULTIPLIER = 1.5;
 
 export function createAppearanceController(options) {
   const { state, els } = options;
@@ -24,6 +27,9 @@ export function createAppearanceController(options) {
     applyCustomAccentPreview(custom);
     els.pointerGlowEnabledInput.checked = settings.pointerGlowEnabled !== false;
     els.headerImageEnabledInput.checked = settings.headerImageEnabled === true;
+    els.headerImageBlurEnabledInput.checked = settings.headerImageBlurEnabled === true;
+    els.headerImageBlurAmountInput.value = String(normalizeHeaderImageBlurAmount(settings.headerImageBlurAmount));
+    syncBlurControl();
     els.headerImageFixedInput.checked = settings.headerImageFixed === true;
     els.headerImageFullscreenInput.checked = settings.headerImageFixed === true && settings.headerImageFullscreen === true;
     syncFullscreenControl();
@@ -34,6 +40,27 @@ export function createAppearanceController(options) {
     const available = els.headerImageFixedInput.checked && !busy;
     els.headerImageFullscreenInput.disabled = !available;
     els.headerImageFullscreenField.setAttribute("aria-disabled", String(!available));
+  }
+
+  function syncBlurControl(busy = els.saveSettings.disabled) {
+    const enabled = els.headerImageBlurEnabledInput.checked;
+    const available = enabled && !busy;
+    els.headerImageBlurAmountInput.disabled = !available;
+    els.headerImageBlurField.setAttribute("aria-disabled", String(!available));
+    els.headerImageBlurField.setAttribute("aria-hidden", String(!enabled));
+    syncBlurAmountLabel();
+  }
+
+  function syncBlurAmountLabel() {
+    const amount = normalizeHeaderImageBlurAmount(els.headerImageBlurAmountInput.value);
+    const min = Number(els.headerImageBlurAmountInput.min) || 0;
+    const max = Number(els.headerImageBlurAmountInput.max) || HEADER_IMAGE_BLUR_MAX;
+    const progress = max > min ? ((amount - min) / (max - min)) * 100 : 0;
+    els.headerImageBlurAmountInput.value = String(amount);
+    els.headerImageBlurAmountInput.setAttribute("aria-valuetext", `${amount} px`);
+    els.headerImageBlurAmountInput.style.setProperty("--range-progress", `${progress}%`);
+    els.headerImageBlurAmountOutput.value = `${amount} px`;
+    return amount;
   }
 
   function updatePreview(overrides = {}) {
@@ -52,6 +79,8 @@ export function createAppearanceController(options) {
       customAccentColor: normalizeHexColor(els.customAccentInput.value) || DEFAULT_CUSTOM_ACCENT_COLOR,
       pointerGlowEnabled: els.pointerGlowEnabledInput.checked,
       headerImageEnabled: els.headerImageEnabledInput.checked,
+      headerImageBlurEnabled: els.headerImageBlurEnabledInput.checked,
+      headerImageBlurAmount: syncBlurAmountLabel(),
       headerImageFixed: els.headerImageFixedInput.checked,
       headerImageFullscreen: els.headerImageFixedInput.checked && els.headerImageFullscreenInput.checked,
       headerImageUrl: els.headerImageUrlInput.value.trim(),
@@ -131,8 +160,18 @@ export function createAppearanceController(options) {
     const enabled = settings.headerImageEnabled === true;
     const fixed = settings.headerImageFixed === true;
     const fullscreen = fixed && settings.headerImageFullscreen === true;
+    const blurEnabled = settings.headerImageBlurEnabled === true;
+    const blurAmount = normalizeHeaderImageBlurAmount(settings.headerImageBlurAmount);
     const root = document.documentElement;
-    cache(HEADER_COVER_STORAGE_KEY, JSON.stringify({ enabled: enabled && isHttpUrl(url), fixed, fullscreen, url: enabled ? url : "" }));
+    cache(HEADER_COVER_STORAGE_KEY, JSON.stringify({
+      enabled: enabled && isHttpUrl(url),
+      fixed,
+      fullscreen,
+      blurEnabled,
+      blurAmount,
+      url: enabled ? url : "",
+    }));
+    applyHeaderImageBlur(root, enabled && blurEnabled ? blurAmount : 0);
     if (!enabled || !isHttpUrl(url)) {
       els.headerImageHero.hidden = true;
       els.headerImageHero.classList.remove("is-loaded");
@@ -171,9 +210,23 @@ export function createAppearanceController(options) {
     document.documentElement.style.setProperty("--custom-accent-preview", normalizeHexColor(color) || DEFAULT_CUSTOM_ACCENT_COLOR);
   }
 
+  function applyHeaderImageBlur(root, amount) {
+    const normalizedAmount = normalizeHeaderImageBlurAmount(amount, 0);
+    const bleed = normalizedAmount * HEADER_IMAGE_BLUR_BLEED_MULTIPLIER;
+    root.style.setProperty("--header-cover-blur", `${normalizedAmount}px`);
+    root.style.setProperty("--header-cover-inset", `${-bleed}px`);
+    root.style.setProperty("--header-cover-size-adjustment", `${bleed * 2}px`);
+  }
+
   function cache(key, value) {
     try { localStorage.setItem(key, value); } catch {}
   }
 
-  return { syncControls, syncFullscreenControl, updatePreview, payload, selectedUiLocale, selectedColorMode, selectedAccentTheme, syncLanguageControls, applyLocale, applySettings, handleHeaderImageLoad, handleHeaderImageError, syncHeaderImageLoadState };
+  return { syncControls, syncFullscreenControl, syncBlurControl, updatePreview, payload, selectedUiLocale, selectedColorMode, selectedAccentTheme, syncLanguageControls, applyLocale, applySettings, handleHeaderImageLoad, handleHeaderImageError, syncHeaderImageLoadState };
+}
+
+function normalizeHeaderImageBlurAmount(value, fallback = HEADER_IMAGE_BLUR_DEFAULT) {
+  const amount = Number(value);
+  if (!Number.isFinite(amount)) return fallback;
+  return Math.min(HEADER_IMAGE_BLUR_MAX, Math.max(0, Math.round(amount)));
 }

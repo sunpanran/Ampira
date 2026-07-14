@@ -243,7 +243,9 @@ function renderSourceSuggestionList() {
     : t(checked ? "exclusion.nonePending" : "exclusion.waitingStats");
   if (!suggestions.length) {
     els.sourceSuggestionList.replaceChildren(createEmptyState({
-      title: t("exclusion.suggestionEmpty.title"),
+      title: t(checked
+        ? "exclusion.suggestionEmpty.checkedTitle"
+        : "exclusion.suggestionEmpty.waitingTitle"),
       body: t(checked ? "exclusion.suggestionEmpty.checked" : "exclusion.suggestionEmpty.waiting"),
       variant: "compact",
     }));

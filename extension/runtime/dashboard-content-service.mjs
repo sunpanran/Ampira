@@ -5,7 +5,7 @@ export function createDashboardContentService(options) {
     feedCacheOrEmpty, getRecord, getRefreshStatus, readQuota, emptySourceQuality,
     getAiAutoStatus, filterFeedItemsBySources, originsFromUrls, buildPermissionRows,
     originPattern, sanitizeCardAiSummaries, buildFallbackDigest, summarizeQuality,
-    buildDailyCandidates, dailyCandidateFingerprint, rankingPolicyVersion, localDateKey,
+    buildDailyCandidates, dailyCandidateFingerprint, digestSchemaVersion, rankingPolicyVersion, localDateKey,
     pipelineStages, publicFeedsForLocale, chrome, safeOrigin, typedError,
     uniqueStrings, normalizeUserUrl, aiSearchResultPermitted,
   } = options;
@@ -257,7 +257,7 @@ function digestCachePermitted(digest, visibleItems, permissionState, settings, c
     policyVersion: rankingPolicyVersion,
     publisherLimit: settings.todayNewsPerPublisherLimit,
   });
-  if (digest?.schemaVersion !== 2
+  if (digest?.schemaVersion !== digestSchemaVersion
     || digest?.rankingPolicyVersion !== rankingPolicyVersion
     || digest?.date !== localDateKey()
     || digest?.candidateFingerprint !== expectedFingerprint) return false;

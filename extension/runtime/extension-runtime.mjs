@@ -3,8 +3,9 @@ import {
   REFRESH_ALARM,
   REFRESH_PERIOD_MINUTES,
 } from "../core/constants.mjs";
-import { buildBookmarkModel, hashText, inspirationPreviewSourceUrls, inspirationPreviewTargets, originsFromUrls } from "../core/bookmarks.mjs";
+import { buildBookmarkModel, hashText, inspirationPreviewTargets, originsFromUrls } from "../core/bookmarks.mjs";
 import {
+  DAILY_DIGEST_SCHEMA_VERSION,
   NEWS_RANKING_POLICY_VERSION,
   buildDailyCandidates,
   buildFallbackDigest,
@@ -35,7 +36,7 @@ import { requestAiCompletion, testImageSearchConnection } from "../core/ai.mjs";
 import { createClientStateStore } from "../core/client-state.mjs";
 import { createQuotaManager } from "../core/quota.mjs";
 import { createPreviewService, fetchSourceImageCandidates } from "../core/preview.mjs";
-import { bravePreviewCacheKeys, previewCacheKeysOutsideTargets } from "../core/preview-cache.mjs";
+import { bravePreviewCacheKeys, newsPreviewTargets, previewCacheKeysOutsideTargets } from "../core/preview-cache.mjs";
 import { retainActiveUnrefreshedItems, selectRefreshBatch } from "../core/refresh.mjs";
 import { createRefreshCoordinator } from "../core/refresh-coordinator.mjs";
 import { createEpochMutationQueue } from "../core/mutation-queue.mjs";
@@ -50,7 +51,8 @@ import {
 import { isValidServiceUrl, normalizeSettings, providerOrigin } from "../core/settings.mjs";
 import { publicFeedsForLocale } from "../core/public-feeds.mjs";
 import { createSettingsStore } from "../core/settings-store.mjs";
-import { CARD_SUMMARY_POLICY_VERSION, cleanGeneratedSummaryLine, extractGeneratedSummaryTitle, limitGeneratedSummaryLines, parseGeneratedDailyDigest } from "../core/summary-text.mjs";
+import { createSettingsTransferDocument, parseSettingsTransferDocument } from "../core/settings-transfer.mjs";
+import { CARD_SUMMARY_POLICY_VERSION, cleanGeneratedSummaryLine, dailyDigestEvidence, extractGeneratedSummaryTitle, limitGeneratedSummaryLines, parseGeneratedDailyDigest } from "../core/summary-text.mjs";
 import { normalizeUserUrl, searchFeed } from "../core/search.mjs";
 import { createMessageRouter } from "./message-router.mjs";
 import { errorResult, publicErrorDetails, resultMessage, settingsLocale, typedError } from "./runtime-result.mjs";
@@ -65,6 +67,7 @@ import { createReaderPreviewService } from "./reader-preview-service.mjs";
 import { createSettingsWorkflow } from "./settings-workflow.mjs";
 import { createDashboardContentService } from "./dashboard-content-service.mjs";
 import { createBookmarkRefreshScheduler } from "./bookmark-refresh-scheduler.mjs";
+import { createWeatherService } from "./weather-service.mjs";
 import {
   emptySourceQuality,
   hostOf,
@@ -87,6 +90,8 @@ const settingsService = createRuntimeSettingsService({ store: settingsStore, rea
 const { getSettings, sanitizeLegacySyncedCredentials } = settingsService;
 let publicSettings;
 let saveSettings;
+let exportSettings;
+let importSettings;
 const {
   getRefreshStatus,
   setRefreshStatus,
@@ -126,7 +131,8 @@ const {
   getAiAutoStatus, filterFeedItemsBySources, originsFromUrls, buildPermissionRows,
   originPattern,
   sanitizeCardAiSummaries: (...args) => refreshService.sanitizeCardAiSummaries(...args),
-  buildFallbackDigest, buildDailyCandidates, dailyCandidateFingerprint, rankingPolicyVersion: NEWS_RANKING_POLICY_VERSION,
+  buildFallbackDigest, buildDailyCandidates, dailyCandidateFingerprint,
+  digestSchemaVersion: DAILY_DIGEST_SCHEMA_VERSION, rankingPolicyVersion: NEWS_RANKING_POLICY_VERSION,
   localDateKey, summarizeQuality, pipelineStages, publicFeedsForLocale,
   chrome, safeOrigin, typedError, uniqueStrings, normalizeUserUrl,
   aiSearchResultPermitted: (...args) => aiSearchService.aiSearchResultPermitted(...args),
@@ -136,14 +142,14 @@ const {
   readWebsiteOverview,
   cacheUrlsPermitted,
   storePreviewCache,
-  isInspirationPreviewTarget,
+  isSitePreviewTarget,
   previewCachePermitted,
 } = createReaderPreviewService({
   normalizeUserUrl, hasOriginPermission, loadReaderWithCache, fetchReader, fetchReaderHtml,
   extractPageMetadata, getRecord, setRecord, deleteRecord, cacheMutations,
   currentBookmarkModel, emptyBookmarkModel, getSettings, secretStatus,
-  inspirationPreviewSourceUrls, hashText, uniqueStrings, hasOriginPermissions,
-  setRecords, typedError,
+  inspirationPreviewTargets, newsPreviewTargets, currentFeedPermissionState,
+  filterFeedItemsBySources, hashText, uniqueStrings, hasOriginPermissions, setRecords, typedError,
 });
 const {
   loadQuestionSearchContext,
@@ -169,11 +175,20 @@ const {
 });
 const refreshCoordinator = createRefreshCoordinator({
   getStatus: getRefreshStatus,
-  run: (generation) => refreshService.runRefresh(generation),
+  run: (generation, context) => refreshService.runRefresh(generation, {
+    prioritizeAutomaticAi: context?.force === true,
+  }),
   isFresh: (status) => {
     const finishedAt = Date.parse(String(status?.finishedAt || ""));
     return Number.isFinite(finishedAt) && Date.now() - finishedAt < 10 * 60 * 1000;
   },
+});
+const {
+  searchLocations,
+  getForecast,
+  weatherCachePermitted,
+} = createWeatherService({
+  hasOriginPermissions, getRecord, setRecord, typedError,
 });
 refreshService = createRefreshService({
   refreshCoordinator, getSettings, currentBookmarkModel, emptyBookmarkModel, currentFeedPermissionState,
@@ -185,7 +200,7 @@ refreshService = createRefreshService({
   assertFeedItemsStillPermitted, withFeedCacheMetadata, cacheMutations, aiConfigured,
   getAiAutoStatus, setAiAutoStatus, defaultAiAutoStatus, readQuota, runAiWithinQuota,
   callProvider, translate, settingsLocale, cleanGeneratedSummaryLine,
-  extractGeneratedSummaryTitle, limitGeneratedSummaryLines, parseGeneratedDailyDigest,
+  extractGeneratedSummaryTitle, limitGeneratedSummaryLines, parseGeneratedDailyDigest, dailyDigestEvidence,
   cardSummaryPolicyVersion: CARD_SUMMARY_POLICY_VERSION, buildFallbackDigest,
   digestCachePermitted, filterFeedItemsBySources, resultMessage, errorResult,
   emptySourceQuality, localDateKey, uniqueStrings, safeOrigin, originPattern,
@@ -223,8 +238,10 @@ const {
   emptySourceQuality, originsFromUrls, secretStatus, currentProviderCapability, settingsLocale,
   aiSearchResultPermitted, previewCachePermitted, cacheUrlsPermitted, digestCachePermitted,
   withFeedCacheMetadata, buildFallbackDigest, buildDailyCandidates, inspirationPreviewTargets,
+  newsPreviewTargets,
+  weatherCachePermitted,
 });
-({ publicSettings, saveSettings } = createSettingsWorkflow({
+({ publicSettings, saveSettings, exportSettings, importSettings } = createSettingsWorkflow({
   getSettings, settingsLocale, defaultBookmarkFoldersForLocale, secretStatus,
   currentBookmarkModel, emptyBookmarkModel, selectedOrigins, currentFeedPermissionState,
   filterSourceQuality, getRecord, emptySourceQuality, defaultSettings: DEFAULT_SETTINGS,
@@ -233,6 +250,9 @@ const {
   updateSecrets, setAiDisclosureConsent, cacheMutations, refreshCoordinator, setRecord,
   pruneStalePreviewCaches, pruneBravePreviewCaches, aiConfigured, setAiAutoStatus,
   defaultAiAutoStatus, startRefresh, broadcast,
+  createSettingsTransferDocument, parseSettingsTransferDocument,
+  getAppVersion: () => chrome.runtime.getManifest().version,
+  now: () => new Date().toISOString(),
 }));
 const { schedule: scheduleBookmarkRefresh } = createBookmarkRefreshScheduler({
   cacheMutations, refreshCoordinator, getSettings, pruneStalePreviewCaches,
@@ -258,13 +278,15 @@ const getSitePreview = createPreviewService({
   getRecord,
   setRecord: storePreviewCache,
   hasOriginPermission,
-  isAllowedTarget: isInspirationPreviewTarget,
+  isAllowedTarget: isSitePreviewTarget,
   captureCacheEpoch: () => cacheMutations.capture(),
 });
 const routeMessage = createMessageRouter({
   "dashboard:get": () => buildDashboardPayload(),
   "settings:get": () => publicSettings(),
   "settings:save": (payload) => saveSettings(payload),
+  "settings:export": () => exportSettings(),
+  "settings:import": (payload) => importSettings(payload),
   "settings:test": (payload) => testOpenAISettings(payload),
   "settings:image-test": (payload) => testImageSearchSettings(payload),
   "refresh:start": (payload) => startRefresh(payload.force === true),
@@ -273,6 +295,8 @@ const routeMessage = createMessageRouter({
   "digest:refresh": () => refreshDailyDigest({ automatic: false }),
   "summary:refresh": (payload) => refreshSingleSummary(payload),
   "ai:search": (payload) => answerAiSearch(payload),
+  "weather:search": (payload) => searchLocations(payload),
+  "weather:get": (payload) => getForecast(payload),
   "reader:get": (payload) => readArticle(payload.url),
   "preview:get": (payload) => getSitePreview(payload),
   "cache:clear": () => clearGeneratedCache(),
