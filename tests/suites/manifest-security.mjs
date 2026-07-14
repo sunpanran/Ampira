@@ -17,7 +17,8 @@ const manifest = JSON.parse(await fs.readFile(path.join(root, "manifest.json"), 
 
 assert.equal(manifest.manifest_version, 3);
 assert.equal(manifest.chrome_url_overrides.newtab, "dashboard.html");
-assert.deepEqual(manifest.permissions.sort(), ["alarms", "bookmarks", "storage"]);
+assert.equal(manifest.action.default_popup, "action-popup.html", "the toolbar action must open a visible capture confirmation popup");
+assert.deepEqual(manifest.permissions.sort(), ["activeTab", "alarms", "bookmarks", "storage"]);
 assert.deepEqual([...(manifest.optional_permissions || [])].sort(), ["favicon"], "website icons must use an optional named permission so upgrades do not disable existing installs");
 for (const forbidden of ["tabs", "history", "scripting", "webRequest", "management", "unlimitedStorage"]) {
   assert(!manifest.permissions.includes(forbidden), `manifest must not request ${forbidden}`);
@@ -32,6 +33,19 @@ assert(!/unsafe-(?:eval|inline)/.test(extensionCsp), "extension CSP must not all
 const cspDirectives = new Map(extensionCsp.split(";").map((directive) => directive.trim().split(/\s+/)).filter((parts) => parts[0]).map(([name, ...values]) => [name, values]));
 assert.deepEqual(cspDirectives.get("script-src"), ["'self'"], "extension scripts must only come from the package");
 assert(cspDirectives.get("img-src")?.includes("'self'"), "the native favicon endpoint must remain available as a same-extension image");
+
+const actionPopupHtml = await fs.readFile(path.join(root, "action-popup.html"), "utf8");
+const actionPopupSource = await fs.readFile(path.join(root, "assets/client/action-popup.mjs"), "utf8");
+const actionPopupCss = await fs.readFile(path.join(root, "assets/styles/action-popup.css"), "utf8");
+assert(actionPopupHtml.includes('role="status"') && actionPopupHtml.includes('aria-live="polite"'), "the capture popup must announce its result accessibly");
+assert(actionPopupHtml.includes('src="assets/client/action-popup.mjs"'), "the capture popup must execute only its packaged module");
+assert(actionPopupSource.includes("chrome.tabs.query({ active: true, currentWindow: true })"), "the popup must read only the actively invoked tab");
+assert(actionPopupSource.includes('sendExtensionRequest({ type: "settings:get" })'), "the popup must follow Ampira's saved locale and color mode");
+assert(actionPopupSource.includes('type: "reading-queue:capture-current"'), "the popup must route captures through the service worker");
+assert(actionPopupSource.includes('import { createThemedIcon } from "./icons.mjs"') && actionPopupSource.includes('icon: "check"') && actionPopupSource.includes('icon: "info-circle"') && actionPopupSource.includes('createThemedIcon("arrow-up-right"'), "popup controls and states must use the shared local icon library");
+assert(!actionPopupHtml.includes("↗") && !actionPopupSource.includes('icon: "✓"') && !actionPopupSource.includes('icon: "!"'), "the popup must not mix text glyphs with library icons");
+assert(actionPopupSource.includes("textContent") && !actionPopupSource.includes("innerHTML"), "captured page metadata must remain inert text");
+assert(actionPopupCss.includes("--popup-warning: #F4C95D") && !actionPopupCss.includes("var(--red)"), "popup warnings must use the reviewed amber state instead of red");
 
 assert.equal(DEFAULT_LOCALE, "zh-CN");
 assert.deepEqual(SUPPORTED_LOCALES, ["en", "zh-CN", "zh-Hant"]);
@@ -75,7 +89,7 @@ assert.equal(hasStructuralSummaryPrefix(normalizeSummaryMarkup("**核心内容**
 assert.equal(extractGeneratedSummaryTitle("**标题：AI 精炼标题**"), "AI 精炼标题");
 assert.equal(extractGeneratedSummaryTitle(`标题：${"长".repeat(80)}`).length, 64, "generated card titles must be capped before caching");
 assert.equal(cleanGeneratedSummaryLine("标题：AI 精炼标题"), "", "generated title rows must not leak into summary text");
-assert.equal(CARD_SUMMARY_POLICY_VERSION, 2);
+assert.equal(CARD_SUMMARY_POLICY_VERSION, 3);
 const boundedCardSummary = limitGeneratedSummaryLines(["甲".repeat(120), "乙".repeat(120), "丙".repeat(120), "丁".repeat(20)], 280, 3);
 assert.equal(boundedCardSummary.length, 3, "card summaries must retain at most three information-dense paragraphs");
 assert.equal([...boundedCardSummary.join("")].length, 280, "card summaries must enforce the 280-character cache boundary");

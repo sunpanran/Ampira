@@ -7,6 +7,7 @@ Short description: Turn selected Chrome bookmarks and feeds into a searchable ne
 Ampira turns bookmarked news sources, inspiration sites, and everyday links into a dense new-tab workspace with daily signals, topic clusters, a reading queue, feed cards, an archive index, and optional AI summaries.
 
 - Local-first: no account, ads, analytics, or developer-operated backend.
+- One-click Read later: click the Ampira toolbar icon to save the current page locally and confirm the result in a popup.
 - Per-origin access: website permissions are requested only after a user action.
 - Public-Feed supplement: built-in public sources are enabled by default, can be turned off in Settings, and are fetched only for exact origins the user grants.
 - Safe reader: remote pages are extracted into structured text, images, and video links without running remote scripts or embedded players.

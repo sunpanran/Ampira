@@ -36,7 +36,7 @@ export async function sendExtensionRequest(request) {
 
 if (hasExtensionRuntime() && globalThis.chrome?.runtime?.onMessage) {
   chrome.runtime.onMessage.addListener((message) => {
-    if (!message?.type || !/^(dashboard|refresh|settings)\./.test(message.type)) return;
+    if (!message?.type || !/^(dashboard|reading-queue|refresh|settings)\./.test(message.type)) return;
     window.dispatchEvent(new CustomEvent("ampira:runtime-message", { detail: message }));
   });
 }

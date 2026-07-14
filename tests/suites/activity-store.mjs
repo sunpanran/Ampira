@@ -16,12 +16,13 @@ export function runActivityStoreTests() {
     data: { bookmarks: [], feed: { items: [] } },
     settings: {},
   };
+  let renderCount = 0;
   const controller = createActivityController({
     state,
     itemUrl: (item) => item.url,
     openExternalWindow() {},
     openExternal() {},
-    renderAll() {},
+    renderAll() { renderCount += 1; },
     renderEfficiencyPanel() {},
     newsSummaryItems: () => [],
     hostFromUrl: () => "example.com",
@@ -51,6 +52,11 @@ export function runActivityStoreTests() {
     const hydrated = createActivityStore({ readJson, day });
     assert(hydrated.seen.has(item.key), "seen changes must survive hydration");
     assert(!hydrated.readingQueue.has(item.key), "marking an item seen must persistently remove it from the reading queue");
+    controller.applyReadingQueueUpdate([{ ...item, source: "news" }], [item.key]);
+    assert(state.readingQueue.has(item.key), "runtime queue updates must replace the live reading queue");
+    assert.equal(state.readingQueueMeta.get(item.key)?.url, item.url);
+    assert(!state.seen.has(item.key), "reopened runtime queue items must leave the live seen set");
+    assert(renderCount > 0, "runtime queue updates must redraw the dashboard");
   } finally {
     if (previousDocument === undefined) delete globalThis.document;
     else globalThis.document = previousDocument;

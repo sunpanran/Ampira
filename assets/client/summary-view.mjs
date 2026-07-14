@@ -157,6 +157,7 @@ function unifiedFeedItem(feedItem) {
       newsStatus: "hot",
       summaryStatus: feedItem.summaryStatus === "ai" ? "ai" : (lines.length ? "excerpt" : "raw"),
       summaryPolicyVersion: Number(feedItem.summaryPolicyVersion || 0),
+      summaryLocale: feedItem.summaryLocale || "",
       timeUnverified: feedItem.timeUnverified === true,
       externalDiscovery: feedItem.externalDiscovery === true,
       clusterId: feedItem.clusterId || "",

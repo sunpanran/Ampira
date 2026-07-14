@@ -6,6 +6,7 @@
 
 ## Permission justifications
 
+- `activeTab`: After the user clicks the Ampira toolbar icon, temporarily read only that tab's title and URL so the page can be added to the local reading queue. This permission does not provide passive tab monitoring, full browsing history, page content, or background access to other tabs.
 - `bookmarks`: Read the user-selected bookmark tree and build dashboard sections. Ampira never calls bookmark create, update, move, or remove methods. Chrome displays “Read and change your bookmarks” because the API has no read-only permission.
 - `storage`: Store synchronized preferences, local content state, and user-entered API credentials that remain in the current Chrome profile.
 - `alarms`: Wake the Manifest V3 service worker every 15 minutes to check whether authorized sources are due for refresh.
@@ -16,7 +17,7 @@
 ## Data disclosures
 
 - Website content: selected public Feed and article content, plus public cover metadata and image URLs from authorized pages. When an authorized Feed item has no usable image, Ampira may read up to 1 MiB of inert image metadata from the same-origin article page; it does not request another origin or execute page scripts. The built-in public-Feed supplement is enabled by default, can be disabled in Settings, and adds public news alongside bookmark sources only after the user grants each exact source origin. Feed discovery results, response validators, image-coverage counts, and recent per-source success or failure diagnostics remain in the extension-local cache and are cleared with generated cache data.
-- Web browsing activity: bookmark titles/URLs, article URLs used as AI context, and explicit reading state; never full browser history. Depending on the feature path and extension version, an AI-context URL can be the stored source URL or a normalized/minimized form, and can still contain path or query information.
+- Web browsing activity: bookmark titles/URLs, the title and URL of a page explicitly added through the toolbar, article URLs used as AI context, and explicit reading state; never full browser history. Toolbar-captured titles and URLs remain in the local reading queue and are not sent to the developer or a third party. Depending on the feature path and extension version, an AI-context URL can be the stored source URL or a normalized/minimized form, and can still contain path or query information.
 - Authentication information: user-entered API credentials are stored only in extension-local storage and never synchronized or sent to the developer. Each key is sent directly to the provider selected by the user solely to authenticate that provider request.
 - User-generated content: explicit AI search questions and source preferences.
 - Location: matching Chinese administrative-place queries are resolved inside the extension from a bundled GeoNames-derived index and are not transmitted for search. Other manually entered city queries are sent directly to Open-Meteo's Geocoding API. The latitude and longitude of the user's explicitly selected result are sent directly to Open-Meteo's Forecast API. The selected display name, full administrative hierarchy, provider marker, and coordinates remain in extension-local client state, do not enter Chrome Sync, and are not available to the developer. Ampira never reads browser or device geolocation.

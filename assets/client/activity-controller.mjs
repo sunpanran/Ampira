@@ -1,3 +1,5 @@
+import { normalizeReadingQueueRecords } from "../../extension/core/reading-queue.mjs";
+
 const READING_QUEUE_STORAGE_KEY = "dash.readingQueue";
 const OPENED_STORAGE_KEY = "dash.opened";
 const DISMISSED_STORAGE_KEY = "dash.dismissed";
@@ -17,7 +19,7 @@ export function createActivityController(options) {
     actionKey, toggleReadingQueue, openDailyItem, openSummaryItem, matchesQuery, toggleSeen,
     markOpenedItem, dismissItem, sendFeedback, retainSeenArchiveEnabled,
     syncSeenArchiveRetention, defaultSeenSource, seenKey, readSeenRecords,
-    replaceSeenRecords,
+    replaceSeenRecords, applyReadingQueueUpdate,
   };
 function readingQueueItems() {
   const byKey = actionItemsByKey();
@@ -50,6 +52,17 @@ function openAndMarkReadingQueue(items) {
 
 function readingQueueOpenOnReadAll() {
   return state.settings?.readingQueueOpenOnReadAll !== false;
+}
+
+function applyReadingQueueUpdate(records, reopenedKeys = []) {
+  const normalized = normalizeReadingQueueRecords(records);
+  state.readingQueue = new Set(normalized.map((record) => record.key));
+  state.readingQueueMeta = new Map(normalized.map((record) => [record.key, record]));
+  for (const key of reopenedKeys) {
+    state.seen.delete(key);
+    state.seenMeta.delete(key);
+  }
+  renderAll();
 }
 
 function actionItemsByKey() {

@@ -12,6 +12,7 @@ $dist = [System.IO.Path]::GetFullPath((Join-Path $root "dist"))
 $files = @(
   "manifest.json",
   "dashboard.html",
+  "action-popup.html",
   "favicon.svg",
   "favicon-light.svg",
   "favicon-dark.svg",

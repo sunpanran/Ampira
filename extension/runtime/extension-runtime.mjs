@@ -31,7 +31,7 @@ import {
   readDeviceConsent,
   setAiDisclosureConsent,
 } from "../core/device-consent.mjs";
-import { DEFAULT_LOCALE, defaultBookmarkFoldersForLocale, normalizeLocale, translate } from "../core/i18n.mjs";
+import { DEFAULT_LOCALE, defaultBookmarkFoldersForLocale, normalizeLocale, translate, translateAiPrompt } from "../core/i18n.mjs";
 import { requestAiCompletion, testImageSearchConnection } from "../core/ai.mjs";
 import { createClientStateStore } from "../core/client-state.mjs";
 import { createQuotaManager } from "../core/quota.mjs";
@@ -68,6 +68,7 @@ import { createSettingsWorkflow } from "./settings-workflow.mjs";
 import { createDashboardContentService } from "./dashboard-content-service.mjs";
 import { createBookmarkRefreshScheduler } from "./bookmark-refresh-scheduler.mjs";
 import { createWeatherService } from "./weather-service.mjs";
+import { createActionReadingQueueService } from "./action-reading-queue-service.mjs";
 import {
   emptySourceQuality,
   hostOf,
@@ -88,6 +89,9 @@ const quotaManager = createQuotaManager(chrome.storage.local, localDateKey);
 const settingsStore = createSettingsStore(chrome.storage.sync);
 const settingsService = createRuntimeSettingsService({ store: settingsStore, readProviderProfile, readDeviceConsent });
 const { getSettings, sanitizeLegacySyncedCredentials } = settingsService;
+const { handleActionClicked, resetActionFeedback } = createActionReadingQueueService({
+  chrome, clientStateStore, getSettings, settingsLocale, translate, localDateKey, broadcast,
+});
 let publicSettings;
 let saveSettings;
 let exportSettings;
@@ -160,7 +164,7 @@ const {
   testOpenAISettings,
   testImageSearchSettings,
 } = aiSearchService = createAiSearchService({
-  getRecord, setRecord, searchFeed, settingsLocale, translate, normalizeUserUrl,
+  getRecord, setRecord, searchFeed, settingsLocale, translate, translateAiPrompt, normalizeUserUrl,
   hasOriginPermission, originPattern, secretStatus, currentFeedPermissionState,
   getSettings, currentBookmarkModel, emptyBookmarkModel, assertUrlsStillPermitted,
   cacheSourceIdentitiesPermitted, configuredFeedSources,
@@ -199,7 +203,7 @@ refreshService = createRefreshService({
   buildDailyCandidates, dailyCandidateFingerprint, rankingPolicyVersion: NEWS_RANKING_POLICY_VERSION,
   assertFeedItemsStillPermitted, withFeedCacheMetadata, cacheMutations, aiConfigured,
   getAiAutoStatus, setAiAutoStatus, defaultAiAutoStatus, readQuota, runAiWithinQuota,
-  callProvider, translate, settingsLocale, cleanGeneratedSummaryLine,
+  callProvider, translate, translateAiPrompt, settingsLocale, cleanGeneratedSummaryLine,
   extractGeneratedSummaryTitle, limitGeneratedSummaryLines, parseGeneratedDailyDigest, dailyDigestEvidence,
   cardSummaryPolicyVersion: CARD_SUMMARY_POLICY_VERSION, buildFallbackDigest,
   digestCachePermitted, filterFeedItemsBySources, resultMessage, errorResult,
@@ -306,6 +310,7 @@ const routeMessage = createMessageRouter({
   "feedback:record": (payload) => recordFeedback(payload),
   "client-state:get": () => clientStateStore.read(),
   "client-state:set": (payload) => clientStateStore.save(payload),
+  "reading-queue:capture-current": (payload) => handleActionClicked(payload.tab || {}),
   "permissions:origins": () => selectedOrigins(),
   "permissions:status": (payload) => permissionStatus(payload.origins || []),
   "onboarding:consent": () => recordBookmarkConsent(),
@@ -323,6 +328,8 @@ const routeMessage = createMessageRouter({
     handleBookmarksChanged,
     handlePermissionsAdded,
     handlePermissionsRemoved,
+    handleActionClicked,
+    handleTabUpdated,
     start,
   };
 
@@ -338,9 +345,9 @@ chrome.runtime.onStartup.addListener(() => {
   ensureRuntime().catch(() => {});
 });
 
-chrome.action.onClicked.addListener(() => {
-  chrome.tabs.create({ url: chrome.runtime.getURL("dashboard.html") }).catch(() => {});
-});
+chrome.action.onClicked.addListener(handleActionClicked);
+
+chrome.tabs.onUpdated.addListener(handleTabUpdated);
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   handleAlarm(alarm);
@@ -374,6 +381,11 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 });
 
 ensureRuntime().catch(() => {});
+  }
+
+  function handleTabUpdated(tabId, changeInfo = {}) {
+    if (changeInfo.status !== "loading") return;
+    resetActionFeedback(tabId).catch(() => {});
   }
 
 function handleAlarm(alarm) {
@@ -464,6 +476,6 @@ async function runAiWithinQuota(settings, operation) {
 }
 
 function broadcast(type, payload) {
-  chrome.runtime.sendMessage({ type, payload }).catch(() => {});
+  chrome.runtime.sendMessage({ type, requestId: crypto.randomUUID(), payload }).catch(() => {});
 }
 }

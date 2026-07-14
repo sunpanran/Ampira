@@ -23,7 +23,7 @@
   <ul>
     <li>用户选择的书签标题、网址与文件夹结构。</li>
     <li>用户授权来源的公开 Feed、网页标题、摘要、正文，以及灵感页封面元数据和图片地址。</li>
-    <li>界面设置、阅读队列、归档、来源偏好、缓存和搜索问题。</li>
+    <li>界面设置、阅读队列、归档、来源偏好、缓存和搜索问题；用户点击工具栏图标时明确加入的当前页标题和网址会保存在阅读队列中。</li>
     <li>用户输入的待办事项，以及用户手动选择的天气城市、行政区、国家和坐标。</li>
     <li>用户自愿配置的 AI 或图片搜索 API 密钥。</li>
   </ul>
@@ -38,7 +38,7 @@
   <p>用户启用 Brave 图片搜索后，生成的图片查询和对应 API 密钥会直接发送给 Brave Search API，密钥用于验证请求。以上第三方传输均使用 HTTPS；HTTP 仅允许连接用户配置的本机 localhost 服务。</p>
   <p>用户在天气卡中提交城市后，Ampira 才会申请 Open-Meteo 的<a href="https://open-meteo.com/en/docs/geocoding-api">地理编码接口</a>和<a href="https://open-meteo.com/en/docs">天气预报接口</a>来源权限。匹配中国县级以上行政区的查询会优先由扩展内置的 GeoNames 派生索引在本地解析，不会为搜索传出；其他城市查询才会直接发送给 Open-Meteo 地理编码接口。用户明确选择候选城市后，该城市的经纬度会直接发送给天气预报接口。Ampira 不使用浏览器定位，开发者无法访问这些查询、坐标或天气结果。中国地点候选按 <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a> 署名 GeoNames，天气数据按 Open-Meteo 的<a href="https://open-meteo.com/en/terms">条款与许可</a>署名使用。</p>
   <h2>权限</h2>
-  <p><strong>bookmarks</strong> 用于只读整理书签；Ampira 不调用书签写入接口。<strong>storage</strong> 用于本地设置和缓存。<strong>alarms</strong> 用于每 15 分钟检查到期来源。可选的 <strong>favicon</strong> 权限只在用户点击启用后申请，通过 Chrome 内置接口为 Ampira 已显示的书签与页面网址提供网站图标；它不授予浏览历史或标签页访问权，这些网址也不会发送给第三方图标服务。网站来源权限同样只在用户点击授权时按具体域名申请。天气仅在用户提交城市时申请 <code>https://geocoding-api.open-meteo.com/*</code> 与 <code>https://api.open-meteo.com/*</code> 两个精确来源，可在“设置 → 浏览器”中分别撤销；撤销后停止请求并删除天气缓存，但保留本地城市选择。</p>
+  <p><strong>activeTab</strong> 仅在用户点击 Ampira 工具栏图标时临时读取当前标签页的标题和网址，用于加入本地阅读队列；它不持续监控标签页、不读取完整浏览历史或页面正文，也不会把该标题和网址发送给开发者或第三方。<strong>bookmarks</strong> 用于只读整理书签；Ampira 不调用书签写入接口。<strong>storage</strong> 用于本地设置和缓存。<strong>alarms</strong> 用于每 15 分钟检查到期来源。可选的 <strong>favicon</strong> 权限只在用户点击启用后申请，通过 Chrome 内置接口为 Ampira 已显示的书签与页面网址提供网站图标；它不授予浏览历史或持续标签页访问权，这些网址也不会发送给第三方图标服务。网站来源权限同样只在用户点击授权时按具体域名申请。天气仅在用户提交城市时申请 <code>https://geocoding-api.open-meteo.com/*</code> 与 <code>https://api.open-meteo.com/*</code> 两个精确来源，可在“设置 → 浏览器”中分别撤销；撤销后停止请求并删除天气缓存，但保留本地城市选择。</p>
   <h2>共享、出售与保留</h2>
   <p>Ampira 不出售、共享或将数据用于广告定位。资讯缓存最多保留 30 天并限制为约 25MB；天气缓存 30 分钟内直接复用，刷新失败时最多回退到 6 小时内的数据。用户可以随时清除缓存。卸载扩展会清除扩展本地数据，Chrome Sync 中的设置按 Chrome 的同步规则处理。</p>
   <h2>Chrome Web Store Limited Use</h2>

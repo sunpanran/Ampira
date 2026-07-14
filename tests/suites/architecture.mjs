@@ -24,6 +24,7 @@ export async function runArchitectureTests(root) {
   const clientFiles = await listFiles(path.join(root, "assets/client"), ".mjs");
   const elementsSource = await fs.readFile(path.join(root, "assets/client/elements.mjs"), "utf8");
   const dashboardAppSource = await fs.readFile(path.join(root, "assets/client/dashboard-app.mjs"), "utf8");
+  const extensionRuntimeSource = await fs.readFile(path.join(root, "extension/runtime/extension-runtime.mjs"), "utf8");
   const sourceSettingsSource = await fs.readFile(path.join(root, "assets/client/source-settings-controller.mjs"), "utf8");
   const summaryViewSource = await fs.readFile(path.join(root, "assets/client/summary-view.mjs"), "utf8");
   const efficiencyViewSource = await fs.readFile(path.join(root, "assets/client/efficiency-view.mjs"), "utf8");
@@ -33,6 +34,7 @@ export async function runArchitectureTests(root) {
     assert(elementsSource.includes(`${group}: pick(elements,`), `elements must expose the ${group} group`);
   }
   assert(dashboardAppSource.includes("getElementGroups()") && !dashboardAppSource.includes("getElements()"), "dashboard assembly must use scoped element groups");
+  assert(extensionRuntimeSource.includes('"reading-queue:capture-current": (payload) => handleActionClicked(payload.tab || {})'), "the toolbar popup must reuse the atomic reading-queue capture service");
   for (const leakedBinding of ["NEWS_CARD_TYPE", "LEGACY_NEWS_SECTION", "LEGACY_INSPIRATION_SECTION"]) {
     assert(!sourceSettingsSource.includes(leakedBinding), `source settings must receive ${leakedBinding} through explicit dependencies`);
   }
@@ -150,7 +152,8 @@ export async function runArchitectureTests(root) {
   });
   for (const method of [
     "ensureReady", "handleMessage", "refresh", "handleAlarm",
-    "handleBookmarksChanged", "handlePermissionsAdded", "handlePermissionsRemoved", "start",
+    "handleBookmarksChanged", "handlePermissionsAdded", "handlePermissionsRemoved",
+    "handleActionClicked", "handleTabUpdated", "start",
   ]) assert.equal(typeof runtime[method], "function", `runtime must expose ${method}`);
   await assert.rejects(
     runtime.handleMessage({ type: "feed:refresh-source", payload: {} }),

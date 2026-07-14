@@ -1,10 +1,10 @@
 const AI_CONNECTION_TEST_MAX_TOKENS = 900;
 const AI_SEARCH_MAX_TOKENS = 1400;
-const AI_SEARCH_CACHE_VERSION = 3;
+const AI_SEARCH_CACHE_VERSION = 4;
 
 export function createAiSearchService(options) {
   const {
-    getRecord, setRecord, searchFeed, settingsLocale, translate, normalizeUserUrl,
+    getRecord, setRecord, searchFeed, settingsLocale, translate, translateAiPrompt, normalizeUserUrl,
     hasOriginPermission, originPattern, secretStatus, currentFeedPermissionState,
     getSettings, currentBookmarkModel, emptyBookmarkModel, assertUrlsStillPermitted,
     cacheSourceIdentitiesPermitted, configuredFeedSources, readArticle, readWebsiteOverview,
@@ -179,7 +179,7 @@ async function answerAiSearch(body) {
         type: "url",
         mode,
         fallback: nonAiFallback.answer,
-        system: translate(locale, isArticle ? "background.prompt.webSummary" : "background.prompt.websiteIntro"),
+        system: translateAiPrompt(locale, isArticle ? "background.prompt.webSummary" : "background.prompt.websiteIntro"),
         input: translate(locale, isArticle ? "background.prompt.webInput" : "background.prompt.websiteInput", {
           url: reader.url,
           title: reader.title,
@@ -198,7 +198,7 @@ async function answerAiSearch(body) {
       type: "question",
       mode: "dashboard",
       fallback: nonAiFallback.answer,
-      system: translate(locale, "background.prompt.dashboardAnswer"),
+      system: translateAiPrompt(locale, "background.prompt.dashboardAnswer"),
       input: translate(locale, "background.prompt.dashboardInput", {
         query,
         content: candidates.length

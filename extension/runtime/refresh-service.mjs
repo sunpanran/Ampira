@@ -74,7 +74,7 @@ export function createRefreshService(options) {
     mapWithConcurrency, summarizeQuality, retainActiveUnrefreshedItems, rankAndDedupe,
     assertFeedItemsStillPermitted, withFeedCacheMetadata, cacheMutations, aiConfigured,
     getAiAutoStatus, setAiAutoStatus, defaultAiAutoStatus, readQuota, runAiWithinQuota,
-    callProvider, translate, settingsLocale, cleanGeneratedSummaryLine,
+    callProvider, translate, translateAiPrompt, settingsLocale, cleanGeneratedSummaryLine,
     extractGeneratedSummaryTitle, limitGeneratedSummaryLines, parseGeneratedDailyDigest, dailyDigestEvidence, buildFallbackDigest,
     digestCachePermitted, filterFeedItemsBySources, resultMessage, errorResult,
     emptySourceQuality, localDateKey, uniqueStrings, safeOrigin, originPattern,
@@ -603,9 +603,10 @@ function nextEligibleAtForError(error) {
 async function runAutomaticAiAfterRefresh({ settings, items, needsDigest, aiReady, cacheEpoch, generation }) {
   const previous = await getAiAutoStatus();
   const quota = await readQuota(settings.dailyAiLimit);
+  const locale = settingsLocale(settings);
   const remainingQuota = Math.max(0, settings.dailyAiLimit - quota.used);
   const availableCards = settings.cardSummaryEnabled
-    ? items.filter((item) => !isCurrentCardSummary(item) && String(item.excerpt || "").trim()).length
+    ? items.filter((item) => !isCurrentCardSummary(item, locale) && String(item.excerpt || "").trim()).length
     : 0;
   const digestEligible = needsDigest && remainingQuota > 0;
   const cardEligible = Math.min(availableCards, Math.max(0, remainingQuota - Number(digestEligible)));
@@ -717,7 +718,7 @@ async function automaticallySummarizeCards(settings, items, cacheEpoch, generati
   let processed = 0;
   let quotaReached = false;
   const candidates = items.filter((item) => (
-    !isCurrentCardSummary(item)
+    !isCurrentCardSummary(item, locale)
     && String(item.excerpt || "").trim()
   )).slice(0, candidateLimit);
 
@@ -728,7 +729,7 @@ async function automaticallySummarizeCards(settings, items, cacheEpoch, generati
       const context = await automaticCardSummaryContext(candidate);
       result = await runAiWithinQuota(settings, () => callProvider(
         settings,
-        translate(locale, "background.prompt.cardSummary"),
+        translateAiPrompt(locale, "background.prompt.cardSummary"),
         translate(locale, "background.prompt.webInput", {
           url: candidate.url,
           title: candidate.title,
@@ -769,8 +770,8 @@ async function automaticallySummarizeCards(settings, items, cacheEpoch, generati
       let updatedItem = null;
       const updatedItems = feed.items.map((item) => {
         if ((item.articleId || item.entryKey) !== (candidate.articleId || candidate.entryKey) || item.url !== candidate.url) return item;
-        if (isCurrentCardSummary(item)) return item;
-        updatedItem = { ...item, summaryTitle: organized.title, summary: organized.summary, summaryStatus: "ai", summaryPolicyVersion: cardSummaryPolicyVersion, summarizedAt, summaryProviderOrigin: providerOrigin };
+        if (isCurrentCardSummary(item, locale)) return item;
+        updatedItem = { ...item, summaryTitle: organized.title, summary: organized.summary, summaryStatus: "ai", summaryPolicyVersion: cardSummaryPolicyVersion, summaryLocale: locale, summarizedAt, summaryProviderOrigin: providerOrigin };
         return updatedItem;
       });
       if (!updatedItem || !isCurrent()) return null;
@@ -793,7 +794,8 @@ function automaticCardSummaryContext(candidate) {
 }
 
 function preserveCardAiSummary(item, previous, settings) {
-  if (!isCurrentCardSummary(previous) || !previous.summaryTitle || !Array.isArray(previous.summary) || !previous.summary.length) return item;
+  const locale = settingsLocale(settings);
+  if (!isCurrentCardSummary(previous, locale) || !previous.summaryTitle || !Array.isArray(previous.summary) || !previous.summary.length) return item;
   if (originPattern(previous.summaryProviderOrigin || "") !== originPattern(settings.openaiBaseUrl)) return item;
   return {
     ...item,
@@ -801,16 +803,18 @@ function preserveCardAiSummary(item, previous, settings) {
     summary: previous.summary,
     summaryStatus: "ai",
     summaryPolicyVersion: cardSummaryPolicyVersion,
+    summaryLocale: locale,
     summarizedAt: previous.summarizedAt || "",
     summaryProviderOrigin: previous.summaryProviderOrigin,
   };
 }
 
 function sanitizeCardAiSummaries(items, settings, configuredForAi) {
+  const locale = settingsLocale(settings);
   return (items || []).map((item) => {
     if (item.summaryStatus !== "ai") return item;
-    if (configuredForAi && originPattern(item.summaryProviderOrigin || "") === originPattern(settings.openaiBaseUrl)) return item;
-    const { summarizedAt, summaryPolicyVersion, summaryProviderOrigin, summaryTitle, ...rest } = item;
+    if (configuredForAi && isCurrentCardSummary(item, locale) && originPattern(item.summaryProviderOrigin || "") === originPattern(settings.openaiBaseUrl)) return item;
+    const { summarizedAt, summaryPolicyVersion, summaryLocale, summaryProviderOrigin, summaryTitle, ...rest } = item;
     const excerpt = String(item.excerpt || "").trim();
     return { ...rest, summary: excerpt ? [excerpt] : [], summaryStatus: excerpt ? "excerpt" : "raw" };
   });
@@ -855,7 +859,7 @@ async function refreshDailyDigest({ automatic = false } = {}) {
     try {
       const operation = () => callProvider(
         settings,
-        translate(locale, "background.prompt.dailyDigest"),
+        translateAiPrompt(locale, "background.prompt.dailyDigest"),
         context,
         AI_DIGEST_MAX_TOKENS,
         "",
@@ -941,7 +945,7 @@ async function refreshSingleSummary(body) {
   if (!excerptText) throw typedError("SUMMARY_CONTENT_MISSING", "summary.status.noContent", {}, false);
   const summaryText = await callProvider(
     settings,
-    translate(locale, "background.prompt.cardSummary"),
+    translateAiPrompt(locale, "background.prompt.cardSummary"),
     translate(locale, "background.prompt.webInput", {
       url: target.url,
       title: target.title,
@@ -961,6 +965,7 @@ async function refreshSingleSummary(body) {
     const latestPermissions = await currentFeedPermissionState(latestSettings, latestModel);
     if (!isCurrent() || latestPermissions.permittedByKey.get(String(target.sourceKey || "")) !== permittedSourceOrigin) return null;
     const previous = await getRecord("feed", { items: [] });
+    if (settingsLocale(latestSettings) !== locale) return null;
     const permittedPrevious = filterFeedItemsBySources(previous.items || [], latestPermissions.permitted, latestPermissions.grantedOrigins);
     const items = permittedPrevious.map((item) => (
       item.sourceKey === target.sourceKey
@@ -972,6 +977,7 @@ async function refreshSingleSummary(body) {
           summary: organized.summary,
           summaryStatus: "ai",
           summaryPolicyVersion: cardSummaryPolicyVersion,
+          summaryLocale: locale,
           summarizedAt: new Date().toISOString(),
           summaryProviderOrigin: safeOrigin(settings.openaiBaseUrl),
         }
@@ -1026,7 +1032,9 @@ function generatedCardSummary(value) {
   return { title, summary: limitGeneratedSummaryLines(summaryLines, CARD_SUMMARY_MAX_CHARS, 3) };
 }
 
-function isCurrentCardSummary(item) {
-  return item?.summaryStatus === "ai" && item?.summaryPolicyVersion === cardSummaryPolicyVersion;
+function isCurrentCardSummary(item, locale = "") {
+  return item?.summaryStatus === "ai"
+    && item?.summaryPolicyVersion === cardSummaryPolicyVersion
+    && (!locale || item?.summaryLocale === locale);
 }
 }

@@ -12,20 +12,41 @@ export function createClientStateStore(adapters) {
       return adapters.getRecord("client-state", {});
     },
     save(payload = {}) {
-      const operation = writeQueue.then(async () => {
+      return enqueue(async () => {
         const patch = normalizePatch(payload.values);
         const current = payload.replace === true ? {} : await adapters.getRecord("client-state", {});
         const next = { ...current, ...patch };
-        if (byteLength(JSON.stringify(next)) > MAX_STATE_BYTES) {
-          throw stateError("CLIENT_STATE_TOO_LARGE", "background.error.clientStateTooLarge");
-        }
-        await adapters.setRecord("client-state", next, "state");
+        await persist(next);
         return { ok: true };
       });
-      writeQueue = operation.catch(() => {});
-      return operation;
+    },
+    mutate(action) {
+      if (typeof action !== "function") {
+        return Promise.reject(stateError("INVALID_CLIENT_STATE", "background.error.clientStateInvalid"));
+      }
+      return enqueue(async () => {
+        const stored = await adapters.getRecord("client-state", {});
+        const current = stored && typeof stored === "object" && !Array.isArray(stored) ? stored : {};
+        const outcome = await action(Object.freeze({ ...current })) || {};
+        const patch = normalizePatch(outcome.values || {});
+        if (Object.keys(patch).length) await persist({ ...current, ...patch });
+        return outcome.result;
+      });
     },
   };
+
+  async function persist(value) {
+    if (byteLength(JSON.stringify(value)) > MAX_STATE_BYTES) {
+      throw stateError("CLIENT_STATE_TOO_LARGE", "background.error.clientStateTooLarge");
+    }
+    await adapters.setRecord("client-state", value, "state");
+  }
+
+  function enqueue(action) {
+    const operation = writeQueue.then(action);
+    writeQueue = operation.catch(() => {});
+    return operation;
+  }
 }
 
 export function normalizeClientStatePatch(values) {

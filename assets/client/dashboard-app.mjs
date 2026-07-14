@@ -272,6 +272,7 @@ const {
   seenKey,
   readSeenRecords,
   replaceSeenRecords,
+  applyReadingQueueUpdate,
 } = activityController = createActivityController({
   state,
   itemUrl,
@@ -563,6 +564,9 @@ export function createDashboardApp() {
 }
 
 function handleRuntimeMessage(detail) {
+  if (detail?.type === "reading-queue.changed") {
+    applyReadingQueueUpdate(detail.payload?.records, detail.payload?.reopenedKeys);
+  }
   if (detail?.type === "dashboard.updated") {
     if (detail?.payload?.reason === "cache-cleared") invalidateWeather();
     loadDashboard();

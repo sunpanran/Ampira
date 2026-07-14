@@ -12,6 +12,7 @@
 
 - [ ] Load the repository root from `chrome://extensions` with Developer mode enabled.
 - [ ] Confirm there are no manifest or service-worker errors.
+- [ ] On an HTTPS page, click the Ampira toolbar icon; verify the confirmation popup, captured title and host, purple check badge, one local queue entry after repeated clicks, immediate sync in an already-open dashboard, and an amber warning popup plus `!` badge on `chrome://settings`.
 - [ ] Open `chrome://newtab` and complete the three onboarding steps: introduction, bookmark folders, and optional website access.
 - [ ] Confirm the install disclosure and Bookmark permission warning match the listing.
 - [ ] Enable and then remove the optional website-icon permission; verify Chrome favicons appear only while granted and missing icons fall back without console errors.

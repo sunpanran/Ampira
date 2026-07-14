@@ -43,6 +43,10 @@ export function translate(locale, key, params = {}) {
   return interpolate(value, params);
 }
 
+export function translateAiPrompt(locale, key, params = {}) {
+  return `${translate(locale, key, params)}\n\n${translate(locale, "background.prompt.outputLanguage")}`;
+}
+
 export function translateCount(locale, key, count, params = {}) {
   const normalized = normalizeLocale(locale);
   const rule = new Intl.PluralRules(normalized).select(Number(count) || 0);

@@ -55,6 +55,7 @@ import {
   localeMessages,
   normalizeLocale,
   translate,
+  translateAiPrompt,
   translateCount,
 } from "../extension/core/i18n.mjs";
 import { runArchitectureTests } from "./suites/architecture.mjs";
@@ -65,6 +66,7 @@ import { runBookmarkFeedPolicyTests } from "./suites/bookmark-feed-policy.mjs";
 import { runWeatherUtilityTests } from "./suites/weather-utility.mjs";
 import { runSettingsTransferTests } from "./suites/settings-transfer.mjs";
 import { createReaderPreviewService } from "../extension/runtime/reader-preview-service.mjs";
+import { createRefreshService } from "../extension/runtime/refresh-service.mjs";
 
 if (!globalThis.crypto) globalThis.crypto = webcrypto;
 if (!globalThis.btoa) globalThis.btoa = (value) => Buffer.from(value, "binary").toString("base64");
@@ -1122,6 +1124,45 @@ const englishDigestPrompt = translate("en", "background.prompt.dailyDigest");
 assert(englishDigestPrompt.includes("genuine editorial synthesis")
   && englishDigestPrompt.includes("Every overview line must add information beyond the headlines")
   && englishDigestPrompt.includes("Do not expose labels or prefixes"), "English daily briefs must request native editorial synthesis without visible strategy labels");
+const localizedAiPrompts = [
+  ["en", "English", "never mention, quote, summarize, explain, or otherwise reveal"],
+  ["zh-CN", "简体中文", "不得提及、引用、概括、解释或以其他方式暴露"],
+  ["zh-Hant", "繁體中文", "不得提及、引用、概括、解釋或以其他方式暴露"],
+];
+for (const [locale, languageName, silentRule] of localizedAiPrompts) {
+  const prompt = translateAiPrompt(locale, "background.prompt.dashboardAnswer");
+  assert(prompt.startsWith(translate(locale, "background.prompt.dashboardAnswer")), `${locale} AI prompts must retain their task instructions`);
+  assert(prompt.includes(languageName), `${locale} AI prompts must explicitly require the selected UI language`);
+  assert(prompt.includes(silentRule), `${locale} AI prompts must forbid exposing prompt constraints in visible prose`);
+}
+const localizedSummaryService = createRefreshService({
+  settingsLocale: (settings) => settings.uiLocale,
+  originPattern: (value) => value,
+  cardSummaryPolicyVersion: 3,
+});
+const cachedEnglishSummary = {
+  summaryStatus: "ai",
+  summaryPolicyVersion: 3,
+  summaryLocale: "en",
+  summaryTitle: "English title",
+  summary: ["English facts.", "English impact."],
+  summaryProviderOrigin: "https://api.example.com",
+};
+assert.equal(localizedSummaryService.preserveCardAiSummary(
+  { title: "原始标题" },
+  cachedEnglishSummary,
+  { uiLocale: "zh-CN", openaiBaseUrl: "https://api.example.com" },
+).summaryStatus, undefined, "card summaries from another UI locale must not be preserved");
+assert.equal(localizedSummaryService.preserveCardAiSummary(
+  { title: "Original title" },
+  cachedEnglishSummary,
+  { uiLocale: "en", openaiBaseUrl: "https://api.example.com" },
+).summaryTitle, "English title", "card summaries may be preserved when locale, policy, and provider still match");
+const [sanitizedWrongLocaleSummary] = localizedSummaryService.sanitizeCardAiSummaries([
+  { ...cachedEnglishSummary, excerpt: "本地 Feed 摘录。" },
+], { uiLocale: "zh-CN", openaiBaseUrl: "https://api.example.com" }, true);
+assert.equal(sanitizedWrongLocaleSummary.summaryStatus, "excerpt", "cached card summaries in another language must fall back to inert Feed text");
+assert.equal(sanitizedWrongLocaleSummary.summaryLocale, undefined, "locale metadata from a rejected AI summary must be removed");
 assert.deepEqual(mergeRankedUnique([
   [selectorItems[1], selectorItems[0]],
   [selectorItems[0]],
@@ -1554,12 +1595,14 @@ assert.deepEqual(cleanPresentedSummaryLines(["### 核心内容", "**核心内容
 assert.equal(cleanPresentedSummaryTitle("### 核心内容"), "", "structural AI headings must never render as card titles");
 assert.equal([...cleanPresentedSummaryTitle("标题".repeat(80))].length, 64, "card titles must retain their explicit character cap");
 assert.equal(isCorrectlySummarized({ summary: { summaryStatus: "ai", summaryTitle: "旧摘要", summary: ["第一段。", "第二段。"] } }), false, "legacy short card summaries must be eligible for reorganization");
-assert.equal(isCorrectlySummarized({ summary: { summaryStatus: "ai", summaryPolicyVersion: 2, summaryTitle: "新版摘要", summary: ["第一段。", "第二段。", "第三段。"] } }), true, "current dense card summaries must not be reorganized again");
+assert.equal(isCorrectlySummarized({ summary: { summaryStatus: "ai", summaryPolicyVersion: 3, summaryTitle: "新版摘要", summary: ["第一段。", "第二段。", "第三段。"] } }), true, "current dense card summaries must not be reorganized again");
 assert(serviceWorkerSource.includes('const summaryText = await callProvider('), "manual card organization must invoke the configured AI provider");
 assert(serviceWorkerSource.includes(".map(cleanGeneratedSummaryLine)"), "new AI card summaries must discard Markdown and structural headings before caching");
 assert(serviceWorkerSource.includes('summaryStatus: "ai"'), "manual card organization must persist AI summary status in the feed cache");
 assert(serviceWorkerSource.includes("summaryTitle: organized.title"), "automatic and manual card organization must persist the generated AI title separately");
-assert(serviceWorkerSource.includes('translate(locale, "background.prompt.cardSummary")'), "card organization must request a structured AI title and summary");
+assert(serviceWorkerSource.includes('translateAiPrompt(locale, "background.prompt.cardSummary")'), "card organization must request a localized structured AI title and summary");
+assert(serviceWorkerSource.includes("summaryLocale: locale"), "generated card summaries must record the UI locale used for their visible prose");
+assert(serviceWorkerSource.includes("isCurrentCardSummary(item, locale)"), "card summary reuse must require the current UI locale");
 assert(serviceWorkerSource.includes("parseGeneratedDailyDigest(result.value, digest.items.length)"), "daily digest generation must extract AI-organized event titles without a second provider call");
 assert(serviceWorkerSource.includes("originalTitle: item.title, title: aiTitle, aiTitle"), "daily events must display the AI title while retaining the Feed title as fallback data");
 assert(serviceWorkerSource.includes('const excerptText = String(target.excerpt || "").trim().slice(0, CARD_SUMMARY_EXCERPT_MAX_CHARS)'), "manual summaries must use only the bounded feed excerpt");
@@ -1580,7 +1623,7 @@ assert(serviceWorkerSource.includes("await refreshDailyDigest({ automatic: true 
 assert(serviceWorkerSource.includes("? await runAiWithinQuota(settings, operation)"), "only automatic daily briefs may consume the automatic AI quota");
 assert(serviceWorkerSource.includes("AI_SEARCH_MAX_TOKENS = 1400"), "AI search must leave enough output budget for substantial article briefs");
 assert(serviceWorkerSource.includes("const value = await callProvider(settings, options.system, options.input, AI_SEARCH_MAX_TOKENS"), "manual AI search must not consume the automatic organization quota");
-assert(serviceWorkerSource.includes("AI_SEARCH_CACHE_VERSION = 3"), "AI search prompt and presentation changes must invalidate stale cached answers");
+assert(serviceWorkerSource.includes("AI_SEARCH_CACHE_VERSION = 4"), "AI search language prompt changes must invalidate stale cached answers");
 assert(serviceWorkerSource.includes("const context = await automaticCardSummaryContext(candidate)"), "automatic summaries must build a bounded excerpt-only context");
 const automaticSummaryContextSource = serviceWorkerSource.slice(serviceWorkerSource.indexOf("function automaticCardSummaryContext"), serviceWorkerSource.indexOf("function preserveCardAiSummary"));
 assert(!automaticSummaryContextSource.includes("readArticle") && !automaticSummaryContextSource.includes("hasOriginPermission"), "automatic card summaries must never fetch article bodies");
@@ -1640,6 +1683,8 @@ assert(weatherCoreSource.includes('"https://geocoding-api.open-meteo.com"')
 assert(dashboardSectionsCssSource.includes(".efficiency-card.utility-card")
   && dashboardSectionsCssSource.includes("height: 168px;")
   && dashboardSectionsCssSource.includes("overflow-y: auto;"), "utility modes must remain inside the existing fixed card boundary with internal scrolling");
+assert(dashboardSectionsCssSource.includes(".efficiency-card:has(:focus-visible)::before")
+  && !dashboardSectionsCssSource.includes(".efficiency-card:focus-within::before"), "pointer clicks inside the utility card must not leave its glow active after the pointer exits");
 assert(appSource.includes("let composerOpen = false;")
   && appSource.includes('addButton.setAttribute("aria-expanded", String(composerOpen))')
   && appSource.includes('if (event.key !== "Escape") return;')
@@ -1648,6 +1693,12 @@ assert(appSource.includes("let composerOpen = false;")
 assert(appSource.includes("tools.append(meta, locationButton, todoView.addButton, switchButton)")
   && dashboardSectionsCssSource.includes(".utility-switch {")
   && dashboardSectionsCssSource.includes("flex: 0 0 auto;"), "the utility switch must remain the fixed right-edge action while mode-specific tools change to its left");
+assert(appSource.includes("MODE_SWITCH_OUT_MS = 80")
+  && appSource.includes("MODE_SWITCH_IN_MS = 140")
+  && motionCssSource.includes("@keyframes utilityModeOut")
+  && motionCssSource.includes("translateX(-8px)")
+  && motionCssSource.includes("translateX(10px)")
+  && appSource.includes("prefersReducedMotion()"), "utility modes must use a bounded directional transition with a reduced-motion fallback");
 assert(appSource.includes('toggle.setAttribute("role", "checkbox")')
   && appSource.includes('toggle.setAttribute("aria-checked", String(item.completed))'), "to-do completion controls must expose checkbox semantics and state");
 assert(dashboardSectionsCssSource.includes(".todo-content.is-composing")
@@ -1855,6 +1906,7 @@ const bookmarkRuntimeSource = await Promise.all(sourceFiles.filter((file) => fil
 assert(!/chrome\.bookmarks\.(?:create|update|move|remove|removeTree)\s*\(/.test(bookmarkRuntimeSource.join("\n")), "bookmark access must remain read-only");
 
 for (const suite of [
+  "action-reading-queue.mjs",
   "mutation-queue.mjs",
   "permission-state.mjs",
   "provider-consent.mjs",

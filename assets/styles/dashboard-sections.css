@@ -91,6 +91,10 @@
   text-shadow: 0 1px 2px var(--bg), 0 0 20px var(--bg);
 }
 
+.has-fullscreen-header-cover .today-meta {
+  text-shadow: none;
+}
+
 .daily-shell,
 .daily-primary,
 .efficiency-panel,
@@ -421,13 +425,13 @@
 .nav-btn:hover::before,
 .nav-btn.active:hover::before,
 .efficiency-card:hover::before,
-.efficiency-card:focus-within::before,
+.efficiency-card:has(:focus-visible)::before,
 .board-column:hover::before,
-.board-column:focus-within::before,
+.board-column:has(:focus-visible)::before,
 .summary-card:hover::before,
 .summary-card:focus-visible::before,
 .category:hover::before,
-.category:focus-within::before,
+.category:has(:focus-visible)::before,
 .daily-card:hover::before,
 .daily-card:focus-visible::before,
 .news-list-card:hover::before,
@@ -437,7 +441,7 @@
 .link-row:hover::before,
 .link-row:focus-visible::before,
 .website-shortcuts:hover::before,
-.website-shortcuts:focus-within::before,
+.website-shortcuts:has(:focus-visible)::before,
 .website-shortcut:hover::before,
 .website-shortcut:focus-visible::before {
   opacity: 1;
@@ -599,6 +603,7 @@
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 6px;
+  padding: 2px;
 }
 
 .utility-entry-input {

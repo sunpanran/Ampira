@@ -20,6 +20,22 @@
   animation: todoComposerIn 160ms cubic-bezier(.22, .8, .3, 1) both;
 }
 
+.utility-card-body.is-utility-mode-leaving {
+  animation: utilityModeOut 80ms cubic-bezier(.4, 0, 1, 1) both;
+}
+
+.utility-card-body.is-utility-mode-entering {
+  animation: utilityModeIn 140ms cubic-bezier(.22, .8, .3, 1) both;
+}
+
+.is-utility-header-leaving {
+  animation: utilityHeaderOut 70ms ease-in both;
+}
+
+.is-utility-header-entering {
+  animation: utilityHeaderIn 120ms cubic-bezier(.22, .8, .3, 1) both;
+}
+
 .efficiency-skeleton {
   min-height: 168px;
 }
@@ -73,6 +89,26 @@
 
 @keyframes todoComposerIn {
   from { opacity: 0; transform: translateY(-3px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes utilityModeOut {
+  from { opacity: 1; transform: translateX(0); }
+  to { opacity: 0; transform: translateX(-8px); }
+}
+
+@keyframes utilityModeIn {
+  from { opacity: 0; transform: translateX(10px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes utilityHeaderOut {
+  from { opacity: 1; transform: translateY(0); }
+  to { opacity: 0; transform: translateY(-3px); }
+}
+
+@keyframes utilityHeaderIn {
+  from { opacity: .35; transform: translateY(3px); }
   to { opacity: 1; transform: translateY(0); }
 }
 

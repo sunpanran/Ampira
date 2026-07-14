@@ -23,7 +23,7 @@
   <ul>
     <li>使用者選擇的書籤標題、網址與資料夾結構。</li>
     <li>使用者授權來源的公開 Feed、網頁標題、摘要、正文，以及靈感頁封面中繼資料與圖片網址。</li>
-    <li>介面設定、閱讀佇列、封存、來源偏好、快取與搜尋問題。</li>
+    <li>介面設定、閱讀佇列、封存、來源偏好、快取與搜尋問題；使用者點擊工具列圖示時明確加入的目前頁面標題與網址會保存在閱讀佇列中。</li>
     <li>使用者輸入的待辦事項，以及手動選擇的天氣城市、行政區、國家和座標。</li>
     <li>使用者自願設定的 AI 或圖片搜尋 API 金鑰。</li>
   </ul>
@@ -38,7 +38,7 @@
   <p>使用者啟用 Brave 圖片搜尋後，生成的圖片查詢與對應 API 金鑰會直接傳送給 Brave Search API，金鑰用於驗證請求。以上第三方傳輸均使用 HTTPS；HTTP 僅允許連接使用者設定的本機 localhost 服務。</p>
   <p>使用者在天氣卡片提交城市後，Ampira 才會申請 Open-Meteo 的<a href="https://open-meteo.com/en/docs/geocoding-api">地理編碼 API</a>和<a href="https://open-meteo.com/en/docs">天氣預報 API</a>來源權限。符合中國縣級以上行政區的查詢會優先由擴充功能內建的 GeoNames 衍生索引在本機解析，不會為搜尋傳出；其他城市查詢才會直接傳送給 Open-Meteo 地理編碼 API。使用者明確選擇候選城市後，該城市的經緯度會直接傳送給預報 API。Ampira 不使用瀏覽器定位，開發者無法存取這些查詢、座標或天氣結果。中國地點候選依 <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a> 署名 GeoNames，天氣資料依 Open-Meteo 的<a href="https://open-meteo.com/en/terms">條款與授權</a>署名使用。</p>
   <h2>權限</h2>
-  <p><strong>bookmarks</strong> 用於唯讀整理書籤；Ampira 不會呼叫書籤寫入介面。<strong>storage</strong> 用於本機設定與快取。<strong>alarms</strong> 用於每 15 分鐘檢查到期來源。選用的 <strong>favicon</strong> 權限只在使用者點擊啟用後申請，透過 Chrome 內建介面為 Ampira 已顯示的書籤與頁面網址提供網站圖示；它不會授予瀏覽記錄或分頁存取權，這些網址也不會傳送給第三方圖示服務。網站來源權限同樣只在使用者點擊授權時依特定網域申請。天氣只在使用者提交城市時申請 <code>https://geocoding-api.open-meteo.com/*</code> 與 <code>https://api.open-meteo.com/*</code> 兩個精確來源，可在「設定 → 瀏覽器」中分別撤銷；撤銷後停止請求並刪除天氣快取，但保留本機城市選擇。</p>
+  <p><strong>activeTab</strong> 只在使用者點擊 Ampira 工具列圖示時暫時讀取目前分頁的標題與網址，用於加入本機閱讀佇列；它不會持續監控分頁、讀取完整瀏覽記錄或頁面正文，也不會把該標題與網址傳送給開發者或第三方。<strong>bookmarks</strong> 用於唯讀整理書籤；Ampira 不會呼叫書籤寫入介面。<strong>storage</strong> 用於本機設定與快取。<strong>alarms</strong> 用於每 15 分鐘檢查到期來源。選用的 <strong>favicon</strong> 權限只在使用者點擊啟用後申請，透過 Chrome 內建介面為 Ampira 已顯示的書籤與頁面網址提供網站圖示；它不會授予瀏覽記錄或持續分頁存取權，這些網址也不會傳送給第三方圖示服務。網站來源權限同樣只在使用者點擊授權時依特定網域申請。天氣只在使用者提交城市時申請 <code>https://geocoding-api.open-meteo.com/*</code> 與 <code>https://api.open-meteo.com/*</code> 兩個精確來源，可在「設定 → 瀏覽器」中分別撤銷；撤銷後停止請求並刪除天氣快取，但保留本機城市選擇。</p>
   <h2>分享、出售與保留</h2>
   <p>Ampira 不出售、分享或將資料用於廣告定位。資訊快取最多保留 30 天並限制為約 25MB；天氣快取在 30 分鐘內直接重用，重新整理失敗時最多回退至 6 小時內的資料。使用者可隨時清除快取。解除安裝擴充功能會清除擴充功能本機資料，Chrome Sync 中的設定依 Chrome 的同步規則處理。</p>
   <h2>Chrome Web Store Limited Use</h2>
