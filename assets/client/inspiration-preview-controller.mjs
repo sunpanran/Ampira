@@ -2,6 +2,9 @@ export function createSitePreviewController(options) {
   const cache = new Map();
   const pending = new Map();
   const pendingImages = new Map();
+  const retryTimers = new Map();
+  const retryAttempts = new Map();
+  const retryDelaysMs = normalizeRetryDelays(options.retryDelaysMs);
   let generation = 0;
 
   return { get, request, preload, reject, invalidate, fingerprint };
@@ -36,9 +39,12 @@ export function createSitePreviewController(options) {
 
   function invalidate() {
     generation += 1;
+    for (const timer of retryTimers.values()) clearTimeout(timer);
     cache.clear();
     pending.clear();
     pendingImages.clear();
+    retryTimers.clear();
+    retryAttempts.clear();
   }
 
   async function preload(items, preloadOptions = {}) {
@@ -89,6 +95,7 @@ export function createSitePreviewController(options) {
     if (!key || (mode === "prefer-origin" && cache.has(key))) return Promise.resolve(cache.get(key) || null);
     const pendingKey = mode === "brave-only" ? `${key}|brave-only` : key;
     if (pending.has(pendingKey)) return pending.get(pendingKey);
+    cancelRetryTimer(pendingKey);
     const requestGeneration = generation;
     const operation = Promise.resolve()
       .then(() => options.apiGet(`/api/site-preview?url=${encodeURIComponent(item.url)}&title=${encodeURIComponent(item.title || "")}&mode=${mode}`))
@@ -101,12 +108,23 @@ export function createSitePreviewController(options) {
                 .map((value) => String(value || "").trim()).filter(Boolean))],
             }
           : {};
+        if (!normalized.imageUrl && isTransientPreviewFailure(normalized)) {
+          scheduleRetry(item, key, pendingKey, mode, requestGeneration);
+          return normalized;
+        }
         cache.set(key, normalized);
+        clearRetryState(pendingKey);
         if (normalized.imageUrl) options.onImage(item, normalized.imageUrl, key);
         return normalized;
       })
-      .catch(() => {
-        if (isCurrent(item, key, requestGeneration)) cache.set(key, { imageUrl: "" });
+      .catch((error) => {
+        if (!isCurrent(item, key, requestGeneration)) return null;
+        if (error?.retryable !== false) {
+          scheduleRetry(item, key, pendingKey, mode, requestGeneration);
+        } else {
+          cache.set(key, { imageUrl: "", imageUrls: [] });
+          clearRetryState(pendingKey);
+        }
         return null;
       })
       .finally(() => {
@@ -116,9 +134,50 @@ export function createSitePreviewController(options) {
     return operation;
   }
 
+  function scheduleRetry(item, key, pendingKey, mode, requestGeneration) {
+    if (retryTimers.has(pendingKey)) return;
+    const attempt = retryAttempts.get(pendingKey) || 0;
+    if (attempt >= retryDelaysMs.length) return;
+    retryAttempts.set(pendingKey, attempt + 1);
+    const timer = setTimeout(() => {
+      if (retryTimers.get(pendingKey) !== timer) return;
+      retryTimers.delete(pendingKey);
+      if (!isCurrent(item, key, requestGeneration)) {
+        retryAttempts.delete(pendingKey);
+        return;
+      }
+      request(item, { mode }).catch(() => {});
+    }, retryDelaysMs[attempt]);
+    retryTimers.set(pendingKey, timer);
+  }
+
+  function cancelRetryTimer(pendingKey) {
+    const timer = retryTimers.get(pendingKey);
+    if (timer === undefined) return;
+    clearTimeout(timer);
+    retryTimers.delete(pendingKey);
+  }
+
+  function clearRetryState(pendingKey) {
+    cancelRetryTimer(pendingKey);
+    retryAttempts.delete(pendingKey);
+  }
+
   function isCurrent(item, key, requestGeneration) {
     return requestGeneration === generation && options.isEnabled() && options.isCurrent(item, key);
   }
+}
+
+function normalizeRetryDelays(value) {
+  const delays = value === undefined ? [750, 2000] : value;
+  return (Array.isArray(delays) ? delays : [])
+    .map((delay) => Number(delay))
+    .filter((delay) => Number.isFinite(delay) && delay >= 0);
+}
+
+function isTransientPreviewFailure(preview) {
+  if (preview?.retryable === false) return false;
+  return preview?.retryable === true || preview?.originalStatus === "error";
 }
 
 export function sitePreviewFingerprint(item, normalizeUrl = (value) => String(value || "").trim()) {

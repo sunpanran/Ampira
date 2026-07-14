@@ -34,7 +34,8 @@ export async function runArchitectureTests(root) {
     assert(elementsSource.includes(`${group}: pick(elements,`), `elements must expose the ${group} group`);
   }
   assert(dashboardAppSource.includes("getElementGroups()") && !dashboardAppSource.includes("getElements()"), "dashboard assembly must use scoped element groups");
-  assert(extensionRuntimeSource.includes('"reading-queue:capture-current": (payload) => handleActionClicked(payload.tab || {})'), "the toolbar popup must reuse the atomic reading-queue capture service");
+  assert(extensionRuntimeSource.includes("chrome.action.onClicked.addListener(handleActionClicked)"), "the toolbar action must open Ampira without activeTab or tabs permission");
+  assert(extensionRuntimeSource.includes('chrome.tabs.create({ url: chrome.runtime.getURL("dashboard.html") })'), "the toolbar action must open only the packaged dashboard");
   for (const leakedBinding of ["NEWS_CARD_TYPE", "LEGACY_NEWS_SECTION", "LEGACY_INSPIRATION_SECTION"]) {
     assert(!sourceSettingsSource.includes(leakedBinding), `source settings must receive ${leakedBinding} through explicit dependencies`);
   }
@@ -100,6 +101,7 @@ export async function runArchitectureTests(root) {
   });
   const settings = await settingsService.getSettings();
   assert.equal(settings.newsBookmarkFolder, "News");
+  assert.equal(settings.newsSourceMode, "public");
   assert.equal(settings.credentialGeneration, 2);
 
   const records = new Map();
@@ -153,7 +155,7 @@ export async function runArchitectureTests(root) {
   for (const method of [
     "ensureReady", "handleMessage", "refresh", "handleAlarm",
     "handleBookmarksChanged", "handlePermissionsAdded", "handlePermissionsRemoved",
-    "handleActionClicked", "handleTabUpdated", "start",
+    "handleActionClicked", "start",
   ]) assert.equal(typeof runtime[method], "function", `runtime must expose ${method}`);
   await assert.rejects(
     runtime.handleMessage({ type: "feed:refresh-source", payload: {} }),

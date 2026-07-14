@@ -10,13 +10,15 @@ export function createEfficiencyView(options) {
     allTranslations, createBookmarkFavicon, displayBookmarkTitle,
     findNewsItemByReference, hostFromUrl, isNewsCard, openExternal,
     readingQueueOpenOnReadAll, renderDaily, renderOverviewStatus, renderSummaries, selectDailyEvents,
-    openAiSettings, getLocale, writeJson, writeValue, requestWeatherPermissions,
+    openAiSettings, getLocale, writeJson, writeValue, requestWeatherPermissions, attachLinkContextMenu,
   } = options;
   const utilityCardView = createUtilityCardView({
     state, t, tc, getLocale, apiPost, createEmptyState, createIcon,
     createEventsContent: createDailyEventsContent, writeJson, writeValue,
     requestWeatherPermissions, localizedErrorMessage,
   });
+  let eventTitleReveal = null;
+  let activeEventTitle = null;
   return { renderEfficiencyPanel, refreshDailyDigest, invalidateWeather: utilityCardView.invalidateWeather };
 function dailyDigestStatusLabel(digest, ai) {
   if (ai?.enabled !== true) return t("digest.status.noService");
@@ -232,7 +234,7 @@ function createQueuePanelCard(items) {
 
 function createDailyEventsContent(items) {
   const list = document.createElement("div");
-  list.className = "efficiency-list utility-scroll-list";
+  list.className = "efficiency-list utility-scroll-list events-list";
   if (!items.length) {
     list.append(createEmptyState({
       title: t("events.empty.title"),
@@ -271,6 +273,7 @@ function createQueuePanelRow(item) {
   row.type = "button";
   row.title = itemUrl(item);
   row.addEventListener("click", () => openDailyItem(item));
+  attachLinkContextMenu(row, () => ({ url: itemUrl(item), item, canExplain: true }));
   const main = document.createElement("span");
   main.className = "efficiency-row-main";
   const title = document.createElement("span");
@@ -288,18 +291,22 @@ function createDailyEventPanelRow(item) {
   const row = document.createElement("button");
   row.className = "efficiency-row topic-row";
   row.type = "button";
-  row.title = item.url || "";
   row.addEventListener("click", () => openDigestItem(item));
   const main = document.createElement("span");
   main.className = "efficiency-row-main";
   const title = document.createElement("span");
   title.className = "efficiency-row-title";
   title.textContent = item.title || item.source || t("digest.importantNews");
+  attachEventTitleReveal(row, title);
   const meta = document.createElement("span");
   meta.className = "efficiency-row-meta";
+  const confirmationLabel = item.eventConfidence === "high-confidence-single"
+    ? t("events.singlePending")
+    : tc("unit.sources", Number(item.sourceCount || 1));
+  if (item.eventConfidence === "high-confidence-single") row.classList.add("is-unconfirmed");
   meta.textContent = [
     item.publisher || item.source || item.host || "",
-    tc("unit.sources", Number(item.sourceCount || 1)),
+    confirmationLabel,
   ].filter(Boolean).join(" · ");
   main.append(title, meta);
   const badge = document.createElement("span");
@@ -307,6 +314,52 @@ function createDailyEventPanelRow(item) {
   badge.textContent = String(Math.round(Number(item.importanceScore || 0)));
   row.append(main, badge);
   return row;
+}
+
+function attachEventTitleReveal(row, title) {
+  const show = (event) => {
+    if (event?.pointerType === "touch" || title.scrollWidth <= title.clientWidth + 1) return;
+    const rect = title.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+    if (!eventTitleReveal?.isConnected) {
+      eventTitleReveal = document.createElement("div");
+      eventTitleReveal.className = "news-title-reveal";
+      eventTitleReveal.setAttribute("aria-hidden", "true");
+      document.body.append(eventTitleReveal);
+      window.addEventListener("scroll", hideEventTitleReveal, { capture: true, passive: true });
+      window.addEventListener("resize", hideEventTitleReveal, { passive: true });
+    }
+    const inset = 8;
+    const viewportWidth = document.documentElement.clientWidth || window.innerWidth;
+    const width = Math.min(Math.max(rect.width + 12, Math.min(320, viewportWidth - inset * 2)), 480, viewportWidth - inset * 2);
+    eventTitleReveal.textContent = title.textContent;
+    eventTitleReveal.style.width = `${width}px`;
+    eventTitleReveal.style.left = `${Math.min(Math.max(rect.left - 6, inset), viewportWidth - width - inset)}px`;
+    eventTitleReveal.style.top = `${Math.max(inset, rect.top - 5)}px`;
+    eventTitleReveal.classList.remove("is-visible", "is-above");
+    const revealHeight = eventTitleReveal.offsetHeight;
+    const viewportHeight = document.documentElement.clientHeight || window.innerHeight;
+    const opensAbove = rect.top - 5 + revealHeight > viewportHeight - inset;
+    eventTitleReveal.style.top = `${opensAbove ? Math.max(inset, rect.bottom + 5 - revealHeight) : Math.max(inset, rect.top - 5)}px`;
+    eventTitleReveal.classList.toggle("is-above", opensAbove);
+    activeEventTitle = title;
+    void eventTitleReveal.offsetWidth;
+    eventTitleReveal.classList.add("is-visible");
+  };
+  const hide = () => {
+    if (activeEventTitle !== title) return;
+    activeEventTitle = null;
+    eventTitleReveal?.classList.remove("is-visible");
+  };
+  title.addEventListener("pointerenter", show);
+  title.addEventListener("pointerleave", hide);
+  row.addEventListener("focus", show);
+  row.addEventListener("blur", hide);
+}
+
+function hideEventTitleReveal() {
+  activeEventTitle = null;
+  eventTitleReveal?.classList.remove("is-visible");
 }
 
 async function refreshDailyDigest(event) {

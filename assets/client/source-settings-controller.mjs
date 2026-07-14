@@ -290,8 +290,7 @@ function createSourceSuggestionRow(suggestion) {
   title.textContent = suggestion.title || suggestion.host || t("exclusion.unnamedSource");
   const meta = document.createElement("div");
   meta.className = "source-suggestion-meta";
-  const checks = Number(suggestion.checks || 0);
-  meta.textContent = [localizedSourceLabel(suggestion.label, suggestion.labelKey), localizedSourceReason(suggestion.reason, suggestion.reasonKey), checks ? t("exclusion.recentChecks", { count: checks }) : ""].filter(Boolean).join(" · ");
+  meta.textContent = [localizedSourceLabel(suggestion.label, suggestion.labelKey), localizedSourceReason(suggestion.reason, suggestion.reasonKey)].filter(Boolean).join(" · ");
   main.append(title, meta);
   const action = document.createElement("button");
   action.className = "btn";
@@ -339,7 +338,6 @@ function sourceSuggestionDraft(suggestion = {}) {
     title: suggestion.title || suggestion.host || value || t("exclusion.unnamedSource"),
     reasonKey: "exclusion.reason.suggestion",
     reasonDetail,
-    streak: Number(suggestion.consecutiveFailures || 0),
   };
 }
 
@@ -353,11 +351,8 @@ function createExclusionRow(item, index) {
   title.textContent = item.title || folderDisplayName(item) || item.host || item.value || t("exclusion.unnamedSource");
   const meta = document.createElement("div");
   meta.className = "exclude-meta";
-  const added = item.addedAt ? formatDateTime(item.addedAt) : t("exclusion.timeUnknown");
-  const streak = Number(item.streak || 0);
-  const streakText = streak > 0 ? t("exclusion.streak", { count: streak }) : "";
   const targetText = item.type === "folder" ? t("exclusion.folderTarget", { name: folderDisplayName(item) }) : (item.host || item.value || "-");
-  meta.textContent = t("exclusion.meta", { target: targetText, streak: streakText, added });
+  meta.textContent = targetText;
   const reason = document.createElement("div");
   reason.className = "exclude-reason";
   reason.textContent = localizedExclusionReason(item);

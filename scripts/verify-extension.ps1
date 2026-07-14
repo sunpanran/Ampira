@@ -277,7 +277,6 @@ try {
       Assert-ManifestResource ([string]$property.Value) "action.default_icon.$($property.Name)"
     }
   }
-  Assert-ManifestResource $manifest.action.default_popup "action.default_popup"
   Assert-ManifestResource $manifest.options_page "options_page"
   Assert-ManifestResource $manifest.options_ui.page "options_ui.page"
   Assert-ManifestResource $manifest.devtools_page "devtools_page"

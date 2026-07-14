@@ -10,6 +10,7 @@ export function createReaderController(context) {
     els,
     t,
     apiGet,
+    apiPost,
     markOpenedItem,
     renderEfficiencyPanel,
     syncNavToCurrentSection,
@@ -20,6 +21,7 @@ export function createReaderController(context) {
   } = context;
   let readerRequestGeneration = 0;
   let readerCloseTimer = 0;
+  let readerTranslation = null;
 
   function openExternal(url, title = "", item = null) {
     markReadOnOpen(item);
@@ -64,6 +66,8 @@ export function createReaderController(context) {
     state.webFrameUrl = parsed.href;
     state.webFrameItem = item;
     state.webFrameResult = null;
+    readerTranslation = null;
+    syncReaderTranslateButton();
     syncReaderBackButton();
     els.webFrameFavicon.src = faviconUrl({ url: parsed.href, host: parsed.hostname.replace(/^www\./, "") });
     els.webFrameTitle.textContent = title || parsed.hostname.replace(/^www\./, "") || t("webFrame.page");
@@ -83,11 +87,12 @@ export function createReaderController(context) {
     }
   }
 
-  function renderReaderResult(result, fallbackTitle = "", item = null, scrollTop = 0) {
+  function renderReaderResult(result, fallbackTitle = "", item = null, scrollTop = 0, options = {}) {
     const currentUrl = result.url || result.requestedUrl || state.webFrameUrl;
     state.webFrameUrl = currentUrl;
     state.webFrameItem = item;
     state.webFrameResult = result;
+    if (!options.preserveTranslation) readerTranslation = null;
     els.webFrameTitle.textContent = result.title || fallbackTitle || hostFromUrl(currentUrl) || t("webFrame.page");
     els.webFrameUrl.textContent = currentUrl;
     els.webFrameFavicon.src = faviconUrl({ url: currentUrl, host: hostFromUrl(currentUrl) });
@@ -113,6 +118,7 @@ export function createReaderController(context) {
     if (item) markOpenedItem(item);
     renderEfficiencyPanel();
     syncReaderBackButton();
+    syncReaderTranslateButton();
     startFloatingReadTracking();
   }
 
@@ -370,6 +376,66 @@ export function createReaderController(context) {
     els.backWebFrame.disabled = !state.webFrameHistory.length;
   }
 
+  function syncReaderTranslateButton() {
+    const available = state.data?.ai?.enabled === true && Boolean(state.webFrameResult);
+    els.translateWebFrame.hidden = !available;
+    els.translateWebFrame.disabled = false;
+    els.translateWebFrame.textContent = t(readerTranslation?.showing ? "reader.showOriginal" : "reader.translate");
+  }
+
+  async function toggleReaderTranslation() {
+    if (readerTranslation?.showing) {
+      const saved = readerTranslation;
+      renderReaderResult(saved.original, "", state.webFrameItem, els.webFrame.scrollTop, { preserveTranslation: true });
+      readerTranslation = { ...saved, showing: false };
+      syncReaderTranslateButton();
+      return;
+    }
+    if (readerTranslation?.translated) {
+      const saved = readerTranslation;
+      renderTranslatedReader(saved.translated, saved.original);
+      readerTranslation = { ...saved, showing: true };
+      syncReaderTranslateButton();
+      return;
+    }
+    const original = state.webFrameResult;
+    if (!original) return;
+    els.translateWebFrame.disabled = true;
+    els.translateWebFrame.textContent = t("reader.translating");
+    try {
+      const text = readerPlainText(original);
+      const translated = await apiPost("/api/reader/translate", {
+        url: original.url || state.webFrameUrl,
+        title: original.title || "",
+        text,
+      });
+      readerTranslation = { original, translated, showing: true };
+      renderTranslatedReader(translated, original);
+    } catch (error) {
+      els.translateWebFrame.textContent = localizedErrorMessage(error);
+      window.setTimeout(syncReaderTranslateButton, 2200);
+    } finally {
+      els.translateWebFrame.disabled = false;
+    }
+  }
+
+  function readerPlainText(result) {
+    return (result.blocks || []).map((block) => {
+      if (block.type === "list") return (block.items || []).map((runs) => (runs || []).map((run) => run?.text || "").join("")).join("\n");
+      if (block.runs) return block.runs.map((run) => run?.text || "").join("");
+      return block.text || block.caption || "";
+    }).filter(Boolean).join("\n\n");
+  }
+
+  function renderTranslatedReader(translated, original) {
+    const result = {
+      ...original,
+      title: translated.title || original.title,
+      blocks: String(translated.text || "").split(/\n{2,}/).filter(Boolean).map((text) => ({ type: "paragraph", runs: [{ text }] })),
+    };
+    renderReaderResult(result, "", state.webFrameItem, 0, { preserveTranslation: true });
+  }
+
   function closeFloatingWeb() {
     if (!els.webFrameOverlay.classList.contains("open") || els.webFrameOverlay.classList.contains("closing")) return;
     readerRequestGeneration += 1;
@@ -391,6 +457,7 @@ export function createReaderController(context) {
     state.webFrameUrl = "";
     state.webFrameItem = null;
     state.webFrameResult = null;
+    readerTranslation = null;
     state.webFrameHistory = [];
     syncReaderBackButton();
     syncNavToCurrentSection();
@@ -439,5 +506,6 @@ export function createReaderController(context) {
     openExternal,
     openExternalWindow,
     reloadFloatingWeb,
+    toggleReaderTranslation,
   };
 }

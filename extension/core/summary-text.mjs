@@ -1,4 +1,4 @@
-export const CARD_SUMMARY_POLICY_VERSION = 3;
+export const CARD_SUMMARY_POLICY_VERSION = 4;
 
 const STRUCTURAL_HEADING = /^(?:总结|摘要|核心内容|核心事实|实际影响|后续关注|信息边界|重点|重要性|为何重要|行动建议|總結|核心內容|核心事實|實際影響|後續關注|資訊邊界|重點|為何重要|行動建議|summary|core content|core facts?|practical impact|what to watch|information boundar(?:y|ies)|key points?|why it matters|importance|suggested next actions?|next actions?)\s*[:：]?$/i;
 const STRUCTURAL_PREFIX = /^(?:总结|摘要|核心内容|核心事实|实际影响|后续关注|信息边界|重点|重要性|为何重要|行动建议|總結|核心內容|核心事實|實際影響|後續關注|資訊邊界|重點|為何重要|行動建議|summary|core content|core facts?|practical impact|what to watch|information boundar(?:y|ies)|key points?|why it matters|importance|suggested next actions?|next actions?)\s*[:：]/i;

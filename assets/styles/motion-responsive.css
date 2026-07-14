@@ -413,14 +413,15 @@
   }
 
   .board-column.is-inspiration .card-list:not(.is-empty) {
-    grid-template-rows: repeat(5, minmax(0, 1fr));
-    overflow: hidden;
-    padding-right: 0;
+    grid-template-rows: repeat(5, var(--inspiration-card-h));
+    overflow: auto;
+    padding-right: 3px;
   }
 
   .board-column.is-inspiration .daily-card,
   .board-column.is-inspiration .daily-card.has-inspiration-thumb {
-    min-height: 0;
+    height: var(--inspiration-card-h);
+    min-height: var(--inspiration-card-h);
   }
 
   .summary-grid {
@@ -805,6 +806,16 @@
     justify-content: center;
     text-align: center;
     scroll-snap-align: start;
+  }
+
+  .saved-source-permission-prompt {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .saved-source-permission-actions {
+    grid-column: 2;
+    justify-content: flex-start;
+    flex-wrap: wrap;
   }
 
   .settings-tab-copy small {

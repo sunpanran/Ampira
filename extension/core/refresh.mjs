@@ -4,14 +4,17 @@ export function selectRefreshSources(sources, limit = DEFAULT_REFRESH_SOURCE_LIM
   return selectRefreshBatch(sources, 0, limit).sources;
 }
 
-export function selectRefreshBatch(sources, cursor = 0, limit = DEFAULT_REFRESH_SOURCE_LIMIT) {
+export function selectRefreshBatch(sources, cursor = 0, limit = DEFAULT_REFRESH_SOURCE_LIMIT, options = {}) {
   const list = Array.isArray(sources) ? sources : [];
   const safeLimit = Math.max(0, Math.floor(Number(limit) || 0));
+  const isPriority = typeof options.priority === "function" ? options.priority : () => false;
+  const priority = list.filter((source) => isPriority(source)).slice(0, safeLimit);
+  const rotating = list.filter((source) => !isPriority(source));
   const requestedCursor = Math.max(0, Math.floor(Number(cursor) || 0));
-  const start = requestedCursor < list.length ? requestedCursor : 0;
-  const selected = list.slice(start, start + safeLimit);
-  const nextCursor = selected.length && start + selected.length < list.length ? start + selected.length : 0;
-  return { sources: selected, nextCursor };
+  const start = requestedCursor < rotating.length ? requestedCursor : 0;
+  const selected = rotating.slice(start, start + Math.max(0, safeLimit - priority.length));
+  const nextCursor = selected.length && start + selected.length < rotating.length ? start + selected.length : 0;
+  return { sources: [...priority, ...selected], nextCursor };
 }
 
 export function retainActiveUnrefreshedItems(previousItems, activeSources, refreshedSources) {

@@ -36,7 +36,7 @@ export async function sendExtensionRequest(request) {
 
 if (hasExtensionRuntime() && globalThis.chrome?.runtime?.onMessage) {
   chrome.runtime.onMessage.addListener((message) => {
-    if (!message?.type || !/^(dashboard|reading-queue|refresh|settings)\./.test(message.type)) return;
+    if (!message?.type || !/^(content-sync|dashboard|reading-queue|refresh|settings)\./.test(message.type)) return;
     window.dispatchEvent(new CustomEvent("ampira:runtime-message", { detail: message }));
   });
 }
@@ -64,6 +64,7 @@ function routeFor(method, rawUrl) {
     "POST /api/daily-summary/refresh": "digest:refresh",
     "POST /api/summary/refresh": "summary:refresh",
     "POST /api/ai/search": "ai:search",
+    "POST /api/reader/translate": "reader:translate",
     "POST /api/weather/search": "weather:search",
     "POST /api/weather/forecast": "weather:get",
     "POST /api/cache/clear": "cache:clear",

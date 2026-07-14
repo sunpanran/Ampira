@@ -2,7 +2,7 @@ import { MAX_WEBSITE_SHORTCUTS } from "../../extension/core/settings.mjs";
 
 export function createStatusView(options) {
   const {
-    state, els, t, tc, formatDateTime, localizedStatusMessage, localizedErrorMessage,
+    state, els, t, formatDateTime, localizedStatusMessage, localizedErrorMessage,
     setIconLabel, createEmptyState,
   } = options;
 
@@ -227,21 +227,10 @@ function renderRefreshButton(button, isRunning) {
 }
 
 function renderCacheStatus() {
-  const ai = state.data?.ai || {};
   const cache = state.data?.cache || {};
-  const perSourceValue = ai.hotNewsEntriesPerSource ?? state.settings?.hotNewsEntriesPerSource ?? state.settings?.defaultHotNewsEntriesPerSource ?? 5;
-  const perSourceText = Number(perSourceValue) === 0 ? t("common.unlimited") : tc("unit.entries", perSourceValue);
-  const perCategoryValue = ai.newsEntriesPerCategory ?? state.settings?.newsEntriesPerCategory ?? state.settings?.defaultNewsEntriesPerCategory ?? 12;
-  const perCategoryText = Number(perCategoryValue) === 0 ? t("common.unlimited") : tc("unit.entries", perCategoryValue);
-  const pipeline = state.data?.pipeline || {};
   els.settingsCacheStatus.textContent = t("status.cacheDetail", {
     ready: cache.ready || 0,
-    target: cache.target || ai.hotNewsCacheSize || 192,
-    perCategory: perCategoryText,
-    perSource: perSourceText,
-    personalized: t(pipeline.personalizedRankingEnabled === false ? "common.off" : "common.on"),
-    publicFeed: t(pipeline.publicFeedSupplementEnabled === false ? "common.off" : "common.on"),
-    excluded: cache.excluded || 0,
+    target: cache.target || state.settings?.hotNewsCacheSize || state.settings?.defaultHotNewsCacheSize || 192,
     message: localizedStatusMessage(cache, "status.nextBatchPreparing"),
   });
 }

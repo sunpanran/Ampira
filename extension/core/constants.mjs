@@ -44,12 +44,18 @@ export const DEFAULT_SETTINGS = Object.freeze({
   websiteShortcutsEnabled: false,
   websiteShortcuts: [],
   newsBookmarkFolder: "",
+  newsSourceMode: "public",
   inspirationBookmarkFolder: "",
+  inspirationSourceMode: "preset",
   bookmarkOnlyFolders: [],
+  hiddenBookmarkCategories: [],
   cardSummaryEnabled: true,
   floatingWebOpenEnabled: false,
   readingQueueOpenOnReadAll: true,
   retainSeenArchive: false,
+  syncReadingQueueEnabled: false,
+  syncTodosEnabled: false,
+  syncWeatherLocationEnabled: false,
   personalizedRankingEnabled: true,
   publicFeedSupplementEnabled: true,
   webImageSearchEnabled: false,
@@ -62,7 +68,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   hotNewsCacheSize: 192,
   hotNewsEntriesPerSource: 5,
   newsEntriesPerCategory: 12,
-  todayNewsPerPublisherLimit: 2,
+  todayNewsPerPublisherLimit: 0,
 });
 
 export const PREFERRED_FEEDS = Object.freeze({

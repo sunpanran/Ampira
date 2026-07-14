@@ -1,11 +1,13 @@
 import { buildBookmarkModel, inspirationPreviewSourceUrls, originsFromUrls } from "../core/bookmarks.mjs";
+import { applyInspirationSource } from "../core/inspiration-preset.mjs";
 import { buildPermissionRows, originPattern } from "../core/permission-state.mjs";
 import { publicFeedsForLocale } from "../core/public-feeds.mjs";
 import { WEATHER_ORIGINS } from "../core/weather.mjs";
 
 export function createPermissionGateway({ chrome, getSettings, secretStatus, getRecord }) {
   async function currentBookmarkModel(settings) {
-    return buildBookmarkModel(await chrome.bookmarks.getTree(), settings);
+    const model = buildBookmarkModel(await chrome.bookmarks.getTree(), settings);
+    return applyInspirationSource(model, settings, settings.uiLocale || chrome.i18n?.getUILanguage?.());
   }
 
   function emptyBookmarkModel() {

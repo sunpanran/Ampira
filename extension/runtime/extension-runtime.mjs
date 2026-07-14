@@ -34,6 +34,7 @@ import {
 import { DEFAULT_LOCALE, defaultBookmarkFoldersForLocale, normalizeLocale, translate, translateAiPrompt } from "../core/i18n.mjs";
 import { requestAiCompletion, testImageSearchConnection } from "../core/ai.mjs";
 import { createClientStateStore } from "../core/client-state.mjs";
+import { createContentSyncService } from "../core/content-sync.mjs";
 import { createQuotaManager } from "../core/quota.mjs";
 import { createPreviewService, fetchSourceImageCandidates } from "../core/preview.mjs";
 import { bravePreviewCacheKeys, newsPreviewTargets, previewCacheKeysOutsideTargets } from "../core/preview-cache.mjs";
@@ -68,7 +69,6 @@ import { createSettingsWorkflow } from "./settings-workflow.mjs";
 import { createDashboardContentService } from "./dashboard-content-service.mjs";
 import { createBookmarkRefreshScheduler } from "./bookmark-refresh-scheduler.mjs";
 import { createWeatherService } from "./weather-service.mjs";
-import { createActionReadingQueueService } from "./action-reading-queue-service.mjs";
 import {
   emptySourceQuality,
   hostOf,
@@ -89,8 +89,13 @@ const quotaManager = createQuotaManager(chrome.storage.local, localDateKey);
 const settingsStore = createSettingsStore(chrome.storage.sync);
 const settingsService = createRuntimeSettingsService({ store: settingsStore, readProviderProfile, readDeviceConsent });
 const { getSettings, sanitizeLegacySyncedCredentials } = settingsService;
-const { handleActionClicked, resetActionFeedback } = createActionReadingQueueService({
-  chrome, clientStateStore, getSettings, settingsLocale, translate, localDateKey, broadcast,
+const contentSyncService = createContentSyncService({
+  storage: chrome.storage.sync,
+  clientStateStore,
+  getSettings,
+  getRecord,
+  setRecord,
+  broadcast,
 });
 let publicSettings;
 let saveSettings;
@@ -179,9 +184,7 @@ const {
 });
 const refreshCoordinator = createRefreshCoordinator({
   getStatus: getRefreshStatus,
-  run: (generation, context) => refreshService.runRefresh(generation, {
-    prioritizeAutomaticAi: context?.force === true,
-  }),
+  run: (generation) => refreshService.runRefresh(generation),
   isFresh: (status) => {
     const finishedAt = Date.parse(String(status?.finishedAt || ""));
     return Number.isFinite(finishedAt) && Date.now() - finishedAt < 10 * 60 * 1000;
@@ -255,6 +258,7 @@ const {
   pruneStalePreviewCaches, pruneBravePreviewCaches, aiConfigured, setAiAutoStatus,
   defaultAiAutoStatus, startRefresh, broadcast,
   createSettingsTransferDocument, parseSettingsTransferDocument,
+  contentSyncService,
   getAppVersion: () => chrome.runtime.getManifest().version,
   now: () => new Date().toISOString(),
 }));
@@ -302,15 +306,22 @@ const routeMessage = createMessageRouter({
   "weather:search": (payload) => searchLocations(payload),
   "weather:get": (payload) => getForecast(payload),
   "reader:get": (payload) => readArticle(payload.url),
+  "reader:translate": (payload) => translateReaderArticle(payload),
   "preview:get": (payload) => getSitePreview(payload),
   "cache:clear": () => clearGeneratedCache(),
   "quota:reset": () => resetQuota(),
   "preferences:reset": () => resetPreferences(),
   "source-quality:reset": () => resetSourceQuality(),
   "feedback:record": (payload) => recordFeedback(payload),
-  "client-state:get": () => clientStateStore.read(),
-  "client-state:set": (payload) => clientStateStore.save(payload),
-  "reading-queue:capture-current": (payload) => handleActionClicked(payload.tab || {}),
+  "client-state:get": async () => {
+    await contentSyncService.initialize();
+    return clientStateStore.read();
+  },
+  "client-state:set": async (payload) => {
+    const result = await clientStateStore.save(payload);
+    await contentSyncService.handleLocalPatch(payload.values || {});
+    return result;
+  },
   "permissions:origins": () => selectedOrigins(),
   "permissions:status": (payload) => permissionStatus(payload.origins || []),
   "onboarding:consent": () => recordBookmarkConsent(),
@@ -329,7 +340,6 @@ const routeMessage = createMessageRouter({
     handlePermissionsAdded,
     handlePermissionsRemoved,
     handleActionClicked,
-    handleTabUpdated,
     start,
   };
 
@@ -347,8 +357,6 @@ chrome.runtime.onStartup.addListener(() => {
 
 chrome.action.onClicked.addListener(handleActionClicked);
 
-chrome.tabs.onUpdated.addListener(handleTabUpdated);
-
 chrome.alarms.onAlarm.addListener((alarm) => {
   handleAlarm(alarm);
 });
@@ -360,6 +368,10 @@ for (const event of [chrome.bookmarks.onCreated, chrome.bookmarks.onChanged, chr
 chrome.permissions.onAdded.addListener(handlePermissionsAdded);
 
 chrome.permissions.onRemoved.addListener(handlePermissionsRemoved);
+
+chrome.storage.onChanged?.addListener((changes, areaName) => {
+  contentSyncService.handleStorageChanged(changes, areaName);
+});
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (!request || typeof request.type !== "string") return false;
@@ -383,9 +395,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 ensureRuntime().catch(() => {});
   }
 
-  function handleTabUpdated(tabId, changeInfo = {}) {
-    if (changeInfo.status !== "loading") return;
-    resetActionFeedback(tabId).catch(() => {});
+  function handleActionClicked() {
+    return chrome.tabs.create({ url: chrome.runtime.getURL("dashboard.html") });
   }
 
 function handleAlarm(alarm) {
@@ -419,6 +430,7 @@ function handlePermissionsRemoved(permissions) {
 async function ensureRuntime() {
   await chrome.alarms.create(REFRESH_ALARM, { periodInMinutes: REFRESH_PERIOD_MINUTES });
   await getSettings();
+  await contentSyncService.initialize();
   await sanitizeLegacySyncedCredentials();
   await clearLegacyCredentialData();
   const status = await getRefreshStatus();
@@ -458,6 +470,26 @@ async function aiConfigured(settings) {
   return consent.aiDisclosureAccepted === true
     && Boolean(provider.openaiApiKey)
     && await hasOriginPermission(provider.openaiBaseUrl);
+}
+
+async function translateReaderArticle(payload = {}) {
+  const settings = await getSettings();
+  if (!await aiConfigured(settings)) throw typedError("AI_NOT_CONFIGURED", "background.error.aiKeyMissing", {}, false);
+  const locale = settingsLocale(settings);
+  const title = String(payload.title || "").trim().slice(0, 500);
+  const text = String(payload.text || "").trim().slice(0, 24000);
+  if (!text) throw typedError("READER_TRANSLATION_EMPTY", "reader.translationEmpty", {}, false);
+  const value = await callProvider(
+    settings,
+    translateAiPrompt(locale, "background.prompt.readerTranslation"),
+    translate(locale, "background.prompt.readerTranslationInput", { title, text }),
+    6000,
+    "",
+    () => assertUrlsStillPermitted([payload.url]),
+  );
+  const parts = String(value || "").split(/\n\s*\n/);
+  const translatedTitle = parts.length > 1 ? parts.shift().trim() : title;
+  return { locale, title: translatedTitle, text: parts.join("\n\n").trim() || value };
 }
 
 async function readQuota(limit) {

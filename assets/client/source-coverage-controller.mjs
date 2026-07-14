@@ -1,19 +1,17 @@
 export function createSourceCoverageController(options) {
   const {
     state, els, t, tc, apiPost, setIconLabel, createEmptyState, renderSettingsStatus,
-    localizedErrorMessage, formatDateTime, allTranslations, getSourceQuality,
+    localizedErrorMessage, formatDateTime, getSourceQuality,
   } = options;
   const sourceActions = new Set();
 
   function renderSourceCoverage() {
-    if (!els.sourceCoverageSummary || !els.sourceCoverageStatus || !els.sourceCoverageList) return;
+    if (!els.sourceCoverageSummary || !els.sourceCoverageList) return;
     const summary = getSourceQuality();
-    const configured = Number(summary.configured || 0);
     const metrics = [
-      ["settings.sources.configured", configured],
-      ["settings.sources.coverage", percentLabel(summary.coveragePercent)],
-      ["settings.sources.authorizedSuccess", percentLabel(summary.authorizedSuccessPercent)],
+      ["settings.sources.available", Number(summary.healthy || 0)],
       ["settings.sources.permissionPending", Number(summary.permissionRequired || 0)],
+      ["settings.sources.needsReview", Number(summary.failed || 0) + Number(summary.empty || 0)],
     ];
     els.sourceCoverageSummary.replaceChildren(...metrics.map(([labelKey, value]) => {
       const metric = document.createElement("div");
@@ -25,14 +23,6 @@ export function createSourceCoverageController(options) {
       metric.append(valueNode, label);
       return metric;
     }));
-    els.sourceCoverageStatus.textContent = configured
-      ? t("settings.sources.summary", {
-        healthy: Number(summary.healthy || 0),
-        configured,
-        failed: Number(summary.failed || 0),
-        empty: Number(summary.empty || 0),
-      })
-      : t("settings.sources.waiting");
     const records = Object.values(summary.records || {}).sort(compareSourceRecords);
     if (!records.length) {
       els.sourceCoverageList.replaceChildren(createEmptyState({
@@ -60,14 +50,9 @@ export function createSourceCoverageController(options) {
     const retryAt = Number.isFinite(nextEligibleAt) && nextEligibleAt > Date.now()
       ? t("settings.sources.retryAfter", { time: formatDateTime(record.nextEligibleAt) })
       : "";
-    const methodKey = `settings.sources.method.${record.method || "unknown"}`;
-    const method = allTranslations(methodKey).some((value) => value && value !== methodKey)
-      ? t(methodKey)
-      : t("settings.sources.method.unknown");
     meta.textContent = [
       record.host,
       t(`settings.sources.status.${record.status || "waiting"}`),
-      method,
       tc("unit.entries", Number(record.itemCount || 0)),
       checkedAt,
       retryAt,
@@ -145,10 +130,6 @@ function permissionPattern(value) {
     // Invalid discovered origins never reach Chrome's permission prompt.
   }
   return "";
-}
-
-function percentLabel(value) {
-  return Number.isFinite(Number(value)) ? `${Math.round(Number(value))}%` : "—";
 }
 
 function compareSourceRecords(left, right) {

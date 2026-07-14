@@ -14,6 +14,7 @@ import {
   NEWS_RANKING_POLICY_VERSION,
   buildDailyCandidates,
   dailyCandidateFingerprint,
+  newsTimeScope,
   rankNewsItems,
   scoreNewsArticle,
 } from "./news-ranking.mjs";
@@ -30,6 +31,8 @@ const REQUEST_TIMEOUT_MS = 12000;
 const MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
 const MAX_DECLARED_FEEDS = 3;
 const MAX_PROBED_FEEDS = 4;
+const MAX_SOURCE_SCAN_ITEMS = 48;
+const MIN_SOURCE_SCAN_ITEMS = 12;
 const MIN_SEMANTIC_COLLECTION_ARTICLES = 3;
 const NON_NEWS_PATH_SEGMENTS = new Set([
   "about", "about-us", "account", "auth", "career", "careers", "contact", "contact-us",
@@ -53,6 +56,8 @@ const NEWS_LANDING_PATHS = new Set([...ARTICLE_PATH_MARKERS, "articles", "latest
 export async function fetchSourceArticles(source, options = {}) {
   const requestedLimit = Number(options.limit);
   const limit = requestedLimit === 0 ? 12 : Math.max(1, Math.min(12, Number.isFinite(requestedLimit) ? requestedLimit : 5));
+  const scanLimit = sourceScanLimit(limit);
+  const now = options.now ?? Date.now();
   const profile = normalizeFetchProfile(options.profile);
   const candidates = sourceCandidates(source, profile);
   const attempted = new Set();
@@ -78,7 +83,7 @@ export async function fetchSourceArticles(source, options = {}) {
         });
       }
       successfulResponses += 1;
-      const parsed = parsedResponseItems(response, source, limit);
+      const parsed = parsedResponseItems(response, source, limit, scanLimit, now);
       if (parsed.length) return sourceFetchResult(parsed, { method: candidate.method, response, pendingFeeds });
       if (looksLikeHtml(response.text, response.contentType)) {
         landing ||= response;
@@ -92,14 +97,18 @@ export async function fetchSourceArticles(source, options = {}) {
           if (feedResult.result) return feedResult.result;
         }
         const collectionPage = isLikelyArticleCollectionPage(response.text);
-        const structured = extractJsonLdArticles(response.text, response.url, source, limit, { collectionPage });
+        const structured = selectSourceArticles(
+          extractJsonLdArticles(response.text, response.url, source, scanLimit, { collectionPage }),
+          limit,
+          now,
+        );
         if (structured.length) return sourceFetchResult(structured, { method: "json-ld", response, pendingFeeds });
-        const links = extractArticleLinks(response.text, response.url).slice(0, limit);
+        const links = extractArticleLinks(response.text, response.url).slice(0, scanLimit);
         if (links.length) {
-          const items = links.map((link, index) => articleFromLink(link, {
+          const items = selectSourceArticles(links.map((link, index) => articleFromLink(link, {
             ...source,
             fetchOrigin: safeSourceOrigin(response.url),
-          }, index));
+          }, index)), limit, now);
           return sourceFetchResult(items, { method: "html-links", response, pendingFeeds });
         }
         if (!collectionPage && isLikelyArticleDocument(response.text)) {
@@ -173,7 +182,7 @@ async function tryFeedCandidate(url, method, context) {
         error: null,
       };
     }
-    const items = parsedResponseItems(response, source, limit);
+    const items = parsedResponseItems(response, source, limit, undefined, options.now ?? Date.now());
     return {
       responded: true,
       result: items.length ? sourceFetchResult(items, { method, response, pendingFeeds }) : null,
@@ -189,15 +198,43 @@ async function tryFeedCandidate(url, method, context) {
   }
 }
 
-function parsedResponseItems(response, source, limit) {
+function parsedResponseItems(response, source, limit, scanLimit = sourceScanLimit(limit), now = Date.now()) {
   const fetchOrigin = safeSourceOrigin(response.url);
-  return filterLikelyNewsItems(parseFeedDocument(
-    response.text,
-    response.url,
-    { ...source, fetchOrigin },
+  return selectSourceArticles(
+    filterLikelyNewsItems(parseFeedDocument(
+      response.text,
+      response.url,
+      { ...source, fetchOrigin },
+      scanLimit,
+      response.contentType,
+    )),
     limit,
-    response.contentType,
-  ));
+    now,
+  );
+}
+
+function sourceScanLimit(limit) {
+  return Math.min(MAX_SOURCE_SCAN_ITEMS, Math.max(MIN_SOURCE_SCAN_ITEMS, Math.max(1, Number(limit) || 1) * 4));
+}
+
+function selectSourceArticles(items, limit, now = Date.now()) {
+  const scopeOrder = { today: 0, recent: 1 };
+  return (Array.isArray(items) ? items : [])
+    .map((item) => {
+      const publishedAt = Date.parse(String(item?.publishedAt || ""));
+      return {
+        item,
+        scope: newsTimeScope(item, now),
+        score: scoreNewsArticle(item, now).score,
+        publishedAt: Number.isFinite(publishedAt) ? publishedAt : 0,
+      };
+    })
+    .sort((left, right) => (scopeOrder[left.scope] ?? 2) - (scopeOrder[right.scope] ?? 2)
+      || right.score - left.score
+      || right.publishedAt - left.publishedAt
+      || Number(left.item?.feedPosition || 0) - Number(right.item?.feedPosition || 0))
+    .slice(0, Math.max(0, Number(limit) || 0))
+    .map((entry) => entry.item);
 }
 
 function sourceFetchResult(items, {
@@ -286,6 +323,7 @@ export function buildFallbackDigest(items, reason = "no-api-key", locale = "zh-C
       eventId: item.eventId || "",
       sourceCount: Number(item.eventSourceCount || 1),
       articleCount: Number(item.eventArticleCount || 1),
+      eventConfidence: item.eventConfidence || "single-source",
       timeScope: item.timeScope || "",
       localImportanceScore: Number(item.localImportanceScore ?? item.publicImportanceScore ?? item.score ?? 0),
       importanceScore: Number(item.localImportanceScore ?? item.publicImportanceScore ?? item.score ?? 0),

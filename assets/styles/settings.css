@@ -465,6 +465,65 @@
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 10%, transparent);
 }
 
+.saved-source-permission-prompt {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 12px;
+  padding: 13px;
+  border: 1px solid var(--active-line);
+  border-radius: var(--radius-row);
+  background: color-mix(in srgb, var(--active-bg) 72%, var(--surface-row));
+}
+
+.saved-source-permission-prompt[hidden] {
+  display: none;
+}
+
+.saved-source-permission-icon {
+  width: 17px;
+  height: 17px;
+  margin-top: 2px;
+  color: var(--accent);
+}
+
+.saved-source-permission-copy {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+}
+
+.saved-source-permission-copy h4,
+.saved-source-permission-copy p {
+  margin: 0;
+}
+
+.saved-source-permission-copy h4 {
+  color: var(--text-strong);
+  font-size: 13px;
+}
+
+.saved-source-permission-copy p {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.saved-source-permission-origins {
+  color: var(--muted-2);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.saved-source-permission-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 7px;
+}
+
 .settings-panel {
   display: none;
   gap: 24px;
@@ -914,6 +973,14 @@
 
 .settings-compact-list:not(:empty) > *:last-child {
   border-bottom: 0;
+}
+
+.hidden-bookmark-category-list.settings-compact-list:not(:empty) {
+  max-height: min(320px, 36vh);
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
 }
 
 .source-coverage-summary {
@@ -1376,6 +1443,13 @@
   line-height: 1.6;
 }
 
+.settings-action-note {
+  margin: -4px 0 0;
+  color: var(--muted-2);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
 .source-suggestion-head {
   display: flex;
   align-items: start;
@@ -1482,6 +1556,13 @@ section.source-suggestion-panel {
 .about-meta {
   color: var(--muted);
   font-size: 12px;
+}
+
+.about-copyright {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
 }
 
 .about-version {

@@ -12,7 +12,6 @@ $dist = [System.IO.Path]::GetFullPath((Join-Path $root "dist"))
 $files = @(
   "manifest.json",
   "dashboard.html",
-  "action-popup.html",
   "favicon.svg",
   "favicon-light.svg",
   "favicon-dark.svg",
@@ -21,7 +20,7 @@ $files = @(
   "assets/extension.css",
   "assets/logo-purple.svg"
 )
-$directories = @("assets/client", "assets/icons", "assets/styles", "extension", "_locales")
+$directories = @("assets/client", "assets/icons", "assets/presets", "assets/styles", "extension", "_locales")
 
 function Get-Sha256([string]$Path) {
   return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -71,6 +70,20 @@ foreach ($directory in $directories) {
   if ($reparsePoint) {
     throw "Package source cannot contain a reparse point: $($reparsePoint.FullName)"
   }
+}
+
+$presetImageDirectory = Join-Path $root "assets/presets/inspiration"
+$presetImages = @(Get-ChildItem -LiteralPath $presetImageDirectory -File -Filter "*.webp")
+if ($presetImages.Count -ne 24) {
+  throw "The inspiration preset must contain exactly 24 WebP covers; found $($presetImages.Count)."
+}
+$oversizedPresetImage = $presetImages | Where-Object { $_.Length -gt 200KB } | Select-Object -First 1
+if ($oversizedPresetImage) {
+  throw "Preset cover exceeds 200 KiB: $($oversizedPresetImage.Name)"
+}
+$presetImageBytes = [int64](($presetImages | Measure-Object -Property Length -Sum).Sum)
+if ($presetImageBytes -gt 3.5MB) {
+  throw "Preset covers exceed the 3.5 MiB total budget: $presetImageBytes bytes"
 }
 
 $supportUrl = [string]$env:REQUIRED_SUPPORT_URL
@@ -151,6 +164,7 @@ $files | ForEach-Object { [void]$allowedFiles.Add($_.Replace("\", "/")) }
 $allowedPatterns = @(
   '^assets/client/(?:[a-z0-9-]+/)*[a-z0-9-]+\.mjs$',
   '^assets/icons/[a-z0-9-]+\.svg$',
+  '^assets/presets/inspiration/[a-z0-9-]+\.webp$',
   '^assets/styles/[a-z0-9-]+\.css$',
   '^extension/service-worker\.mjs$',
   '^extension/core/[a-z0-9-]+\.mjs$',
@@ -253,6 +267,11 @@ try {
     }
   } finally {
     $zipStream.Dispose()
+  }
+
+  $zipSize = [int64](Get-Item -LiteralPath $temporaryZip).Length
+  if ($zipSize -gt 4.5MB) {
+    throw "Packaged ZIP exceeds the 4.5 MiB release budget: $zipSize bytes"
   }
 
   $archive = [System.IO.Compression.ZipFile]::OpenRead($temporaryZip)

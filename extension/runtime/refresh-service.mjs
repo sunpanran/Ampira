@@ -7,6 +7,8 @@ const FEED_IMAGE_CONCURRENCY = 3;
 const FEED_IMAGE_HIT_CACHE_MS = 24 * 60 * 60 * 1000;
 const FEED_IMAGE_MISS_CACHE_MS = 2 * 60 * 60 * 1000;
 const FEED_IMAGE_ERROR_CACHE_MS = 15 * 60 * 1000;
+const EMPTY_CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+const FUTURE_TIME_TOLERANCE_MS = 15 * 60 * 1000;
 
 export function sourceStatusForFetch(result, itemCount) {
   if (Number(itemCount) > 0) return "healthy";
@@ -46,6 +48,42 @@ export function feedImageCacheFresh(record, item, now = Date.now()) {
     && now - checkedAt < maxAge;
 }
 
+export function sourceFetchProfile(previousRecord, previousItems) {
+  if (Array.isArray(previousItems) && previousItems.length) return previousRecord || {};
+  return {
+    ...(previousRecord || {}),
+    validators: { etag: "", lastModified: "" },
+  };
+}
+
+export function shouldRetainPreviousItemsAfterEmpty(result, previousItems, previousRecord, now = Date.now()) {
+  if (result?.outcome !== "empty" || !Array.isArray(previousItems) || !previousItems.length) return false;
+  const hasRecentVerifiedItem = previousItems.some((item) => {
+    if (item?.timeUnverified === true) return false;
+    const publishedAt = Date.parse(String(item?.publishedAt || ""));
+    const age = Number(now) - publishedAt;
+    return Number.isFinite(publishedAt) && age >= -FUTURE_TIME_TOLERANCE_MS && age <= EMPTY_CACHE_MAX_AGE_MS;
+  });
+  const outcomes = Array.isArray(previousRecord?.recentOutcomes) ? previousRecord.recentOutcomes : [];
+  let trailingEmpty = 0;
+  for (let index = outcomes.length - 1; index >= 0 && outcomes[index] === "empty"; index -= 1) trailingEmpty += 1;
+  return hasRecentVerifiedItem && trailingEmpty < 2;
+}
+
+export function selectDistinctEventEvidence(items, limit = 3) {
+  const selected = [];
+  const publishers = new Set();
+  for (const item of Array.isArray(items) ? items : []) {
+    const publisher = String(item?.publisherHost || item?.publisher || item?.host || item?.sourceKey || item?.source || "")
+      .trim().toLowerCase() || "unknown";
+    if (publishers.has(publisher)) continue;
+    publishers.add(publisher);
+    selected.push(item);
+    if (selected.length >= Math.max(0, Number(limit) || 0)) break;
+  }
+  return selected;
+}
+
 function sameOriginValue(left, right) {
   try {
     return new URL(left).origin === new URL(right).origin;
@@ -64,7 +102,7 @@ function safeOriginValue(value) {
     return "";
   }
 }
-const CARD_SUMMARY_MAX_CHARS = 280;
+const CARD_SUMMARY_MAX_CHARS = 200;
 
 export function createRefreshService(options) {
   const {
@@ -97,6 +135,9 @@ async function runRefresh(generation, options = {}) {
   } catch (error) {
     if (!refreshCoordinator.isCurrent(generation)) return;
     try {
+      const automaticFallback = await runAutomaticAiAfterFailedRefresh(generation);
+      if (!refreshCoordinator.isCurrent(generation)) return;
+      if (automaticFallback) broadcast("dashboard.updated", { reason: "refresh-failed-ai-fallback" });
       const previous = await getRefreshStatus();
       const failed = {
         ...previous,
@@ -129,7 +170,7 @@ async function runRefresh(generation, options = {}) {
   }
 }
 
-async function performRefresh(generation, { prioritizeAutomaticAi = false } = {}) {
+async function performRefresh(generation) {
   const cacheEpoch = cacheMutations.capture();
   const settings = await getSettings();
   if (!refreshCoordinator.isCurrent(generation)) return;
@@ -140,7 +181,9 @@ async function performRefresh(generation, { prioritizeAutomaticAi = false } = {}
   const { permitted, denied } = feedPermissions;
   const localSources = feedPermissions.sources.filter((source) => !source.externalDiscovery);
   const refreshCursor = await getRecord("refresh-source-cursor", 0);
-  const refreshBatch = selectRefreshBatch(permitted, refreshCursor);
+  const refreshBatch = selectRefreshBatch(permitted, refreshCursor, undefined, {
+    priority: (source) => source?.externalDiscovery === true,
+  });
   const refreshSources = refreshBatch.sources;
   const status = {
     running: true,
@@ -159,10 +202,6 @@ async function performRefresh(generation, { prioritizeAutomaticAi = false } = {}
   if (!refreshCoordinator.isCurrent(generation)) return;
   await setRefreshStatus(status);
   broadcast("refresh.progress", status);
-  if (prioritizeAutomaticAi) {
-    await runAutomaticAiFromCache({ settings, feedPermissions, cacheEpoch, generation });
-  }
-  if (!refreshCoordinator.isCurrent(generation)) return;
   const [previousFeedSnapshot, previousQualitySnapshot] = await Promise.all([
     getRecord("feed", { items: [] }),
     getRecord("source-quality", emptySourceQuality()),
@@ -181,10 +220,11 @@ async function performRefresh(generation, { prioritizeAutomaticAi = false } = {}
       }
       const result = await fetchSourceArticles(source, {
         ...sourceFetchOptions(settings.hotNewsEntriesPerSource),
-        profile: previousRecord,
+        profile: sourceFetchProfile(previousRecord, previousItems),
       });
       const items = result.items || [];
-      if (result.outcome !== "notModified") replacedSources.push(source);
+      const retainPreviousAfterEmpty = shouldRetainPreviousItemsAfterEmpty(result, previousItems, previousRecord);
+      if (result.outcome !== "notModified" && !retainPreviousAfterEmpty) replacedSources.push(source);
       articles.push(...items.map((item) => ({ ...item, externalDiscovery: source.externalDiscovery === true })));
       const itemCount = result.outcome === "notModified"
         ? previousItems.length
@@ -202,8 +242,12 @@ async function performRefresh(generation, { prioritizeAutomaticAi = false } = {}
         itemCount,
         lastCheckedAt: checkedAt,
         lastSuccessAt: sourceStatus === "healthy" ? checkedAt : previousRecord.lastSuccessAt || "",
-        resolvedUrl: result.outcome === "empty" ? "" : result.resolvedUrl || previousRecord.resolvedUrl || "",
-        fetchOrigin: result.outcome === "empty" ? "" : result.fetchOrigin || previousRecord.fetchOrigin || safeOrigin(source.url),
+        resolvedUrl: result.outcome === "empty"
+          ? (retainPreviousAfterEmpty ? previousRecord.resolvedUrl || "" : "")
+          : result.resolvedUrl || previousRecord.resolvedUrl || "",
+        fetchOrigin: result.outcome === "empty"
+          ? (retainPreviousAfterEmpty ? previousRecord.fetchOrigin || safeOrigin(source.url) : "")
+          : result.fetchOrigin || previousRecord.fetchOrigin || safeOrigin(source.url),
         validators: result.outcome === "empty" ? { etag: "", lastModified: "" } : result.validators || previousRecord.validators,
         pendingFeed: result.pendingFeed || null,
         nextEligibleAt: "",
@@ -336,6 +380,38 @@ async function performRefresh(generation, { prioritizeAutomaticAi = false } = {}
   broadcast("dashboard.updated", { reason: "refresh-complete" });
 }
 
+async function runAutomaticAiAfterFailedRefresh(generation) {
+  try {
+    const settings = await getSettings();
+    if (!settings.bookmarkConsentGranted || !refreshCoordinator.isCurrent(generation)) return null;
+    const model = await currentBookmarkModel(settings);
+    const feedPermissions = await currentFeedPermissionState(settings, model);
+    const cacheEpoch = cacheMutations.capture();
+    const [feed, digest, aiReady] = await Promise.all([
+      getRecord("feed", { items: [] }),
+      getRecord("daily-digest", null),
+      aiConfigured(settings),
+    ]);
+    if (!refreshCoordinator.isCurrent(generation)) return null;
+    const items = filterFeedItemsBySources(feed.items, feedPermissions.permitted, feedPermissions.grantedOrigins);
+    if (!items.length) return null;
+    const needsDigest = Boolean(aiReady && (
+      digest?.status !== "ai"
+      || !digestCachePermitted(digest, items, feedPermissions, settings, aiReady)
+    ));
+    return await runAutomaticAiAfterRefresh({
+      settings,
+      items,
+      needsDigest,
+      aiReady,
+      cacheEpoch,
+      generation,
+    });
+  } catch {
+    return null;
+  }
+}
+
 async function enrichMissingFeedImages(items, { cacheEpoch, generation = null } = {}) {
   if (typeof fetchSourceImageCandidates !== "function" || typeof hasOriginPermission !== "function") return;
   const targets = selectFeedImageEnrichmentTargets(items);
@@ -460,7 +536,7 @@ async function refreshSource(body = {}) {
   try {
     result = await fetchSourceArticles(source, {
       ...sourceFetchOptions(settings.hotNewsEntriesPerSource),
-      profile: previousRecord,
+      profile: sourceFetchProfile(previousRecord, previousItems),
     });
   } catch (error) {
     const terminal = [404, 410].includes(Number(error?.details?.status));
@@ -494,6 +570,7 @@ async function refreshSource(body = {}) {
 
   const checkedAt = new Date().toISOString();
   const newItems = result.items || [];
+  const retainPreviousAfterEmpty = shouldRetainPreviousItemsAfterEmpty(result, previousItems, previousRecord);
   if (result.outcome !== "notModified") await enrichMissingFeedImages(newItems, { cacheEpoch });
   const itemCount = result.outcome === "notModified"
     ? previousItems.length
@@ -511,8 +588,12 @@ async function refreshSource(body = {}) {
     itemCount,
     lastCheckedAt: checkedAt,
     lastSuccessAt: sourceStatus === "healthy" ? checkedAt : previousRecord.lastSuccessAt || "",
-    resolvedUrl: result.outcome === "empty" ? "" : result.resolvedUrl || previousRecord.resolvedUrl || "",
-    fetchOrigin: result.outcome === "empty" ? "" : result.fetchOrigin || previousRecord.fetchOrigin || safeOrigin(source.url),
+    resolvedUrl: result.outcome === "empty"
+      ? (retainPreviousAfterEmpty ? previousRecord.resolvedUrl || "" : "")
+      : result.resolvedUrl || previousRecord.resolvedUrl || "",
+    fetchOrigin: result.outcome === "empty"
+      ? (retainPreviousAfterEmpty ? previousRecord.fetchOrigin || safeOrigin(source.url) : "")
+      : result.fetchOrigin || previousRecord.fetchOrigin || safeOrigin(source.url),
     validators: result.outcome === "empty" ? { etag: "", lastModified: "" } : result.validators || previousRecord.validators,
     pendingFeed: result.pendingFeed || null,
     nextEligibleAt: "",
@@ -531,7 +612,7 @@ async function refreshSource(body = {}) {
       permissions.permitted,
       permissions.grantedOrigins,
     );
-    const sourceItems = result.outcome === "notModified"
+    const sourceItems = result.outcome === "notModified" || retainPreviousAfterEmpty
       ? filterFeedItemsBySources(
         (latestFeed.items || []).filter((item) => item.sourceKey === sourceKey),
         permissions.permitted,
@@ -687,28 +768,6 @@ async function runAutomaticAiAfterRefresh({ settings, items, needsDigest, aiRead
   return { items, errorKey, errorParams, errorStage };
 }
 
-async function runAutomaticAiFromCache({ settings, feedPermissions, cacheEpoch, generation }) {
-  const [feed, digest, aiReady] = await Promise.all([
-    getRecord("feed", { items: [] }),
-    getRecord("daily-digest", null),
-    aiConfigured(settings),
-  ]);
-  if (!refreshCoordinator.isCurrent(generation)) return null;
-  const items = filterFeedItemsBySources(feed.items, feedPermissions.permitted, feedPermissions.grantedOrigins);
-  const needsDigest = Boolean(items.length && aiReady && (
-    digest?.status !== "ai"
-    || !digestCachePermitted(digest, items, feedPermissions, settings, aiReady)
-  ));
-  return runAutomaticAiAfterRefresh({
-    settings,
-    items,
-    needsDigest,
-    aiReady,
-    cacheEpoch,
-    generation,
-  });
-}
-
 async function automaticallySummarizeCards(settings, items, cacheEpoch, generation, candidateLimit, onProgress = null) {
   if (!await aiConfigured(settings)) return { items, errorKey: "", errorParams: {}, processed: 0, eligible: 0, quotaReached: false };
   const locale = settingsLocale(settings);
@@ -848,7 +907,7 @@ async function refreshDailyDigest({ automatic = false } = {}) {
       eventItems.get(eventId).push(item);
     }
     const context = contextItems.map((item, index) => {
-      const related = (eventItems.get(String(item.eventId || "")) || [item]).slice(0, 3);
+      const related = selectDistinctEventEvidence(eventItems.get(String(item.eventId || "")) || [item], 3);
       const publishers = [...new Set(related.map((entry) => entry.publisher || entry.source).filter(Boolean))].join(", ");
       const evidence = related.map((entry) => {
         const detail = dailyDigestEvidence(entry.title, entry.excerpt);

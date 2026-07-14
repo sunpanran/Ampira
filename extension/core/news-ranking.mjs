@@ -1,13 +1,15 @@
-export const NEWS_RANKING_POLICY_VERSION = 3;
-export const DAILY_DIGEST_SCHEMA_VERSION = 3;
+export const NEWS_RANKING_POLICY_VERSION = 4;
+export const DAILY_DIGEST_SCHEMA_VERSION = 4;
 
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
 const EVENT_WINDOW_MS = 36 * HOUR_MS;
+const HIGH_CONFIDENCE_SINGLE_MAX_AGE_MS = 12 * HOUR_MS;
 const FUTURE_SKEW_MS = 15 * 60 * 1000;
 const FEEDBACK_WINDOW_MS = 30 * DAY_MS;
 const FEEDBACK_HALF_LIFE_MS = 14 * DAY_MS;
 const GENERIC_EVENT_TERMS = new Set([
+  "a", "an", "and", "are", "as", "at", "be", "by", "for", "from", "in", "is", "it", "of", "on", "or", "that", "the", "to", "with",
   "announce", "announced", "announcement", "breaking", "launch", "launched", "new", "news", "official",
   "release", "released", "report", "reported", "update", "updated",
   "发布", "發佈", "推出", "上线", "上線", "更新", "宣布", "正式", "最新", "消息", "报道", "報道", "新闻", "新聞",
@@ -132,6 +134,7 @@ export function dailyCandidateFingerprint(items, options = {}) {
     item.eventId || item.articleId || item.entryKey || item.url || "",
     item.publishedAt || "",
     Number(item.eventSourceCount || 1),
+    item.eventConfidence || "single-source",
     item.timeScope || "",
   ].join("|")).join("\n");
   return `ranking-${policy}-${stableHash(`${publisherLimit}\n${content}`)}`;
@@ -166,32 +169,59 @@ function annotateEventClusters(items, now) {
     const published = verifiedTime(item);
     let cluster = null;
     if (signature.core && published) {
-      cluster = clusters.find((candidate) => Math.abs(candidate.published - published) <= EVENT_WINDOW_MS
-        && signaturesMatch(candidate.signature, signature));
+      let bestScore = -1;
+      for (const candidate of clusters) {
+        const nextOldest = Math.min(candidate.oldestPublished, published);
+        const nextNewest = Math.max(candidate.newestPublished, published);
+        if (nextNewest - nextOldest > EVENT_WINDOW_MS) continue;
+        if (candidate.entries.some((entry) => numbersConflict(entry.signature.numericFacts, signature.numericFacts))) continue;
+        const score = Math.max(...candidate.entries.map((entry) => signatureMatchScore(entry.signature, signature)));
+        if (score > bestScore) {
+          cluster = candidate;
+          bestScore = score;
+        }
+      }
     }
     if (!cluster) {
-      cluster = { signature, published: published || now, items: [] };
+      cluster = {
+        oldestPublished: published || now,
+        newestPublished: published || now,
+        entries: [],
+      };
       clusters.push(cluster);
     }
-    cluster.items.push(item);
+    cluster.oldestPublished = Math.min(cluster.oldestPublished, published || now);
+    cluster.newestPublished = Math.max(cluster.newestPublished, published || now);
+    cluster.entries.push({ item, signature, published });
   }
   const output = [];
   for (const cluster of clusters) {
-    const representative = [...cluster.items].sort(compareRepresentative)[0];
-    const publisherCount = new Set(cluster.items.map(publisherIdentity).filter(Boolean)).size || 1;
+    const representativeEntry = [...cluster.entries].sort((left, right) => compareRepresentative(left.item, right.item))[0];
+    const representative = representativeEntry.item;
+    const publisherCount = new Set(cluster.entries.map((entry) => publisherIdentity(entry.item)).filter(Boolean)).size || 1;
     const corroboration = publisherCount >= 4 ? 12 : (publisherCount === 3 ? 9 : (publisherCount === 2 ? 6 : 0));
-    const signatureIdentity = [cluster.signature.core, ...[...cluster.signature.numbers].sort()].filter(Boolean).join("|");
+    const signatureIdentity = [
+      representativeEntry.signature.core,
+      numericFactIdentity(representativeEntry.signature.numericFacts),
+      Math.floor(cluster.oldestPublished / EVENT_WINDOW_MS).toString(36),
+    ].filter(Boolean).join("|");
     const eventId = `event-${stableHash(signatureIdentity || representative.articleId || representative.url || representative.title)}`;
-    for (const item of cluster.items) {
+    for (const { item } of cluster.entries) {
       const eventRepresentative = item === representative;
       const publicScore = clampScore(Number(item.neutralImportanceScore || 0) + (eventRepresentative ? corroboration : 0));
       const localScore = clampScore(Number(item.baseImportanceScore || item.neutralImportanceScore || 0) + (eventRepresentative ? corroboration : 0));
+      const eventConfidence = publisherCount >= 2
+        ? "corroborated"
+        : (eventRepresentative && isHighConfidenceSingleSource(item, now)
+            ? "high-confidence-single"
+            : "single-source");
       output.push({
         ...item,
         eventId,
         eventRepresentative,
         eventSourceCount: publisherCount,
-        eventArticleCount: cluster.items.length,
+        eventArticleCount: cluster.entries.length,
+        eventConfidence,
         publicImportanceScore: publicScore,
         localImportanceScore: localScore,
         score: localScore,
@@ -212,6 +242,21 @@ function annotateEventClusters(items, now) {
   return output;
 }
 
+function isHighConfidenceSingleSource(item, now) {
+  const published = verifiedTime(item);
+  const age = published ? now - published : Number.POSITIVE_INFINITY;
+  return item?.rankingEligible === true
+    && published > 0
+    && age >= 0
+    && age <= HIGH_CONFIDENCE_SINGLE_MAX_AGE_MS
+    && localDateKey(published) === localDateKey(now)
+    && Array.from(String(item?.excerpt || "").trim()).length >= 30
+    && Number(item?.neutralImportanceScore || 0) >= 70
+    && Number(item?.scoreBreakdown?.impact || 0) >= 24
+    && Number(item?.scoreBreakdown?.penalties || 0) === 0
+    && Boolean(publisherIdentity(item));
+}
+
 function compareRepresentative(left, right) {
   const qualityDelta = contentQuality(right) - contentQuality(left);
   return qualityDelta
@@ -229,12 +274,20 @@ function eventSignature(value) {
     .replace(/\s*(?:[|｜·•»]|-{1,2}|–|—)\s*([^|｜·•»–—-]{1,40})$/u, (match, suffix) => (/\d/.test(suffix) ? match : " "))
     .replace(/[^\p{L}\p{N}]+/gu, " ")
     .trim();
-  const terms = new Set(normalized.split(/\s+/).filter((term) => term.length > 1 && !GENERIC_EVENT_TERMS.has(term)));
+  const terms = new Set(normalized.split(/\s+/).filter((term) => (
+    term.length > 1
+    && !/^\d+(?:[.,]\d+)?$/u.test(term)
+    && !/\p{Script=Han}/u.test(term)
+    && !GENERIC_EVENT_TERMS.has(term)
+  )));
   try {
     const segmenter = new Intl.Segmenter(undefined, { granularity: "word" });
     for (const segment of segmenter.segment(normalized)) {
       const term = String(segment.segment || "").trim();
-      if (segment.isWordLike && term.length > 1 && !GENERIC_EVENT_TERMS.has(term)) terms.add(term);
+      if (segment.isWordLike
+        && term.length > 1
+        && !/^\d+(?:[.,]\d+)?$/u.test(term)
+        && !GENERIC_EVENT_TERMS.has(term)) terms.add(term);
     }
   } catch {}
   for (const sequence of normalized.match(/[\p{Script=Han}]{2,}/gu) || []) {
@@ -243,27 +296,104 @@ function eventSignature(value) {
       if (!GENERIC_EVENT_TERMS.has(term)) terms.add(term);
     }
   }
-  const numbers = new Set(normalized.match(/\d+(?:[.,]\d+)?/g) || []);
-  return { core: [...terms].sort().join(" "), terms, numbers };
+  return { core: [...terms].sort().join(" "), terms, numericFacts: materialNumericFacts(normalized) };
 }
 
-function signaturesMatch(left, right) {
-  if (!left.core || !right.core) return false;
-  if (numbersConflict(left.numbers, right.numbers)) return false;
-  if (left.core === right.core) return true;
+function signatureMatchScore(left, right) {
+  if (!left.core || !right.core) return -1;
+  if (numbersConflict(left.numericFacts, right.numericFacts)) return -1;
+  if (left.core === right.core) return 1;
   const shared = [...left.terms].filter((term) => right.terms.has(term));
-  if (shared.length < 2) return false;
+  if (shared.length < 2) return -1;
   const union = new Set([...left.terms, ...right.terms]).size;
   const jaccard = union ? shared.length / union : 0;
   const dice = (left.terms.size + right.terms.size) ? (2 * shared.length) / (left.terms.size + right.terms.size) : 0;
-  return jaccard >= .45 || dice >= .6;
+  return jaccard >= .45 || dice >= .6 ? Math.max(jaccard, dice) : -1;
 }
 
 function numbersConflict(left, right) {
-  if (!left.size || !right.size) return false;
-  const leftOnly = [...left].some((value) => !right.has(value));
-  const rightOnly = [...right].some((value) => !left.has(value));
-  return leftOnly && rightOnly;
+  if (!(left instanceof Map) || !(right instanceof Map) || !left.size || !right.size) return false;
+  for (const [context, leftValues] of left) {
+    const rightValues = right.get(context);
+    if (!rightValues?.size) continue;
+    if (![...leftValues].some((value) => rightValues.has(value))) return true;
+  }
+  return false;
+}
+
+function materialNumericFacts(value) {
+  const text = String(value || "")
+    .replace(/\b(?:19|20)\d{2}\s*年(?:\s*\d{1,2}\s*月(?:\s*\d{1,2}\s*日)?)?/gu, " ")
+    .replace(/\b(?:19|20)\d{2}[./-]\d{1,2}(?:[./-]\d{1,2})?\b/gu, " ")
+    .replace(/\b\d{1,2}\s*月\s*\d{1,2}\s*日\b/gu, " ")
+    .replace(/\b\d{1,2}[./-]\d{1,2}\b/gu, " ")
+    .replace(/\b\d{1,2}:\d{2}\b/gu, " ");
+  const facts = new Map();
+  for (const match of text.matchAll(/([a-z]{2,24})[-_.]?(\d+(?:\.\d+)*)/giu)) {
+    const label = String(match[1] || "").toLowerCase();
+    if (!label || label === "第") continue;
+    addNumericFact(facts, `model:${label}`, match[2]);
+  }
+  for (const match of text.matchAll(/\d+(?:[.,]\d+)?/gu)) {
+    const valueText = String(match[0] || "").replace(/,/g, "");
+    const index = Number(match.index || 0);
+    const windowStart = Math.max(0, index - 14);
+    const window = text.slice(windowStart, index + match[0].length + 14);
+    const context = numericContext(window, text.slice(0, index), index - windowStart);
+    if (context) addNumericFact(facts, context, valueText);
+  }
+  return facts;
+}
+
+function numericContext(window, before, numberOffset) {
+  const value = String(window || "").toLowerCase();
+  const contexts = [
+    ["death", /(?:死亡|遇难|遇難|罹难|罹難|身亡|丧生|喪生|dead|death|deaths|killed)/i],
+    ["injury", /(?:受伤|受傷|伤者|傷者|injur(?:y|ed|ies))/i],
+    ["cases", /(?:病例|确诊|確診|感染|cases?|infect(?:ed|ions?))/i],
+    ["money", /(?:美元|人民币|人民幣|亿元|億元|万元|萬元|元|usd|dollars?|million|billion|trillion)/i],
+    ["percent", /(?:%|％|百分之|percent)/i],
+    ["magnitude", /(?:震级|震級|级地震|級地震|magnitude)/i],
+    ["version", /(?:版本|型号|型號|第\s*\d+\s*代|version|model)/i],
+  ];
+  const matched = contexts.map(([context, pattern]) => {
+    const match = value.match(pattern);
+    return match ? { context, distance: Math.abs(Number(match.index || 0) - Number(numberOffset || 0)) } : null;
+  }).filter(Boolean).sort((left, right) => left.distance - right.distance)[0];
+  if (matched) return matched.context;
+  const genericContexts = [
+    ["people", /(?:\d\s*(?:人|名|例)|(?:people|persons?))/i],
+    ["distance", /(?:公里|千米|米|km|kilomet(?:er|re)s?|meters?)/i],
+    ["duration", /(?:小时|小時|分钟|分鐘|天|days?|hours?|minutes?)/i],
+  ];
+  const generic = genericContexts.find(([, pattern]) => pattern.test(value));
+  if (generic) return generic[0];
+  const adjacentLatin = String(before || "").match(/([a-z][a-z0-9-]{1,20})\s*$/i)?.[1]?.toLowerCase() || "";
+  if (adjacentLatin && !GENERIC_EVENT_TERMS.has(adjacentLatin)) return `model:${adjacentLatin}`;
+  try {
+    const terms = [...new Intl.Segmenter(undefined, { granularity: "word" }).segment(String(before || ""))]
+      .filter((segment) => segment.isWordLike)
+      .map((segment) => String(segment.segment || "").trim().toLowerCase())
+      .filter((term) => term.length > 1 && !GENERIC_EVENT_TERMS.has(term));
+    const adjacent = terms.at(-1) || "";
+    if (adjacent) return `model:${adjacent}`;
+  } catch {}
+  return "";
+}
+
+function addNumericFact(facts, context, value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (!context || !normalized) return;
+  if (!facts.has(context)) facts.set(context, new Set());
+  facts.get(context).add(normalized);
+}
+
+function numericFactIdentity(facts) {
+  if (!(facts instanceof Map)) return "";
+  return [...facts.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([context, values]) => `${context}:${[...values].sort().join(",")}`)
+    .join("|");
 }
 
 function uniqueByEvent(items) {

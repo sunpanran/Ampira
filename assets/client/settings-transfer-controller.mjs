@@ -54,7 +54,8 @@ export function createSettingsTransferController(options) {
         const bookmarkSourceChanged = savedSettings.bookmarkSourceChanged === true;
         const rankingChanged = savedSettings.rankingChanged === true;
         const automaticAiStarted = savedSettings.automaticAiStarted === true;
-        if (savedSettings.imageSearchChanged === true) inspirationPreviews.invalidate();
+        const sourceRefreshScheduled = savedSettings.sourceRefreshScheduled === true;
+        if (bookmarkSourceChanged || savedSettings.imageSearchChanged === true) inspirationPreviews.invalidate();
         applyUiLocale(savedSettings.uiLocale || getLocale(), { persist: true });
         resetSecretDrafts();
         if (!await loadSettings() || !isCurrent()) return;
@@ -63,7 +64,7 @@ export function createSettingsTransferController(options) {
           count: savedSettings.importedFieldCount || transfer.fieldCount,
         }));
         await loadDashboard();
-        if ((bookmarkSourceChanged || rankingChanged) && !automaticAiStarted) await triggerRefresh(true);
+        if ((bookmarkSourceChanged || rankingChanged) && !automaticAiStarted && !sourceRefreshScheduled) await triggerRefresh(true);
       } catch (error) {
         if (isCurrent()) renderSettingsStatus(t("settings.transfer.importFailed", { message: localizedErrorMessage(error) }));
       }

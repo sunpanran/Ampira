@@ -49,6 +49,20 @@ await Promise.all([mutation, publicWrite]);
 assert.equal((await orderedStore.read()).uiLocale, "zh-Hant");
 assert.equal(orderedStorage.setCount(), 2, "the transaction writer must not deadlock by joining its own queue");
 
+const crowdedStorage = memoryStorage();
+const crowdedStore = createSettingsStore(crowdedStorage);
+await crowdedStore.write(DEFAULT_SETTINGS);
+await crowdedStorage.set(Object.fromEntries(Array.from({ length: 8 }, (_, index) => [
+  `ampira.content.fixture.${index}`,
+  "x".repeat(6800),
+])));
+await assert.rejects(
+  crowdedStore.write(largeSettings("crowded", 180)),
+  (error) => error.code === "SYNC_STORAGE_TOTAL_TOO_LARGE",
+  "settings writes must account for content records already occupying Chrome Sync",
+);
+assert.deepEqual(await crowdedStore.read(), normalizeSettings(DEFAULT_SETTINGS), "a rejected over-budget settings write must preserve the previous settings");
+
 console.log("settings store tests passed");
 
 function largeSettings(prefix, count) {

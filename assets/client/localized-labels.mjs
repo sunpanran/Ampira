@@ -18,10 +18,21 @@ export function localizedStatusMessage(value, fallbackKey) {
 
 export function localizedCategory(item = {}) {
   const key = String(item.categoryKey || item.summary?.categoryKey || "").trim();
-  if (key) return t(`category.${key}`);
+  if (key && (item.sourceKind === "preset" || item.sectionKey === "inspirationPreset")) {
+    return translatedCategory(`category.inspiration.${key}`, item.category);
+  }
+  if (item.sourceKind === "bookmark" || /^bookmark[-:]/.test(key)) {
+    return item.category || t("category.news");
+  }
+  if (key) return translatedCategory(`category.${key}`, item.category);
   const aliases = { "全球热点": "global", "国际": "international", "科技": "technology", "消费科技": "consumerTechnology" };
   if (item.externalDiscovery && aliases[item.category]) return t(`category.${aliases[item.category]}`);
   return item.category || t("category.news");
+}
+
+function translatedCategory(key, fallback = "") {
+  const translated = t(key);
+  return translated === key ? (fallback || t("category.news")) : translated;
 }
 
 export function localizedSourceLabel(label, labelKey = "") {

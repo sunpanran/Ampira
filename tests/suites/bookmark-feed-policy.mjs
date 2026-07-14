@@ -34,6 +34,19 @@ const model = buildBookmarkModel(fixtureTree, { newsBookmarkFolder: "资讯", in
 assert.equal(model.sections.length, 2);
 assert.equal(model.bookmarks.length, 3);
 assert.equal(model.bookmarks.filter((item) => item.cardType === "news").length, 2);
+assert.deepEqual(model.folderOptions, [
+  { name: "资讯", count: 2 },
+  { name: "审美", count: 1 },
+], "folder options must include recursive bookmark counts");
+const publicOnlyModel = buildBookmarkModel(fixtureTree, {
+  newsBookmarkFolder: "资讯",
+  newsSourceMode: "public",
+  inspirationBookmarkFolder: "审美",
+  newsEntriesPerCategory: 12,
+});
+assert.equal(publicOnlyModel.bookmarks.filter((item) => item.cardType === "news").length, 0, "public Feed mode must not read news bookmarks");
+assert.equal(publicOnlyModel.bookmarks.filter((item) => item.cardType === "inspiration").length, 1, "public Feed mode must preserve the selected inspiration folder");
+assert.deepEqual(publicOnlyModel.availableNewsFolders, [], "public Feed mode must not expose bookmark folders as active news sources");
 assert.deepEqual(inspirationPreviewSourceUrls(model.bookmarks), ["https://design.example.com/"], "only inspiration bookmarks should require original-preview origins");
 assert.deepEqual(previewCacheKeysOutsideTargets([
   { key: "preview-origin-v2-kept", value: { capability: "site-preview-origin", requestedUrl: "https://design.example.com/#work" } },
@@ -72,6 +85,7 @@ const nestedLimitTree = [{ id: "0", children: [{ id: "1", children: [{
 }, { id: "40", title: "审美", children: [] }] }] }];
 const limitedModel = buildBookmarkModel(nestedLimitTree, { newsBookmarkFolder: "资讯", inspirationBookmarkFolder: "审美", newsEntriesPerCategory: 1 });
 assert.equal(limitedModel.bookmarks.filter((item) => item.cardType === "news" && item.category === "科技").length, 1, "nested folders must share the category limit");
+assert.equal(limitedModel.folderOptions.find((item) => item.name === "资讯")?.count, 2, "folder counts must include nested bookmarks and ignore display limits");
 
 const singleFolderTree = [{ id: "0", children: [{ id: "1", children: [{ id: "50", title: "资讯", children: [
   { id: "51", title: "Only", url: "https://only.example/" },

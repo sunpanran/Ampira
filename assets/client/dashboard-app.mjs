@@ -2,8 +2,8 @@ import { apiGet, apiPost } from "./api.mjs";
 import { spanText, srOnly } from "./dom.mjs";
 import { getElementGroups } from "./elements.mjs";
 import { createIcon, createThemedIcon, hydrateIcons } from "./icons.mjs";
-import { allTranslations, formatLocaleList, getLocale, setLocale, t, tc } from "./i18n.mjs";
-import { hydrateStorage, readJson, readNumber, writeJson, writeValue } from "./storage.mjs";
+import { allTranslations, getLocale, setLocale, t, tc } from "./i18n.mjs";
+import { applyExternalStoragePatch, hydrateStorage, readJson, readNumber, writeJson, writeValue } from "./storage.mjs";
 import { createInitialState } from "./state.mjs";
 import { cleanTitleText, textLength, truncateText } from "./text.mjs";
 import { formatDateTime, formatTodayMeta, getTodayKey } from "./time.mjs";
@@ -26,6 +26,7 @@ import { createAppearanceController } from "./appearance-controller.mjs";
 import { createCoverBlurPreviewController } from "./cover-blur-preview-controller.mjs";
 import { createSourceSettingsController } from "./source-settings-controller.mjs";
 import { createBookmarkSettingsController } from "./bookmark-settings-controller.mjs";
+import { hideBookmarkCategory as addHiddenBookmarkCategory } from "./bookmark-visibility.mjs";
 import { createWebsiteShortcutsController } from "./website-shortcuts-controller.mjs";
 import { createActivityController } from "./activity-controller.mjs";
 import { createSummaryView } from "./summary-view.mjs";
@@ -38,6 +39,7 @@ import { createShellController } from "./shell-controller.mjs";
 import { createSettingsController } from "./settings-controller.mjs";
 import { createSettingsTransferController } from "./settings-transfer-controller.mjs";
 import { createDashboardController } from "./dashboard-controller.mjs";
+import { exactPermissionOrigins } from "./permission-ui-model.mjs";
 import { cardIconName, cardTone } from "./card-policy.mjs";
 import {
   MAX_WEBSITE_SHORTCUTS, MAX_WEBSITE_SHORTCUT_TITLE_LENGTH, MAX_WEBSITE_SHORTCUT_URL_LENGTH,
@@ -49,6 +51,13 @@ import {
   settingsTransferFilename,
 } from "../../extension/core/settings-transfer.mjs";
 import { WEATHER_ORIGINS } from "../../extension/core/weather.mjs";
+import { normalizeReadingQueueRecords } from "../../extension/core/reading-queue.mjs";
+import {
+  TODO_ITEMS_KEY,
+  WEATHER_LOCATION_KEY,
+  normalizeTodoItems,
+  normalizeWeatherLocation,
+} from "./utility-card-model.mjs";
 
 const DAILY_NEWS_COUNT = 10;
 const DAILY_NEWS_BATCH_LIMIT = 3;
@@ -68,7 +77,7 @@ const BOOKMARK_CARD_TYPE = "bookmark";
 const LEGACY_NEWS_SECTION = "资讯";
 const LEGACY_INSPIRATION_SECTION = "审美";
 const ALL_FILTER = "all";
-const SUMMARY_DETAIL_MAX_LENGTH = 280;
+const SUMMARY_DETAIL_MAX_LENGTH = 200;
 
 await hydrateStorage();
 const state = createInitialState();
@@ -89,6 +98,7 @@ let readerController;
 let settingsController;
 let dashboardController;
 let websiteShortcutsController;
+let libraryFeedbackTimer = 0;
 
 const loadDashboard = (...args) => dashboardController.loadDashboard(...args);
 const triggerRefresh = (...args) => dashboardController.triggerRefresh(...args);
@@ -112,6 +122,12 @@ const {
   openExternal: (...args) => readerController.openExternal(...args),
   contextAttachGroup: (...args) => contextMenu.attachGroup(...args),
   contextAttachLink: (...args) => contextMenu.attachLink(...args),
+  contextAttachActions: (...args) => contextMenu.attachActions(...args),
+  openBookmarkSettings: async () => {
+    await settingsController.openSettings();
+    settingsController.selectSettingsTab("bookmarks");
+  },
+  hideBookmarkCategory: saveHiddenBookmarkCategory,
   toggleSeen: (...args) => activityController.toggleSeen(...args),
   defaultSeenSource: (...args) => activityController.defaultSeenSource(...args),
   isQueued: (...args) => activityController.isQueued(...args),
@@ -248,6 +264,7 @@ const {
   hostFromUrl, isNewsCard,
   openExternal: (...args) => readerController.openExternal(...args),
   readingQueueOpenOnReadAll: () => state.settings?.readingQueueOpenOnReadAll !== false,
+  attachLinkContextMenu: (...args) => contextMenu.attachLink(...args),
   renderDaily, renderOverviewStatus, renderSummaries, selectDailyEvents, setIconLabel,
   openAiSettings,
   getLocale, writeJson, writeValue, requestWeatherPermissions,
@@ -303,11 +320,13 @@ const {
   openExternal,
   openExternalWindow,
   reloadFloatingWeb,
+  toggleReaderTranslation,
 } = readerController = createReaderController({
   state,
   els: overlayElements,
   t,
   apiGet,
+  apiPost,
   markOpenedItem,
   renderEfficiencyPanel,
   syncNavToCurrentSection,
@@ -410,16 +429,18 @@ const {
 const {
   syncBookmarkFolderControls,
   syncBookmarkOnlyFolderControls,
+  setNewsSourceSelection,
+  setInspirationSourceSelection,
+  syncPublicFeedSupplementControl,
   bookmarkSourcePayload,
-  renderBookmarkSourceStatus,
   addBookmarkOnlyFolder,
   renderBookmarkOnlyFolderList,
   currentBookmarkOnlyFolders,
+  renderHiddenBookmarkCategoryList,
 } = createBookmarkSettingsController({
   state,
   els: settingsElements,
   t,
-  formatLocaleList,
   renderSettingsStatus: (...args) => settingsController.renderSettingsStatus(...args),
   setIconLabel,
 });
@@ -483,6 +504,8 @@ sitePreviews = createSitePreviewController({
 const {
   loadSettings,
   saveSettings,
+  grantSavedSourcePermissions,
+  dismissSavedSourcePermissions,
   testKey,
   testImageSearchKey,
   clearImageSearchKey,
@@ -499,20 +522,18 @@ const {
   runSettingsAction,
   selectSettingsTab,
   renderSettingsStatus,
-  bookmarkSourceStatusText,
-  appearanceStatusText,
   captureSettingsSnapshot,
 } = settingsController = createSettingsController({
   state, els: settingsElements, t, apiGet, apiPost, localizedResponseMessage, localizedErrorMessage,
   applyUiLocale, selectedUiLocale, syncLanguageControls, applyAppearanceSettings,
   syncAppearanceControls, renderExcludeFolderOptions, renderExclusionList,
   renderSourceSuggestionList,
-  syncBookmarkFolderControls, syncWebsiteShortcutControls, syncAiSetupControls, refreshAiSetupPermission,
+  syncBookmarkFolderControls, syncPublicFeedSupplementControl, syncWebsiteShortcutControls, syncAiSetupControls, refreshAiSetupPermission,
   getAiSetupState, clearAiSetupFeedback, focusAiSetupRequirement,
   currentExcludedNewsSources, bookmarkSourcePayload, appearancePayload,
   snapshotSettingsDraft, cloneSettingsDraft, diffSettingsDraft, selectedColorMode,
   selectedAccentTheme, colorModeLabel, themeLabel, currentBookmarkOnlyFolders,
-  renderBookmarkSourceStatus, syncSeenArchiveRetention, loadDashboard, triggerRefresh,
+  syncSeenArchiveRetention, loadDashboard, triggerRefresh,
   renderStatus, renderEfficiencyPanel, renderAll, resetToDailyView,
   syncNavToCurrentSection, getLocale, setLocale,
   settingsSaveCloseDelayMs: SETTINGS_SAVE_CLOSE_DELAY_MS,
@@ -521,6 +542,7 @@ const {
   syncSourceSuggestionActionState, syncSegmentedIndicator, isHttpUrl,
   websiteShortcutsPayload, setWebsiteShortcutControlsBusy,
   aiSetupStage: AI_SETUP_STAGE,
+  requestSourcePermissions,
 });
 const { exportSettings, importSettingsFile } = createSettingsTransferController({
   els: settingsElements, state, t, apiGet, apiPost, localizedErrorMessage,
@@ -564,6 +586,22 @@ export function createDashboardApp() {
 }
 
 function handleRuntimeMessage(detail) {
+  if (detail?.type === "content-sync.changed") {
+    const values = detail.payload?.values;
+    applyExternalStoragePatch(values);
+    if (Object.hasOwn(values || {}, "dash.readingQueue")) {
+      applyReadingQueueUpdate(normalizeReadingQueueRecords(readJson("dash.readingQueue", [])));
+    }
+    if (Object.hasOwn(values || {}, TODO_ITEMS_KEY)) {
+      state.todos = normalizeTodoItems(readJson(TODO_ITEMS_KEY, []));
+      renderEfficiencyPanel();
+    }
+    if (Object.hasOwn(values || {}, WEATHER_LOCATION_KEY)) {
+      state.weatherLocation = normalizeWeatherLocation(readJson(WEATHER_LOCATION_KEY, null));
+      invalidateWeather();
+      renderEfficiencyPanel();
+    }
+  }
   if (detail?.type === "reading-queue.changed") {
     applyReadingQueueUpdate(detail.payload?.records, detail.payload?.reopenedKeys);
   }
@@ -572,7 +610,7 @@ function handleRuntimeMessage(detail) {
     loadDashboard();
   }
   if (detail?.type === "settings.changed") {
-    if (detail?.payload?.permissionsChanged || detail?.payload?.imageSearchChanged) {
+    if (detail?.payload?.permissionsChanged || detail?.payload?.bookmarkSourceChanged || detail?.payload?.imageSearchChanged) {
       sitePreviews.invalidate();
     }
     if (detail?.payload?.permissionsChanged) invalidateWeather();
@@ -663,6 +701,7 @@ function bindEvents() {
   els.webFrameOverlay.addEventListener("click", (event) => {
     if (event.target === els.webFrameOverlay) closeFloatingWeb();
   });
+  els.translateWebFrame.addEventListener("click", toggleReaderTranslation);
   if (typeof backFloatingWeb === "function") els.backWebFrame.addEventListener("click", backFloatingWeb);
   els.reloadWebFrame.addEventListener("click", reloadFloatingWeb);
   els.openWebFrameExternal.addEventListener("click", () => {
@@ -766,13 +805,12 @@ function bindEvents() {
     applyUiLocale(els.uiLocaleSelect.value, { persist: false });
     renderSettingsStatus();
   });
-  for (const select of [els.newsBookmarkFolderSelect, els.inspirationBookmarkFolderSelect]) {
-    select.addEventListener("change", () => {
-      syncBookmarkOnlyFolderControls();
-      renderBookmarkSourceStatus();
-      renderSettingsStatus();
-    });
-  }
+  els.newsBookmarkFolderSelect.addEventListener("change", () => {
+    setNewsSourceSelection(els.newsBookmarkFolderSelect.value);
+  });
+  els.inspirationBookmarkFolderSelect.addEventListener("change", () => {
+    setInspirationSourceSelection(els.inspirationBookmarkFolderSelect.value);
+  });
   els.addBookmarkOnlyFolder.addEventListener("click", addBookmarkOnlyFolder);
   els.bookmarkOnlyFolderSelect.addEventListener("change", () => renderSettingsStatus());
   els.websiteShortcutsEnabledInput.addEventListener("change", handleWebsiteShortcutsEnabledChange);
@@ -838,6 +876,10 @@ function bindEvents() {
   els.grantAiOrigin.addEventListener("click", grantAiProviderOrigin);
   document.addEventListener("ampira:locale-changed", syncAiSetupControls);
   document.addEventListener("ampira:locale-changed", refreshWebsiteShortcutTranslations);
+  document.addEventListener("ampira:locale-changed", () => {
+    renderBookmarkOnlyFolderList();
+    renderHiddenBookmarkCategoryList();
+  });
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden) refreshAiSetupPermission({ focusOnLock: true });
   });
@@ -853,6 +895,8 @@ function bindEvents() {
     addNewsExclusion();
   });
   els.saveSettings.addEventListener("click", saveSettings);
+  els.grantSavedSourcePermissions.addEventListener("click", grantSavedSourcePermissions);
+  els.dismissSavedSourcePermissions.addEventListener("click", dismissSavedSourcePermissions);
   els.testKey.addEventListener("click", testKey);
   els.clearKey.addEventListener("click", clearKey);
   els.testImageSearchKey.addEventListener("click", testImageSearchKey);
@@ -886,6 +930,13 @@ function requestWebsitePermission(rawUrl) {
   } catch {
     return Promise.resolve(false);
   }
+}
+
+function requestSourcePermissions(origins) {
+  if (!globalThis.chrome?.permissions?.request) return Promise.resolve(false);
+  const requested = exactPermissionOrigins(origins);
+  if (!requested.length) return Promise.resolve(false);
+  return chrome.permissions.request({ origins: requested });
 }
 
 function requestWeatherPermissions() {
@@ -932,6 +983,7 @@ function createEmptyState({ title = "", body = "", variant = "panel", actionLabe
 
 function emptyActionIcon(label) {
   if (allTranslations("action.openSettings").some((value) => label.includes(value))) return "settings";
+  if (allTranslations("context.bookmarkSettings").some((value) => label.includes(value))) return "settings";
   if (allTranslations("action.configureAi").some((value) => label.includes(value))) return "settings";
   if (allTranslations("action.generateDigest").some((value) => label.includes(value))) return "refresh-cw-01";
   if (allTranslations("action.reorganize").some((value) => label.includes(value))) return "refresh-cw-01";
@@ -942,6 +994,37 @@ async function openAiSettings() {
   await settingsController.openSettings();
   settingsController.selectSettingsTab("service");
   settingsController.focusSettingsStart({ reveal: true });
+}
+
+async function saveHiddenBookmarkCategory(section, category, sectionKey = "", categoryKey = "") {
+  const hiddenBookmarkCategories = addHiddenBookmarkCategory(state.settings, section, category, sectionKey, categoryKey);
+  if (hiddenBookmarkCategories.length === (state.settings?.hiddenBookmarkCategories || []).length) return;
+  try {
+    const savedSettings = await apiPost("/api/settings", { hiddenBookmarkCategories });
+    state.settings = savedSettings;
+    if (state.filter === section && state.categoryFilter === category) state.categoryFilter = ALL_FILTER;
+    renderCategoryFilters();
+    renderCategories();
+    requestAnimationFrame(() => {
+      els.categoryFilter.querySelector("button.active")?.focus({ preventScroll: true });
+    });
+    announceLibraryFeedback("bookmarks.categoryHidden", { category });
+  } catch (error) {
+    announceLibraryFeedback("bookmarks.categoryHideFailed", {
+      message: localizedErrorMessage(error),
+    }, true);
+  }
+}
+
+function announceLibraryFeedback(key, params = {}, visibleError = false) {
+  if (libraryFeedbackTimer) window.clearTimeout(libraryFeedbackTimer);
+  els.libraryFeedback.textContent = t(key, params);
+  els.libraryFeedback.classList.toggle("is-visible-error", visibleError);
+  libraryFeedbackTimer = window.setTimeout(() => {
+    els.libraryFeedback.textContent = "";
+    els.libraryFeedback.classList.remove("is-visible-error");
+    libraryFeedbackTimer = 0;
+  }, visibleError ? 6000 : 2500);
 }
 
 function clearTopSearchFilter() {

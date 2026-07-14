@@ -6,6 +6,7 @@ export function createSettingsWorkflow(options) {
     readProviderProfile, bindProviderPatchToOrigin, isValidServiceUrl, typedError,
     providerTestConsentAllowed, hasOriginPermission, updateProviderProfile, updateSecrets,
     setAiDisclosureConsent, cacheMutations, refreshCoordinator, setRecord,
+    contentSyncService,
     pruneStalePreviewCaches, pruneBravePreviewCaches, aiConfigured, setAiAutoStatus,
     defaultAiAutoStatus, startRefresh, broadcast,
     createSettingsTransferDocument, parseSettingsTransferDocument, getAppVersion, now,
@@ -99,8 +100,9 @@ async function performSaveSettings(body, transaction) {
   const allowed = [
     "webImageSearchEnabled", "dailyAiLimit",
     "cardSummaryEnabled", "hotNewsCacheSize", "hotNewsEntriesPerSource", "newsEntriesPerCategory", "todayNewsPerPublisherLimit",
-    "newsBookmarkFolder", "inspirationBookmarkFolder", "bookmarkOnlyFolders", "floatingWebOpenEnabled",
+    "newsBookmarkFolder", "newsSourceMode", "inspirationBookmarkFolder", "inspirationSourceMode", "bookmarkOnlyFolders", "hiddenBookmarkCategories", "floatingWebOpenEnabled",
     "readingQueueOpenOnReadAll", "retainSeenArchive", "personalizedRankingEnabled", "publicFeedSupplementEnabled",
+    "syncReadingQueueEnabled", "syncTodosEnabled", "syncWeatherLocationEnabled",
     "uiLocale", "colorMode", "accentTheme", "customAccentColor", "pointerGlowEnabled", "headerImageEnabled",
     "headerImageFixed", "headerImageFullscreen", "headerImageBlurEnabled", "headerImageBlurAmount", "headerImageUrl",
     "websiteShortcutsEnabled", "websiteShortcuts",
@@ -155,9 +157,24 @@ async function performSaveSettings(body, transaction) {
 
   await transaction.write(next);
   const normalized = await getSettings();
+  try {
+    await contentSyncService.applySettings(previous, normalized);
+  } catch (error) {
+    try {
+      await transaction.write(previous);
+      await contentSyncService.applySettings(normalized, previous);
+    } catch (rollbackError) {
+      error.rollbackFailed = true;
+      error.rollbackCode = rollbackError?.code || "SETTINGS_ROLLBACK_FAILED";
+    }
+    throw error;
+  }
   const localeChanged = settingsLocale(previous) !== settingsLocale(normalized);
+  const primarySourceChanged = [
+    "newsBookmarkFolder", "newsSourceMode", "inspirationBookmarkFolder", "inspirationSourceMode",
+  ].some((key) => JSON.stringify(previous[key]) !== JSON.stringify(normalized[key]));
   const bookmarkSourceChanged = [
-    "newsBookmarkFolder", "inspirationBookmarkFolder", "bookmarkOnlyFolders", "excludedNewsSources",
+    "newsBookmarkFolder", "newsSourceMode", "inspirationBookmarkFolder", "inspirationSourceMode", "bookmarkOnlyFolders", "excludedNewsSources",
     "publicFeedSupplementEnabled", "hotNewsCacheSize", "hotNewsEntriesPerSource", "newsEntriesPerCategory",
   ]
     .some((key) => JSON.stringify(previous[key]) !== JSON.stringify(normalized[key]))
@@ -177,18 +194,22 @@ async function performSaveSettings(body, transaction) {
     if (bookmarkSourceChanged) await pruneStalePreviewCaches(normalized);
     if (imageSearchChanged) await pruneBravePreviewCaches();
   }
+  const sourceRefreshScheduled = primarySourceChanged;
+  if (sourceRefreshScheduled) startRefresh(true).catch(() => {});
   let automaticAiStarted = false;
   if (automaticAiChanged) {
     const ready = normalized.cardSummaryEnabled !== false && await aiConfigured(normalized);
     await setAiAutoStatus(ready ? defaultAiAutoStatus() : { ...defaultAiAutoStatus(), phase: "not-ready" }, false);
     if (ready) {
       automaticAiStarted = true;
-      startRefresh(true).catch(() => {});
+      if (!sourceRefreshScheduled) startRefresh(true).catch(() => {});
     }
   }
-  broadcast("settings.changed", { bookmarkSourceChanged, rankingChanged, localeChanged, imageSearchChanged, automaticAiChanged, automaticAiStarted });
+  broadcast("settings.changed", { primarySourceChanged, sourceRefreshScheduled, bookmarkSourceChanged, rankingChanged, localeChanged, imageSearchChanged, automaticAiChanged, automaticAiStarted });
   return {
     ...(await publicSettings()),
+    primarySourceChanged,
+    sourceRefreshScheduled,
     bookmarkSourceChanged,
     rankingChanged,
     localeChanged,

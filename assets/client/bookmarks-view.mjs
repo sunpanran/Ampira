@@ -1,9 +1,17 @@
+import { isBookmarkCategoryHidden } from "./bookmark-visibility.mjs";
+
+export function belongsInArchiveIndex(entry) {
+  return entry?.sectionKey !== "inspirationPreset"
+    && !(entry?.sourceKind === "preset" && entry?.cardType === "inspiration");
+}
+
 export function createBookmarksView(options) {
   const {
     state, els, t, itemUrl, faviconUrl, createIcon, createThemedIcon, srOnly,
     groupItemsByKey, matchesQuery, createEmptyState, cardIconName, cardTone,
     setIconLabel, syncSegmentedIndicator, openExternal, contextAttachGroup,
-    contextAttachLink, toggleSeen, defaultSeenSource, isQueued, actionKey,
+    contextAttachLink, contextAttachActions, openBookmarkSettings, hideBookmarkCategory,
+    toggleSeen, defaultSeenSource, isQueued, actionKey,
     toggleReadingQueue, refreshSummaryItem, allFilter,
   } = options;
 
@@ -19,7 +27,7 @@ export function createBookmarksView(options) {
   };
 
 function renderSectionFilters() {
-  const sections = state.data?.sections || [];
+  const sections = archiveIndexSections();
   const allowed = new Set([allFilter, ...sections.map((section) => section.name)]);
   if (!allowed.has(state.filter)) {
     state.filter = allFilter;
@@ -39,6 +47,11 @@ function createSectionFilterButton(value, label, icon) {
   button.dataset.section = value;
   setIconLabel(button, icon || "folder", label, "segment-icon", "segment-label");
   button.classList.toggle("active", state.filter === value);
+  contextAttachActions(button, () => [{
+    label: t("context.bookmarkSettings"),
+    icon: "settings-01",
+    action: openBookmarkSettings,
+  }]);
   return button;
 }
 
@@ -53,9 +66,12 @@ function renderCategoryFilters() {
     return;
   }
   const categories = availableCategories();
+  if (![allFilter, ...categories.map((category) => category.name)].includes(state.categoryFilter)) {
+    state.categoryFilter = allFilter;
+  }
   const buttons = [
     createCategoryFilterButton(allFilter, t("filter.allCategories"), "filter-lines"),
-    ...categories.map((category) => createCategoryFilterButton(category.name, category.name)),
+    ...categories.map((category) => createCategoryFilterButton(category.name, category.name, "folder", category)),
   ];
   els.categoryFilter.replaceChildren(...buttons);
   for (const button of buttons) button.tabIndex = 0;
@@ -67,23 +83,41 @@ function renderCategoryFilters() {
 function availableCategories() {
   const categories = [];
   const seen = new Set();
-  for (const section of state.data?.sections || []) {
+  for (const section of archiveIndexSections()) {
     if (state.filter !== allFilter && state.filter !== section.name) continue;
     for (const category of section.categories || []) {
+      if (isBookmarkCategoryHidden(state.settings, section.name, category.name, section.sectionKey, category.categoryKey)) continue;
       if (seen.has(category.name)) continue;
       seen.add(category.name);
-      categories.push({ section: section.name, name: category.name });
+      categories.push({
+        section: section.name,
+        sectionKey: section.sectionKey,
+        name: category.name,
+        categoryKey: category.categoryKey,
+      });
     }
   }
   return categories;
 }
 
-function createCategoryFilterButton(value, label, icon = "folder") {
+function createCategoryFilterButton(value, label, icon = "folder", identity = {}) {
   const button = document.createElement("button");
   button.type = "button";
   button.dataset.category = value;
   setIconLabel(button, icon, label, "segment-icon", "segment-label");
   button.classList.toggle("active", state.categoryFilter === value);
+  if (value !== allFilter) {
+    contextAttachActions(button, () => [{
+      label: t("context.hideBookmarkCategory"),
+      icon: "eye-off",
+      action: () => hideBookmarkCategory(
+        identity.section || state.filter,
+        value,
+        identity.sectionKey || "",
+        identity.categoryKey || "",
+      ),
+    }]);
+  }
   return button;
 }
 
@@ -91,27 +125,53 @@ function renderCategories() {
   els.categoryGrid.classList.toggle("is-filtered-category", state.categoryFilter !== allFilter);
   const groups = [];
   const bookmarksByCategory = groupItemsByKey(
-    state.data?.bookmarks || [],
+    archiveIndexBookmarks(),
     (item) => `${item.section}\u0000${item.category}`,
     matchesQuery,
   );
-  for (const section of state.data?.sections || []) {
+  const sections = archiveIndexSections();
+  for (const section of sections) {
     if (state.filter !== allFilter && state.filter !== section.name) continue;
     for (const category of section.categories) {
+      if (isBookmarkCategoryHidden(state.settings, section.name, category.name, section.sectionKey, category.categoryKey)) continue;
       if (state.categoryFilter !== allFilter && state.categoryFilter !== category.name) continue;
       const items = bookmarksByCategory.get(`${section.name}\u0000${category.name}`) || [];
       if (items.length > 0) groups.push({ section: section.name, cardType: section.cardType, category: category.name, items });
     }
   }
   if (!groups.length) {
+    const selectedSection = state.filter === allFilter
+      ? null
+      : sections.find((section) => section.name === state.filter);
+    const allCategoriesHidden = Boolean(selectedSection?.categories?.length)
+      && selectedSection.categories.every((category) => (
+        isBookmarkCategoryHidden(state.settings, selectedSection.name, category.name, selectedSection.sectionKey, category.categoryKey)
+      ));
+    const noEntries = archiveIndexBookmarks().length === 0;
+    const titleKey = allCategoriesHidden
+      ? "empty.hiddenCategories.title"
+      : (noEntries ? "empty.noEntries.title" : "empty.noMatches.title");
+    const bodyKey = allCategoriesHidden
+      ? "empty.hiddenCategories.body"
+      : (noEntries ? "empty.noEntries.body" : "empty.noMatches.body");
     els.categoryGrid.replaceChildren(createEmptyState({
-      title: t("empty.noMatches.title"),
-      body: t("empty.noMatches.body"),
+      title: t(titleKey),
+      body: t(bodyKey),
       variant: "panel",
+      actionLabel: allCategoriesHidden ? t("context.bookmarkSettings") : "",
+      onAction: allCategoriesHidden ? openBookmarkSettings : undefined,
     }));
     return;
   }
   els.categoryGrid.replaceChildren(...groups.map(createCategoryBlock));
+}
+
+function archiveIndexSections() {
+  return (state.data?.sections || []).filter(belongsInArchiveIndex);
+}
+
+function archiveIndexBookmarks() {
+  return (state.data?.bookmarks || []).filter(belongsInArchiveIndex);
 }
 
 function createCategoryBlock(group) {

@@ -498,6 +498,10 @@
   cursor: default;
 }
 
+.reader-translate[hidden] {
+  display: none;
+}
+
 .web-frame-toolbar {
   display: flex;
   align-items: center;

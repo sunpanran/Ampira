@@ -95,7 +95,9 @@ async function buildDashboardPayload(attempt = 0) {
   }
   return {
     generatedAt: new Date().toISOString(),
-    source: "Chrome Bookmarks API",
+    source: settings.inspirationSourceMode === "preset"
+      ? "Chrome Bookmarks API + Ampira packaged preset"
+      : "Chrome Bookmarks API",
     total: model.bookmarks.length,
     sections: model.sections,
     bookmarks: model.bookmarks,
