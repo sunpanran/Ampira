@@ -148,8 +148,6 @@ function queryElements() {
     webFrameFavicon: document.querySelector("#webFrameFavicon"),
     webFrameTitle: document.querySelector("#webFrameTitle"),
     webFrameUrl: document.querySelector("#webFrameUrl"),
-    backWebFrame: document.querySelector("#backWebFrame"),
-    translateWebFrame: document.querySelector("#translateWebFrame"),
     reloadWebFrame: document.querySelector("#reloadWebFrame"),
     openWebFrameExternal: document.querySelector("#openWebFrameExternal"),
     closeWebFrame: document.querySelector("#closeWebFrame"),
@@ -206,8 +204,8 @@ const SETTINGS_KEYS = [
 const OVERLAY_KEYS = [
   "aiSearchOverlay", "aiSearchForm", "aiSearchInput", "aiSearchSubmit",
   "aiAnswer", "aiSearchMeta", "closeAiSearch", "webFrameOverlay", "webFrame",
-  "webFrameFavicon", "webFrameTitle", "webFrameUrl", "backWebFrame",
-  "translateWebFrame", "reloadWebFrame", "openWebFrameExternal", "closeWebFrame", "linkContextMenu",
+  "webFrameFavicon", "webFrameTitle", "webFrameUrl",
+  "reloadWebFrame", "openWebFrameExternal", "closeWebFrame", "linkContextMenu",
 ];
 
 function pick(elements, keys) {

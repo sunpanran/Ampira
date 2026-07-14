@@ -149,7 +149,26 @@ export function createReaderController(context) {
     if (result.truncated) notices.append(createReaderNotice("warning", t("reader.truncated")));
     if (result.quality === "partial") notices.append(createReaderNotice("warning", t("reader.partial")));
     if (notices.childElementCount) header.append(notices);
+    const actions = createReaderHeaderActions();
+    if (actions.childElementCount) header.append(actions);
     return header;
+  }
+
+  function createReaderHeaderActions() {
+    const actions = document.createElement("div");
+    actions.className = "reader-header-actions";
+    if (state.webFrameHistory.length) {
+      actions.append(readerActionButton(t("reader.back"), "ghost reader-back", backFloatingWeb));
+    }
+    if (state.data?.ai?.enabled === true) {
+      const translateButton = readerActionButton(
+        t(readerTranslation?.showing ? "reader.showOriginal" : "reader.translate"),
+        "ghost reader-translate",
+        toggleReaderTranslation,
+      );
+      actions.append(translateButton);
+    }
+    return actions;
   }
 
   function createReaderNotice(kind, text) {
@@ -299,6 +318,7 @@ export function createReaderController(context) {
     body.textContent = readerErrorMessage(error);
     const actions = document.createElement("div");
     actions.className = "reader-state-actions";
+    if (state.webFrameHistory.length) actions.append(readerActionButton(t("reader.back"), "ghost reader-back", backFloatingWeb));
     if (error?.code === "ORIGIN_PERMISSION_REQUIRED") {
       const authorize = readerActionButton(t("reader.authorize"), "primary", () => authorizeReaderOrigin(error, authorize));
       actions.append(authorize);
@@ -373,14 +393,15 @@ export function createReaderController(context) {
   }
 
   function syncReaderBackButton() {
-    els.backWebFrame.disabled = !state.webFrameHistory.length;
+    const button = els.webFrame.querySelector(".reader-back");
+    if (button) button.hidden = !state.webFrameHistory.length;
   }
 
   function syncReaderTranslateButton() {
-    const available = state.data?.ai?.enabled === true && Boolean(state.webFrameResult);
-    els.translateWebFrame.hidden = !available;
-    els.translateWebFrame.disabled = false;
-    els.translateWebFrame.textContent = t(readerTranslation?.showing ? "reader.showOriginal" : "reader.translate");
+    const button = els.webFrame.querySelector(".reader-translate");
+    if (!button) return;
+    button.disabled = false;
+    button.textContent = t(readerTranslation?.showing ? "reader.showOriginal" : "reader.translate");
   }
 
   async function toggleReaderTranslation() {
@@ -400,8 +421,10 @@ export function createReaderController(context) {
     }
     const original = state.webFrameResult;
     if (!original) return;
-    els.translateWebFrame.disabled = true;
-    els.translateWebFrame.textContent = t("reader.translating");
+    const button = els.webFrame.querySelector(".reader-translate");
+    if (!button) return;
+    button.disabled = true;
+    button.textContent = t("reader.translating");
     try {
       const text = readerPlainText(original);
       const translated = await apiPost("/api/reader/translate", {
@@ -412,10 +435,10 @@ export function createReaderController(context) {
       readerTranslation = { original, translated, showing: true };
       renderTranslatedReader(translated, original);
     } catch (error) {
-      els.translateWebFrame.textContent = localizedErrorMessage(error);
+      button.textContent = localizedErrorMessage(error);
       window.setTimeout(syncReaderTranslateButton, 2200);
     } finally {
-      els.translateWebFrame.disabled = false;
+      button.disabled = false;
     }
   }
 
@@ -506,6 +529,5 @@ export function createReaderController(context) {
     openExternal,
     openExternalWindow,
     reloadFloatingWeb,
-    toggleReaderTranslation,
   };
 }

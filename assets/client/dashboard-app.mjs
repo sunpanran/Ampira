@@ -320,7 +320,6 @@ const {
   openExternal,
   openExternalWindow,
   reloadFloatingWeb,
-  toggleReaderTranslation,
 } = readerController = createReaderController({
   state,
   els: overlayElements,
@@ -701,7 +700,6 @@ function bindEvents() {
   els.webFrameOverlay.addEventListener("click", (event) => {
     if (event.target === els.webFrameOverlay) closeFloatingWeb();
   });
-  els.translateWebFrame.addEventListener("click", toggleReaderTranslation);
   if (typeof backFloatingWeb === "function") els.backWebFrame.addEventListener("click", backFloatingWeb);
   els.reloadWebFrame.addEventListener("click", reloadFloatingWeb);
   els.openWebFrameExternal.addEventListener("click", () => {

@@ -498,8 +498,11 @@
   cursor: default;
 }
 
-.reader-translate[hidden] {
-  display: none;
+.reader-header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 4px;
 }
 
 .web-frame-toolbar {

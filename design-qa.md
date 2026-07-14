@@ -800,12 +800,12 @@ final result: passed
 
 ## 2026-07-15 — In-app reader translation
 
-- 站内阅读工具栏新增三语“翻译”操作，仅在 API 密钥、数据传输确认与 AI 域名权限全部就绪时显示；未配置 AI 时按钮保留原生 `hidden` 状态，不展示无效入口。
+- 站内阅读标题区新增三语文章操作；“返回”仅在正文内发生同站跳转后出现，“翻译”仅在 API 密钥、数据传输确认与 AI 域名权限全部就绪时出现。底部窗口工具栏只保留刷新、打开原站和关闭，未配置 AI 时不会创建翻译入口。
 - 翻译请求使用当前界面语言作为目标语言，将正文作为纯文本发送给用户已配置的 AI 服务；译文保持在当前阅读窗口，并可通过“查看原文／Show original”在原文与译文之间切换，不覆盖缓存正文。
 - 自动化覆盖按钮存在、AI 就绪门控、扩展消息路由和原文切换。`node tests\extension.mjs`、Service Worker、全部 core/runtime/client ESM 语法检查及 `git diff --check` 通过。本地 `file:` 预览被浏览器安全策略阻止，因此未生成新截图；仍需在解压扩展中复核 `1280×800`、`1440×1000` 与窄窗口工具栏。
 
 ## 2026-07-15 Release 26.2.1
 
 - Manifest 版本提升至 `26.2.1`，并使用真实支持入口运行 `scripts/verify-extension.ps1 -Package`；扩展测试、Service Worker 与浏览器模块语法检查、发布安全门禁及打包均通过。
-- 最终 `dist/ampira-26.2.1.zip` 为 `1,419,617` bytes，SHA-256 为 `16c357b69ada0bbe56bfe31d6250b3e8b79b86483df7fa46b519406046c9059f`；侧车哈希一致。
+- 最终 `dist/ampira-26.2.1.zip` 为 `1,419,595` bytes，SHA-256 为 `ff6372450a28fb6aa5a137e2dccd79c741ae53be61bb4518df921acc64d2364c`；侧车哈希一致。
 - ZIP 包含 209 个文件和 24 张预设 WebP；根目录 Manifest 版本为 `26.2.1`，不含测试、`output/`、`dashboard-cache/`、`dist/` 或其他禁止路径。

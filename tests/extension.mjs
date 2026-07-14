@@ -1539,8 +1539,8 @@ const aiCoreSource = await fs.readFile(path.join(root, "extension/core/ai.mjs"),
 const weatherCoreSource = await fs.readFile(path.join(root, "extension/core/weather.mjs"), "utf8");
 const readerPolicySource = await fs.readFile(path.join(root, "assets/client/reader-policy.mjs"), "utf8");
 const readerUiSource = await fs.readFile(path.join(root, "assets/client/reader-ui.mjs"), "utf8");
-assert(dashboardSource.includes('id="translateWebFrame"') && dashboardSource.includes('data-i18n="reader.translate"'), "the in-app reader must expose a localized translation action");
-assert(readerUiSource.includes('state.data?.ai?.enabled === true') && readerUiSource.includes('els.translateWebFrame.hidden = !available'), "reader translation must stay hidden until AI is fully configured");
+assert(readerUiSource.includes('className = "reader-header-actions"') && readerUiSource.includes('"ghost reader-translate"'), "the in-app reader must place translation with article-level actions");
+assert(readerUiSource.includes('state.data?.ai?.enabled === true') && !dashboardSource.includes('id="translateWebFrame"'), "reader translation must stay absent until AI is fully configured");
 assert(readerUiSource.includes('apiPost("/api/reader/translate"') && readerUiSource.includes('reader.showOriginal'), "reader translation must use the extension AI route and preserve an original-text toggle");
 const aiSearchUiSource = await fs.readFile(path.join(root, "assets/client/ai-search-ui.mjs"), "utf8");
 const settingsControllerSource = await fs.readFile(path.join(root, "assets/client/settings-controller.mjs"), "utf8");
