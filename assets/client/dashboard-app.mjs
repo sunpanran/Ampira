@@ -700,7 +700,6 @@ function bindEvents() {
   els.webFrameOverlay.addEventListener("click", (event) => {
     if (event.target === els.webFrameOverlay) closeFloatingWeb();
   });
-  if (typeof backFloatingWeb === "function") els.backWebFrame.addEventListener("click", backFloatingWeb);
   els.reloadWebFrame.addEventListener("click", reloadFloatingWeb);
   els.openWebFrameExternal.addEventListener("click", () => {
     if (!state.webFrameUrl) return;

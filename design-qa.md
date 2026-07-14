@@ -809,3 +809,10 @@ final result: passed
 - Manifest 版本提升至 `26.2.1`，并使用真实支持入口运行 `scripts/verify-extension.ps1 -Package`；扩展测试、Service Worker 与浏览器模块语法检查、发布安全门禁及打包均通过。
 - 最终 `dist/ampira-26.2.1.zip` 为 `1,419,595` bytes，SHA-256 为 `ff6372450a28fb6aa5a137e2dccd79c741ae53be61bb4518df921acc64d2364c`；侧车哈希一致。
 - ZIP 包含 209 个文件和 24 张预设 WebP；根目录 Manifest 版本为 `26.2.1`，不含测试、`output/`、`dashboard-cache/`、`dist/` 或其他禁止路径。
+
+## 2026-07-15 Release 26.2.2
+
+- 移除阅读器返回操作的遗留重复事件绑定，确保标题区的当前处理器每次点击只执行一次；Manifest 版本提升至 `26.2.2`。
+- 使用真实支持入口运行 `scripts/verify-extension.ps1 -Package`；扩展测试、Service Worker 与浏览器模块语法检查、发布安全门禁及打包均通过。
+- 最终 `dist/ampira-26.2.2.zip` 为 `1,419,575` bytes，SHA-256 为 `f8efa39b9140680f45caaed2d9eea32e6cf5b185bd71b43212c9e4b97ac4cc20`；侧车哈希一致。
+- ZIP 包含 209 个文件和 24 张预设 WebP；根目录 Manifest 版本为 `26.2.2`，不含测试、`output/`、`dashboard-cache/`、`dist/` 或其他禁止路径。
