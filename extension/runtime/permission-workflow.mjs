@@ -14,7 +14,8 @@ export function createPermissionWorkflow(options) {
     normalizeOriginPattern, filterSourceQuality, emptySourceQuality, originsFromUrls, secretStatus,
     currentProviderCapability, settingsLocale, aiSearchResultPermitted, previewCachePermitted,
     cacheUrlsPermitted, digestCachePermitted, withFeedCacheMetadata, buildFallbackDigest, buildDailyCandidates,
-    inspirationPreviewTargets,
+    inspirationPreviewTargets, newsPreviewTargets,
+    weatherCachePermitted = async () => false,
   } = options;
   const nextPermissionEpoch = () => ++permissionEpoch;
   const capturePermissionEpoch = () => permissionEpoch;
@@ -109,6 +110,10 @@ async function applyEffectivePermissionCachePolicy(removedOrigins, isCurrent) {
   ]);
   if (!isCurrent()) return null;
   const items = filterFeedItemsBySources(feed.items || [], feedPermissions.permitted, feedPermissions.grantedOrigins);
+  const previewTargets = [
+    ...inspirationPreviewTargets(model.bookmarks),
+    ...newsPreviewTargets(items),
+  ];
   const feedContentChanged = JSON.stringify(items) !== JSON.stringify(feed.items || []);
   const nextFeed = {
     ...feed,
@@ -142,7 +147,7 @@ async function applyEffectivePermissionCachePolicy(removedOrigins, isCurrent) {
         && await cacheUrlsPermitted([record.value?.requestedUrl]);
       if (!permitted) directKeys.add(record.key);
     } else if (record.key.startsWith("preview-") || /^(?:image-preview|site-preview-)/.test(record.value?.capability || "")) {
-      if (!await previewCachePermitted(record.value, { settings, model, secrets })) directKeys.add(record.key);
+      if (!await previewCachePermitted(record.value, { settings, model, secrets, previewTargets })) directKeys.add(record.key);
     } else if (record.key.startsWith("reader-content-v2-") || record.value?.capability === "reader") {
       const permitted = await cacheUrlsPermitted([
         record.value?.requestedUrl,
@@ -150,6 +155,8 @@ async function applyEffectivePermissionCachePolicy(removedOrigins, isCurrent) {
         record.value?.canonicalUrl,
       ]);
       if (!permitted) directKeys.add(record.key);
+    } else if (record.value?.capability === "weather") {
+      if (!await weatherCachePermitted(record.value)) directKeys.add(record.key);
     }
   }
   for (const record of cacheRecords) {
@@ -204,11 +211,16 @@ async function pruneStalePreviewCaches(settings, expectedEpoch = cacheMutations.
     if (!isCurrent()) return null;
     const model = settings.bookmarkConsentGranted ? await currentBookmarkModel(settings) : emptyBookmarkModel();
     if (!isCurrent()) return null;
-    const cacheRecords = await listRecords("cache");
+    const [cacheRecords, feed, feedPermissions] = await Promise.all([
+      listRecords("cache"),
+      getRecord("feed", { schemaVersion: 2, items: [] }),
+      currentFeedPermissionState(settings, model),
+    ]);
     if (!isCurrent()) return null;
+    const items = filterFeedItemsBySources(feed.items || [], feedPermissions.permitted, feedPermissions.grantedOrigins);
     const staleKeys = previewCacheKeysOutsideTargets(
       cacheRecords,
-      inspirationPreviewTargets(model.bookmarks),
+      [...inspirationPreviewTargets(model.bookmarks), ...newsPreviewTargets(items)],
     );
     for (const key of staleKeys) {
       if (!isCurrent()) return null;

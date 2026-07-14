@@ -2,7 +2,7 @@ import { SETTINGS_KEY } from "./constants.mjs";
 
 const MAX_SYNC_ITEM_BYTES = 7000;
 const MAX_SYNC_TOTAL_BYTES = 90 * 1024;
-const CHUNK_FIELDS = ["bookmarkOnlyFolders", "excludedNewsSources"];
+const CHUNK_FIELDS = ["bookmarkOnlyFolders", "websiteShortcuts", "excludedNewsSources"];
 const CHUNK_PREFIX = `${SETTINGS_KEY}.chunk`;
 
 export function encodeSettingsForSync(settings) {

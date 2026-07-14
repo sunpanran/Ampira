@@ -431,6 +431,8 @@ input::placeholder {
   color: var(--muted);
   font-size: 12px;
   line-height: 1.6;
+  overflow-wrap: anywhere;
+  text-wrap: pretty;
 }
 
 .empty-state-action {
@@ -454,6 +456,15 @@ input::placeholder {
   justify-items: start;
   background: transparent;
   text-align: left;
+}
+
+.empty-state.is-compact .empty-state-copy {
+  width: 100%;
+  min-width: 0;
+}
+
+.empty-state.is-compact .empty-state-body {
+  max-width: none;
 }
 
 .empty-state.is-compact .empty-state-action {

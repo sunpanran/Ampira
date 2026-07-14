@@ -6,6 +6,7 @@ let releaseInitialStatus;
 let releaseFirstRun;
 let statusReads = 0;
 let runCount = 0;
+let firstRunContext = null;
 const initialStatus = new Promise((resolve) => { releaseInitialStatus = resolve; });
 const firstRun = new Promise((resolve) => { releaseFirstRun = resolve; });
 const coordinator = createRefreshCoordinator({
@@ -14,8 +15,9 @@ const coordinator = createRefreshCoordinator({
     if (statusReads === 1) return initialStatus;
     return { running: runCount > 0 };
   },
-  run: async () => {
+  run: async (_generation, context) => {
     runCount += 1;
+    if (runCount === 1) firstRunContext = context;
     if (runCount === 1) await firstRun;
   },
 });
@@ -31,6 +33,7 @@ releaseInitialStatus({ running: false });
 assert.equal((await firstStart).started, true);
 await Promise.resolve();
 assert.equal(runCount, 1, "concurrent starts must not create duplicate refresh operations");
+assert.deepEqual(firstRunContext, { force: true }, "forced refreshes must expose their user-initiated context to the refresh pipeline");
 
 releaseFirstRun();
 await new Promise((resolve) => setTimeout(resolve, 0));

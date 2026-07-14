@@ -1,3 +1,5 @@
+import { MAX_WEBSITE_SHORTCUTS } from "../../extension/core/settings.mjs";
+
 export function createStatusView(options) {
   const {
     state, els, t, tc, formatDateTime, localizedStatusMessage, localizedErrorMessage,
@@ -36,10 +38,11 @@ function renderInitialLoadingState() {
 function renderWebsiteShortcutLoadingState() {
   if (!document.documentElement.classList.contains("has-website-shortcuts")) return;
   const rawCount = Number(document.documentElement.dataset.websiteShortcutCount);
-  const count = Math.min(10, Math.max(0, Number.isFinite(rawCount) ? Math.floor(rawCount) : 0));
+  const count = Math.min(MAX_WEBSITE_SHORTCUTS, Math.max(0, Number.isFinite(rawCount) ? Math.floor(rawCount) : 0));
   els.websiteShortcuts.hidden = false;
   els.websiteShortcuts.dataset.loading = "true";
   els.websiteShortcuts.setAttribute("aria-busy", "true");
+  els.websiteShortcuts.classList.toggle("is-empty", count === 0);
   els.websiteShortcutList.replaceChildren(...(
     count > 0
       ? Array.from({ length: count }, createWebsiteShortcutPlaceholder)
@@ -97,8 +100,7 @@ function renderStatus() {
   renderCacheOverview(status);
   renderAutoAiStatus(ai);
   renderCacheStatus();
-  els.refresh.disabled = Boolean(status.running);
-  renderRefreshButton(Boolean(status.running));
+  renderRefreshButtons(Boolean(status.running));
 }
 
 function renderQuotaOverview(ai = {}) {
@@ -208,14 +210,19 @@ function renderOverviewStatus(title, meta) {
   els.settingsOverviewMeta.textContent = meta || t("status.noRecord");
 }
 
-function renderRefreshButton(isRunning) {
-  els.refresh.classList.toggle("is-loading", isRunning);
-  els.refresh.disabled = isRunning;
-  els.refresh.replaceChildren();
+function renderRefreshButtons(isRunning) {
+  renderRefreshButton(els.refresh, isRunning);
+  renderRefreshButton(els.settingsRefresh, isRunning);
+}
+
+function renderRefreshButton(button, isRunning) {
+  button.classList.toggle("is-loading", isRunning);
+  button.disabled = isRunning;
+  button.replaceChildren();
   if (isRunning) {
-    setIconLabel(els.refresh, "synchronize", t("status.caching"));
+    setIconLabel(button, "synchronize", t("status.caching"));
   } else {
-    setIconLabel(els.refresh, "refresh-cw-01", t("action.cache"));
+    setIconLabel(button, "refresh-cw-01", t("action.cache"));
   }
 }
 

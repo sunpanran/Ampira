@@ -1,8 +1,11 @@
 (() => {
+  const maxWebsiteShortcuts = 16;
   const storageKey = "ampira.colorMode";
   const coverStorageKey = "ampira.headerCover";
   const shortcutLayoutStorageKey = "ampira.websiteShortcutsLayout";
   const settingsStorageKey = "ampira.settings.v1";
+  const headerCoverBlurMax = 24;
+  const headerCoverBlurBleedMultiplier = 1.5;
   const allowedModes = new Set(["system", "dark", "light"]);
   let colorMode = "dark";
 
@@ -27,7 +30,8 @@
     const cachedCover = localStorage.getItem(coverStorageKey);
     const cover = cachedCover
       ? JSON.parse(cachedCover)
-      : { enabled: true, fixed: false, fullscreen: false };
+      : { enabled: true, fixed: false, fullscreen: false, blurEnabled: false, blurAmount: 12 };
+    applyHeaderCoverBlur(cover?.enabled === true && cover?.blurEnabled === true ? cover.blurAmount : 0);
     if (cover?.enabled === true) {
       document.documentElement.classList.add("has-header-cover");
       document.documentElement.classList.toggle("has-fixed-header-cover", cover.fixed === true);
@@ -53,6 +57,18 @@
       observer.disconnect();
     });
     observer.observe(document.documentElement, { childList: true, subtree: true });
+  }
+
+  function applyHeaderCoverBlur(value) {
+    const numericValue = Number(value);
+    const amount = Number.isFinite(numericValue)
+      ? Math.min(headerCoverBlurMax, Math.max(0, Math.round(numericValue)))
+      : 0;
+    const bleed = amount * headerCoverBlurBleedMultiplier;
+    const root = document.documentElement;
+    root.style.setProperty("--header-cover-blur", `${amount}px`);
+    root.style.setProperty("--header-cover-inset", `${-bleed}px`);
+    root.style.setProperty("--header-cover-size-adjustment", `${bleed * 2}px`);
   }
 
   function readWebsiteShortcutLayoutHint() {
@@ -90,7 +106,7 @@
     return {
       known: known === true,
       enabled: value?.enabled === true,
-      count: Math.min(10, Math.max(0, Math.floor(Number(value?.count) || 0))),
+      count: Math.min(maxWebsiteShortcuts, Math.max(0, Math.floor(Number(value?.count) || 0))),
     };
   }
 

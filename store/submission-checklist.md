@@ -20,10 +20,13 @@
 - [ ] Grant one exact inspiration origin and verify its original page image appears without a Brave key; revoke it and verify the card remains usable without another original-page read.
 - [ ] Reload the new tab and verify all 15 fixed daily inspiration cards across the three reshuffle batches begin preloading before first render, while a deliberately slow image still falls back to progressive rendering without blocking the dashboard.
 - [ ] For an inspiration page with no usable image, enable Brave Image Search with a non-production key and verify Brave runs only as the fallback; remove the key afterward.
-- [ ] For an authorized same-origin Feed article without a Feed image, verify one bounded metadata enrichment supplies an original image; verify a cross-origin article is skipped and Brave is never called for news.
+- [ ] For an authorized same-origin Feed article without a Feed image, verify one bounded metadata enrichment supplies an original image. Then use a news card with no usable image, enable Brave Image Search with a non-production key, and verify the card receives a fallback; confirm a cross-origin article metadata read is skipped and an unrelated URL cannot use the preview endpoint.
 - [ ] Restart Chrome, confirm the dashboard cache renders immediately, and confirm saved API keys are not shown in full.
 - [ ] Test a provider with a non-production key, then remove the key and clear the test data.
 - [ ] Confirm the AI form stays locked before disclosure consent and exact-origin access, unlocks after authorization, and locks again after origin change or permission removal.
+- [ ] Cycle the first efficiency card through Events → Weather → To-do and reload after each mode; confirm the mode restores and the card boundary does not change.
+- [ ] In Weather, submit `慈溪`, confirm the bundled result is `慈溪市 · 宁波市 · 浙江省 · 中国` with GeoNames attribution and no geocoder request, then submit a synthetic non-China city and confirm the Open-Meteo fallback. Confirm Chrome requests only the two Open-Meteo origins, choose ambiguous candidates manually, and verify today/tomorrow/day-after rows plus the Open-Meteo attribution. Decline once, retry, then revoke each origin in Settings → Browser and confirm the weather cache is deleted without deleting the saved city.
+- [ ] In To-do, verify add/complete/restore/delete, Return-to-add, the 120-character item limit, the 50-item cap, unfinished-first order, internal scrolling, and persistence after reload and ordinary cache clearing.
 - [ ] Verify no horizontal overflow at 1280×800, 1440×1000, and a narrow desktop window.
 
 ## Package and listing
@@ -36,6 +39,7 @@
 - [ ] Copy the single-purpose, permission, and data-use answers from `store/privacy-practices.md`.
 - [ ] Include `store/reviewer-notes.md` in the reviewer instructions.
 - [ ] Confirm there are no in-app purchases, mature content, analytics, ads, or remote code to disclose.
+- [ ] Confirm this release remains non-commercial, the visible Open-Meteo and GeoNames attributions are present, the bundled GeoNames extract remains covered by CC BY 4.0, and the current Open-Meteo terms remain compatible; otherwise use a commercial plan, self-hosted service, or a different provider before release.
 - [ ] Confirm the package manifest records the expected `GITHUB_SHA` when built in CI and that its ZIP SHA-256 matches the `.zip.sha256` sidecar.
 
 ## Rollout

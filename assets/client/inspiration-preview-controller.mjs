@@ -1,4 +1,4 @@
-export function createInspirationPreviewController(options) {
+export function createSitePreviewController(options) {
   const cache = new Map();
   const pending = new Map();
   const pendingImages = new Map();
@@ -7,7 +7,7 @@ export function createInspirationPreviewController(options) {
   return { get, request, preload, reject, invalidate, fingerprint };
 
   function fingerprint(item) {
-    return inspirationPreviewFingerprint(item, options.normalizeUrl);
+    return sitePreviewFingerprint(item, options.normalizeUrl);
   }
 
   function get(item) {
@@ -121,9 +121,12 @@ export function createInspirationPreviewController(options) {
   }
 }
 
-export function inspirationPreviewFingerprint(item, normalizeUrl = (value) => String(value || "").trim()) {
+export function sitePreviewFingerprint(item, normalizeUrl = (value) => String(value || "").trim()) {
   const key = String(item?.key || "").trim();
   const url = normalizeUrl(item?.url || "");
   const title = String(item?.title || "").replace(/\s+/g, " ").trim();
   return key && url ? `${key}|${url}|${title}` : "";
 }
+
+export const createInspirationPreviewController = createSitePreviewController;
+export const inspirationPreviewFingerprint = sitePreviewFingerprint;

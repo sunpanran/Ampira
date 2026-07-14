@@ -3,7 +3,7 @@ import { normalizeLocale } from "./i18n.mjs";
 
 const BOOLEAN_FIELDS = [
   "bookmarkConsentGranted", "onboardingCompleted", "aiDisclosureAccepted", "pointerGlowEnabled",
-  "headerImageEnabled", "headerImageFixed", "headerImageFullscreen", "cardSummaryEnabled",
+  "headerImageEnabled", "headerImageFixed", "headerImageFullscreen", "headerImageBlurEnabled", "cardSummaryEnabled",
   "floatingWebOpenEnabled", "readingQueueOpenOnReadAll", "retainSeenArchive",
   "personalizedRankingEnabled", "publicFeedSupplementEnabled", "webImageSearchEnabled", "websiteShortcutsEnabled",
 ];
@@ -31,7 +31,7 @@ const EXCLUSION_FIELD_LIMITS = {
   addedAt: 40,
 };
 const MAX_EXCLUSION_BYTES = 55 * 1024;
-export const MAX_WEBSITE_SHORTCUTS = 10;
+export const MAX_WEBSITE_SHORTCUTS = 16;
 export const MAX_WEBSITE_SHORTCUT_TITLE_LENGTH = 60;
 export const MAX_WEBSITE_SHORTCUT_URL_LENGTH = 2048;
 
@@ -52,6 +52,7 @@ export function normalizeSettings(value = {}) {
   settings.headerImageUrl = normalizePublicUrl(
     Object.hasOwn(input, "headerImageUrl") ? input.headerImageUrl : DEFAULT_SETTINGS.headerImageUrl,
   );
+  settings.headerImageBlurAmount = boundedInteger(input.headerImageBlurAmount, 0, 24, DEFAULT_SETTINGS.headerImageBlurAmount);
   settings.headerImageFullscreen = settings.headerImageFixed && settings.headerImageFullscreen;
   settings.websiteShortcuts = normalizeWebsiteShortcuts(input.websiteShortcuts);
   settings.newsBookmarkFolder = cleanString(input.newsBookmarkFolder, 200, DEFAULT_SETTINGS.newsBookmarkFolder);

@@ -31,7 +31,7 @@ export function createRefreshCoordinator(options = {}) {
 
       const currentGeneration = ++generation;
       const operation = Promise.resolve()
-        .then(() => run(currentGeneration))
+        .then(() => run(currentGeneration, { force }))
         .catch(() => {});
       state.operation = operation;
       operation.then(() => complete(state));

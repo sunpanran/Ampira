@@ -55,15 +55,15 @@
 
 .credential-consent {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 9px;
   color: var(--text);
   font-size: 13px;
   line-height: 1.5;
 }
 
-.credential-consent input {
-  margin-top: 3px;
+.credential-consent .toggle {
+  margin-top: 0;
 }
 
 .credential-controls {

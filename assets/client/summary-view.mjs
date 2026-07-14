@@ -16,10 +16,13 @@ export function createSummaryView(options) {
     animateCardsIn, animateCardsOut, batchLabel, canReuseCard, clearCardAnimationState,
     createEmptyState, isNewsCard, loadDashboard, newsSectionName, openSummaryItem,
     prefersReducedMotion, renderOverviewStatus, renderStatus, setCardItemIdentity,
-    syncSegmentedIndicator, triggerRefresh, writeValue,
+    syncSegmentedIndicator, triggerRefresh, writeValue, newsPreviews,
   } = options;
   let summaryRenderToken = 0;
-  return { renderSummaries, newsSummaryItems, updateSummaryCard, reshuffleSummaries, createNewsRanker, refreshSummaryItem };
+  return {
+    renderSummaries, newsSummaryItems, updateSummaryCard, reshuffleSummaries,
+    createNewsRanker, refreshSummaryItem, updateVisibleNewsThumbs,
+  };
 function renderSummaries() {
   const token = ++summaryRenderToken;
   const news = newsSummaryItems(true);
@@ -242,6 +245,7 @@ function createSummaryCard(item) {
   const card = document.createElement("article");
   card.className = `summary-card ${isRefreshing ? "is-refreshing" : ""} ${state.opened.has(item.key) && !state.seen.has(item.key) ? "opened" : ""}`.trim();
   setCardItemIdentity(card, item);
+  card.dataset.previewFingerprint = newsPreviews.fingerprint(item);
   card.ampiraItem = item;
   card.tabIndex = 0;
   card.setAttribute("role", "link");
@@ -307,32 +311,82 @@ function createSummaryCard(item) {
 function createSummaryThumb(item) {
   const thumb = document.createElement("div");
   const imageUrl = item.summary?.imageUrl || "";
-  const imageUrls = [...new Set((Array.isArray(item.summary?.imageUrls) ? item.summary.imageUrls : [imageUrl])
+  const imageUrls = [...new Set([imageUrl, ...(Array.isArray(item.summary?.imageUrls) ? item.summary.imageUrls : [])]
     .map((value) => String(value || "").trim()).filter(Boolean))];
   const fallbackUrl = faviconUrl({ ...item, url: itemUrl(item) });
-  thumb.className = `thumb ${imageUrl ? "" : "is-favicon-thumb"}`.trim();
+  const preview = newsPreviews.get(item);
 
-  if (imageUrl) {
-    const img = document.createElement("img");
-    let imageIndex = Math.max(0, imageUrls.indexOf(imageUrl));
-    img.src = imageUrls[imageIndex] || imageUrl;
-    img.alt = "";
-    img.loading = "lazy";
-    img.referrerPolicy = "no-referrer";
-    img.addEventListener("error", () => {
-      imageIndex += 1;
-      if (imageUrls[imageIndex]) {
-        img.src = imageUrls[imageIndex];
-        return;
-      }
-      renderSummaryFaviconThumb(thumb, fallbackUrl);
-    });
-    thumb.append(img);
+  if (preview?.imageUrl) {
+    renderSummaryPreviewImageThumb(thumb, item, preview.imageUrl, fallbackUrl);
+  } else if (imageUrls.length) {
+    renderSummarySourceImageThumb(thumb, item, imageUrls, fallbackUrl);
   } else {
     renderSummaryFaviconThumb(thumb, fallbackUrl);
+    applyResolvedSummaryPreview(thumb, item, fallbackUrl, newsPreviews.request(item));
   }
 
   return thumb;
+}
+
+function renderSummarySourceImageThumb(thumb, item, imageUrls, fallbackUrl) {
+  let imageIndex = 0;
+  showImage();
+
+  function showImage() {
+    renderSummaryImageThumb(thumb, imageUrls[imageIndex], () => {
+      imageIndex += 1;
+      if (imageUrls[imageIndex]) {
+        showImage();
+        return;
+      }
+      renderSummaryFaviconThumb(thumb, fallbackUrl);
+      applyResolvedSummaryPreview(thumb, item, fallbackUrl, newsPreviews.request(item));
+    });
+  }
+}
+
+function renderSummaryPreviewImageThumb(thumb, item, imageUrl, fallbackUrl) {
+  renderSummaryImageThumb(thumb, imageUrl, () => {
+    renderSummaryFaviconThumb(thumb, fallbackUrl);
+    applyResolvedSummaryPreview(thumb, item, fallbackUrl, newsPreviews.reject(item, imageUrl));
+  });
+}
+
+function applyResolvedSummaryPreview(thumb, item, fallbackUrl, operation) {
+  Promise.resolve(operation).then((preview) => {
+    if (!preview?.imageUrl || !thumb.isConnected) return;
+    const card = thumb.closest(".summary-card");
+    if (card?.dataset.key !== item.key || card.dataset.previewFingerprint !== newsPreviews.fingerprint(item)) return;
+    const currentImage = thumb.querySelector("img");
+    if (!thumb.classList.contains("is-favicon-thumb") && currentImage?.src === preview.imageUrl) return;
+    renderSummaryPreviewImageThumb(thumb, item, preview.imageUrl, fallbackUrl);
+  });
+}
+
+function renderSummaryImageThumb(thumb, imageUrl, onError) {
+  thumb.className = "thumb";
+  thumb.closest(".summary-card")?.classList.remove("has-favicon-thumb");
+  const img = document.createElement("img");
+  img.src = imageUrl;
+  img.alt = "";
+  img.loading = "lazy";
+  img.decoding = "async";
+  img.referrerPolicy = "no-referrer";
+  img.addEventListener("error", onError, { once: true });
+  thumb.replaceChildren(img);
+}
+
+function updateVisibleNewsThumbs(item, imageUrl, fingerprint) {
+  for (const card of els.summaryGrid.querySelectorAll(".summary-card")) {
+    if (card.dataset.key !== item.key || card.dataset.previewFingerprint !== fingerprint) continue;
+    const thumb = card.querySelector(":scope > .thumb");
+    if (thumb) renderSummaryPreviewImageThumb(
+      thumb,
+      item,
+      imageUrl,
+      faviconUrl({ ...item, url: itemUrl(item) }),
+    );
+  }
 }
 
 function renderSummaryFaviconThumb(thumb, fallbackUrl) {
@@ -403,6 +457,7 @@ function updateSummaryCard(item) {
 function syncSummaryCard(currentCard, nextCard) {
   currentCard.className = nextCard.className;
   currentCard.dataset.itemVersion = nextCard.dataset.itemVersion || "";
+  currentCard.dataset.previewFingerprint = nextCard.dataset.previewFingerprint || "";
   currentCard.ampiraItem = nextCard.ampiraItem;
   currentCard.title = nextCard.title;
   currentCard.setAttribute("aria-label", nextCard.getAttribute("aria-label") || "");

@@ -75,12 +75,20 @@ export function selectDailyEvents(items, options = {}) {
   const now = options.now ?? Date.now();
   const limit = Math.max(1, Math.floor(Number(options.limit) || 3));
   const recentLimit = Math.max(0, Math.floor(options.recentLimit === undefined ? 1 : Number(options.recentLimit) || 0));
-  const compare = (left, right) => Number(right?.importanceScore || 0) - Number(left?.importanceScore || 0)
+  const minSourceCount = Math.max(1, Math.floor(options.minSourceCount === undefined ? 2 : Number(options.minSourceCount) || 1));
+  const sourceCount = (item) => Math.max(1, Number(item?.sourceCount ?? item?.eventSourceCount ?? 1) || 1);
+  const compare = (left, right) => sourceCount(right) - sourceCount(left)
+    || Number(right?.importanceScore || 0) - Number(left?.importanceScore || 0)
     || Number(right?.localImportanceScore || 0) - Number(left?.localImportanceScore || 0);
-  const scoped = (Array.isArray(items) ? items : []).map((item) => ({
-    ...item,
-    resolvedTimeScope: newsTimeScope(item, now) || item?.timeScope || "",
-  })).filter((item) => item.resolvedTimeScope);
+  const seenEvents = new Set();
+  const scoped = (Array.isArray(items) ? items : []).map((item) => {
+    const eventKey = item?.eventId || item?.id || item?.url || item?.title;
+    if (!eventKey || seenEvents.has(eventKey) || sourceCount(item) < minSourceCount) return null;
+    const resolvedTimeScope = newsTimeScope(item, now) || item?.timeScope || "";
+    if (!resolvedTimeScope) return null;
+    seenEvents.add(eventKey);
+    return { ...item, resolvedTimeScope };
+  }).filter(Boolean);
   const today = scoped.filter((item) => item.resolvedTimeScope === "today").sort(compare);
   const recent = scoped.filter((item) => item.resolvedTimeScope === "recent").sort(compare).slice(0, recentLimit);
   return [...today, ...recent].slice(0, limit);

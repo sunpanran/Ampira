@@ -1,3 +1,5 @@
+import { isDisplayableFeedItem } from "./feed-item-policy.mjs";
+
 function previewIdentityUrl(value) {
   try {
     const url = new URL(String(value || "").trim());
@@ -18,6 +20,24 @@ function isPreviewRecord(record) {
 
 function previewTitle(value) {
   return String(value || "").replace(/\s+/g, " ").trim().slice(0, 160);
+}
+
+export function newsPreviewTargets(items) {
+  const targets = [];
+  const seen = new Set();
+  for (const item of (Array.isArray(items) ? items : []).filter(isDisplayableFeedItem)) {
+    const url = previewIdentityUrl(item?.url);
+    if (!url) continue;
+    const titles = [item?.summaryTitle, item?.title].map(previewTitle).filter(Boolean);
+    if (!titles.length) titles.push("");
+    for (const title of titles) {
+      const key = `${url}\n${title}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      targets.push({ url, title });
+    }
+  }
+  return targets;
 }
 
 export function previewCacheKeysOutsideTargets(records, targetItems) {

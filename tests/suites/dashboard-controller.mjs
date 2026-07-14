@@ -31,7 +31,7 @@ export async function runDashboardControllerTests() {
     renderSectionFilters: noop,
     renderCategoryFilters: noop,
     renderCategories: noop,
-    formatFullDateTime: () => "",
+    formatTodayMeta: () => ({ date: "", weekday: "", time: "", dateTime: "", label: "" }),
     getTodayKey: () => "2026-07-13",
     readNumber: (_key, fallback) => fallback,
     writeJson: noop,

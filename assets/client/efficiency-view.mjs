@@ -1,4 +1,5 @@
 import { animatePanelEntrance } from "./dom.mjs";
+import { createUtilityCardView } from "./utility-card-view.mjs";
 
 export function createEfficiencyView(options) {
   const {
@@ -9,10 +10,16 @@ export function createEfficiencyView(options) {
     allTranslations, createBookmarkFavicon, displayBookmarkTitle,
     findNewsItemByReference, hostFromUrl, isNewsCard, openExternal,
     readingQueueOpenOnReadAll, renderDaily, renderOverviewStatus, renderSummaries, selectDailyEvents,
-    openSettings,
+    openAiSettings, getLocale, writeJson, writeValue, requestWeatherPermissions,
   } = options;
-  return { renderEfficiencyPanel, refreshDailyDigest };
-function dailyDigestStatusLabel(digest) {
+  const utilityCardView = createUtilityCardView({
+    state, t, tc, getLocale, apiPost, createEmptyState, createIcon,
+    createEventsContent: createDailyEventsContent, writeJson, writeValue,
+    requestWeatherPermissions, localizedErrorMessage,
+  });
+  return { renderEfficiencyPanel, refreshDailyDigest, invalidateWeather: utilityCardView.invalidateWeather };
+function dailyDigestStatusLabel(digest, ai) {
+  if (ai?.enabled !== true) return t("digest.status.noService");
   if (!digest?.generatedAt) return t("digest.status.waiting");
   if (digest.status === "ai") return t("digest.status.ai");
   if (digest.status === "quota-or-empty") return t("digest.status.quota");
@@ -23,20 +30,20 @@ function dailyDigestStatusLabel(digest) {
 }
 
 function createDailyDigestEmptyState(digest) {
+  if (state.data?.ai?.enabled !== true) {
+    return createEmptyState({
+      title: t("digest.noService.title"),
+      body: t("digest.noService.body"),
+      variant: "compact",
+      actionLabel: t("action.configureAi"),
+      onAction: openAiSettings,
+    });
+  }
   if (state.dailyDigestRefreshing) {
     return createEmptyState({
       title: t("digest.refreshing.title"),
       body: t("digest.refreshing.body"),
       variant: "compact",
-    });
-  }
-  if (digest?.status === "no-api-key") {
-    return createEmptyState({
-      title: t("digest.noService.title"),
-      body: t("digest.noService.body"),
-      variant: "compact",
-      actionLabel: t("action.openSettings"),
-      onAction: openSettings,
     });
   }
   if (digest?.status === "fallback") {
@@ -63,7 +70,7 @@ function createDailyDigestEmptyState(digest) {
     title: t("digest.empty.title"),
     body: t("digest.empty.body"),
     variant: "compact",
-    actionLabel: t("action.reorganize"),
+    actionLabel: t("action.generateDigest"),
     onAction: refreshDailyDigest,
   });
 }
@@ -86,7 +93,7 @@ function isFallbackDailyDigestOverview(line) {
 
 function createDailyDigestPanelCard() {
   const digest = state.data?.dailyDigest;
-  const card = createEfficiencyCard(t("digest.cardTitle"), dailyDigestStatusLabel(digest), "sparkling");
+  const card = createEfficiencyCard(t("digest.cardTitle"), dailyDigestStatusLabel(digest, state.data?.ai), "sparkling");
   card.classList.add("digest-card");
   const overview = document.createElement("div");
   overview.className = "ai-digest-overview";
@@ -159,9 +166,13 @@ function renderEfficiencyPanel() {
     return;
   }
   const queueItems = readingQueueItems();
-  const dailyEvents = selectDailyEvents(state.data?.dailyDigest?.items || [], { limit: 3, recentLimit: 1 });
+  const dailyEvents = selectDailyEvents(state.data?.dailyDigest?.items || [], {
+    limit: 3,
+    recentLimit: 1,
+    minSourceCount: 2,
+  });
   const cards = [
-    createDailyEventsPanelCard(dailyEvents),
+    utilityCardView.render(dailyEvents),
     createDailyDigestPanelCard(),
     createQueuePanelCard(queueItems),
   ];
@@ -219,10 +230,9 @@ function createQueuePanelCard(items) {
   return card;
 }
 
-function createDailyEventsPanelCard(items) {
-  const card = createEfficiencyCard(t("events.cardTitle"), tc("unit.entries", items.length), "news");
+function createDailyEventsContent(items) {
   const list = document.createElement("div");
-  list.className = "efficiency-list";
+  list.className = "efficiency-list utility-scroll-list";
   if (!items.length) {
     list.append(createEmptyState({
       title: t("events.empty.title"),
@@ -232,8 +242,7 @@ function createDailyEventsPanelCard(items) {
   } else {
     list.append(...items.map(createDailyEventPanelRow));
   }
-  card.append(list);
-  return card;
+  return list;
 }
 
 function createEfficiencyCard(titleText, metaText, iconName, action = null) {

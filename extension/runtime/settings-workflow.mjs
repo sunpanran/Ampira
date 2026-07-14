@@ -8,9 +8,10 @@ export function createSettingsWorkflow(options) {
     setAiDisclosureConsent, cacheMutations, refreshCoordinator, setRecord,
     pruneStalePreviewCaches, pruneBravePreviewCaches, aiConfigured, setAiAutoStatus,
     defaultAiAutoStatus, startRefresh, broadcast,
+    createSettingsTransferDocument, parseSettingsTransferDocument, getAppVersion, now,
   } = options;
 
-  return { publicSettings, saveSettings };
+  return { publicSettings, saveSettings, exportSettings, importSettings };
 
 async function publicSettings() {
   const settings = await getSettings();
@@ -69,6 +70,29 @@ function saveSettings(body) {
   return settingsService.mutate((transaction) => performSaveSettings(body, transaction));
 }
 
+async function exportSettings() {
+  return createSettingsTransferDocument(await getSettings(), {
+    appVersion: getAppVersion(),
+    exportedAt: now(),
+  });
+}
+
+async function importSettings(body = {}) {
+  const current = await getSettings();
+  let transfer;
+  try {
+    transfer = parseSettingsTransferDocument(body.config, current);
+  } catch (error) {
+    throw settingsTransferTypedError(error);
+  }
+  const saved = await saveSettings(transfer.patch);
+  return {
+    ...saved,
+    importedFieldCount: transfer.fieldCount,
+    importFormatVersion: transfer.formatVersion,
+  };
+}
+
 async function performSaveSettings(body, transaction) {
   const previous = await getSettings();
   const next = { ...previous };
@@ -78,7 +102,8 @@ async function performSaveSettings(body, transaction) {
     "newsBookmarkFolder", "inspirationBookmarkFolder", "bookmarkOnlyFolders", "floatingWebOpenEnabled",
     "readingQueueOpenOnReadAll", "retainSeenArchive", "personalizedRankingEnabled", "publicFeedSupplementEnabled",
     "uiLocale", "colorMode", "accentTheme", "customAccentColor", "pointerGlowEnabled", "headerImageEnabled",
-    "headerImageFixed", "headerImageFullscreen", "headerImageUrl", "websiteShortcutsEnabled", "websiteShortcuts",
+    "headerImageFixed", "headerImageFullscreen", "headerImageBlurEnabled", "headerImageBlurAmount", "headerImageUrl",
+    "websiteShortcutsEnabled", "websiteShortcuts",
     "excludedNewsSources",
   ];
   for (const key of allowed) if (Object.hasOwn(body, key)) next[key] = body[key];
@@ -171,6 +196,22 @@ async function performSaveSettings(body, transaction) {
     automaticAiChanged,
     automaticAiStarted,
   };
+}
+
+function settingsTransferTypedError(error) {
+  if (error?.name !== "SettingsTransferError") return error;
+  const messageKeys = {
+    SETTINGS_IMPORT_INVALID_FORMAT: "settings.transfer.error.invalidFormat",
+    SETTINGS_IMPORT_UNSUPPORTED_VERSION: "settings.transfer.error.unsupportedVersion",
+    SETTINGS_IMPORT_FILE_TOO_LARGE: "settings.transfer.error.tooLarge",
+    SETTINGS_IMPORT_EMPTY: "settings.transfer.error.empty",
+    SETTINGS_IMPORT_INVALID_VALUE: "settings.transfer.error.invalidValue",
+  };
+  const messageKey = messageKeys[error.code] || "settings.transfer.error.invalidFormat";
+  return typedError(error.code || "SETTINGS_IMPORT_INVALID_FORMAT", messageKey, {
+    field: error.details?.field || "",
+    version: error.details?.version ?? "",
+  }, false);
 }
 
 }

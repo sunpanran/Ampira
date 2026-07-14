@@ -3,12 +3,12 @@ export function createReaderPreviewService(options) {
     normalizeUserUrl, hasOriginPermission, loadReaderWithCache, fetchReader, fetchReaderHtml,
     extractPageMetadata, getRecord, setRecord, deleteRecord, cacheMutations,
     currentBookmarkModel, emptyBookmarkModel, getSettings, secretStatus,
-    inspirationPreviewSourceUrls, hashText, uniqueStrings, hasOriginPermissions,
-    setRecords, typedError,
+    inspirationPreviewTargets, newsPreviewTargets, currentFeedPermissionState,
+    filterFeedItemsBySources, hashText, uniqueStrings, hasOriginPermissions, setRecords, typedError,
   } = options;
   return {
     readArticle, readWebsiteOverview, cacheUrlsPermitted, storePreviewCache,
-    isInspirationPreviewTarget, previewCachePermitted,
+    isSitePreviewTarget, previewCachePermitted,
   };
 async function readArticle(url) {
   const cacheEpoch = cacheMutations.capture();
@@ -128,19 +128,20 @@ function storePreviewCache(key, value, kind = "cache", cacheEpoch) {
     : cacheMutations.run(commit);
 }
 
-async function isInspirationPreviewTarget(value) {
+async function isSitePreviewTarget(value) {
   const settings = await getSettings();
   if (settings.bookmarkConsentGranted !== true) return false;
   const model = await currentBookmarkModel(settings);
-  return previewTargetInModel(value, model);
+  return previewTargetInItems(value, await currentPreviewTargets(settings, model));
 }
 
 async function previewCachePermitted(value, context = {}) {
   const settings = context.settings || await getSettings();
   if (settings.bookmarkConsentGranted !== true) return false;
   const model = context.model || await currentBookmarkModel(settings);
+  const previewTargets = context.previewTargets || await currentPreviewTargets(settings, model);
   const requestedUrl = previewIdentityUrl(value?.requestedUrl);
-  if (!requestedUrl || !previewTargetInModel(requestedUrl, model)) return false;
+  if (!requestedUrl || !previewTargetInItems(requestedUrl, previewTargets)) return false;
   if (value.capability === "site-preview-origin") {
     if (value.strategyVersion !== 4) return false;
     if (value.sourceOrigin !== new URL(requestedUrl).origin) return false;
@@ -157,10 +158,28 @@ async function previewCachePermitted(value, context = {}) {
   return false;
 }
 
-function previewTargetInModel(value, model) {
+async function currentPreviewTargets(settings, model) {
+  const bookmarkTargets = inspirationPreviewTargets(model?.bookmarks);
+  try {
+    const [feed, feedPermissions] = await Promise.all([
+      getRecord("feed", { schemaVersion: 2, items: [] }),
+      currentFeedPermissionState(settings, model),
+    ]);
+    const visibleFeedItems = filterFeedItemsBySources(
+      feed?.items || [],
+      feedPermissions.permitted,
+      feedPermissions.grantedOrigins,
+    );
+    return [...bookmarkTargets, ...newsPreviewTargets(visibleFeedItems)];
+  } catch {
+    return bookmarkTargets;
+  }
+}
+
+function previewTargetInItems(value, items) {
   const requestedUrl = previewIdentityUrl(value);
   if (!requestedUrl) return false;
-  return inspirationPreviewSourceUrls(model?.bookmarks).some((url) => previewIdentityUrl(url) === requestedUrl);
+  return (items || []).some((item) => previewIdentityUrl(item?.url || item) === requestedUrl);
 }
 
 function previewIdentityUrl(value) {
