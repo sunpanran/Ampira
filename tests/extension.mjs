@@ -2006,6 +2006,21 @@ assert(!dashboardSource.includes('id="headerImageBlurEnabledInput"')
 assert(appearanceControllerSource.includes("headerImageBlurAmount: syncBlurAmountLabel()")
   && appearanceControllerSource.includes('setProperty("--header-cover-blur"')
   && appSource.includes('els.headerImageBlurAmountInput.addEventListener("input", () => updateAppearancePreview())'), "cover blur changes must persist and preview live");
+assert(appearanceControllerSource.includes("const enabled = els.headerImageEnabledInput.checked;")
+  && !appearanceControllerSource.includes("&& !els.headerImageFullscreenInput.checked")
+  && appearanceControllerSource.includes("? HEADER_IMAGE_FULLSCREEN_HEIGHT_MIN")
+  && appearanceControllerSource.includes("const value = Math.max(min, normalizeHeaderImageHeightScale")
+  && appearanceControllerSource.includes('setProperty("--header-cover-fullscreen-height", `${scale}dvh`)')
+  && themeBootstrapSource.includes('setProperty("--header-cover-fullscreen-height", `${scale}dvh`)')
+  && dashboardSectionsCssSource.includes("height: var(--header-cover-fullscreen-height);"), "cover height must remain adjustable but never fall below 100% in fullscreen mode and restore before the first frame");
+assert(!dashboardSectionsCssSource.includes(".has-fullscreen-header-cover .section-head h2")
+  && !dashboardSectionsCssSource.includes(".has-fullscreen-header-cover .today-meta")
+  && !dashboardSectionsCssSource.includes(".has-fullscreen-header-cover .summary-batch-meta")
+  && !dashboardSectionsCssSource.includes(".has-fullscreen-header-cover #library .controls .segmented button:not(.active)"),
+  "fullscreen covers must inherit the same text and control styling as non-fullscreen covers in every color mode");
+assert((dashboardSectionsCssSource.match(/linear-gradient\(180deg, color-mix\(in srgb, var\(--bg\) 18%, transparent\)/g) || []).length === 2
+  && (dashboardSectionsCssSource.match(/color-mix\(in srgb, var\(--bg\) 54%, transparent\) 100%/g) || []).length === 2,
+  "explicit and system light fullscreen covers must retain the reduced readability overlay");
 assert(appSource.includes("createCoverBlurPreviewController")
   && dashboardSource.includes('class="settings-section header-image-settings"')
   && dashboardSource.includes('class="settings-field-grid header-image-primary-settings"')

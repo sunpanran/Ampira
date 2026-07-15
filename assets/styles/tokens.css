@@ -97,6 +97,7 @@
   --dashboard-viewport-half-w: 50vw;
   --dashboard-cover-base-h: clamp(260px, 42dvh, 460px);
   --header-cover-height-scale: 1;
+  --header-cover-fullscreen-height: 100dvh;
   --dashboard-cover-h: calc(var(--dashboard-cover-base-h) * var(--header-cover-height-scale));
   --dashboard-cover-overlap: clamp(-220px, -24dvh, -140px);
   --dashboard-cover-flow-x: -44px;

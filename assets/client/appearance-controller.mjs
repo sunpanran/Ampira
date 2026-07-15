@@ -15,6 +15,7 @@ const HEADER_IMAGE_BLUR_MAX = 24;
 const HEADER_IMAGE_BLUR_DEFAULT = 12;
 const HEADER_IMAGE_BLUR_BLEED_MULTIPLIER = 1.5;
 const HEADER_IMAGE_HEIGHT_MIN = 70;
+const HEADER_IMAGE_FULLSCREEN_HEIGHT_MIN = 100;
 const HEADER_IMAGE_HEIGHT_MAX = 140;
 const HEADER_IMAGE_HEIGHT_DEFAULT = 100;
 const DEFAULT_HEADER_IMAGE_URL = "https://images.unsplash.com/photo-1782827286498-241b8af47185?q=80&w=2487&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D";
@@ -58,8 +59,11 @@ export function createAppearanceController(options) {
   }
 
   function syncHeightControl(busy = els.saveSettings.disabled) {
-    const enabled = els.headerImageEnabledInput.checked
-      && !els.headerImageFullscreenInput.checked;
+    const enabled = els.headerImageEnabledInput.checked;
+    const min = els.headerImageFullscreenInput.checked
+      ? HEADER_IMAGE_FULLSCREEN_HEIGHT_MIN
+      : HEADER_IMAGE_HEIGHT_MIN;
+    els.headerImageHeightInput.min = String(min);
     els.headerImageHeightInput.disabled = !enabled || busy;
     els.headerImageHeightField.setAttribute("aria-disabled", String(!enabled || busy));
     els.headerImageHeightField.setAttribute("aria-hidden", String(!enabled));
@@ -67,9 +71,9 @@ export function createAppearanceController(options) {
   }
 
   function syncHeightLabel() {
-    const value = normalizeHeaderImageHeightScale(els.headerImageHeightInput.value);
     const min = Number(els.headerImageHeightInput.min) || HEADER_IMAGE_HEIGHT_MIN;
     const max = Number(els.headerImageHeightInput.max) || HEADER_IMAGE_HEIGHT_MAX;
+    const value = Math.max(min, normalizeHeaderImageHeightScale(els.headerImageHeightInput.value));
     const progress = max > min ? ((value - min) / (max - min)) * 100 : 0;
     els.headerImageHeightInput.value = String(value);
     els.headerImageHeightInput.setAttribute("aria-valuetext", `${value}%`);
@@ -288,7 +292,9 @@ export function createAppearanceController(options) {
   }
 
   function applyHeaderImageHeight(root, value) {
-    root.style.setProperty("--header-cover-height-scale", String(normalizeHeaderImageHeightScale(value) / 100));
+    const scale = normalizeHeaderImageHeightScale(value);
+    root.style.setProperty("--header-cover-height-scale", String(scale / 100));
+    root.style.setProperty("--header-cover-fullscreen-height", `${scale}dvh`);
   }
 
   function cache(key, value) {

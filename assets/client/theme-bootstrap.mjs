@@ -118,6 +118,7 @@
       ? Math.min(140, Math.max(70, Math.round(numericValue / 5) * 5))
       : 100;
     document.documentElement.style.setProperty("--header-cover-height-scale", String(scale / 100));
+    document.documentElement.style.setProperty("--header-cover-fullscreen-height", `${scale}dvh`);
   }
 
   function readWebsiteShortcutLayoutHint() {

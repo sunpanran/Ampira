@@ -52,7 +52,7 @@
 }
 
 .has-fullscreen-header-cover .dashboard-cover {
-  height: 100dvh;
+  height: var(--header-cover-fullscreen-height);
 }
 
 .has-fullscreen-header-cover .dashboard-cover.is-loaded img {
@@ -63,6 +63,21 @@
   background:
     linear-gradient(180deg, color-mix(in srgb, var(--bg) 26%, transparent) 0%, color-mix(in srgb, var(--bg) 20%, transparent) 38%, color-mix(in srgb, var(--bg) 38%, transparent) 72%, color-mix(in srgb, var(--bg) 68%, transparent) 100%),
     linear-gradient(90deg, color-mix(in srgb, var(--bg) 28%, transparent), transparent 45%, transparent 62%, color-mix(in srgb, var(--bg) 22%, transparent));
+}
+
+:root[data-color-mode="light"] .has-fullscreen-header-cover .cover-fade {
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--bg) 18%, transparent) 0%, color-mix(in srgb, var(--bg) 14%, transparent) 38%, color-mix(in srgb, var(--bg) 28%, transparent) 72%, color-mix(in srgb, var(--bg) 54%, transparent) 100%),
+    linear-gradient(90deg, color-mix(in srgb, var(--bg) 20%, transparent), transparent 45%, transparent 62%, color-mix(in srgb, var(--bg) 16%, transparent));
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-color-mode]) .has-fullscreen-header-cover .cover-fade,
+  :root[data-color-mode="system"] .has-fullscreen-header-cover .cover-fade {
+    background:
+      linear-gradient(180deg, color-mix(in srgb, var(--bg) 18%, transparent) 0%, color-mix(in srgb, var(--bg) 14%, transparent) 38%, color-mix(in srgb, var(--bg) 28%, transparent) 72%, color-mix(in srgb, var(--bg) 54%, transparent) 100%),
+      linear-gradient(90deg, color-mix(in srgb, var(--bg) 20%, transparent), transparent 45%, transparent 62%, color-mix(in srgb, var(--bg) 16%, transparent));
+  }
 }
 
 .has-header-cover #daily {
@@ -82,18 +97,6 @@
 
 .is-dashboard-searching.has-fixed-header-cover.has-header-cover #daily.is-searching {
   padding-top: 0;
-}
-
-.has-fullscreen-header-cover .section-head h2,
-.has-fullscreen-header-cover .section-kicker,
-.has-fullscreen-header-cover .section-meta {
-  text-shadow:
-    0 1px 1px color-mix(in srgb, var(--bg) 52%, transparent),
-    0 0 12px color-mix(in srgb, var(--bg) 42%, transparent);
-}
-
-.has-fullscreen-header-cover .today-meta {
-  text-shadow: none;
 }
 
 #library .controls .segmented button:not(.active):hover {
@@ -135,79 +138,11 @@
     var(--blur-panel-bg);
 }
 
-:root[data-color-mode="light"] .has-fullscreen-header-cover .today-meta {
-  color: color-mix(in srgb, var(--text) 78%, transparent);
-}
-
-:root[data-color-mode="light"] .has-fullscreen-header-cover .today-date {
-  color: var(--text-strong);
-}
-
-:root[data-color-mode="light"] .has-fullscreen-header-cover .today-weekday,
-:root[data-color-mode="light"] .has-fullscreen-header-cover .today-time {
-  color: color-mix(in srgb, var(--text) 72%, transparent);
-}
-
-:root[data-color-mode="light"] .has-fullscreen-header-cover .today-separator {
-  background: color-mix(in srgb, var(--text) 22%, transparent);
-}
-
-:root[data-color-mode="light"] .has-fullscreen-header-cover .summary-batch-meta {
-  color: color-mix(in srgb, var(--text) 88%, transparent);
-  font-weight: 650;
-}
-
-:root[data-color-mode="light"] .has-fullscreen-header-cover #library .controls .segmented button:not(.active) {
-  color: color-mix(in srgb, var(--text) 82%, transparent);
-}
-
-:root[data-color-mode="light"] .has-fullscreen-header-cover #library .controls .segmented button:not(.active) .segment-icon {
-  opacity: .88;
-}
-
 :root[data-color-mode="light"] .summary-card .summary-meta {
   color: color-mix(in srgb, var(--muted) 58%, var(--muted-2));
 }
 
 @media (prefers-color-scheme: light) {
-  :root:not([data-color-mode]) .has-fullscreen-header-cover .today-meta,
-  :root[data-color-mode="system"] .has-fullscreen-header-cover .today-meta {
-    color: color-mix(in srgb, var(--text) 78%, transparent);
-  }
-
-  :root:not([data-color-mode]) .has-fullscreen-header-cover .today-date,
-  :root[data-color-mode="system"] .has-fullscreen-header-cover .today-date {
-    color: var(--text-strong);
-  }
-
-  :root:not([data-color-mode]) .has-fullscreen-header-cover .today-weekday,
-  :root:not([data-color-mode]) .has-fullscreen-header-cover .today-time,
-  :root[data-color-mode="system"] .has-fullscreen-header-cover .today-weekday,
-  :root[data-color-mode="system"] .has-fullscreen-header-cover .today-time {
-    color: color-mix(in srgb, var(--text) 72%, transparent);
-  }
-
-  :root:not([data-color-mode]) .has-fullscreen-header-cover .today-separator,
-  :root[data-color-mode="system"] .has-fullscreen-header-cover .today-separator {
-    background: color-mix(in srgb, var(--text) 22%, transparent);
-  }
-
-  :root:not([data-color-mode]) .has-fullscreen-header-cover .summary-batch-meta,
-  :root[data-color-mode="system"] .has-fullscreen-header-cover .summary-batch-meta {
-    color: color-mix(in srgb, var(--text) 88%, transparent);
-    font-weight: 650;
-  }
-
-  :root:not([data-color-mode]) .has-fullscreen-header-cover #library .controls .segmented button:not(.active),
-  :root[data-color-mode="system"] .has-fullscreen-header-cover #library .controls .segmented button:not(.active) {
-    color: color-mix(in srgb, var(--text) 82%, transparent);
-  }
-
-  :root:not([data-color-mode]) .has-fullscreen-header-cover #library .controls .segmented button:not(.active) .segment-icon,
-  :root[data-color-mode="system"] .has-fullscreen-header-cover #library .controls .segmented button:not(.active) .segment-icon {
-    opacity: .88;
-  }
-
   :root:not([data-color-mode]) .summary-card .summary-meta,
   :root[data-color-mode="system"] .summary-card .summary-meta {
     color: color-mix(in srgb, var(--muted) 58%, var(--muted-2));
