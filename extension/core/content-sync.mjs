@@ -1,5 +1,6 @@
 import { normalizeReadingQueueRecords } from "./reading-queue.mjs";
-import { normalizeWeatherCoordinates } from "./weather.mjs";
+import { normalizeTodoItems } from "./todo.mjs";
+import { normalizeWeatherLocation } from "./weather.mjs";
 import { assertSyncStorageBudget } from "./sync-budget.mjs";
 
 export const CONTENT_SYNC_META_KEY = "content-sync-meta";
@@ -361,46 +362,6 @@ async function readMetadataFrom(getRecord) {
   return { version: 1, datasets: { ...value.datasets } };
 }
 
-function normalizeTodoItems(value) {
-  if (!Array.isArray(value)) return [];
-  const output = [];
-  const seen = new Set();
-  for (const item of value) {
-    if (!item || typeof item !== "object" || Array.isArray(item)) continue;
-    const id = cleanId(item.id);
-    const text = cleanStrictText(item.text, 120);
-    const createdAt = normalizedDate(item.createdAt);
-    if (!id || !text || !createdAt || seen.has(id)) continue;
-    const completed = item.completed === true;
-    const completedAt = completed ? normalizedDate(item.completedAt) : "";
-    if (completed && !completedAt) continue;
-    seen.add(id);
-    output.push({ id, text, completed, createdAt, completedAt });
-    if (output.length >= 50) break;
-  }
-  return output;
-}
-
-function normalizeWeatherLocation(value) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  const coordinates = normalizeWeatherCoordinates(value.latitude, value.longitude);
-  const name = cleanText(value.name, 100);
-  if (!coordinates || !name) return null;
-  return {
-    id: cleanId(value.id),
-    name,
-    admin1: cleanText(value.admin1, 100),
-    admin2: cleanText(value.admin2, 100),
-    country: cleanText(value.country, 100),
-    countryCode: cleanCode(value.countryCode, 2),
-    featureCode: cleanCode(value.featureCode, 20),
-    population: Number.isSafeInteger(Number(value.population)) && Number(value.population) >= 0 ? Number(value.population) : 0,
-    source: cleanCode(value.source, 40),
-    confidence: ["high", "verify"].includes(value.confidence) ? value.confidence : "verify",
-    ...coordinates,
-  };
-}
-
 function flagsFromSettings(settings = {}) {
   return Object.fromEntries(Object.values(CONTENT_SYNC_DATASETS).map((definition) => [definition.flag, settings[definition.flag] === true]));
 }
@@ -445,23 +406,8 @@ function normalizedDate(value) {
   return result ? new Date(result).toISOString() : "";
 }
 
-function cleanId(value) {
-  const id = String(value ?? "").trim();
-  return id && Array.from(id).length <= 100 && /^[\p{L}\p{N}._:-]+$/u.test(id) ? id : "";
-}
-
-function cleanCode(value, limit) {
-  const code = String(value || "").trim();
-  return code.length <= limit && /^[A-Za-z0-9._:-]*$/.test(code) ? code : "";
-}
-
 function cleanText(value, limit) {
   return Array.from(String(value || "").replace(/\s+/g, " ").trim()).slice(0, limit).join("");
-}
-
-function cleanStrictText(value, limit) {
-  const text = String(value || "").replace(/\s+/g, " ").trim();
-  return Array.from(text).length <= limit ? text : "";
 }
 
 function stableValue(value) {

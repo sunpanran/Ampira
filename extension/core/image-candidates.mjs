@@ -162,7 +162,7 @@ function safeImageUrl(value, baseUrl) {
   }
 }
 
-function structuredImageCandidates(html) {
+export function structuredImageCandidates(html) {
   const output = [];
   const seen = new Set();
   let remaining = 500;
@@ -232,24 +232,13 @@ function cssBackgroundUrl(value) {
   return String(value || "").match(/background(?:-image)?\s*:\s*url\(\s*(['"]?)(.*?)\1\s*\)/i)?.[2] || "";
 }
 
-function imageDimension(value) {
+export function imageDimension(value) {
   const match = String(value || "").trim().match(/^([\d.]+)(?:px)?$/i);
   const number = Number(match?.[1] || 0);
   return Number.isFinite(number) && number > 0 ? number : 0;
 }
 
-function isPrivateAddressLiteral(hostname) {
-  const host = String(hostname || "").toLowerCase().replace(/^\[|\]$/g, "");
-  if (["localhost", "::1"].includes(host)) return true;
-  if (/^(?:fc|fd|fe[89ab])[0-9a-f:]*$/i.test(host)) return true;
-  const octets = host.split(".").map(Number);
-  if (octets.length !== 4 || octets.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return false;
-  return octets[0] === 10 || octets[0] === 127 || octets[0] === 0
-    || octets[0] === 169 && octets[1] === 254
-    || octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31
-    || octets[0] === 192 && octets[1] === 168;
-}
-
 function firstNonEmpty(...values) {
   return values.find((value) => String(value || "").trim()) || "";
 }
+import { isPrivateAddressLiteral } from "./network-policy.mjs";

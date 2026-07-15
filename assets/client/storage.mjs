@@ -1,3 +1,5 @@
+import { hasExtensionRuntime, sendRuntimeRequest } from "./runtime-client.mjs";
+
 const memory = new Map();
 const locallyWrittenKeys = new Set();
 const CLIENT_STATE_KEY_PATTERN = /^dash\.[A-Za-z0-9._-]{1,91}$/;
@@ -21,7 +23,7 @@ export async function hydrateStorage() {
 async function hydrateStorageOnce() {
   if (hasExtensionRuntime()) {
     try {
-      const response = await chrome.runtime.sendMessage({ type: "client-state:get", requestId: crypto.randomUUID() });
+      const response = await sendRuntimeRequest({ type: "client-state:get" });
       if (!response?.ok || !response.data || typeof response.data !== "object" || Array.isArray(response.data)) return;
       mergeHydratedValues(response.data);
       hydrated = true;
@@ -100,9 +102,8 @@ export async function flushStorage() {
   const batch = Object.fromEntries(pendingWrites);
   pendingWrites.clear();
   flushPromise = Promise.resolve()
-    .then(() => chrome.runtime.sendMessage({
+    .then(() => sendRuntimeRequest({
       type: "client-state:set",
-      requestId: crypto.randomUUID(),
       payload: { values: batch },
     }))
     .then((response) => {
@@ -157,9 +158,4 @@ if (typeof document !== "undefined") {
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "hidden") flushStorage();
   });
-}
-
-function hasExtensionRuntime() {
-  return location.protocol === "chrome-extension:"
-    && Boolean(globalThis.chrome?.runtime?.id && globalThis.chrome.runtime.sendMessage);
 }

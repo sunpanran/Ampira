@@ -45,7 +45,7 @@ export function deriveAiSetupControlState({
     formUnlocked,
     providerUrlDisabled: busy || grantPending,
     consentDisabled: busy || grantPending,
-    grantDisabled: busy || grantPending || stage !== AI_SETUP_STAGE.NEEDS_PERMISSION,
+    grantDisabled: busy || grantPending || !origin || stage === AI_SETUP_STAGE.READY,
     protectedFieldsDisabled: busy || !formUnlocked,
   };
 }

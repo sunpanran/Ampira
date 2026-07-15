@@ -70,6 +70,27 @@ export function updateSecrets(patch = {}) {
   });
 }
 
+export function captureCredentialState() {
+  return enqueue(async () => {
+    const records = await chrome.storage.local.get([LOCAL_PROVIDER_KEY, LOCAL_SECRETS_KEY]);
+    return {
+      providerExists: Object.hasOwn(records, LOCAL_PROVIDER_KEY),
+      provider: records[LOCAL_PROVIDER_KEY],
+      secretsExists: Object.hasOwn(records, LOCAL_SECRETS_KEY),
+      secrets: records[LOCAL_SECRETS_KEY],
+    };
+  });
+}
+
+export function restoreCredentialState(snapshot) {
+  return enqueue(async () => {
+    if (snapshot?.providerExists) await chrome.storage.local.set({ [LOCAL_PROVIDER_KEY]: snapshot.provider });
+    else await chrome.storage.local.remove(LOCAL_PROVIDER_KEY);
+    if (snapshot?.secretsExists) await chrome.storage.local.set({ [LOCAL_SECRETS_KEY]: snapshot.secrets });
+    else await chrome.storage.local.remove(LOCAL_SECRETS_KEY);
+  });
+}
+
 export async function secretStatus() {
   const secrets = await readSecrets();
   return {

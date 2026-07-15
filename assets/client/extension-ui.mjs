@@ -6,6 +6,13 @@ import { INSPIRATION_PRESET_VALUE, inspirationBookmarkValue, inspirationSelectio
 import { PUBLIC_FEED_VALUE, newsBookmarkValue, newsSelectionValue, parseNewsSelection } from "./news-source-selection.mjs";
 import { hydrateStorage, readValue, writeValue } from "./storage.mjs";
 import { setNativeFaviconEnabled } from "./urls.mjs";
+import { enhanceSelectComboboxes } from "./select-combobox.mjs";
+import {
+  containsPermissions, removeOrigins, removePermissions,
+  requestPermissionDetails, requestPermissions,
+} from "./permission-client.mjs";
+
+enhanceSelectComboboxes(document);
 
 const ONBOARDING_PROGRESS_KEY = "dash.onboarding.progress";
 
@@ -114,7 +121,10 @@ function bindEvents() {
 }
 
 function showOnboarding(index) {
-  onboardingStep = Math.max(0, Math.min(lastOnboardingStep, index));
+  const nextStep = Math.max(0, Math.min(lastOnboardingStep, index));
+  document.documentElement.classList.remove("has-first-frame-motion");
+  els.overlay.dataset.stepDirection = nextStep < onboardingStep ? "back" : "forward";
+  onboardingStep = nextStep;
   els.overlay.hidden = false;
   els.steps.forEach((step, stepIndex) => {
     const active = stepIndex === onboardingStep;
@@ -163,13 +173,13 @@ function syncOnboardingFolderControls({ preserveSelection = false } = {}) {
     ? els.newsFolder.value
     : newsSelectionValue(
       settings?.newsSourceMode,
-      settings?.newsBookmarkFolder || settings?.defaultNewsBookmarkFolder,
+      settings?.newsBookmarkFolder,
     );
   const inspirationSelection = preserveSelection
     ? els.inspirationFolder.value
     : inspirationSelectionValue(
       settings?.inspirationSourceMode,
-      settings?.inspirationBookmarkFolder || settings?.defaultInspirationBookmarkFolder,
+      settings?.inspirationBookmarkFolder,
     );
   populateNewsSourceSelect(els.newsFolder, options, newsSelection);
   populateInspirationSourceSelect(els.inspirationFolder, options, inspirationSelection);
@@ -181,7 +191,7 @@ function handleOnboardingInspirationSelection() {
   settings = {
     ...(settings || {}),
     inspirationSourceMode: selection.mode,
-    ...(selection.mode === "bookmarks" ? { inspirationBookmarkFolder: selection.folder } : {}),
+    inspirationBookmarkFolder: selection.folder,
   };
   renderOnboardingFolderStatus();
 }
@@ -217,7 +227,8 @@ function populateInspirationSourceSelect(select, options, selectedValue) {
   })).filter((item) => item.name);
   const selected = parseInspirationSelection(selectedValue, settings?.inspirationBookmarkFolder);
   const optionNodes = [createOption(INSPIRATION_PRESET_VALUE, t("settings.bookmarks.presetTitle"))];
-  if (selected.folder && !folders.some((item) => item.name === selected.folder)) {
+  if (selected.mode === "bookmarks" && selected.folder
+    && !folders.some((item) => item.name === selected.folder)) {
     optionNodes.push(createOption(
       inspirationBookmarkValue(selected.folder),
       t("settings.bookmarks.notFound", { name: selected.folder }),
@@ -241,17 +252,11 @@ function createOption(value, label) {
 }
 
 function selectedOnboardingInspirationSource() {
-  return parseInspirationSelection(
-    els.inspirationFolder?.value,
-    settings?.inspirationBookmarkFolder || settings?.defaultInspirationBookmarkFolder,
-  );
+  return parseInspirationSelection(els.inspirationFolder?.value);
 }
 
 function selectedOnboardingNewsSource() {
-  return parseNewsSelection(
-    els.newsFolder?.value,
-    settings?.newsBookmarkFolder || settings?.defaultNewsBookmarkFolder,
-  );
+  return parseNewsSelection(els.newsFolder?.value);
 }
 
 function renderOnboardingFolderStatus() {
@@ -345,7 +350,7 @@ async function refreshPermissionRows() {
 async function refreshFaviconPermission({ notify = false } = {}) {
   const previous = faviconPermissionGranted;
   try {
-    faviconPermissionGranted = await chrome.permissions.contains({ permissions: ["favicon"] });
+    faviconPermissionGranted = await containsPermissions(["favicon"]);
     faviconPermissionError = "";
   } catch (error) {
     faviconPermissionGranted = false;
@@ -369,8 +374,8 @@ async function updateFaviconPermission(enable, { trigger = null } = {}) {
   renderFaviconPermission();
   try {
     const changed = enable
-      ? await chrome.permissions.request({ permissions: ["favicon"] })
-      : await chrome.permissions.remove({ permissions: ["favicon"] });
+      ? await requestPermissions(["favicon"])
+      : await removePermissions(["favicon"]);
     await refreshFaviconPermission({ notify: true });
     return changed === true;
   } catch (error) {
@@ -415,7 +420,7 @@ async function grantOrigins(origins, { finish = false, permissions = [], trigger
     const requestDetails = {};
     if (requested.length) requestDetails.origins = requested;
     if (requestedPermissions.length) requestDetails.permissions = requestedPermissions;
-    const granted = await chrome.permissions.request(requestDetails);
+    const granted = await requestPermissionDetails(requestDetails);
     if (granted !== true) {
       setPermissionFeedback(t("permission.requestDeclined"));
       return;
@@ -440,7 +445,7 @@ async function handlePermissionAction(event) {
     button.disabled = true;
     setPermissionFeedback(t("permission.updating"));
     try {
-      const removed = await chrome.permissions.remove({ origins: [origin] });
+      const removed = await removeOrigins([origin]);
       if (removed !== true) {
         setPermissionFeedback(t("permission.revokeDeclined"));
         button.disabled = false;
@@ -472,6 +477,7 @@ function renderPermissionRows(rows) {
     const item = document.createElement("div");
     item.className = "source-permission-row";
     const copy = document.createElement("div");
+    copy.className = "source-permission-copy";
     const origin = document.createElement("strong");
     origin.textContent = row.origin.replace(/\/\*$/, "");
     const state = document.createElement("span");
@@ -497,7 +503,7 @@ function renderPermissionRows(rows) {
       ? "permission.revokeBroad"
       : (coveredByBroad ? "permission.coveredByBroad" : (removable ? "permission.revoke" : "permission.grant")));
     button.append(createIcon(removable ? "trash-01" : "plus", "btn-icon"), buttonLabel);
-    item.append(createIcon("key-01", "source-permission-icon"), copy, button);
+    item.append(copy, button);
     return item;
   }));
   renderPermissionStatus();

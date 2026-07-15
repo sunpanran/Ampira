@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
-import { extractReaderDocument, fetchReaderHtml, loadReaderWithCache, readerTextFromBlocks } from "../../extension/core/reader.mjs";
+import { extractReaderDocument, fetchReaderHtml, loadReaderWithCache, probeReaderUrl, readerTextFromBlocks } from "../../extension/core/reader.mjs";
+import { createReaderPreviewService } from "../../extension/runtime/reader-preview-service.mjs";
+import { readerErrorTitleKey, readerLocalFallback } from "../../assets/client/reader-policy.mjs";
 
 const richHtml = `<!doctype html>
 <html>
@@ -142,6 +144,147 @@ try {
   await assert.rejects(fetchReaderHtml("https://example.com/offline"), (error) => error.code === "READER_NETWORK_ERROR" && error.retryable === true);
 } finally {
   globalThis.fetch = originalFetch;
+}
+
+try {
+  let probeOptions = null;
+  globalThis.fetch = async (_url, options) => {
+    probeOptions = options;
+    return new Response(null, { status: 204 });
+  };
+  assert.equal(await probeReaderUrl(article.url, 50), true);
+  assert.equal(probeOptions.method, "HEAD");
+  assert.equal(probeOptions.mode, "no-cors");
+  assert.equal(probeOptions.credentials, "omit");
+  assert.equal(probeOptions.referrerPolicy, "no-referrer");
+  globalThis.fetch = async () => { throw new TypeError("offline"); };
+  assert.equal(await probeReaderUrl(article.url, 50), false);
+} finally {
+  globalThis.fetch = originalFetch;
+}
+
+const publicReader = { ...article, source: "live" };
+const localFallback = readerLocalFallback({
+  host: "news.example.com",
+  publisher: "Fixture News",
+  summary: {
+    title: "Organized headline",
+    summary: ["Saved fact.", "Saved impact."],
+    description: "Lower-priority duplicate excerpt.",
+    publishedAt: "2026-07-10T08:00:00Z",
+  },
+  feedItem: { title: "Original headline", excerpt: "Feed excerpt." },
+}, article.url, "Fallback title");
+assert.equal(localFallback.source, "local-excerpt");
+assert.equal(localFallback.title, "Organized headline");
+assert.equal(localFallback.siteName, "Fixture News");
+assert.deepEqual(localFallback.blocks.map((block) => block.runs[0].text), ["Saved fact.", "Saved impact."], "local Reader fallback must prefer the visible saved summary without mixing lower-priority excerpts");
+assert.equal(readerLocalFallback({ title: "Bookmark only" }, article.url, "Bookmark only"), null, "Reader must not invent a local fallback when no saved excerpt exists");
+assert.equal(readerErrorTitleKey("READER_NETWORK_ERROR"), "reader.error.networkTitle", "Reader should describe a network failure instead of showing a generic unavailable state");
+let publicFetchCount = 0;
+const publicReaderService = createReaderPreviewService({
+  normalizeUserUrl: normalizeTestUrl,
+  hasOriginPermission: async () => false,
+  fetchReader: async () => {
+    publicFetchCount += 1;
+    return publicReader;
+  },
+  loadReaderWithCache: async () => assert.fail("permissionless reads must not enter the permission-bound cache path"),
+  cacheMutations: { capture: () => 1 },
+  typedError: testTypedError,
+});
+const permissionlessResult = await publicReaderService.readArticle(article.url);
+assert.equal(permissionlessResult.accessMode, "public-cors", "CORS-readable articles must open without website permission");
+assert.equal(publicFetchCount, 1);
+
+const corsBlockedService = createReaderPreviewService({
+  normalizeUserUrl: normalizeTestUrl,
+  hasOriginPermission: async () => false,
+  fetchReader: async () => { throw Object.assign(new Error("blocked by CORS"), { code: "READER_NETWORK_ERROR" }); },
+  probeReaderUrl: async () => true,
+  cacheMutations: { capture: () => 1 },
+  typedError: testTypedError,
+});
+await assert.rejects(corsBlockedService.readArticle(article.url), (error) => (
+  error.code === "ORIGIN_PERMISSION_REQUIRED"
+  && error.details.origin === "https://news.example.com"
+), "a CORS-blocked article must offer exact website authorization only after the permissionless attempt fails");
+
+const unreachableError = Object.assign(new Error("offline"), { code: "READER_NETWORK_ERROR" });
+const unreachableReaderService = createReaderPreviewService({
+  normalizeUserUrl: normalizeTestUrl,
+  hasOriginPermission: async () => false,
+  fetchReader: async () => { throw unreachableError; },
+  probeReaderUrl: async () => false,
+  cacheMutations: { capture: () => 1 },
+  typedError: testTypedError,
+});
+await assert.rejects(unreachableReaderService.readArticle(article.url), (error) => error === unreachableError, "an unreachable website must keep its network error instead of asking for unnecessary permission");
+
+const missingPublicPage = Object.assign(new Error("missing"), { code: "READER_NOT_FOUND" });
+const missingPublicService = createReaderPreviewService({
+  normalizeUserUrl: normalizeTestUrl,
+  hasOriginPermission: async () => false,
+  fetchReader: async () => { throw missingPublicPage; },
+  cacheMutations: { capture: () => 1 },
+  typedError: testTypedError,
+});
+await assert.rejects(missingPublicService.readArticle(article.url), (error) => error === missingPublicPage, "public HTTP and extraction errors must stay specific instead of asking for unnecessary permission");
+
+let permissionCacheReads = 0;
+const permittedReaderService = createReaderPreviewService({
+  normalizeUserUrl: normalizeTestUrl,
+  hasOriginPermission: async () => true,
+  hasOriginPermissions: async () => true,
+  loadReaderWithCache: async () => {
+    permissionCacheReads += 1;
+    return publicReader;
+  },
+  cacheMutations: { capture: () => 2 },
+  typedError: testTypedError,
+});
+assert.equal((await permittedReaderService.readArticle(article.url)).accessMode, undefined, "authorized articles must retain the permission-bound cache path");
+assert.equal(permissionCacheReads, 1);
+
+let cachedFollowupLiveReads = 0;
+const cachedFollowupReader = { ...publicReader, schemaVersion: 2, imageStrategyVersion: 2 };
+const cachedFollowupService = createReaderPreviewService({
+  normalizeUserUrl: normalizeTestUrl,
+  hasOriginPermission: async () => true,
+  hasOriginPermissions: async () => true,
+  getRecord: async (key) => key.startsWith("reader-alias-v2-")
+    ? { contentKey: "reader-content" }
+    : (key === "reader-content" ? cachedFollowupReader : null),
+  hashText: () => "fixture",
+  loadReaderWithCache: async () => {
+    cachedFollowupLiveReads += 1;
+    return publicReader;
+  },
+  cacheMutations: { capture: () => 3 },
+  typedError: testTypedError,
+});
+const cachedFollowupResult = await cachedFollowupService.readCachedArticle(article.url);
+assert.equal(cachedFollowupResult.source, "cache", "article follow-ups must use an allowed Reader cache before attempting a live read");
+assert.equal(cachedFollowupLiveReads, 0);
+
+const revokedFollowupService = createReaderPreviewService({
+  normalizeUserUrl: normalizeTestUrl,
+  hasOriginPermission: async () => false,
+  cacheMutations: { capture: () => 4 },
+  typedError: testTypedError,
+});
+await assert.rejects(revokedFollowupService.readCachedArticle(article.url), (error) => error.code === "ORIGIN_PERMISSION_REQUIRED", "a cached article must not bypass revoked website access during follow-up");
+
+function normalizeTestUrl(value) {
+  try {
+    return new URL(value).href;
+  } catch {
+    return "";
+  }
+}
+
+function testTypedError(code, messageKey, messageParams, retryable, details) {
+  return Object.assign(new Error(messageKey), { code, messageKey, messageParams, retryable, details });
 }
 
 console.log("reader tests passed");

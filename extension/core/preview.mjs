@@ -3,6 +3,7 @@ import { searchImagePreview } from "./ai.mjs";
 import { decodeResponseBuffer, fetchBounded } from "./network.mjs";
 import { extractPageMetadata } from "./reader.mjs";
 import { normalizeImageCandidates } from "./image-candidates.mjs";
+import { isPrivateAddressLiteral } from "./network-policy.mjs";
 
 const ORIGIN_PREVIEW_STRATEGY_VERSION = 4;
 const BRAVE_PREVIEW_STRATEGY_VERSION = 2;
@@ -282,20 +283,6 @@ function normalizePreviewImageUrls(values, pageUrl) {
   return normalizeImageCandidates(values, pageUrl, { limit: 3 })
     .map((value) => normalizePreviewImageUrl(value, pageUrl))
     .filter(Boolean);
-}
-
-function isPrivateAddressLiteral(hostname) {
-  const host = String(hostname || "").toLowerCase().replace(/^\[|\]$/g, "");
-  if (["localhost", "::1"].includes(host)) return true;
-  if (/^(?:fc|fd|fe[89ab])[0-9a-f:]*$/i.test(host)) return true;
-  const octets = host.split(".").map(Number);
-  if (octets.length !== 4 || octets.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return false;
-  return octets[0] === 10
-    || octets[0] === 127
-    || octets[0] === 0
-    || octets[0] === 169 && octets[1] === 254
-    || octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31
-    || octets[0] === 192 && octets[1] === 168;
 }
 
 function cleanTitle(value) {

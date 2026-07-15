@@ -2,6 +2,13 @@ import assert from "node:assert/strict";
 import { createRefreshCoordinator } from "../../extension/core/refresh-coordinator.mjs";
 import { retainActiveUnrefreshedItems } from "../../extension/core/refresh.mjs";
 
+const lateRunnerCalls = [];
+const lateRunnerCoordinator = createRefreshCoordinator();
+lateRunnerCoordinator.setRun((generation, options) => lateRunnerCalls.push({ generation, options }));
+await lateRunnerCoordinator.start(true);
+await Promise.resolve();
+assert.deepEqual(lateRunnerCalls, [{ generation: 1, options: { force: true } }]);
+
 let releaseInitialStatus;
 let releaseFirstRun;
 let statusReads = 0;

@@ -25,9 +25,8 @@
   object-position: center center;
   opacity: 0;
   filter: blur(var(--header-cover-blur, 0px));
-  transform: scale(1.035);
-  transition: opacity .72s ease, filter .18s ease, transform .9s cubic-bezier(.2, .72, .2, 1);
-  will-change: opacity, transform;
+  transform: scale(1.018);
+  transition: opacity 480ms var(--motion-ease-enter), filter var(--motion-state-duration) var(--motion-ease-standard), transform 480ms var(--motion-ease-enter);
 }
 
 .dashboard-cover.is-loaded img {
@@ -57,13 +56,13 @@
 }
 
 .has-fullscreen-header-cover .dashboard-cover.is-loaded img {
-  opacity: .82;
+  opacity: .9;
 }
 
 .has-fullscreen-header-cover .cover-fade {
   background:
-    linear-gradient(180deg, color-mix(in srgb, var(--bg) 48%, transparent) 0%, color-mix(in srgb, var(--bg) 38%, transparent) 38%, color-mix(in srgb, var(--bg) 58%, transparent) 72%, color-mix(in srgb, var(--bg) 84%, transparent) 100%),
-    linear-gradient(90deg, color-mix(in srgb, var(--bg) 56%, transparent), transparent 45%, transparent 62%, color-mix(in srgb, var(--bg) 46%, transparent));
+    linear-gradient(180deg, color-mix(in srgb, var(--bg) 26%, transparent) 0%, color-mix(in srgb, var(--bg) 20%, transparent) 38%, color-mix(in srgb, var(--bg) 38%, transparent) 72%, color-mix(in srgb, var(--bg) 68%, transparent) 100%),
+    linear-gradient(90deg, color-mix(in srgb, var(--bg) 28%, transparent), transparent 45%, transparent 62%, color-mix(in srgb, var(--bg) 22%, transparent));
 }
 
 .has-header-cover #daily {
@@ -181,7 +180,7 @@
   border-radius: var(--radius-row);
   isolation: isolate;
   color: var(--muted);
-  transition: color var(--motion-state-duration) ease, background var(--motion-state-duration) ease, transform var(--motion-press-duration) ease;
+  transition: color var(--motion-state-duration) var(--motion-ease-standard), background var(--motion-state-duration) var(--motion-ease-standard), transform var(--motion-press-duration) var(--motion-ease-standard);
   scroll-snap-align: start;
 }
 
@@ -404,7 +403,7 @@
   position: relative;
   border-radius: var(--radius-card);
   isolation: isolate;
-  transition: border-color .18s ease, background .18s ease, transform .18s ease, box-shadow .18s ease;
+  transition: border-color var(--motion-state-duration) var(--motion-ease-standard), background var(--motion-state-duration) var(--motion-ease-standard), transform var(--motion-state-duration) var(--motion-ease-standard), box-shadow var(--motion-state-duration) var(--motion-ease-standard);
 }
 
 .nav-btn::before,
@@ -426,7 +425,7 @@
   background: radial-gradient(circle at var(--mx, 50%) var(--my, 50%), rgba(var(--accent-rgb), .10), transparent 260px);
   opacity: 0;
   pointer-events: none;
-  transition: opacity .18s ease;
+  transition: opacity var(--motion-state-duration) var(--motion-ease-standard);
 }
 
 .nav-btn::before,
@@ -525,6 +524,10 @@
 
 .efficiency-card.digest-card {
   grid-template-rows: auto minmax(0, 1fr);
+}
+
+.efficiency-card.digest-card.is-refreshing {
+  border-color: var(--active-line);
 }
 
 .efficiency-card.utility-card {
@@ -849,7 +852,7 @@
   border: 1px solid color-mix(in srgb, var(--muted-2) 72%, transparent);
   border-radius: 50%;
   background: transparent;
-  transition: border-color var(--motion-state-duration) ease, background var(--motion-state-duration) ease;
+  transition: border-color var(--motion-state-duration) var(--motion-ease-standard), background var(--motion-state-duration) var(--motion-ease-standard);
 }
 
 .todo-toggle:hover,
@@ -873,7 +876,7 @@
   height: 9px;
   opacity: 0;
   transform: scale(.72);
-  transition: opacity var(--motion-state-duration) ease, transform var(--motion-state-duration) ease;
+  transition: opacity var(--motion-state-duration) var(--motion-ease-standard), transform var(--motion-state-duration) var(--motion-ease-enter);
 }
 
 .todo-toggle[aria-checked="true"] .todo-action-icon,
@@ -897,7 +900,7 @@
 .todo-remove {
   opacity: 0;
   pointer-events: none;
-  transition: opacity var(--motion-state-duration) ease, background var(--motion-state-duration) ease, color var(--motion-state-duration) ease;
+  transition: opacity var(--motion-state-duration) var(--motion-ease-standard), background var(--motion-state-duration) var(--motion-ease-standard), color var(--motion-state-duration) var(--motion-ease-standard);
 }
 
 .todo-row:hover .todo-remove,
@@ -989,7 +992,7 @@
   font-weight: 750;
   white-space: nowrap;
   cursor: pointer;
-  transition: border-color var(--motion-state-duration) ease, background var(--motion-state-duration) ease, color var(--motion-state-duration) ease, transform var(--motion-press-duration) ease;
+  transition: border-color var(--motion-state-duration) var(--motion-ease-standard), background var(--motion-state-duration) var(--motion-ease-standard), color var(--motion-state-duration) var(--motion-ease-standard), transform var(--motion-press-duration) var(--motion-ease-standard);
 }
 
 .efficiency-action:hover,
@@ -1041,7 +1044,7 @@
   color: inherit;
   text-align: left;
   cursor: pointer;
-  transition: border-color .18s ease, background .18s ease, opacity .18s ease, transform .18s ease;
+  transition: border-color var(--motion-state-duration) var(--motion-ease-standard), background var(--motion-state-duration) var(--motion-ease-standard), opacity var(--motion-state-duration) var(--motion-ease-standard), transform var(--motion-state-duration) var(--motion-ease-standard);
 }
 
 .efficiency-row:hover,
@@ -1145,7 +1148,7 @@
 
 .ai-digest-summary:disabled {
   cursor: wait;
-  opacity: .62;
+  opacity: 1;
 }
 
 .ai-digest-paragraph {
@@ -1155,6 +1158,45 @@
   overflow-wrap: anywhere;
   word-break: break-word;
   text-wrap: pretty;
+}
+
+.ai-digest-loading {
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  align-content: stretch;
+  gap: 7px;
+}
+
+.ai-digest-loading-lines {
+  min-height: 0;
+  display: grid;
+  align-content: space-evenly;
+  gap: 7px;
+}
+
+.ai-digest-loading-paragraph {
+  display: grid;
+  gap: 4px;
+}
+
+.ai-digest-loading-line {
+  height: 6px;
+}
+
+.ai-digest-loading-paragraph:nth-child(1) .ai-digest-loading-line:first-child { width: 92%; }
+.ai-digest-loading-paragraph:nth-child(1) .ai-digest-loading-line:last-child { width: 76%; }
+.ai-digest-loading-paragraph:nth-child(2) .ai-digest-loading-line:first-child { width: 84%; }
+.ai-digest-loading-paragraph:nth-child(2) .ai-digest-loading-line:last-child { width: 64%; }
+.ai-digest-loading-paragraph:nth-child(3) .ai-digest-loading-line:first-child { width: 88%; }
+.ai-digest-loading-paragraph:nth-child(3) .ai-digest-loading-line:last-child { width: 72%; }
+
+.ai-digest-loading-note {
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.35;
 }
 
 .board-column {
@@ -1184,6 +1226,37 @@
   min-height: 0;
 }
 
+.news-cache-state {
+  width: 100%;
+  gap: 10px;
+  padding: 13px 0 15px;
+}
+
+.news-cache-state .empty-state-copy {
+  gap: 3px;
+}
+
+.news-cache-state .empty-state-title {
+  font-size: 13px;
+}
+
+.news-cache-state-meter {
+  width: 100%;
+  height: 3px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--line-soft);
+}
+
+.news-cache-state-meter > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  box-shadow: 0 0 10px rgba(var(--accent-rgb), .34);
+  transition: width var(--motion-move-duration) var(--motion-ease-move);
+}
+
 .board-column.is-news .card-list,
 .board-column.is-inspiration .card-list.is-empty,
 .board-column.is-archive .card-list {
@@ -1203,7 +1276,7 @@
   border-radius: var(--radius-row);
   background: var(--surface-row);
   box-shadow: 0 1px 0 rgba(0, 0, 0, .12);
-  transition: border-color .18s ease, background .18s ease, opacity .18s ease, transform .18s ease;
+  transition: border-color var(--motion-state-duration) var(--motion-ease-standard), background var(--motion-state-duration) var(--motion-ease-standard), opacity var(--motion-state-duration) var(--motion-ease-standard), transform var(--motion-state-duration) var(--motion-ease-standard);
 }
 
 .source-suggestion-row:hover,
@@ -1232,7 +1305,7 @@
   box-shadow: none;
   -webkit-backdrop-filter: var(--row-backdrop-blur);
   backdrop-filter: var(--row-backdrop-blur);
-  transition: border-color .18s ease, background .18s ease, opacity .18s ease, transform .18s ease;
+  transition: border-color var(--motion-state-duration) var(--motion-ease-standard), background var(--motion-state-duration) var(--motion-ease-standard), opacity var(--motion-state-duration) var(--motion-ease-standard), transform var(--motion-state-duration) var(--motion-ease-standard);
 }
 
 .daily-card:hover,
@@ -1538,7 +1611,7 @@
   visibility: hidden;
   transform: translateY(2px) scale(.995);
   transform-origin: top left;
-  transition: opacity .14s ease, transform .16s cubic-bezier(.22, .8, .3, 1), visibility 0s linear .16s;
+  transition: opacity var(--motion-state-duration) var(--motion-ease-standard), transform var(--motion-state-duration) var(--motion-ease-enter), visibility 0s step-end var(--motion-state-duration);
   will-change: opacity, transform;
 }
 
@@ -1586,12 +1659,12 @@
   box-shadow: none;
   color: var(--muted);
   cursor: pointer;
-  transition: color var(--motion-state-duration) ease, transform var(--motion-press-duration) ease, opacity var(--motion-state-duration) ease;
+  transition: color var(--motion-state-duration) var(--motion-ease-standard), transform var(--motion-press-duration) var(--motion-ease-standard), opacity var(--motion-state-duration) var(--motion-ease-standard);
 }
 
 .seen-mark,
 .action-toggle-icon {
-  transition: width .16s ease, height .16s ease, filter .18s ease, opacity .18s ease;
+  transition: width var(--motion-state-duration) var(--motion-ease-standard), height var(--motion-state-duration) var(--motion-ease-standard), filter var(--motion-state-duration) var(--motion-ease-standard), opacity var(--motion-state-duration) var(--motion-ease-standard);
 }
 
 .themed-icon {

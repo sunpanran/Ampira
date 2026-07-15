@@ -1,6 +1,7 @@
 import { PREFERRED_FEEDS } from "./constants.mjs";
 import { hashText } from "./bookmarks.mjs";
 import { normalizeLocale, translate } from "./i18n.mjs";
+import { classifyFeedEntryLocale } from "./feed-language-policy.mjs";
 import { decodeResponseBuffer, fetchBounded } from "./network.mjs";
 import { isDisplayableFeedItem } from "./feed-item-policy.mjs";
 import {
@@ -272,9 +273,9 @@ export function filterLikelyNewsItems(items) {
 }
 
 export function feedCacheOrEmpty(feed) {
-  if (feed && Array.isArray(feed.items)) return feed;
+  if (feed?.schemaVersion === 3 && Array.isArray(feed.items)) return feed;
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     generatedAt: "",
     items: [],
     localCount: 0,
@@ -437,15 +438,16 @@ function articleRecord({
   const host = hostOf(url);
   const fetchedAt = new Date().toISOString();
   const excerpt = cleanText(description).slice(0, 420);
+  const language = classifyFeedEntryLocale(cleanText(title), excerpt, source.contentLocale);
   const normalizedImageUrls = normalizeImageCandidates(
     imageUrls?.length ? imageUrls : [imageUrl],
     url,
     { limit: 3 },
   );
   const item = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     extractorVersion: 1,
-    policyVersion: 2,
+    policyVersion: 3,
     articleId: `article-${hashText(normalizeUrl(url))}`,
     entryKey: `article-${hashText(normalizeUrl(url))}`,
     sourceKey: source.key || `source-${hashText(source.url || host)}`,
@@ -457,6 +459,10 @@ function articleRecord({
     publisherHost: hostOf(publisherUrl) || hostOf(source.url) || host,
     category: source.category || "",
     categoryKey: source.categoryKey || (source.category ? "" : "news"),
+    contentLocale: language.locale || "",
+    contentLocaleConfidence: language.confidence,
+    contentLocaleDetectedField: language.detectedField,
+    accessTier: source.accessTier || "",
     title: cleanText(title) || source.title || host,
     url,
     excerpt,
@@ -891,7 +897,22 @@ function parseAttributes(tag) {
 }
 
 function dedupeArticles(items) {
-  return dedupeBy((items || []).filter(Boolean), (item) => normalizeUrl(item.url));
+  const deduped = [];
+  const indexesByUrl = new Map();
+  for (const item of (items || []).filter(Boolean)) {
+    const key = normalizeUrl(item.url);
+    if (!key) continue;
+    const existingIndex = indexesByUrl.get(key);
+    if (existingIndex === undefined) {
+      indexesByUrl.set(key, deduped.length);
+      deduped.push(item);
+      continue;
+    }
+    if (deduped[existingIndex].externalDiscovery === true && item.externalDiscovery !== true) {
+      deduped[existingIndex] = item;
+    }
+  }
+  return deduped;
 }
 
 function dedupeBy(items, keyFor) {

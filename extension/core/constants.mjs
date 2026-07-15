@@ -2,6 +2,7 @@ export const SETTINGS_KEY = "ampira.settings.v1";
 export const LOCAL_SECRETS_KEY = "ampira.secrets.local.v1";
 export const LOCAL_PROVIDER_KEY = "ampira.provider.local.v1";
 export const LOCAL_DEVICE_CONSENT_KEY = "ampira.device-consent.local.v1";
+export const LOCAL_HEADER_COVER_KEY = "ampira.header-cover.local.v1";
 export const DB_NAME = "ampira-extension";
 export const DB_VERSION = 1;
 export const CACHE_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
@@ -40,6 +41,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   headerImageFullscreen: false,
   headerImageBlurEnabled: false,
   headerImageBlurAmount: 12,
+  headerImageHeightScale: 100,
   headerImageUrl: "https://images.unsplash.com/photo-1782827286498-241b8af47185?q=80&w=2487&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D",
   websiteShortcutsEnabled: false,
   websiteShortcuts: [],
@@ -52,11 +54,12 @@ export const DEFAULT_SETTINGS = Object.freeze({
   cardSummaryEnabled: true,
   floatingWebOpenEnabled: false,
   readingQueueOpenOnReadAll: true,
-  retainSeenArchive: false,
+  readingQueueReadAllPrompted: false,
+  retainSeenArchive: true,
   syncReadingQueueEnabled: false,
   syncTodosEnabled: false,
   syncWeatherLocationEnabled: false,
-  personalizedRankingEnabled: true,
+  personalizedRankingEnabled: false,
   publicFeedSupplementEnabled: true,
   webImageSearchEnabled: false,
   excludedNewsSources: [],

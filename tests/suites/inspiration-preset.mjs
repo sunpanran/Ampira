@@ -28,6 +28,10 @@ import {
   inspirationSelectionValue,
   parseInspirationSelection,
 } from "../../assets/client/inspiration-source-selection.mjs";
+import {
+  newsBookmarkValue,
+  parseNewsSelection,
+} from "../../assets/client/news-source-selection.mjs";
 
 export async function runInspirationPresetTests() {
   assert.deepEqual(
@@ -36,7 +40,7 @@ export async function runInspirationPresetTests() {
       messages["settings.bookmarks.publicFeedTitle"],
     ]),
     [
-      ["Inspiration preset (Ampira)", "Public Feed (Ampira)"],
+      ["Inspiration preset (Ampira)", "Ampira Feed"],
       ["灵感预设（Ampira）", "公共 Feed（Ampira）"],
       ["靈感預設（Ampira）", "公共 Feed（Ampira）"],
     ],
@@ -47,7 +51,7 @@ export async function runInspirationPresetTests() {
       locale: "en",
       messages: en,
       presetName: "Inspiration preset (Ampira)",
-      publicFeedName: "Public Feed (Ampira)",
+      publicFeedName: "Ampira Feed",
     },
     {
       locale: "zh-CN",
@@ -347,19 +351,34 @@ export async function runInspirationPresetTests() {
   const encodedFolder = inspirationBookmarkValue("灵感 / Type & Motion");
   assert.equal(encodedFolder, "bookmark:%E7%81%B5%E6%84%9F%20%2F%20Type%20%26%20Motion");
   assert.deepEqual(
-    parseInspirationSelection(encodedFolder, "Previous folder"),
+    parseInspirationSelection(encodedFolder),
     { mode: "bookmarks", folder: "灵感 / Type & Motion" },
     "personal folder values must round-trip through the collision-safe encoding",
   );
   assert.deepEqual(
-    parseInspirationSelection("preset", "Previous folder"),
-    { mode: "preset", folder: "Previous folder" },
-    "switching to the preset must preserve the previous personal folder",
+    parseInspirationSelection("preset"),
+    { mode: "preset", folder: "" },
+    "switching to the preset must clear the previous personal folder",
   );
   assert.deepEqual(
-    parseInspirationSelection("bookmark:%E0%A4%A", "Previous folder"),
-    { mode: "preset", folder: "Previous folder" },
-    "malformed folder values must fail closed to the preset without erasing the saved folder",
+    parseInspirationSelection("bookmark:%E0%A4%A"),
+    { mode: "preset", folder: "" },
+    "malformed folder values must fail closed to the preset without retaining a phantom folder",
+  );
+  assert.deepEqual(
+    parseNewsSelection(newsBookmarkValue("行业资讯")),
+    { mode: "bookmarks", folder: "行业资讯" },
+    "personal news folder values must round-trip through the collision-safe encoding",
+  );
+  assert.deepEqual(
+    parseNewsSelection("public"),
+    { mode: "public", folder: "" },
+    "switching to public feeds must clear the previous personal news folder",
+  );
+  assert.deepEqual(
+    parseNewsSelection("bookmark:%E0%A4%A"),
+    { mode: "public", folder: "" },
+    "malformed news folder values must fail closed without retaining a phantom folder",
   );
 
   const ordered = orderPresetInspiration(preset.bookmarks, { seed: "2026-07-14", shuffle: seededShuffle });

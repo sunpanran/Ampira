@@ -30,6 +30,7 @@ const ICON_URLS = {
   "cloud-rain": "/assets/icons/cloud-rain.svg",
   "cloud-snow": "/assets/icons/cloud-snow.svg",
   "cloud-sun": "/assets/icons/cloud-sun.svg",
+  coffee: "/assets/icons/coffee.svg",
   "copy-01": "/assets/icons/copy-01.svg",
   "database-01": "/assets/icons/database-01.svg",
   eye: "/assets/icons/eye.svg",

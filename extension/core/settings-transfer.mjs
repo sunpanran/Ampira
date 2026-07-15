@@ -20,6 +20,7 @@ export const PORTABLE_SETTINGS_FIELDS = Object.freeze([
   "headerImageFullscreen",
   "headerImageBlurEnabled",
   "headerImageBlurAmount",
+  "headerImageHeightScale",
   "headerImageUrl",
   "websiteShortcutsEnabled",
   "websiteShortcuts",
@@ -32,6 +33,7 @@ export const PORTABLE_SETTINGS_FIELDS = Object.freeze([
   "cardSummaryEnabled",
   "floatingWebOpenEnabled",
   "readingQueueOpenOnReadAll",
+  "readingQueueReadAllPrompted",
   "retainSeenArchive",
   "syncReadingQueueEnabled",
   "syncTodosEnabled",
@@ -60,6 +62,7 @@ const BOOLEAN_FIELDS = new Set([
   "cardSummaryEnabled",
   "floatingWebOpenEnabled",
   "readingQueueOpenOnReadAll",
+  "readingQueueReadAllPrompted",
   "retainSeenArchive",
   "syncReadingQueueEnabled",
   "syncTodosEnabled",
@@ -71,6 +74,7 @@ const BOOLEAN_FIELDS = new Set([
 const ARRAY_FIELDS = new Set(["websiteShortcuts", "bookmarkOnlyFolders", "hiddenBookmarkCategories", "excludedNewsSources"]);
 const NUMBER_RANGES = Object.freeze({
   headerImageBlurAmount: [0, 24],
+  headerImageHeightScale: [70, 140],
   dailyAiLimit: [1, 500],
   hotNewsCacheSize: [16, 500],
   hotNewsEntriesPerSource: [0, 12],
@@ -188,7 +192,8 @@ function validatePortableValue(field, value) {
   }
   if (Object.hasOwn(NUMBER_RANGES, field)) {
     const [min, max] = NUMBER_RANGES[field];
-    if (!Number.isInteger(value) || value < min || value > max) throw invalidValue(field);
+    if (!Number.isInteger(value) || value < min || value > max
+      || field === "headerImageHeightScale" && value % 5 !== 0) throw invalidValue(field);
     return;
   }
   if (!Object.hasOwn(STRING_LIMITS, field) || typeof value !== "string" || value.length > STRING_LIMITS[field]) {

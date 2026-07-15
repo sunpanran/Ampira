@@ -16,6 +16,7 @@ export function createInitialState() {
   return {
     data: null,
     settings: null,
+    localHeaderCover: null,
     filter: "all",
     categoryFilter: "all",
     query: "",

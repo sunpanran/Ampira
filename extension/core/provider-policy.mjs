@@ -31,3 +31,16 @@ export function providerTestApiKey({
   if (providerOrigin(draftBaseUrl) !== providerOrigin(storedBaseUrl)) return "";
   return String(storedKey || "").trim();
 }
+
+export function providerRequiresApiKey(baseUrl = "") {
+  try {
+    const hostname = new URL(String(baseUrl || "").trim()).hostname.toLowerCase();
+    return !["localhost", "127.0.0.1"].includes(hostname);
+  } catch {
+    return true;
+  }
+}
+
+export function providerCredentialAvailable(baseUrl = "", apiKeyOrStatus = false) {
+  return !providerRequiresApiKey(baseUrl) || Boolean(apiKeyOrStatus);
+}

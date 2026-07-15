@@ -1,7 +1,5 @@
 import { DEFAULT_SETTINGS } from "../core/constants.mjs";
-import { defaultBookmarkFoldersForLocale } from "../core/i18n.mjs";
 import { normalizeSettings } from "../core/settings.mjs";
-import { settingsLocale } from "./runtime-result.mjs";
 
 export function createRuntimeSettingsService({ store, readProviderProfile, readDeviceConsent }) {
   async function getSettings() {
@@ -17,9 +15,6 @@ export function createRuntimeSettingsService({ store, readProviderProfile, readD
       credentialGeneration: provider.credentialGeneration,
       ...consent,
     });
-    const defaults = defaultBookmarkFoldersForLocale(settingsLocale(settings));
-    if (!settings.newsBookmarkFolder) settings.newsBookmarkFolder = defaults.news;
-    if (!settings.inspirationBookmarkFolder) settings.inspirationBookmarkFolder = defaults.inspiration;
     return settings;
   }
 

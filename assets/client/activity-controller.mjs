@@ -1,4 +1,5 @@
 import { normalizeReadingQueueRecords } from "../../extension/core/reading-queue.mjs";
+import { MOTION_DURATION, prefersReducedMotion, restartMotionClass } from "./motion.mjs";
 
 const READING_QUEUE_STORAGE_KEY = "dash.readingQueue";
 const OPENED_STORAGE_KEY = "dash.opened";
@@ -8,6 +9,7 @@ const ACTION_RECORD_LIMIT = 150;
 
 export function createActivityController(options) {
   let seenRetentionMode = null;
+  let readingQueueReadAllPending = false;
   const {
     state, itemUrl, openExternalWindow, openExternal, renderAll, renderEfficiencyPanel,
     newsSummaryItems, hostFromUrl, t, newsSectionName, newsCardType, findNewsItemReference,
@@ -28,26 +30,56 @@ function readingQueueItems() {
     .filter((item) => item && !state.seen.has(item.key));
 }
 
-function openAndMarkReadingQueue(items) {
-  if (!items.length) return;
-  if (readingQueueOpenOnReadAll()) {
-    for (const item of items) {
-      const url = itemUrl(item);
-      if (url) openExternalWindow(url);
-    }
-  }
-  for (const item of items) {
+async function openAndMarkReadingQueue(items) {
+  if (!items.length || readingQueueReadAllPending) return;
+  const pendingItems = items.filter((item) => {
     const key = seenKey(item);
-    if (!key) continue;
-    state.seen.add(key);
-    upsertSeenMeta(key, seenDetailsForItem(item, defaultSeenSource(item)));
-    state.readingQueue.delete(key);
-    state.readingQueueMeta.delete(key);
-    sendFeedback(item, "read");
+    return key && state.readingQueue.has(key) && !state.seen.has(key);
+  });
+  if (!pendingItems.length) return;
+  readingQueueReadAllPending = true;
+  let preferencePatch = null;
+  try {
+    if (state.settings?.readingQueueReadAllPrompted !== true) {
+      const shouldOpen = window.confirm(t("queue.readAllPrompt", { count: pendingItems.length }));
+      state.settings = {
+        ...(state.settings || {}),
+        readingQueueOpenOnReadAll: shouldOpen,
+        readingQueueReadAllPrompted: true,
+      };
+      preferencePatch = {
+        readingQueueOpenOnReadAll: shouldOpen,
+        readingQueueReadAllPrompted: true,
+      };
+    }
+    if (readingQueueOpenOnReadAll()) {
+      for (const item of pendingItems) {
+        const url = itemUrl(item);
+        if (url) openExternalWindow(url);
+      }
+    }
+    for (const item of pendingItems) {
+      const key = seenKey(item);
+      if (!key) continue;
+      state.seen.add(key);
+      upsertSeenMeta(key, seenDetailsForItem(item, defaultSeenSource(item)));
+      state.readingQueue.delete(key);
+      state.readingQueueMeta.delete(key);
+      sendFeedback(item, "read");
+    }
+    persistSeen();
+    persistReadingQueue();
+    renderAll();
+    if (preferencePatch) {
+      try {
+        state.settings = await apiPost("/api/settings", preferencePatch);
+      } catch {
+        // Keep the choice for this session after completing the requested action.
+      }
+    }
+  } finally {
+    readingQueueReadAllPending = false;
   }
-  persistSeen();
-  persistReadingQueue();
-  renderAll();
 }
 
 function readingQueueOpenOnReadAll() {
@@ -104,7 +136,8 @@ function actionKey(item) {
 function toggleReadingQueue(item) {
   const key = actionKey(item);
   if (!key) return;
-  if (state.readingQueue.has(key)) {
+  const wasQueued = state.readingQueue.has(key);
+  if (wasQueued) {
     state.readingQueue.delete(key);
     state.readingQueueMeta.delete(key);
   } else {
@@ -114,7 +147,19 @@ function toggleReadingQueue(item) {
   }
   persistReadingQueue();
   syncReadingQueueButtons(key);
+  if (wasQueued && animateQueueRemoval(key)) return;
   renderEfficiencyPanel();
+}
+
+function animateQueueRemoval(key) {
+  if (prefersReducedMotion()) return false;
+  const row = Array.from(document.querySelectorAll(".queue-row[data-key]"))
+    .find((item) => item.dataset.key === key);
+  if (!row) return false;
+  row.classList.add("is-list-leaving");
+  row.inert = true;
+  window.setTimeout(renderEfficiencyPanel, MOTION_DURATION.press + 20);
+  return true;
 }
 
 function syncReadingQueueButtons(key) {
@@ -130,6 +175,7 @@ function syncReadingQueueButtons(key) {
       createThemedIcon(active ? "bookmark-filled" : "bookmark-ribbon", "action-toggle-icon"),
       srOnly(label),
     );
+    restartMotionClass(button, "is-confirming");
   });
 }
 

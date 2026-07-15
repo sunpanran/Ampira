@@ -1,5 +1,6 @@
 import { DEFAULT_LOCALE, translate } from "./i18n.mjs";
 import { decodeResponseBuffer, fetchBounded } from "./network.mjs";
+import { providerRequiresApiKey } from "./provider-policy.mjs";
 
 const AI_TIMEOUT_MS = 30000;
 const IMAGE_TIMEOUT_MS = 12000;
@@ -14,7 +15,9 @@ const LOW_VALUE_IMAGE_PATTERN = /(?:^|[\s._/\\-])(?:app-?icon|avatar|badge|brand
 
 export async function requestAiCompletion(settings, options) {
   const apiKey = String(options.apiKey || "").trim();
-  if (!apiKey) throw serviceError("AI_KEY_MISSING", "background.error.aiKeyMissing");
+  if (providerRequiresApiKey(settings.openaiBaseUrl) && !apiKey) {
+    throw serviceError("AI_KEY_MISSING", "background.error.aiKeyMissing");
+  }
   const endpoint = providerEndpoint(settings.openaiBaseUrl, settings.openaiApiStyle);
   const validation = typeof options.validateRequest === "function"
     ? await options.validateRequest({ endpoint })
@@ -46,10 +49,12 @@ export async function requestAiCompletion(settings, options) {
       input: options.input,
       max_output_tokens: options.maxTokens,
     };
+    const headers = { "content-type": "application/json" };
+    if (apiKey) headers.authorization = `Bearer ${apiKey}`;
     const bounded = await fetchBounded(endpoint, {
       method: "POST",
       redirect: "error",
-      headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
+      headers,
       body: JSON.stringify(requestBody),
     }, { timeoutMs: AI_TIMEOUT_MS, maxBytes: SERVICE_RESPONSE_LIMIT });
     response = bounded.response;

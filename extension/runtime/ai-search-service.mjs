@@ -1,32 +1,50 @@
+import {
+  AI_ARTICLE_CONTEXT_MAX_CHARS, AI_FOLLOWUP_QUERY_MAX_CHARS,
+  limitArticleSummary, limitCodePoints, normalizeArticleContext,
+} from "../core/ai-search.mjs";
+
 const AI_CONNECTION_TEST_MAX_TOKENS = 900;
 const AI_SEARCH_MAX_TOKENS = 1400;
-const AI_SEARCH_CACHE_VERSION = 4;
+const AI_ARTICLE_MAX_TOKENS = 900;
+const AI_SEARCH_CACHE_VERSION = 5;
+
+function articleHistoryText(turns) {
+  return (turns || []).map((turn, index) => [
+    `Turn ${index + 1} question: ${turn.question}`,
+    `Turn ${index + 1} answer: ${turn.answer}`,
+  ].join("\n")).join("\n");
+}
 
 export function createAiSearchService(options) {
   const {
     getRecord, setRecord, searchFeed, settingsLocale, translate, translateAiPrompt, normalizeUserUrl,
-    hasOriginPermission, originPattern, secretStatus, currentFeedPermissionState,
+    hasOriginPermission, secretStatus, currentFeedPermissionState,
     getSettings, currentBookmarkModel, emptyBookmarkModel, assertUrlsStillPermitted,
-    cacheSourceIdentitiesPermitted, configuredFeedSources, readArticle, readWebsiteOverview,
+    cacheSourceIdentitiesPermitted, configuredFeedSources, readArticle, readCachedArticle, readWebsiteOverview,
     hashText, aiConfigured, requestAiCompletion, providerOrigin, readProviderProfile,
     readDeviceConsent, readSecrets, providerTestApiKey, providerTestConsentAllowed,
     isValidServiceUrl, typedError, resultMessage, errorResult, testImageSearchConnection,
-    safeOrigin, uniqueStrings, withFeedCacheMetadata,
-    filterFeedItemsBySources, cacheMutations, hasOriginPermissions, cacheUrlsPermitted,
+    safeOrigin, withFeedCacheMetadata,
+    filterFeedItemsBySources, presentableFeedItems = (items) => items,
+    feedCacheOrEmpty = (value) => value?.schemaVersion === 3 ? value : { schemaVersion: 3, items: [] },
+    cacheMutations, hasOriginPermissions, cacheUrlsPermitted,
     localDateKey, readerTextFromBlocks, assertFeedItemsStillPermitted, normalizeSettings,
+    providerCredentialAvailable, providerRequiresApiKey,
   } = options;
+  const { currentProviderCapability, aiSearchResultPermitted } = options.aiAccessPolicy;
   return {
     loadQuestionSearchContext, currentProviderCapability, aiSearchResultPermitted,
     answerAiSearch, callProvider, testOpenAISettings, testImageSearchSettings,
   };
 async function loadQuestionSearchContext(settings, query) {
   const model = settings.bookmarkConsentGranted ? await currentBookmarkModel(settings) : emptyBookmarkModel();
-  const feed = await getRecord("feed", { items: [] });
+  const feed = feedCacheOrEmpty(await getRecord("feed", null));
   const permissions = await currentFeedPermissionState(settings, model);
-  const permittedItems = filterFeedItemsBySources(feed.items || [], permissions.permitted, permissions.grantedOrigins);
+  const permittedItems = filterFeedItemsBySources(feed.items, permissions.permitted, permissions.grantedOrigins);
+  const visibleItems = presentableFeedItems(permittedItems, settings, await aiConfigured(settings));
   return {
     permissions,
-    candidates: searchFeed(permittedItems, query).slice(0, 8),
+    candidates: searchFeed(visibleItems, query).slice(0, 8),
   };
 }
 
@@ -57,49 +75,6 @@ function websitePermissionSearchResult(locale, url) {
   };
 }
 
-async function currentProviderCapability(settings) {
-  const provider = await readProviderProfile(settings);
-  const consent = await readDeviceConsent(provider.openaiBaseUrl);
-  return {
-    provider,
-    configured: consent.aiDisclosureAccepted === true
-      && Boolean(provider.openaiApiKey)
-      && provider.openaiBaseUrl === settings.openaiBaseUrl
-      && provider.openaiApiStyle === settings.openaiApiStyle
-      && provider.openaiSummaryModel === settings.openaiSummaryModel
-      && provider.credentialGeneration === settings.credentialGeneration,
-  };
-}
-
-async function aiSearchResultPermitted(
-  result,
-  asUrl,
-  settings,
-  feedPermissions = null,
-  expectedEpoch = null,
-  providerCapability = null,
-) {
-  if (!result?.usedAi || !result.providerOrigin) return false;
-  const capability = providerCapability || await currentProviderCapability(settings);
-  const { provider } = capability;
-  const providerMatches = capability.configured
-    && originPattern(result.providerOrigin) === originPattern(provider.openaiBaseUrl);
-  if (!providerMatches || expectedEpoch !== null && !cacheMutations.isCurrent(expectedEpoch)) return false;
-
-  const requiredOrigins = [provider.openaiBaseUrl];
-  if (asUrl) {
-    const rawUrls = uniqueStrings([asUrl, result.requestedUrl, ...(result.links || []).map((link) => link?.url)].filter(Boolean));
-    const normalized = rawUrls.map(normalizeUserUrl);
-    if (normalized.some((url) => !url)) return false;
-    requiredOrigins.push(...normalized);
-  } else {
-    if (!feedPermissions || !cacheSourceIdentitiesPermitted(result, feedPermissions, true)) return false;
-    requiredOrigins.push(...result.sourceIdentities.flatMap((identity) => [identity.sourceOrigin, identity.fetchOrigin]).filter(Boolean));
-  }
-  const granted = await hasOriginPermissions(requiredOrigins);
-  return granted && (expectedEpoch === null || cacheMutations.isCurrent(expectedEpoch));
-}
-
 async function sanitizeSearchResult(result, { asUrl, query, nonAiFallback }) {
   const latestSettings = await getSettings();
   const latestLocale = settingsLocale(latestSettings);
@@ -128,11 +103,16 @@ async function sanitizeSearchResult(result, { asUrl, query, nonAiFallback }) {
 
 async function answerAiSearch(body) {
   const cacheEpoch = cacheMutations.capture();
-  const query = String(body.query || "").trim().slice(0, 2000);
   const settings = await getSettings();
   const locale = settingsLocale(settings);
+  const articleContext = normalizeArticleContext(body.articleContext, locale, normalizeUserUrl);
+  const queryLimit = articleContext ? AI_FOLLOWUP_QUERY_MAX_CHARS : 2000;
+  const query = limitCodePoints(String(body.query || "").trim(), queryLimit);
   if (!query) return resultMessage(settings, false, "background.error.searchRequired");
   const asUrl = normalizeUserUrl(query);
+  if (articleContext && !asUrl) {
+    return answerArticleFollowup(settings, locale, query, articleContext);
+  }
   const providerIdentity = `${settings.openaiBaseUrl}|${settings.openaiApiStyle}|${settings.openaiSummaryModel}|${settings.credentialGeneration}`;
   const cacheKey = `search-${locale}-${hashText(`${AI_SEARCH_CACHE_VERSION}:${localDateKey()}:${providerIdentity}:${query}`)}`;
   let feedPermissions = null;
@@ -163,14 +143,17 @@ async function answerAiSearch(body) {
       const isArticle = readerText.trim().length >= 80;
       const mode = isArticle ? "article" : "website";
       const fallbackText = isArticle
-        ? readerText.slice(0, 1200)
+        ? limitArticleSummary(readerText, locale)
         : reader.description || translate(locale, "background.search.noWebsiteDescription");
+      const fallbackAnswer = isArticle
+        ? limitArticleSummary(`${reader.title}\n\n${fallbackText}`, locale)
+        : `${reader.title}\n\n${fallbackText}`;
       nonAiFallback = {
         ok: true,
         locale,
         type: "url",
         mode,
-        answer: `${reader.title}\n\n${fallbackText}`,
+        answer: fallbackAnswer,
         links: [{ title: reader.title, url: reader.url }],
         usedAi: false,
       };
@@ -183,12 +166,15 @@ async function answerAiSearch(body) {
         input: translate(locale, isArticle ? "background.prompt.webInput" : "background.prompt.websiteInput", {
           url: reader.url,
           title: reader.title,
-          text: readerText.slice(0, 12000),
+          text: limitCodePoints(readerText, AI_ARTICLE_CONTEXT_MAX_CHARS),
           siteName: reader.siteName,
           description: reader.description,
         }),
         links: [{ title: reader.title, url: reader.url }],
         validateRequest: () => assertUrlsStillPermitted([asUrl, reader.requestedUrl, reader.url, reader.canonicalUrl]),
+        maxTokens: isArticle ? AI_ARTICLE_MAX_TOKENS : AI_SEARCH_MAX_TOKENS,
+        completionOptions: isArticle ? { preferVisibleOutput: true } : {},
+        transformAnswer: isArticle ? (value) => limitArticleSummary(value, locale) : null,
       });
     }
   } else {
@@ -225,10 +211,60 @@ async function answerAiSearch(body) {
   return sanitizeSearchResult(result, { asUrl, query, nonAiFallback });
 }
 
+async function answerArticleFollowup(settings, locale, query, context) {
+  let reader;
+  try {
+    reader = await readCachedArticle(context.url);
+  } catch (error) {
+    const messageKey = error?.messageKey || "background.error.aiNetwork";
+    return {
+      ok: true,
+      locale,
+      type: "question",
+      mode: "article-followup",
+      answer: translate(locale, messageKey, error?.messageParams || {}),
+      links: [],
+      usedAi: false,
+      errorKey: messageKey,
+      errorParams: error?.messageParams || {},
+    };
+  }
+  const readerText = readerTextFromBlocks(reader.blocks);
+  const contextUrls = [context.url, reader.requestedUrl, reader.url, reader.canonicalUrl];
+  return answerWithOptionalAi(settings, {
+    locale,
+    type: "question",
+    mode: "article-followup",
+    fallback: translate(locale, "background.search.followupUnavailable"),
+    system: translateAiPrompt(locale, "background.prompt.articleFollowup"),
+    input: translate(locale, "background.prompt.articleFollowupInput", {
+      url: reader.url,
+      title: reader.title,
+      summary: context.summary,
+      text: limitCodePoints(readerText, AI_ARTICLE_CONTEXT_MAX_CHARS),
+      history: articleHistoryText(context.turns),
+      query,
+    }),
+    links: [],
+    validateRequest: () => assertUrlsStillPermitted(contextUrls),
+    maxTokens: AI_ARTICLE_MAX_TOKENS,
+    completionOptions: { preferVisibleOutput: true },
+  });
+}
+
 async function answerWithOptionalAi(settings, options) {
   if (!await aiConfigured(settings)) return { ok: true, locale: options.locale, type: options.type, mode: options.mode, answer: options.fallback, links: options.links, usedAi: false };
   try {
-    const value = await callProvider(settings, options.system, options.input, AI_SEARCH_MAX_TOKENS, "", options.validateRequest);
+    const rawValue = await callProvider(
+      settings,
+      options.system,
+      options.input,
+      options.maxTokens || AI_SEARCH_MAX_TOKENS,
+      "",
+      options.validateRequest,
+      options.completionOptions || {},
+    );
+    const value = typeof options.transformAnswer === "function" ? options.transformAnswer(rawValue) : rawValue;
     return { ok: true, locale: options.locale, type: options.type, mode: options.mode, answer: value, links: options.links, usedAi: true };
   } catch (error) {
     const messageKey = error?.messageKey || "background.error.aiNetwork";
@@ -248,10 +284,20 @@ async function answerWithOptionalAi(settings, options) {
   }
 }
 
-async function callProvider(settings, system, input, maxTokens, apiKeyOverride = "", validateRequest = null, completionOptions = {}) {
+async function callProvider(
+  settings,
+  system,
+  input,
+  maxTokens,
+  apiKeyOverride = "",
+  validateRequest = null,
+  completionOptions = {},
+  providerOverride = false,
+) {
   let providerSettings = settings;
   let apiKey = apiKeyOverride;
-  if (!apiKeyOverride) {
+  const useProviderOverride = providerOverride || Boolean(apiKeyOverride);
+  if (!useProviderOverride) {
     const provider = await readProviderProfile(settings);
     const consent = await readDeviceConsent(provider.openaiBaseUrl);
     if (!consent.aiDisclosureAccepted) throw typedError("AI_CONSENT_REQUIRED", "background.error.aiConsentRequired", {}, false);
@@ -265,7 +311,9 @@ async function callProvider(settings, system, input, maxTokens, apiKeyOverride =
     });
     apiKey = provider.openaiApiKey;
   }
-  if (!apiKey) throw typedError("AI_KEY_MISSING", "background.error.aiKeyMissing", {}, false);
+  if (providerRequiresApiKey(providerSettings.openaiBaseUrl) && !apiKey) {
+    throw typedError("AI_KEY_MISSING", "background.error.aiKeyMissing", {}, false);
+  }
   const expectedProvider = {
     openaiBaseUrl: providerSettings.openaiBaseUrl,
     openaiApiStyle: providerSettings.openaiApiStyle,
@@ -274,7 +322,7 @@ async function callProvider(settings, system, input, maxTokens, apiKeyOverride =
     openaiApiKey: apiKey,
   };
   const validateCurrentRequest = async () => {
-    if (!apiKeyOverride) {
+    if (!useProviderOverride) {
       const latestProvider = await readProviderProfile(settings);
       const latestConsent = await readDeviceConsent(latestProvider.openaiBaseUrl);
       const unchanged = latestConsent.aiDisclosureAccepted === true
@@ -302,6 +350,9 @@ async function callProvider(settings, system, input, maxTokens, apiKeyOverride =
 async function testOpenAISettings(body) {
   try {
     const savedSettings = await getSettings();
+    if (Object.hasOwn(body, "openaiSummaryModel") && !String(body.openaiSummaryModel || "").trim()) {
+      return resultMessage(savedSettings, false, "background.error.aiModelRequired");
+    }
     const settings = normalizeSettings({ ...savedSettings,
       openaiBaseUrl: body.openaiBaseUrl || undefined,
       openaiApiStyle: body.openaiApiStyle || undefined,
@@ -323,7 +374,12 @@ async function testOpenAISettings(body) {
       draftBaseUrl: settings.openaiBaseUrl,
       storedBaseUrl: storedProvider.openaiBaseUrl,
     });
-    if (!apiKey) return resultMessage(settings, false, "background.error.aiKeyMissing");
+    if (!String(settings.openaiSummaryModel || "").trim()) {
+      return resultMessage(settings, false, "background.error.aiModelRequired");
+    }
+    if (!providerCredentialAvailable(settings.openaiBaseUrl, apiKey)) {
+      return resultMessage(settings, false, "background.error.aiKeyMissing");
+    }
     const locale = settingsLocale(settings);
     const sample = await callProvider(
       settings,
@@ -331,6 +387,9 @@ async function testOpenAISettings(body) {
       translate(locale, "background.prompt.connectionInput"),
       AI_CONNECTION_TEST_MAX_TOKENS,
       apiKey,
+      null,
+      {},
+      true,
     );
     return resultMessage(settings, /^ok\b/i.test(sample.trim()) || Boolean(sample), "background.connectionAvailable");
   } catch (error) {

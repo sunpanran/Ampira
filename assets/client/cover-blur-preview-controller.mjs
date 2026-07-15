@@ -4,7 +4,7 @@ const RANGE_ADJUSTMENT_KEYS = new Set([
   "ArrowDown", "ArrowLeft", "ArrowRight", "ArrowUp", "End", "Home", "PageDown", "PageUp",
 ]);
 
-export function createCoverBlurPreviewController({ modal, input }) {
+export function createCoverBlurPreviewController({ modal, input, previewClass = "is-cover-blur-previewing" }) {
   let pointerId = null;
   let pointerTimer = 0;
   let keyboardTimer = 0;
@@ -22,13 +22,18 @@ export function createCoverBlurPreviewController({ modal, input }) {
   function begin() {
     if (input.disabled || !modal.classList.contains("open")) return;
     modal.classList.add("is-cover-previewing");
+    modal.classList.add(previewClass);
   }
 
   function end() {
     clearPointerTimer();
     clearKeyboardTimer();
     pointerId = null;
-    modal.classList.remove("is-cover-previewing");
+    modal.classList.remove(previewClass);
+    if (!modal.classList.contains("is-cover-blur-previewing")
+      && !modal.classList.contains("is-cover-height-previewing")) {
+      modal.classList.remove("is-cover-previewing");
+    }
   }
 
   function scheduleKeyboardEnd() {
@@ -54,9 +59,8 @@ export function createCoverBlurPreviewController({ modal, input }) {
   }
 
   function handleInput() {
-    if (pointerId !== null) return;
     begin();
-    scheduleKeyboardEnd();
+    if (pointerId === null) scheduleKeyboardEnd();
   }
 
   function handleKeyDown(event) {

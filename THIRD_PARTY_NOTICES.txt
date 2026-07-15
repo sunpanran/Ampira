@@ -50,3 +50,28 @@ Ampira includes a filtered and normalized extract of GeoNames CN.zip containing
 Chinese administrative-centre names, aliases, hierarchy, and WGS84 coordinates.
 The source data is provided "as is" without warranty or representation of
 accuracy, timeliness, or completeness.
+
+SVGL Provider Logo Collection
+https://svgl.app/
+
+Ampira includes local copies of selected provider logos obtained from SVGL.
+All product names, logos, and brands remain property of their respective owners.
+Their inclusion identifies compatible services and does not imply endorsement.
+
+SiliconFlow Logo
+https://siliconflow.cn/logo-new.svg
+
+The SiliconFlow provider mark is a local, icon-only extract of the official
+SiliconFlow logo asset. SiliconFlow and its logo are trademarks of their
+respective owner; inclusion identifies a compatible service and does not imply
+endorsement.
+
+SVGLOGO Provider Marks
+https://svglogo.top/
+https://svglogo.top/library/aigc/Zhipu.svg
+https://svglogo.top/library/aigc/Doubao.svg
+
+Ampira includes local copies of the Zhipu and Doubao provider marks obtained
+from SVGLOGO. All product names, logos, and brands remain property of their
+respective owners. Their inclusion identifies compatible services and does not
+imply endorsement.

@@ -17,23 +17,23 @@
 }
 
 .todo-entry-form {
-  animation: todoComposerIn 160ms cubic-bezier(.22, .8, .3, 1) both;
+  animation: todoComposerIn var(--motion-state-duration) var(--motion-ease-enter) both;
 }
 
 .utility-card-body.is-utility-mode-leaving {
-  animation: utilityModeOut 80ms cubic-bezier(.4, 0, 1, 1) both;
+  animation: utilityModeOut 100ms var(--motion-ease-exit) both;
 }
 
 .utility-card-body.is-utility-mode-entering {
-  animation: utilityModeIn 140ms cubic-bezier(.22, .8, .3, 1) both;
+  animation: utilityModeIn var(--motion-state-duration) var(--motion-ease-enter) both;
 }
 
 .is-utility-header-leaving {
-  animation: utilityHeaderOut 70ms ease-in both;
+  animation: utilityHeaderOut 100ms var(--motion-ease-exit) both;
 }
 
 .is-utility-header-entering {
-  animation: utilityHeaderIn 120ms cubic-bezier(.22, .8, .3, 1) both;
+  animation: utilityHeaderIn var(--motion-state-duration) var(--motion-ease-enter) both;
 }
 
 .efficiency-skeleton {
@@ -54,8 +54,38 @@
   width: 52%;
   height: 100%;
   background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--text) 12%, transparent), transparent);
-  animation: skeletonSweep 1.15s ease-in-out infinite;
+  animation: none;
   transform: translateX(-120%);
+}
+
+[data-loading-phase="pending"] .loading-line {
+  opacity: 0;
+}
+
+[data-loading-phase="pending"] .card-skeleton,
+[data-loading-phase="pending"] .website-shortcut-skeleton,
+[data-loading-phase="pending"] .website-shortcuts-empty-skeleton {
+  opacity: 0;
+}
+
+[data-loading-phase="static"] .loading-line,
+[data-loading-phase="ambient"] .loading-line {
+  opacity: 1;
+  transition: opacity var(--motion-state-duration) var(--motion-ease-standard);
+}
+
+[data-loading-phase="static"] .card-skeleton,
+[data-loading-phase="static"] .website-shortcut-skeleton,
+[data-loading-phase="static"] .website-shortcuts-empty-skeleton,
+[data-loading-phase="ambient"] .card-skeleton,
+[data-loading-phase="ambient"] .website-shortcut-skeleton,
+[data-loading-phase="ambient"] .website-shortcuts-empty-skeleton {
+  opacity: 1;
+  transition: opacity var(--motion-state-duration) var(--motion-ease-standard);
+}
+
+[data-loading-phase="ambient"] .loading-line::after {
+  animation: skeletonSweep var(--motion-ambient-duration) linear infinite;
 }
 
 .loading-line-heading {
@@ -68,18 +98,69 @@
 .loading-line-medium { width: 64%; }
 .loading-line-wide { width: 88%; }
 
+.digest-card.is-refreshing .ai-digest-paragraph {
+  opacity: .58;
+  animation: digestParagraphPulse var(--motion-ambient-duration) var(--motion-ease-ambient) infinite;
+  animation-delay: 700ms;
+}
+
+.digest-card.is-refreshing .ai-digest-summary {
+  position: relative;
+}
+
+.digest-card.is-refreshing .ai-digest-paragraph:nth-child(2) {
+  animation-delay: 790ms;
+}
+
+.digest-card.is-refreshing .ai-digest-paragraph:nth-child(3) {
+  animation-delay: 880ms;
+}
+
+.digest-card.is-refreshing .ai-digest-summary::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent 32%, color-mix(in srgb, var(--accent) 13%, transparent) 50%, transparent 68%);
+  background-position: 140% 0;
+  background-size: 240% 100%;
+  opacity: 0;
+  pointer-events: none;
+  animation: digestTextScan var(--motion-ambient-duration) var(--motion-ease-ambient) infinite;
+  animation-delay: 700ms;
+}
+
+.ai-digest-loading .loading-line::after {
+  animation: skeletonSweep var(--motion-ambient-duration) 700ms linear infinite;
+}
+
+.digest-card.is-resolving .ai-digest-summary {
+  animation: digestContentIn var(--motion-state-duration) var(--motion-ease-enter) both;
+}
+
 .daily-card.is-entering,
 .news-list-card.is-entering,
 .summary-card.is-entering {
-  animation: cardIn var(--card-motion-duration, 240ms) cubic-bezier(.22, .8, .3, 1) both;
+  animation: cardIn var(--card-motion-duration, 240ms) var(--motion-ease-enter) both;
   animation-delay: var(--card-motion-delay, 0ms);
 }
 
 .daily-card.is-leaving,
 .news-list-card.is-leaving,
 .summary-card.is-leaving {
-  animation: cardOut var(--card-motion-duration, 110ms) ease both;
+  animation: cardOut var(--card-motion-duration, 120ms) var(--motion-ease-exit) both;
   animation-delay: var(--card-motion-delay, 0ms);
+}
+
+.todo-row.is-list-leaving,
+.queue-row.is-list-leaving,
+.website-shortcut-settings-row.is-list-leaving {
+  pointer-events: none;
+  animation: listItemOut 120ms var(--motion-ease-exit) both;
+}
+
+.todo-row.is-confirming .todo-toggle,
+.action-toggle.is-confirming {
+  animation: stateConfirm var(--motion-state-duration) var(--motion-ease-standard) both;
 }
 
 @keyframes cardIn {
@@ -116,9 +197,37 @@
   to { transform: translateX(240%); }
 }
 
+@keyframes digestTextScan {
+  0% { background-position: 140% 0; opacity: 0; }
+  12% { opacity: 1; }
+  88% { opacity: 1; }
+  100% { background-position: -140% 0; opacity: 0; }
+}
+
+@keyframes digestParagraphPulse {
+  0%, 100% { opacity: .5; }
+  50% { opacity: .7; }
+}
+
+@keyframes digestContentIn {
+  from { opacity: .35; transform: translateY(2px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 @keyframes cardOut {
   from { opacity: 1; transform: translateY(0); }
   to { opacity: 0; transform: translateY(-5px); }
+}
+
+@keyframes listItemOut {
+  from { opacity: 1; transform: translateY(0); }
+  to { opacity: 0; transform: translateY(-4px); }
+}
+
+@keyframes stateConfirm {
+  0% { transform: scale(.94); }
+  55% { transform: scale(.985); }
+  100% { transform: scale(1); }
 }
 
 @keyframes categoryFilterIn {
@@ -188,6 +297,11 @@
   to { opacity: 1; transform: translateY(0); }
 }
 
+@keyframes aiAnswerIn {
+  from { opacity: .2; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 @keyframes webFrameBackdropIn {
   from { opacity: 0; }
   to { opacity: 1; }
@@ -199,8 +313,18 @@
 }
 
 @keyframes webFrameDialogIn {
-  from { opacity: 0; transform: translateY(10px) scale(.995); }
+  from { opacity: 0; transform: translateY(24px) scale(.97); }
   to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes webFrameReaderIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes webFrameToolbarIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 @keyframes webFrameDialogOut {
@@ -213,6 +337,37 @@
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
+@keyframes firstFrameNavIn {
+  from { opacity: .2; transform: translate3d(-6px, -50%, 0); }
+  to { opacity: 1; transform: translate3d(0, -50%, 0); }
+}
+
+@keyframes firstFrameMobileNavIn {
+  from { opacity: .2; transform: translate3d(-50%, 6px, 0); }
+  to { opacity: 1; transform: translate3d(-50%, 0, 0); }
+}
+
+@keyframes firstFrameContentIn {
+  from { opacity: .2; transform: translate3d(0, 8px, 0); }
+  to { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+
+.has-first-frame-motion .sidebar {
+  animation: firstFrameNavIn 300ms 24ms var(--motion-ease-enter) backwards;
+}
+
+.has-first-frame-motion #daily > .section-head > :first-child {
+  animation: firstFrameContentIn var(--motion-first-frame-duration) 40ms var(--motion-ease-enter) backwards;
+}
+
+.has-first-frame-motion #daily .dashboard-actions {
+  animation: firstFrameContentIn var(--motion-overlay-duration) 88ms var(--motion-ease-enter) backwards;
+}
+
+.website-shortcuts.is-first-frame-entering {
+  animation: firstFrameContentIn var(--motion-overlay-duration) var(--first-frame-shortcuts-delay, 0ms) var(--motion-ease-enter) backwards;
+}
+
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
@@ -222,9 +377,19 @@
   *::before,
   *::after {
     animation-duration: .01ms !important;
+    animation-delay: 0ms !important;
     animation-iteration-count: 1 !important;
     scroll-behavior: auto !important;
     transition-duration: .01ms !important;
+    transition-delay: 0ms !important;
+  }
+
+  .digest-card.is-refreshing .ai-digest-summary::after {
+    display: none;
+  }
+
+  .digest-card.is-refreshing .ai-digest-paragraph {
+    opacity: .62;
   }
 
   .news-title-reveal,
@@ -562,7 +727,7 @@
 
 @media (max-width: 1120px) {
   :root {
-    --dashboard-cover-h: clamp(240px, 38dvh, 380px);
+    --dashboard-cover-base-h: clamp(240px, 38dvh, 380px);
     --dashboard-cover-overlap: clamp(-150px, -17dvh, -96px);
     --dashboard-cover-flow-x: 0px;
   }
@@ -594,6 +759,10 @@
     width: auto;
     max-width: calc(100vw - 24px);
     transform: translateX(-50%);
+  }
+
+  .has-first-frame-motion .sidebar {
+    animation-name: firstFrameMobileNavIn;
   }
 
   .sidebar:hover,
@@ -727,6 +896,10 @@
     justify-content: flex-start;
   }
 
+  .refresh-availability {
+    text-align: left;
+  }
+
   .news-actions {
     align-items: center;
   }
@@ -781,7 +954,6 @@
   }
 
   .settings-tabs,
-  .modal-body > .settings-status,
   .modal-body > .settings-panel {
     grid-column: 1;
     grid-row: auto;
@@ -831,6 +1003,20 @@
     grid-template-columns: 1fr;
   }
 
+  .header-cover-local-picker {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .header-cover-local-actions {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .header-cover-local-actions .btn {
+    flex: 1 1 auto;
+  }
+
   .source-coverage-summary {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -859,8 +1045,18 @@
     margin-left: 0;
   }
 
-  .ai-image-layout {
-    grid-template-columns: 1fr;
+  .ai-image-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .ai-image-actions > .credential-controls {
+    width: 100%;
+  }
+
+  .ai-image-actions > .danger {
+    align-self: flex-start;
+    margin-top: 0;
   }
 
   .bookmark-only-picker,
@@ -884,12 +1080,27 @@
 
 @media (max-width: 520px) {
   :root {
-    --dashboard-cover-h: clamp(210px, 34dvh, 300px);
+    --dashboard-cover-base-h: clamp(210px, 34dvh, 300px);
     --dashboard-cover-overlap: clamp(-112px, -14dvh, -72px);
   }
 
   .reader-frame {
     padding: 20px 16px 28px;
+  }
+
+  .ai-answer-section,
+  .ai-conversation-message {
+    grid-template-columns: 24px minmax(0, 1fr);
+    column-gap: 10px;
+    padding: 16px 14px 18px;
+  }
+
+  .ai-conversation-message.is-assistant {
+    grid-template-columns: 24px minmax(0, 1fr) 30px;
+  }
+
+  .ai-link-list {
+    padding-inline: 48px 14px;
   }
 
   .reader-title {

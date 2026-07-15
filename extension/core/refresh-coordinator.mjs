@@ -1,6 +1,6 @@
 export function createRefreshCoordinator(options = {}) {
   const getStatus = typeof options.getStatus === "function" ? options.getStatus : async () => ({});
-  const run = typeof options.run === "function" ? options.run : async () => {};
+  let run = typeof options.run === "function" ? options.run : async () => {};
   const isFresh = typeof options.isFresh === "function" ? options.isFresh : () => false;
   let active = null;
   let queuedForce = false;
@@ -44,6 +44,10 @@ export function createRefreshCoordinator(options = {}) {
 
   return {
     start,
+    setRun(nextRun) {
+      if (active) throw new Error("REFRESH_RUNNER_ACTIVE");
+      run = typeof nextRun === "function" ? nextRun : async () => {};
+    },
     invalidate() {
       generation += 1;
       queuedForce = false;

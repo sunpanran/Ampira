@@ -37,7 +37,7 @@ function syncBookmarkFolderControls(settings = {}) {
 
 function syncNewsSourceSelect(options, settings = {}) {
   const normalizedOptions = normalizeFolderOptions(options);
-  const savedFolder = String(settings.newsBookmarkFolder || settings.defaultNewsBookmarkFolder || "").trim();
+  const savedFolder = String(settings.newsBookmarkFolder || "").trim();
   const selectedValue = newsSelectionValue(settings.newsSourceMode, savedFolder);
   const optionNodes = [createFolderOption(PUBLIC_FEED_VALUE, t("settings.bookmarks.publicFeedTitle"))];
   if (settings.newsSourceMode === "bookmarks" && savedFolder
@@ -59,10 +59,11 @@ function syncNewsSourceSelect(options, settings = {}) {
 
 function syncInspirationSourceSelect(options, settings = {}) {
   const normalizedOptions = normalizeFolderOptions(options);
-  const savedFolder = String(settings.inspirationBookmarkFolder || settings.defaultInspirationBookmarkFolder || "").trim();
+  const savedFolder = String(settings.inspirationBookmarkFolder || "").trim();
   const selectedValue = inspirationSelectionValue(settings.inspirationSourceMode, savedFolder);
   const optionNodes = [createFolderOption(INSPIRATION_PRESET_VALUE, t("settings.bookmarks.presetTitle"))];
-  if (savedFolder && !normalizedOptions.some((option) => option.name === savedFolder)) {
+  if (settings.inspirationSourceMode === "bookmarks" && savedFolder
+    && !normalizedOptions.some((option) => option.name === savedFolder)) {
     optionNodes.push(createFolderOption(
       inspirationBookmarkValue(savedFolder),
       t("settings.bookmarks.notFound", { name: savedFolder }),
@@ -83,7 +84,7 @@ function setInspirationSourceSelection(value) {
   state.settings = {
     ...(state.settings || {}),
     inspirationSourceMode: selection.mode,
-    ...(selection.mode === "bookmarks" ? { inspirationBookmarkFolder: selection.folder } : {}),
+    inspirationBookmarkFolder: selection.folder,
   };
   syncBookmarkOnlyFolderControls();
   renderSettingsStatus();
@@ -94,7 +95,7 @@ function setNewsSourceSelection(value) {
   state.settings = {
     ...(state.settings || {}),
     newsSourceMode: selection.mode,
-    ...(selection.mode === "bookmarks" ? { newsBookmarkFolder: selection.folder } : {}),
+    newsBookmarkFolder: selection.folder,
   };
   syncBookmarkOnlyFolderControls();
   syncPublicFeedSupplementControl();
@@ -165,11 +166,11 @@ function createFolderOption(value, label) {
 }
 
 function savedInspirationFolder() {
-  return state.settings?.inspirationBookmarkFolder || state.settings?.defaultInspirationBookmarkFolder || "";
+  return state.settings?.inspirationBookmarkFolder || "";
 }
 
 function savedNewsFolder() {
-  return state.settings?.newsBookmarkFolder || state.settings?.defaultNewsBookmarkFolder || "";
+  return state.settings?.newsBookmarkFolder || "";
 }
 
 function currentNewsSelection() {

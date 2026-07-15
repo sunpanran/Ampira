@@ -2,6 +2,7 @@ import { decodeResponseBuffer, fetchBounded } from "./network.mjs";
 import { readerError } from "./reader-errors.mjs";
 
 export const READER_REQUEST_TIMEOUT_MS = 12000;
+const READER_REACHABILITY_TIMEOUT_MS = 4000;
 const MAX_RESPONSE_BYTES = 4 * 1024 * 1024;
 
 export async function fetchReaderHtml(url, timeoutMs = READER_REQUEST_TIMEOUT_MS, options = {}) {
@@ -33,6 +34,27 @@ export async function fetchReaderHtml(url, timeoutMs = READER_REQUEST_TIMEOUT_MS
     throw readerError("READER_UNSUPPORTED_CONTENT", false, { status: response.status, url: response.url || url });
   }
   return { text, url: response.url || url, contentType };
+}
+
+export async function probeReaderUrl(url, timeoutMs = READER_REACHABILITY_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    await fetch(url, {
+      method: "HEAD",
+      mode: "no-cors",
+      redirect: "error",
+      credentials: "omit",
+      referrerPolicy: "no-referrer",
+      cache: "no-store",
+      signal: controller.signal,
+    });
+    return true;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function looksLikeReadableHtml(text, contentType) {

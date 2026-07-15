@@ -6,8 +6,14 @@
 }
 
 *::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 4px;
+  height: 4px;
+}
+
+*::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
 }
 
 *::-webkit-scrollbar-track {
@@ -130,7 +136,7 @@ button,
   box-shadow: var(--shadow-panel);
   backdrop-filter: blur(18px);
   transform: translateY(-50%);
-  transition: width .18s ease, border-color .18s ease, background .18s ease;
+  transition: width var(--motion-state-duration) var(--motion-ease-standard), border-color var(--motion-state-duration) var(--motion-ease-standard), background var(--motion-state-duration) var(--motion-ease-standard);
 }
 
 .sidebar:hover,
@@ -164,7 +170,7 @@ button,
   border-radius: 0;
   background: transparent;
   cursor: pointer;
-  transition: border-color var(--motion-state-duration) ease, transform var(--motion-press-duration) ease;
+  transition: border-color var(--motion-state-duration) var(--motion-ease-standard), transform var(--motion-press-duration) var(--motion-ease-standard);
 }
 
 .nav-logo::after {
@@ -188,11 +194,11 @@ button,
 }
 
 .nav-logo.is-returning::after {
-  animation: nav-logo-return .44s cubic-bezier(.22, .86, .34, 1);
+  animation: nav-logo-return var(--motion-first-frame-duration) var(--motion-ease-brand);
 }
 
 .nav-logo.is-returning img {
-  animation: nav-logo-mark-return .44s cubic-bezier(.22, .86, .34, 1);
+  animation: nav-logo-mark-return var(--motion-first-frame-duration) var(--motion-ease-brand);
 }
 
 .nav-logo img {
@@ -229,7 +235,7 @@ button,
   cursor: pointer;
   overflow: hidden;
   isolation: isolate;
-  transition: width var(--motion-state-duration) ease, color var(--motion-state-duration) ease, background var(--motion-state-duration) ease, border-color var(--motion-state-duration) ease, box-shadow var(--motion-state-duration) ease, transform var(--motion-press-duration) ease;
+  transition: width var(--motion-state-duration) var(--motion-ease-standard), color var(--motion-state-duration) var(--motion-ease-standard), background var(--motion-state-duration) var(--motion-ease-standard), border-color var(--motion-state-duration) var(--motion-ease-standard), box-shadow var(--motion-state-duration) var(--motion-ease-standard), transform var(--motion-press-duration) var(--motion-ease-standard);
 }
 
 .sidebar:hover .nav-btn,
@@ -300,7 +306,7 @@ button,
   text-align: left;
   white-space: nowrap;
   transform: translateY(-50%) translateX(-4px);
-  transition: opacity .16s ease, transform .18s cubic-bezier(.22, .86, .34, 1), visibility 0s linear .18s;
+  transition: opacity var(--motion-state-duration) var(--motion-ease-standard), transform var(--motion-state-duration) var(--motion-ease-move), visibility 0s step-end var(--motion-state-duration);
 }
 
 .sidebar:hover .nav-label,
@@ -561,7 +567,6 @@ button,
 .section-actions,
 .summary-tools,
 .settings-panel-actions,
-.settings-ai-actions,
 .modal-actions,
 .web-frame-actions {
   display: flex;
@@ -571,7 +576,6 @@ button,
 }
 
 [data-locale="en"] .settings-panel-actions .btn,
-[data-locale="en"] .settings-ai-actions .btn,
 [data-locale="en"] .credential-controls .btn,
 [data-locale="en"] .source-suggestion-actions .btn {
   min-height: var(--control-height-button);
@@ -590,5 +594,27 @@ button,
 }
 
 .summary-tools {
+  position: relative;
   justify-content: flex-end;
+}
+
+.refresh-availability {
+  position: absolute;
+  top: calc(100% + 4px);
+  inset-inline: 0;
+  min-width: 0;
+  height: 18px;
+  color: var(--muted-2);
+  font-size: 11px;
+  line-height: 18px;
+  pointer-events: none;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  visibility: hidden;
+  overflow: hidden;
+}
+
+.refresh-availability.is-visible {
+  visibility: visible;
 }

@@ -1,5 +1,5 @@
 export const NEWS_RANKING_POLICY_VERSION = 4;
-export const DAILY_DIGEST_SCHEMA_VERSION = 4;
+export const DAILY_DIGEST_SCHEMA_VERSION = 5;
 
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;

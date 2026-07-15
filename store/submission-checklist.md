@@ -12,7 +12,7 @@
 
 - [ ] Load the repository root from `chrome://extensions` with Developer mode enabled.
 - [ ] Confirm there are no manifest or service-worker errors.
-- [ ] Click the Ampira toolbar icon; verify it opens the packaged dashboard without reading or capturing the current tab and without requesting `activeTab` or `tabs`.
+- [ ] On an HTTPS page, click the Ampira toolbar icon; verify the confirmation popup, captured title and host, purple check badge, one queue entry after repeated clicks, immediate update in an already-open dashboard, and an amber warning plus `!` badge on `chrome://settings`.
 - [ ] Open `chrome://newtab`, confirm the inspiration-folder menu lists Inspiration preset (Ampira) first, and complete the three onboarding steps with no top-level personal inspiration folder; repeat with a personal bookmark-folder option and verify switching back to the preset preserves that folder.
 - [ ] Confirm the install disclosure and Bookmark permission warning match the listing.
 - [ ] Enable and then remove the optional website-icon permission; verify Chrome favicons appear only while granted and missing icons fall back without console errors.

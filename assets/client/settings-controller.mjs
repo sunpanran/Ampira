@@ -1,4 +1,5 @@
 import { applyContentSyncSettings, contentSyncSettingsPayload, setContentSyncControlsBusy } from "./content-sync-settings.mjs";
+import { createAiConnectionTest } from "./ai-connection-test.mjs";
 import { newlyRequiredUngrantedOrigins } from "./permission-ui-model.mjs";
 import { createSavedSourcePermissionController, personalSourcePermissionScope } from "./saved-source-permission-controller.mjs";
 export function createSettingsController(options) {
@@ -7,22 +8,28 @@ export function createSettingsController(options) {
     applyUiLocale, selectedUiLocale, syncLanguageControls, applyAppearanceSettings, syncAppearanceControls,
     renderExcludeFolderOptions, renderExclusionList, renderSourceSuggestionList, syncBookmarkFolderControls,
     syncPublicFeedSupplementControl, syncWebsiteShortcutControls, syncAiSetupControls, refreshAiSetupPermission,
+    prepareAiProviderUi,
     getAiSetupState, clearAiSetupFeedback, focusAiSetupRequirement, currentExcludedNewsSources,
     bookmarkSourcePayload, appearancePayload, snapshotSettingsDraft, cloneSettingsDraft, diffSettingsDraft,
     syncSeenArchiveRetention, loadDashboard, triggerRefresh, renderStatus, renderEfficiencyPanel, renderAll,
     resetToDailyView, syncNavToCurrentSection, getLocale, setLocale, settingsSaveCloseDelayMs, settingsCloseMotionMs,
-    inspirationPreviews, syncHeaderImageFullscreenControl, syncHeaderImageBlurControl, availableNewsFolders,
+    inspirationPreviews, syncHeaderImageFullscreenControl, syncHeaderImageBlurControl, syncHeaderImageHeightControl, headerCoverController, availableNewsFolders,
     syncSourceSuggestionActionState, syncSegmentedIndicator, websiteShortcutsPayload,
     setWebsiteShortcutControlsBusy, aiSetupStage, requestSourcePermissions,
   } = options;
-  let settingsLoadToken = 0, settingsLocaleAtOpen = getLocale(), settingsSnapshot = null;
-  let settingsSession = 0, settingsCloseTimer = 0, settingsActionGeneration = 0, settingsBusy = false, settingsTabScrollPositions = new Map();
+  let settingsLoadToken = 0, settingsLocaleAtOpen = getLocale(), settingsSnapshot = null, settingsSession = 0;
+  let settingsCloseTimer = 0, settingsActionGeneration = 0, settingsBusy = false, settingsTabScrollPositions = new Map();
   const captureSettingsSnapshot = () => { settingsLocaleAtOpen = getLocale(); settingsSnapshot = snapshotSettingsDraft(state.settings, selectedUiLocale()); };
   const savedSourcePermission = createSavedSourcePermissionController({
     els, t, selectSettingsTab, requestSourcePermissions, loadDashboard, triggerRefresh,
     renderSettingsStatus, setSettingsBusy, isSettingsBusy: () => settingsBusy,
     closeSettings, getSettingsSession: () => settingsSession,
     settingsSaveCloseDelayMs, wait,
+  });
+  const { testKey, renderStatus: renderAiConnectionStatus } = createAiConnectionTest({
+    els, t, apiPost, localizedResponseMessage, localizedErrorMessage,
+    getAiSetupState, focusAiSetupRequirement, runSettingsAction,
+    currentSettingsHaveUnsavedChanges, renderSettingsStatus,
   });
   return {
     loadSettings, saveSettings,
@@ -38,7 +45,7 @@ export function createSettingsController(options) {
 async function loadSettings() {
   const token = ++settingsLoadToken;
   try {
-    const settings = await apiGet("/api/settings");
+    const [settings] = await Promise.all([apiGet("/api/settings"), headerCoverController.load()]);
     if (token !== settingsLoadToken) return false;
     const imagePreviewChanged = !state.settings
       || state.settings.webImageSearchEnabled !== settings.webImageSearchEnabled
@@ -76,14 +83,16 @@ async function loadSettings() {
     els.personalizedRankingEnabledInput.checked = state.settings.personalizedRankingEnabled !== false;
     els.publicFeedSupplementEnabledInput.checked = state.settings.publicFeedSupplementEnabled !== false;
     syncPublicFeedSupplementControl();
-    els.webImageSearchEnabledInput.checked = state.settings.webImageSearchEnabled !== false;
+    els.webImageSearchEnabledInput.checked = state.settings.webImageSearchEnabled === true; els.imageSearchStrategy.hidden = !els.webImageSearchEnabledInput.checked;
     els.aiDisclosureConsent.checked = state.settings.aiDisclosureAccepted === true;
+    prepareAiProviderUi();
     await refreshAiSetupPermission();
     if (token !== settingsLoadToken) return false;
     syncSeenArchiveRetention({ render: false });
     syncAppearanceControls(state.settings);
     applyAppearanceSettings(state.settings);
     els.apiKeyInput.placeholder = state.settings.maskedKey || "sk-...";
+    renderAiConnectionStatus();
     els.imageSearchApiKeyInput.placeholder = state.settings.maskedImageSearchKey || "BSA...";
     renderExcludeFolderOptions();
     renderExclusionList();
@@ -99,16 +108,25 @@ async function saveSettings() {
   const session = settingsSession;
   settingsActionGeneration += 1;
   const draft = currentSettingsDraft();
+  if (!String(draft.openaiSummaryModel || "").trim()) {
+    renderAiConnectionStatus(t("background.error.aiModelRequired"), "error");
+    if (getAiSetupState().formUnlocked) els.modelInput.focus({ preventScroll: true });
+    else focusAiSetupRequirement();
+    return renderSettingsStatus(t("background.error.aiModelRequired"));
+  }
   if (draft.newsSourceMode === "bookmarks" && draft.inspirationSourceMode === "bookmarks" && draft.newsBookmarkFolder === draft.inspirationBookmarkFolder) return renderSettingsStatus(t("settings.bookmarks.same"));
   savedSourcePermission.clear();
   setSettingsBusy(true);
   try {
     const payload = diffSettingsDraft(draft, settingsSnapshot);
+    Object.assign(payload, headerCoverController.savePayload());
     const sourcePermissionScope = personalSourcePermissionScope(draft, payload);
     const previousSourcePermissions = settingsSnapshot?.sourcePermissions || [];
     const savedSettings = await apiPost("/api/settings", payload);
     if (session !== settingsSession) return;
     state.settings = savedSettings;
+    syncAiSetupControls();
+    if (savedSettings.headerCoverChanged === true) headerCoverController.commit();
     syncSeenArchiveRetention();
     const bookmarkSourceChanged = state.settings?.bookmarkSourceChanged === true;
     const rankingChanged = state.settings?.rankingChanged === true;
@@ -169,7 +187,7 @@ function currentSettingsDraft() {
     todayNewsPerPublisherLimit: els.todayNewsPerPublisherInput.value,
     ...bookmarkSourcePayload(),
     floatingWebOpenEnabled: els.floatingOpenInput.checked,
-    readingQueueOpenOnReadAll: els.readingQueueOpenOnReadAllInput.checked,
+    readingQueueOpenOnReadAll: els.readingQueueOpenOnReadAllInput.checked, readingQueueReadAllPrompted: state.settings?.readingQueueReadAllPrompted === true,
     retainSeenArchive: els.retainSeenArchiveInput.checked,
     ...contentSyncSettingsPayload(els),
     personalizedRankingEnabled: els.personalizedRankingEnabledInput.checked,
@@ -179,33 +197,6 @@ function currentSettingsDraft() {
     excludedNewsSources: currentExcludedNewsSources()
   };
 }
-function testKey() {
-  const aiSetupState = getAiSetupState();
-  if (!aiSetupState.formUnlocked) {
-    focusAiSetupRequirement();
-    return;
-  }
-  return runSettingsAction(async (isCurrent) => {
-    renderSettingsStatus(t("settings.test.testing"));
-    try {
-      const result = await apiPost("/api/settings/test", {
-        openaiApiKey: els.apiKeyInput.value,
-        openaiBaseUrl: els.apiBaseUrlInput.value,
-        openaiApiStyle: els.apiStyleSelect.value,
-        openaiSummaryModel: els.modelInput.value,
-        aiDisclosureAccepted: els.aiDisclosureConsent.checked,
-      });
-      if (!isCurrent()) return;
-      const hasUnsavedChanges = Object.keys(diffSettingsDraft(currentSettingsDraft(), settingsSnapshot)).length > 0;
-      renderSettingsStatus(result.ok
-        ? t(hasUnsavedChanges ? "settings.test.successSaveHint" : "settings.test.success")
-        : t("settings.test.failed", { message: localizedResponseMessage(result, "error.requestFailed") }));
-    } catch (error) {
-      if (isCurrent()) renderSettingsStatus(t("settings.test.failed", { message: localizedErrorMessage(error) }));
-    }
-  });
-}
-
 function testImageSearchKey() {
   return runSettingsAction(async (isCurrent) => {
     renderSettingsStatus(t("settings.imageTest.testing"));
@@ -247,6 +238,8 @@ function clearKey() {
       syncSeenArchiveRetention();
       const bookmarkSourceChanged = state.settings?.bookmarkSourceChanged === true;
       els.apiKeyInput.value = "";
+      syncAiSetupControls();
+      renderAiConnectionStatus(t("settings.key.cleared"), "success");
       syncBookmarkFolderControls(state.settings);
       syncAppearanceControls(state.settings);
       applyAppearanceSettings(state.settings);
@@ -346,9 +339,9 @@ function focusSettingsStart({ reveal = false } = {}) {
   const aiSetupState = getAiSetupState();
   const target = aiSetupState.stage === aiSetupStage.INVALID_ORIGIN
     ? els.apiBaseUrlInput
-    : (aiSetupState.stage === aiSetupStage.NEEDS_CONSENT
-      ? els.aiDisclosureConsent
-      : (aiSetupState.stage === aiSetupStage.NEEDS_PERMISSION ? els.grantAiOrigin : els.apiKeyInput));
+    : (aiSetupState.stage === aiSetupStage.NEEDS_CONSENT || aiSetupState.stage === aiSetupStage.NEEDS_PERMISSION
+      ? els.grantAiOrigin
+      : (els.aiProviderEditor.hidden ? els.testKey : (els.aiProviderKeyField.hidden ? els.modelInput : els.apiKeyInput)));
   target.focus({ preventScroll: true });
   if (reveal) {
     target.scrollIntoView({
@@ -373,7 +366,7 @@ function closeSettings(commit = false) {
   }, closeDelay);
   setSettingsBusy(false);
   if (!shouldCommit && settingsSnapshot) {
-    state.settings = cloneSettingsDraft(settingsSnapshot);
+    state.settings = cloneSettingsDraft(settingsSnapshot); headerCoverController.restore();
     syncBookmarkFolderControls(state.settings);
     syncWebsiteShortcutControls(state.settings);
     syncAppearanceControls(state.settings);
@@ -392,18 +385,18 @@ function closeSettings(commit = false) {
 }
 function requestCloseSettings() {
   if (settingsBusy) return;
-  const hasUnsavedChanges = settingsSnapshot
-    && Object.keys(diffSettingsDraft(currentSettingsDraft(), settingsSnapshot)).length > 0;
+  const hasUnsavedChanges = currentSettingsHaveUnsavedChanges();
   if (!hasUnsavedChanges) {
     closeSettings();
     return;
   }
-  if (window.confirm(t("settings.unsaved.confirm"))) saveSettings();
+  if (window.confirm(t("settings.unsaved.confirm"))) saveSettings(); else closeSettings();
 }
 function resetSecretDrafts() {
   els.apiKeyInput.value = "";
   els.imageSearchApiKeyInput.value = "";
 }
+function currentSettingsHaveUnsavedChanges() { return Boolean(settingsSnapshot) && (Object.keys(diffSettingsDraft(currentSettingsDraft(), settingsSnapshot)).length > 0 || headerCoverController.hasChanges()); }
 function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -417,7 +410,6 @@ function setSettingsBusy(busy) {
   els.clearCache.disabled = busy;
   els.resetQuota.disabled = busy;
   els.resetPreferences.disabled = busy;
-  els.deepseekPreset.disabled = busy;
   savedSourcePermission.syncBusy(busy);
   els.cardSummaryEnabledInput.disabled = busy;
   els.todayNewsPerPublisherInput.disabled = busy;
@@ -436,12 +428,10 @@ function setSettingsBusy(busy) {
   els.addBookmarkOnlyFolder.disabled = busy || !els.bookmarkOnlyFolderSelect.value;
   els.customAccentInput.disabled = busy;
   els.pointerGlowEnabledInput.disabled = busy;
-  els.headerImageEnabledInput.disabled = busy;
-  els.headerImageBlurEnabledInput.disabled = busy;
-  syncHeaderImageBlurControl(busy);
-  els.headerImageFixedInput.disabled = busy;
-  syncHeaderImageFullscreenControl(busy);
-  els.headerImageUrlInput.disabled = busy;
+  els.headerImageEnabledInput.disabled = busy; els.headerImageBlurEnabledInput.disabled = busy;
+  syncHeaderImageBlurControl(busy); syncHeaderImageHeightControl(busy);
+  els.headerImageFixedInput.disabled = busy; syncHeaderImageFullscreenControl(busy);
+  els.headerImageUrlInput.disabled = busy; headerCoverController.setBusy(busy);
   els.exportSettings.disabled = busy;
   els.importSettings.disabled = busy;
   els.settingsImportFile.disabled = busy;
@@ -508,7 +498,7 @@ function selectSettingsTab(tab) {
     nextPanel.addEventListener("animationend", finishPanelEntrance);
     nextPanel.addEventListener("animationcancel", finishPanelEntrance);
   }
-  if (tab === "appearance") syncSegmentedIndicator(els.colorModeGroup);
+  if (tab === "appearance") { syncSegmentedIndicator(els.colorModeGroup); syncSegmentedIndicator(els.headerImageLayoutGroup); }
 }
 
 function renderSettingsStatus(extra) {

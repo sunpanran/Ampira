@@ -18,7 +18,7 @@
   font-weight: 700;
   line-height: 1;
   white-space: nowrap;
-  transition: color var(--motion-state-duration) ease, border-color var(--motion-state-duration) ease, background var(--motion-state-duration) ease, box-shadow var(--motion-state-duration) ease, transform var(--motion-press-duration) ease, opacity var(--motion-state-duration) ease;
+  transition: color var(--motion-state-duration) var(--motion-ease-standard), border-color var(--motion-state-duration) var(--motion-ease-standard), background var(--motion-state-duration) var(--motion-ease-standard), box-shadow var(--motion-state-duration) var(--motion-ease-standard), transform var(--motion-press-duration) var(--motion-ease-standard), opacity var(--motion-state-duration) var(--motion-ease-standard);
 }
 
 .btn:hover,
@@ -99,6 +99,301 @@
   opacity: .62;
 }
 
+select {
+  --select-arrow-color: var(--muted-2);
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  min-height: 38px;
+  padding: 0 36px 0 12px;
+  overflow: hidden;
+  border: 1px solid var(--control-line);
+  border-radius: var(--radius-control);
+  appearance: none;
+  background-color: var(--control-bg);
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--select-arrow-color) 50%),
+    linear-gradient(135deg, var(--select-arrow-color) 50%, transparent 50%);
+  background-position: calc(100% - 17px) 50%, calc(100% - 12px) 50%;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.2;
+  outline: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: color var(--motion-state-duration) var(--motion-ease-standard), border-color var(--motion-state-duration) var(--motion-ease-standard), background-color var(--motion-state-duration) var(--motion-ease-standard), opacity var(--motion-state-duration) var(--motion-ease-standard);
+}
+
+select:not(:disabled):hover {
+  --select-arrow-color: var(--muted);
+  border-color: var(--line);
+  background-color: var(--control-hover-bg);
+}
+
+select:not(:disabled):focus {
+  --select-arrow-color: var(--accent);
+  border-color: var(--active-line);
+  background-color: var(--control-hover-bg);
+}
+
+select:focus-visible {
+  outline: 1px solid var(--active-line);
+  outline-offset: 1px;
+  box-shadow: none;
+}
+
+select:disabled {
+  --select-arrow-color: var(--muted-2);
+  background-color: color-mix(in srgb, var(--control-bg) 72%, var(--surface-0));
+  color: var(--muted-2);
+  cursor: not-allowed;
+  opacity: .55;
+}
+
+select option,
+select optgroup {
+  background: var(--surface-1);
+  color: var(--text);
+}
+
+@media (forced-colors: active) {
+  select {
+    padding-right: 12px;
+    appearance: auto;
+    background-image: none;
+  }
+
+  select:disabled {
+    opacity: 1;
+  }
+}
+
+.select-combobox {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.select-combobox-native {
+  position: absolute !important;
+  width: 1px !important;
+  min-width: 0 !important;
+  max-width: 1px !important;
+  height: 1px !important;
+  min-height: 0 !important;
+  margin: -1px !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+  clip-path: inset(50%) !important;
+  border: 0 !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
+.select-combobox-trigger {
+  width: 100%;
+  min-width: 0;
+  min-height: 38px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 0 13px 0 12px;
+  border: 1px solid var(--control-line);
+  border-radius: var(--radius-control);
+  background: var(--control-bg);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.2;
+  text-align: left;
+  transition: color var(--motion-state-duration) var(--motion-ease-standard), border-color var(--motion-state-duration) var(--motion-ease-standard), background-color var(--motion-state-duration) var(--motion-ease-standard), opacity var(--motion-state-duration) var(--motion-ease-standard);
+}
+
+.select-combobox-trigger:hover,
+.select-combobox.is-open .select-combobox-trigger {
+  border-color: var(--line);
+  background: var(--control-hover-bg);
+}
+
+.select-combobox.is-open .select-combobox-trigger {
+  border-color: var(--active-line);
+}
+
+.select-combobox-trigger:focus-visible {
+  outline: 1px solid var(--active-line);
+  outline-offset: 1px;
+  box-shadow: none;
+}
+
+.select-combobox-trigger:disabled {
+  background: color-mix(in srgb, var(--control-bg) 72%, var(--surface-0));
+  color: var(--muted-2);
+  cursor: not-allowed;
+  opacity: .55;
+}
+
+.select-combobox-value {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.select-combobox-chevron {
+  width: 7px;
+  height: 7px;
+  border-right: 1.5px solid var(--muted-2);
+  border-bottom: 1.5px solid var(--muted-2);
+  transform: rotate(45deg) translate(-1px, -1px);
+  transform-origin: center;
+  transition: border-color var(--motion-state-duration) var(--motion-ease-standard), transform var(--motion-state-duration) var(--motion-ease-standard);
+}
+
+.select-combobox-trigger:hover .select-combobox-chevron {
+  border-color: var(--muted);
+}
+
+.select-combobox.is-open .select-combobox-chevron {
+  border-color: var(--accent);
+  transform: rotate(225deg) translate(-1px, -1px);
+}
+
+.select-combobox-listbox {
+  /* Floating short lists must not reserve a scrollbar gutter; it creates false right padding. */
+  position: fixed;
+  inset: auto;
+  z-index: 210;
+  box-sizing: border-box;
+  display: none;
+  gap: 2px;
+  margin: 0;
+  padding: 4px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: var(--surface-2);
+  box-shadow: var(--shadow-panel), inset 0 1px 0 var(--line-faint);
+  color: var(--text);
+  font-family: var(--font-ui);
+}
+
+.select-combobox-listbox.is-open {
+  display: grid;
+}
+
+.select-combobox-listbox::backdrop {
+  background: transparent;
+}
+
+.select-combobox-group {
+  display: grid;
+  gap: 2px;
+}
+
+.select-combobox-group + .select-combobox-group,
+.select-combobox-option + .select-combobox-group {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid var(--line-faint);
+}
+
+.select-combobox-group-label {
+  padding: 6px 10px 4px;
+  color: var(--muted-2);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.select-combobox-option {
+  position: relative;
+  min-width: 0;
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  padding: 7px 34px 7px 10px;
+  border-radius: calc(var(--radius-control) - 3px);
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.select-combobox-option-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.select-combobox-option:hover {
+  background: var(--row-hover-fill);
+  color: var(--text);
+}
+
+.select-combobox-option.is-active {
+  background: var(--active-bg);
+  color: var(--text-strong);
+}
+
+.select-combobox-option.is-selected {
+  color: var(--text-strong);
+  font-weight: 750;
+}
+
+.select-combobox-option.is-selected::after {
+  position: absolute;
+  top: 50%;
+  right: 13px;
+  width: 8px;
+  height: 4px;
+  border-bottom: 1.5px solid var(--accent);
+  border-left: 1.5px solid var(--accent);
+  content: "";
+  transform: translateY(-68%) rotate(-45deg);
+}
+
+.select-combobox-option.is-disabled {
+  background: transparent;
+  color: var(--muted-2);
+  cursor: not-allowed;
+  opacity: .5;
+}
+
+@media (forced-colors: active) {
+  .select-combobox-trigger,
+  .select-combobox-listbox {
+    border-color: ButtonText;
+    background: Canvas;
+    color: CanvasText;
+    forced-color-adjust: auto;
+  }
+
+  .select-combobox-trigger:focus-visible {
+    outline: 2px solid Highlight;
+    outline-offset: 2px;
+  }
+
+  .select-combobox-option.is-active {
+    background: Highlight;
+    color: HighlightText;
+  }
+
+  .select-combobox-option.is-selected::after {
+    border-color: currentColor;
+  }
+}
+
 .search-wrap {
   position: relative;
   width: min(100%, 420px);
@@ -117,7 +412,7 @@
   outline: 0;
   -webkit-backdrop-filter: var(--card-backdrop-blur);
   backdrop-filter: var(--card-backdrop-blur);
-  transition: border-color var(--motion-state-duration) ease, background var(--motion-state-duration) ease, box-shadow var(--motion-state-duration) ease;
+  transition: border-color var(--motion-state-duration) var(--motion-ease-standard), background var(--motion-state-duration) var(--motion-ease-standard), box-shadow var(--motion-state-duration) var(--motion-ease-standard);
 }
 
 .search::placeholder,
@@ -189,7 +484,7 @@ input::placeholder {
   opacity: 0;
   pointer-events: none;
   transform: translate3d(var(--segmented-x), var(--segmented-y), 0);
-  transition: transform var(--motion-emphasis-duration) cubic-bezier(.22, .86, .34, 1), width var(--motion-emphasis-duration) cubic-bezier(.22, .86, .34, 1), height var(--motion-emphasis-duration) cubic-bezier(.22, .86, .34, 1), opacity .14s ease;
+  transition: transform var(--motion-emphasis-duration) var(--motion-ease-move), width var(--motion-emphasis-duration) var(--motion-ease-move), height var(--motion-emphasis-duration) var(--motion-ease-move), opacity var(--motion-state-duration) var(--motion-ease-standard);
 }
 
 .segmented.has-indicator .segment-indicator {
@@ -219,7 +514,7 @@ input::placeholder {
   cursor: pointer;
   font-size: 13px;
   font-weight: 750;
-  transition: color var(--motion-state-duration) ease, background var(--motion-state-duration) ease, transform var(--motion-press-duration) ease;
+  transition: color var(--motion-state-duration) var(--motion-ease-standard), background var(--motion-state-duration) var(--motion-ease-standard), transform var(--motion-press-duration) var(--motion-ease-standard);
 }
 
 .segmented button.active {
@@ -257,7 +552,7 @@ input::placeholder {
   border: 1px solid transparent;
   border-radius: var(--radius-icon-button);
   line-height: 0;
-  transition: color var(--motion-state-duration) ease, border-color var(--motion-state-duration) ease, background var(--motion-state-duration) ease, box-shadow var(--motion-state-duration) ease, transform var(--motion-press-duration) ease;
+  transition: color var(--motion-state-duration) var(--motion-ease-standard), border-color var(--motion-state-duration) var(--motion-ease-standard), background var(--motion-state-duration) var(--motion-ease-standard), box-shadow var(--motion-state-duration) var(--motion-ease-standard), transform var(--motion-press-duration) var(--motion-ease-standard);
 }
 
 #summaryOrder button::before {
@@ -270,7 +565,7 @@ input::placeholder {
   background: transparent;
   opacity: 0;
   pointer-events: none;
-  transition: opacity var(--motion-state-duration) ease, border-color var(--motion-state-duration) ease, background var(--motion-state-duration) ease, box-shadow var(--motion-state-duration) ease;
+  transition: opacity var(--motion-state-duration) var(--motion-ease-standard), border-color var(--motion-state-duration) var(--motion-ease-standard), background var(--motion-state-duration) var(--motion-ease-standard), box-shadow var(--motion-state-duration) var(--motion-ease-standard);
 }
 
 #summaryOrder button.active {
@@ -330,7 +625,7 @@ input::placeholder {
   opacity: 0;
   pointer-events: none;
   transform: translateY(-6px);
-  transition: max-height .22s ease, margin .22s ease, opacity .18s ease, transform .22s cubic-bezier(.22, .86, .34, 1);
+  transition: max-height var(--motion-move-duration) var(--motion-ease-move), margin var(--motion-move-duration) var(--motion-ease-move), opacity var(--motion-state-duration) var(--motion-ease-standard), transform var(--motion-move-duration) var(--motion-ease-move);
   will-change: max-height, opacity, transform;
 }
 
@@ -346,7 +641,7 @@ input::placeholder {
   opacity: 1;
   pointer-events: auto;
   transform: translateY(0);
-  animation: categoryFilterIn .24s cubic-bezier(.22, .86, .34, 1) both;
+  animation: categoryFilterIn var(--motion-emphasis-duration) var(--motion-ease-enter) both;
 }
 
 .pill,
@@ -540,5 +835,5 @@ input::placeholder {
   height: 100%;
   border-radius: inherit;
   background: var(--accent);
-  transition: width .22s ease;
+  transition: width var(--motion-move-duration) var(--motion-ease-move);
 }

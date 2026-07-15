@@ -7,6 +7,7 @@ export function createDashboardController(options) {
     renderDaily, renderSummaries, renderSectionFilters, renderCategoryFilters,
     renderCategories, formatTodayMeta, getTodayKey, readNumber, writeJson,
     retainSeenArchiveEnabled, readSeenRecords, replaceSeenRecords,
+    canRefresh = () => true, syncSearchCopy = () => {},
   } = options;
   let dashboardLoadToken = 0;
   let refreshPollToken = 0;
@@ -33,7 +34,7 @@ async function loadDashboard(options = {}) {
 }
 
 async function triggerRefresh(force) {
-  if (!state.data) return;
+  if (!state.data || force !== true && !canRefresh()) return;
   els.refresh.disabled = true;
   els.settingsRefresh.disabled = true;
   try {
@@ -41,15 +42,18 @@ async function triggerRefresh(force) {
     if (state.data && result.status) {
       state.data.status = result.status;
       renderStatus();
+      renderDaily();
     }
     if (result.started || result.status?.running) startPolling();
     else await loadDashboard();
   } catch (error) {
     renderOverviewStatus(t("status.refreshRequestFailed"), localizedErrorMessage(error));
   } finally {
-    const isRunning = Boolean(state.data?.status?.running);
-    els.refresh.disabled = isRunning;
-    els.settingsRefresh.disabled = isRunning;
+    if (state.data) renderStatus();
+    else {
+      els.refresh.disabled = true;
+      els.settingsRefresh.disabled = true;
+    }
   }
 }
 
@@ -64,6 +68,7 @@ function startPolling() {
       if (state.data) {
         state.data.status = status;
         renderStatus();
+        renderDaily();
       }
       if (status.running) {
         state.pollTimer = setTimeout(poll, 2500);
@@ -81,6 +86,7 @@ function startPolling() {
 function renderAll() {
   els.dailyBoard.removeAttribute("aria-busy");
   els.summaryGrid.removeAttribute("aria-busy");
+  syncSearchCopy();
   if (state.settings) renderExclusionList();
   else renderExcludeFolderOptions();
   renderStatus();

@@ -6,6 +6,13 @@ import {
   normalizeTodoItems,
   sortedTodoItems,
 } from "./utility-card-model.mjs";
+import {
+  MOTION_DURATION,
+  animateKeyedLayout,
+  captureKeyedLayout,
+  prefersReducedMotion,
+  restartMotionClass,
+} from "./motion.mjs";
 
 const TODO_COMPOSER_ID = "utilityTodoComposer";
 
@@ -101,6 +108,7 @@ export function createTodoCardView(options) {
   function createTodoRow(item) {
     const row = document.createElement("div");
     row.className = `efficiency-row todo-row${item.completed ? " is-completed" : ""}`;
+    row.dataset.key = item.id;
     const toggle = document.createElement("button");
     toggle.className = "todo-toggle";
     toggle.type = "button";
@@ -152,26 +160,55 @@ export function createTodoCardView(options) {
       input.focus({ preventScroll: true });
       return;
     }
+    const layout = captureTodoLayout();
     state.todos = [item, ...state.todos];
     composerOpen = false;
     persistTodos();
-    requestRender();
+    renderTodoMotion(layout, item.id);
     focusAddButton();
   }
 
   function toggleTodo(id) {
+    const layout = captureTodoLayout();
     const now = new Date().toISOString();
     state.todos = state.todos.map((item) => item.id === id
       ? { ...item, completed: !item.completed, completedAt: item.completed ? "" : now }
       : item);
     persistTodos();
-    requestRender();
+    renderTodoMotion(layout, id);
   }
 
   function deleteTodo(id) {
+    const row = Array.from(getContentRoot().querySelectorAll(".todo-row[data-key]"))
+      .find((item) => item.dataset.key === id);
+    if (!row || prefersReducedMotion()) {
+      finalizeTodoDelete(id, captureTodoLayout());
+      return;
+    }
+    row.classList.add("is-list-leaving");
+    row.inert = true;
+    window.setTimeout(() => finalizeTodoDelete(id, captureTodoLayout()), MOTION_DURATION.press + 20);
+  }
+
+  function finalizeTodoDelete(id, layout) {
     state.todos = state.todos.filter((item) => item.id !== id);
     persistTodos();
+    renderTodoMotion(layout);
+  }
+
+  function captureTodoLayout() {
+    return captureKeyedLayout(getContentRoot(), ".todo-row[data-key]");
+  }
+
+  function renderTodoMotion(layout, confirmationId = "") {
     requestRender();
+    queueMicrotask(() => {
+      const root = getContentRoot();
+      animateKeyedLayout(root, layout, ".todo-row[data-key]");
+      const confirmation = Array.from(root.querySelectorAll(".todo-row[data-key]"))
+        .find((row) => row.dataset.key === confirmationId);
+      if (confirmation) restartMotionClass(confirmation, "is-confirming");
+    });
   }
 
   function persistTodos() {

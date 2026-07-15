@@ -10,6 +10,7 @@ import {
 } from "./utility-card-model.mjs";
 import { createTodoCardView } from "./todo-card-view.mjs";
 import { createUtilityCardMotion } from "./utility-card-motion.mjs";
+import { animateElement } from "./motion.mjs";
 
 const MODE_TITLE_KEYS = Object.freeze({
   events: "events.cardTitle",
@@ -128,10 +129,6 @@ export function createUtilityCardView(options) {
     switchButton.textContent = t("utility.switch");
     switchButton.title = t("utility.switchTo", { type: t(MODE_TITLE_KEYS[nextMode]) });
     switchButton.setAttribute("aria-label", switchButton.title);
-  }
-
-  function prefersReducedMotion() {
-    return globalThis.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches === true;
   }
 
   function syncHeaderMeta() {
@@ -451,11 +448,10 @@ export function createUtilityCardView(options) {
   }
 
   function animateContent() {
-    if (!body.animate || prefersReducedMotion()) return;
-    body.animate([
+    animateElement(body, [
       { opacity: .35, transform: "translateY(4px)" },
       { opacity: 1, transform: "translateY(0)" },
-    ], { duration: 160, easing: "cubic-bezier(.22, .8, .3, 1)" });
+    ], { duration: "state", easing: "enter" });
   }
 
   function weatherDayLabel(date, index, timezone) {

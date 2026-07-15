@@ -4,7 +4,7 @@ import { normalizeLocale } from "./i18n.mjs";
 const BOOLEAN_FIELDS = [
   "bookmarkConsentGranted", "onboardingCompleted", "aiDisclosureAccepted", "pointerGlowEnabled",
   "headerImageEnabled", "headerImageFixed", "headerImageFullscreen", "headerImageBlurEnabled", "cardSummaryEnabled",
-  "floatingWebOpenEnabled", "readingQueueOpenOnReadAll", "retainSeenArchive",
+  "floatingWebOpenEnabled", "readingQueueOpenOnReadAll", "readingQueueReadAllPrompted", "retainSeenArchive",
   "syncReadingQueueEnabled", "syncTodosEnabled", "syncWeatherLocationEnabled",
   "personalizedRankingEnabled", "publicFeedSupplementEnabled", "webImageSearchEnabled", "websiteShortcutsEnabled",
 ];
@@ -57,6 +57,7 @@ export function normalizeSettings(value = {}) {
     Object.hasOwn(input, "headerImageUrl") ? input.headerImageUrl : DEFAULT_SETTINGS.headerImageUrl,
   );
   settings.headerImageBlurAmount = boundedInteger(input.headerImageBlurAmount, 0, 24, DEFAULT_SETTINGS.headerImageBlurAmount);
+  settings.headerImageHeightScale = boundedStepInteger(input.headerImageHeightScale, 70, 140, 5, DEFAULT_SETTINGS.headerImageHeightScale);
   settings.headerImageFullscreen = settings.headerImageFixed && settings.headerImageFullscreen;
   settings.websiteShortcuts = normalizeWebsiteShortcuts(input.websiteShortcuts);
   settings.newsBookmarkFolder = cleanString(input.newsBookmarkFolder, 200, DEFAULT_SETTINGS.newsBookmarkFolder);
@@ -245,6 +246,13 @@ function uniqueStrings(values, maxLength, maxItems) {
 function boundedInteger(value, min, max, fallback) {
   const number = Number(value);
   return Number.isFinite(number) ? Math.max(min, Math.min(max, Math.round(number))) : fallback;
+}
+
+function boundedStepInteger(value, min, max, step, fallback) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return fallback;
+  const bounded = Math.max(min, Math.min(max, number));
+  return Math.round(bounded / step) * step;
 }
 
 function isLocalHost(hostname) {

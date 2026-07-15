@@ -2,10 +2,13 @@
   const maxWebsiteShortcuts = 16;
   const storageKey = "ampira.colorMode";
   const coverStorageKey = "ampira.headerCover";
+  const localCoverStorageKey = "ampira.header-cover.local.v1";
   const shortcutLayoutStorageKey = "ampira.websiteShortcutsLayout";
   const settingsStorageKey = "ampira.settings.v1";
   const headerCoverBlurMax = 24;
   const headerCoverBlurBleedMultiplier = 1.5;
+  const defaultHeaderImageUrl = "https://images.unsplash.com/photo-1782827286498-241b8af47185?q=80&w=2487&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D";
+  const defaultHeaderImageAsset = "/assets/images/default-header.webp";
   const allowedModes = new Set(["system", "dark", "light"]);
   let colorMode = "dark";
 
@@ -17,6 +20,13 @@
   }
 
   document.documentElement.dataset.colorMode = colorMode;
+  const firstFrameMotionEnabled = document.hidden !== true
+    && globalThis.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches !== true;
+  if (firstFrameMotionEnabled) {
+    document.documentElement.classList.add("has-first-frame-motion");
+    globalThis.ampiraFirstFrameStartedAt = performance.now();
+    setTimeout(() => document.documentElement.classList.remove("has-first-frame-motion"), 560);
+  }
 
   const shortcutLayout = readWebsiteShortcutLayoutHint();
   applyWebsiteShortcutLayout(shortcutLayout);
@@ -24,31 +34,57 @@
     websiteShortcutsReady: shortcutLayout.known
       ? Promise.resolve(shortcutLayout)
       : hydrateWebsiteShortcutLayout(),
+    headerCoverReady: Promise.resolve(),
   };
 
   try {
     const cachedCover = localStorage.getItem(coverStorageKey);
     const cover = cachedCover
       ? JSON.parse(cachedCover)
-      : { enabled: true, fixed: false, fullscreen: false, blurEnabled: false, blurAmount: 12 };
+      : { enabled: true, fixed: false, fullscreen: false, blurEnabled: false, blurAmount: 12, heightScale: 100, url: defaultHeaderImageUrl };
     applyHeaderCoverBlur(cover?.enabled === true && cover?.blurEnabled === true ? cover.blurAmount : 0);
+    applyHeaderCoverHeight(cover?.heightScale);
     if (cover?.enabled === true) {
       document.documentElement.classList.add("has-header-cover");
       document.documentElement.classList.toggle("has-fixed-header-cover", cover.fixed === true);
       document.documentElement.classList.toggle("has-fullscreen-header-cover", cover.fixed === true && cover.fullscreen === true);
-      restoreHeaderCover(cover.url);
+      globalThis.ampiraLayoutBootstrap.headerCoverReady = hydrateHeaderCover(cover);
     }
   } catch {
     // A stale appearance hint must never prevent the dashboard from starting.
   }
 
-  function restoreHeaderCover(imageUrl) {
+  async function hydrateHeaderCover(cover) {
+    if (cover?.local === true && location.protocol === "chrome-extension:" && globalThis.chrome?.storage?.local?.get) {
+      try {
+        const values = await chrome.storage.local.get(localCoverStorageKey);
+        const record = values?.[localCoverStorageKey];
+        if (isSafeLocalCoverRecord(record)) {
+          restoreHeaderCover(record.dataUrl, cover.url);
+          return;
+        }
+      } catch {
+        // The synced URL remains the safe fallback below.
+      }
+    }
+    restoreHeaderCover(cover?.url);
+  }
+
+  function restoreHeaderCover(imageUrl, fallbackUrl = "") {
     const apply = () => {
       const hero = document.querySelector("#headerImageHero");
       const image = document.querySelector("#headerImage");
       if (!hero || !image) return false;
       hero.hidden = false;
-      if (isSafeImageUrl(imageUrl)) image.src = imageUrl;
+      const resolvedImageUrl = resolveHeaderImageSource(imageUrl);
+      const resolvedFallbackUrl = resolveHeaderImageSource(fallbackUrl);
+      if (isSafeCoverSource(resolvedImageUrl)) {
+        const source = resolvedImageUrl;
+        image.addEventListener("error", () => {
+          if (image.getAttribute("src") === source && isSafeCoverSource(resolvedFallbackUrl)) image.src = resolvedFallbackUrl;
+        }, { once: true });
+        image.src = source;
+      }
       return true;
     };
     if (apply()) return;
@@ -57,6 +93,11 @@
       observer.disconnect();
     });
     observer.observe(document.documentElement, { childList: true, subtree: true });
+  }
+
+  function resolveHeaderImageSource(value) {
+    const source = String(value || "");
+    return source === defaultHeaderImageUrl ? defaultHeaderImageAsset : source;
   }
 
   function applyHeaderCoverBlur(value) {
@@ -69,6 +110,14 @@
     root.style.setProperty("--header-cover-blur", `${amount}px`);
     root.style.setProperty("--header-cover-inset", `${-bleed}px`);
     root.style.setProperty("--header-cover-size-adjustment", `${bleed * 2}px`);
+  }
+
+  function applyHeaderCoverHeight(value) {
+    const numericValue = Number(value);
+    const scale = Number.isFinite(numericValue)
+      ? Math.min(140, Math.max(70, Math.round(numericValue / 5) * 5))
+      : 100;
+    document.documentElement.style.setProperty("--header-cover-height-scale", String(scale / 100));
   }
 
   function readWebsiteShortcutLayoutHint() {
@@ -124,5 +173,39 @@
     } catch {
       return false;
     }
+  }
+
+  function isSafePackagedHeaderImage(value) {
+    return value === defaultHeaderImageAsset && location.protocol === "chrome-extension:";
+  }
+
+  function isSafeLocalCover(value) {
+    const dataUrl = String(value || "");
+    if (!/^data:image\/webp;base64,[A-Za-z0-9+/]+={0,2}$/.test(dataUrl)) return false;
+    try {
+      const header = atob(dataUrl.slice("data:image/webp;base64,".length, "data:image/webp;base64,".length + 16));
+      return header.length >= 12 && header.slice(0, 4) === "RIFF" && header.slice(8, 12) === "WEBP";
+    } catch {
+      return false;
+    }
+  }
+
+  function isSafeLocalCoverRecord(value) {
+    const dataUrl = String(value?.dataUrl || "");
+    const base64 = dataUrl.slice("data:image/webp;base64,".length);
+    const padding = base64.endsWith("==") ? 2 : base64.endsWith("=") ? 1 : 0;
+    const byteLength = base64.length * 3 / 4 - padding;
+    return Number(value?.schemaVersion) === 1
+      && value?.mimeType === "image/webp"
+      && isSafeLocalCover(dataUrl)
+      && byteLength > 0
+      && byteLength <= Math.floor(2.5 * 1024 * 1024)
+      && Number(value?.byteLength) === byteLength
+      && Number.isInteger(value?.width) && value.width > 0 && value.width <= 2560
+      && Number.isInteger(value?.height) && value.height > 0 && value.height <= 2560;
+  }
+
+  function isSafeCoverSource(value) {
+    return isSafeImageUrl(value) || isSafeLocalCover(value) || isSafePackagedHeaderImage(value);
   }
 })();

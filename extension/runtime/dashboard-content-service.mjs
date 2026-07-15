@@ -4,10 +4,12 @@ export function createDashboardContentService(options) {
     settingsLocale, secretStatus, currentBookmarkModel, emptyBookmarkModel,
     feedCacheOrEmpty, getRecord, getRefreshStatus, readQuota, emptySourceQuality,
     getAiAutoStatus, filterFeedItemsBySources, originsFromUrls, buildPermissionRows,
-    originPattern, sanitizeCardAiSummaries, buildFallbackDigest, summarizeQuality,
+    originPattern, withFeedCacheMetadata, cacheSourceIdentitiesPermitted,
+    sanitizeCardAiSummaries, buildFallbackDigest, summarizeQuality,
     buildDailyCandidates, dailyCandidateFingerprint, digestSchemaVersion, rankingPolicyVersion, localDateKey,
-    pipelineStages, publicFeedsForLocale, chrome, safeOrigin, typedError,
+    pipelineStages, publicFeedsForLocale, chrome, typedError,
     uniqueStrings, normalizeUserUrl, aiSearchResultPermitted,
+    providerCredentialAvailable, aiConfigured, presentableFeedItems,
   } = options;
 
   return {
@@ -39,7 +41,18 @@ async function buildDashboardPayload(attempt = 0) {
     getAiAutoStatus(),
   ]);
   const feedPermissions = await currentFeedPermissionState(settings, model);
-  const visibleFeedItems = filterFeedItemsBySources(feed.items || [], feedPermissions.permitted, feedPermissions.grantedOrigins);
+  const permittedFeedItems = filterFeedItemsBySources(feed.items || [], feedPermissions.permitted, feedPermissions.grantedOrigins);
+  let aiPermissionGranted = buildPermissionRows(
+    [originPattern(settings.openaiBaseUrl)],
+    feedPermissions.grantedOrigins,
+  ).some((row) => row.required && row.granted);
+  const credentialReady = providerCredentialAvailable(settings.openaiBaseUrl, secrets.hasOpenAIKey);
+  let configuredForAi = settings.aiDisclosureAccepted === true
+    && credentialReady
+    && Boolean(String(settings.openaiSummaryModel || "").trim())
+    && aiPermissionGranted;
+  const sanitizedFeedItems = sanitizeCardAiSummaries(permittedFeedItems, settings, configuredForAi);
+  const visibleFeedItems = presentableFeedItems(sanitizedFeedItems, settings, configuredForAi);
   feed = {
     ...feed,
     items: visibleFeedItems,
@@ -47,14 +60,6 @@ async function buildDashboardPayload(attempt = 0) {
     publicCount: visibleFeedItems.filter((item) => item.externalDiscovery).length,
     deniedOrigins: originsFromUrls(feedPermissions.denied.map((source) => source.url)),
   };
-  let aiPermissionGranted = buildPermissionRows(
-    [originPattern(settings.openaiBaseUrl)],
-    feedPermissions.grantedOrigins,
-  ).some((row) => row.required && row.granted);
-  let configuredForAi = settings.aiDisclosureAccepted === true
-    && secrets.hasOpenAIKey
-    && aiPermissionGranted;
-  feed = { ...feed, items: sanitizeCardAiSummaries(feed.items, settings, configuredForAi) };
   const digestCandidates = buildDailyCandidates(feed.items, {
     limit: 12,
     recentLimit: 3,
@@ -62,7 +67,7 @@ async function buildDashboardPayload(attempt = 0) {
     aiRankingEnabled: configuredForAi,
   });
   const fallbackDigest = withFeedCacheMetadata(
-    buildFallbackDigest(digestCandidates, secrets.hasOpenAIKey ? "pending" : "no-api-key", locale, {
+    buildFallbackDigest(digestCandidates, credentialReady ? "pending" : "no-api-key", locale, {
       preselected: true,
       publisherLimit: settings.todayNewsPerPublisherLimit,
     }),
@@ -101,11 +106,11 @@ async function buildDashboardPayload(attempt = 0) {
     total: model.bookmarks.length,
     sections: model.sections,
     bookmarks: model.bookmarks,
-    feed: { schemaVersion: 2, ...feed },
+    feed: { schemaVersion: 3, ...feed },
     dailyDigest: digest,
     ai: {
       enabled: configuredForAi,
-      configured: secrets.hasOpenAIKey,
+      configured: credentialReady && Boolean(String(settings.openaiSummaryModel || "").trim()),
       disclosureAccepted: settings.aiDisclosureAccepted === true,
       permissionGranted: aiPermissionGranted,
       model: settings.openaiSummaryModel,
@@ -124,6 +129,8 @@ async function buildDashboardPayload(attempt = 0) {
     cache: {
       ready,
       target: settings.hotNewsCacheSize,
+      configuredSources: feedPermissions.sources.length,
+      refreshableSources: feedPermissions.permitted.length,
       progress: Math.min(1, ready / Math.max(1, settings.hotNewsCacheSize)),
       refreshProgress: status.running ? Number(status.progress || 0) : 1,
       excluded: model.bookmarks.filter((item) => item.feedExcluded).length,
@@ -150,17 +157,19 @@ async function buildDashboardPayload(attempt = 0) {
   };
 }
 
-function configuredFeedSources(settings, model) {
+async function configuredFeedSources(settings, model) {
   if (settings.bookmarkConsentGranted !== true) return [];
   const localSources = (model?.bookmarks || []).filter((item) => item.cardType === "news" && !item.feedExcluded);
   const publicSources = settings.publicFeedSupplementEnabled === false
     ? []
-    : publicFeedsForLocale(settingsLocale(settings)).map((feed) => ({ ...feed, externalDiscovery: true }));
+    : publicFeedsForLocale(settingsLocale(settings), {
+        includeAiOnly: await aiConfigured(settings),
+      }).map((feed) => ({ ...feed, externalDiscovery: true }));
   return [...localSources, ...publicSources];
 }
 
 async function currentFeedPermissionState(settings, model) {
-  const sources = configuredFeedSources(settings, model);
+  const sources = await configuredFeedSources(settings, model);
   const requiredOrigins = [];
   for (const source of sources) {
     const pattern = originPattern(source.url);
@@ -188,36 +197,6 @@ async function currentFeedPermissionState(settings, model) {
     grantedOrigins,
     permittedByKey: new Map(permitted.map((source) => [String(source.key || ""), originPattern(source.url)]).filter(([key, pattern]) => key && pattern)),
   };
-}
-
-function withFeedCacheMetadata(value, items, capability, providerUrl = "") {
-  const identities = new Map();
-  for (const item of Array.isArray(items) ? items : []) {
-    const sourceKey = String(item?.sourceKey || "");
-    const sourceOrigin = safeOrigin(item?.sourceOrigin || "");
-    const fetchOrigin = safeOrigin(item?.fetchOrigin || item?.sourceOrigin || "");
-    if (!sourceKey || !sourceOrigin) continue;
-    identities.set(`${sourceKey}|${sourceOrigin}|${fetchOrigin}`, { sourceKey, sourceOrigin, fetchOrigin });
-  }
-  const result = {
-    ...value,
-    capability,
-    sourceIdentities: [...identities.values()],
-  };
-  if (providerUrl) result.providerOrigin = safeOrigin(providerUrl);
-  return result;
-}
-
-function cacheSourceIdentitiesPermitted(value, permissionState, requireMetadata = false) {
-  if (!Array.isArray(value?.sourceIdentities)) return !requireMetadata;
-  return value.sourceIdentities.every((identity) => {
-    const expected = permissionState.permittedByKey.get(String(identity?.sourceKey || ""));
-    if (!expected || expected !== originPattern(identity?.sourceOrigin || "")) return false;
-    const fetchPattern = originPattern(identity?.fetchOrigin || identity?.sourceOrigin || "");
-    if (!fetchPattern) return false;
-    return buildPermissionRows([fetchPattern], permissionState.grantedOrigins)
-      .some((row) => row.required && row.granted);
-  });
 }
 
 async function assertFeedItemsStillPermitted(items) {
@@ -305,7 +284,13 @@ async function sanitizeDailyDigest(digest, attempt = 0) {
   const model = settings.bookmarkConsentGranted ? await currentBookmarkModel(settings) : emptyBookmarkModel();
   const feed = await getRecord("feed", { items: [] });
   const permissions = await currentFeedPermissionState(settings, model);
-  const items = filterFeedItemsBySources(feed.items || [], permissions.permitted, permissions.grantedOrigins);
+  const permittedItems = filterFeedItemsBySources(feed.items || [], permissions.permitted, permissions.grantedOrigins);
+  const configuredForAi = await aiConfigured(settings);
+  const items = presentableFeedItems(
+    sanitizeCardAiSummaries(permittedItems, settings, configuredForAi),
+    settings,
+    configuredForAi,
+  );
   const aiPermitted = digest?.status === "ai"
     ? await aiSearchResultPermitted({
       usedAi: true,

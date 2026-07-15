@@ -1,3 +1,5 @@
+import { requestOrigins } from "./permission-client.mjs";
+
 export function createSourceCoverageController(options) {
   const {
     state, els, t, tc, apiPost, setIconLabel, createEmptyState, renderSettingsStatus,
@@ -84,7 +86,7 @@ export function createSourceCoverageController(options) {
     if (!pattern || !globalThis.chrome?.permissions?.request) return;
     button.disabled = true;
     try {
-      const granted = await chrome.permissions.request({ origins: [pattern] });
+      const granted = await requestOrigins([pattern]);
       if (granted !== true) {
         renderSettingsStatus(t("permission.requestDeclined"));
         return;

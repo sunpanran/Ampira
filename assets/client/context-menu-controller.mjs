@@ -1,3 +1,4 @@
+import { copyText } from "./clipboard.mjs";
 import { spanText } from "./dom.mjs";
 import { createIcon } from "./icons.mjs";
 
@@ -34,7 +35,7 @@ export function createContextMenuController(options) {
           if (item) options.markOpened(item);
           options.openExternal(url);
         } },
-        { label: options.t("context.copyLink"), icon: "copy-01", action: () => copyToClipboard(url) },
+        { label: options.t("context.copyLink"), icon: "copy-01", action: () => copyText(url) },
       );
       if (item?.feedItem?.articleId && options.personalizationEnabled()) {
         actions.push(
@@ -120,22 +121,4 @@ export function createContextMenuController(options) {
   }
 
   return { bind, attachLink, attachGroup, attachActions, hide };
-}
-
-async function copyToClipboard(text) {
-  const value = String(text || "");
-  if (!value) return;
-  try {
-    await navigator.clipboard.writeText(value);
-  } catch {
-    const input = document.createElement("textarea");
-    input.value = value;
-    input.setAttribute("readonly", "");
-    input.style.position = "fixed";
-    input.style.left = "-9999px";
-    document.body.append(input);
-    input.select();
-    document.execCommand("copy");
-    input.remove();
-  }
 }

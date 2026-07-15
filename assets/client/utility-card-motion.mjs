@@ -1,5 +1,7 @@
-const MODE_SWITCH_OUT_MS = 80;
-const MODE_SWITCH_IN_MS = 140;
+import { MOTION_DURATION, prefersReducedMotion } from "./motion.mjs";
+
+const MODE_SWITCH_OUT_MS = MOTION_DURATION.press;
+const MODE_SWITCH_IN_MS = MOTION_DURATION.state;
 const BODY_OUT_CLASS = "is-utility-mode-leaving";
 const BODY_IN_CLASS = "is-utility-mode-entering";
 const HEADER_OUT_CLASS = "is-utility-header-leaving";
@@ -65,8 +67,4 @@ function waitForAnimation(node, duration) {
     node.addEventListener("animationend", onAnimationEnd);
     globalThis.setTimeout(finish, duration + 50);
   });
-}
-
-function prefersReducedMotion() {
-  return globalThis.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches === true;
 }

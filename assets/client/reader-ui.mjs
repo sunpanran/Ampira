@@ -1,8 +1,11 @@
 import { formatDateTime } from "./time.mjs";
 import { faviconUrl, hostFromUrl, isReaderUrl } from "./urls.mjs";
-import { readerErrorBodyKey, readerErrorTitleKey, safeReaderOrigin, sameOrigin } from "./reader-policy.mjs";
+import { readerErrorBodyKey, readerErrorTitleKey, readerLocalFallback, safeReaderOrigin, sameOrigin } from "./reader-policy.mjs";
+import { requestOrigins } from "./permission-client.mjs";
+import { createLoadingPhaseController } from "./motion.mjs";
 
 const READER_CLOSE_MOTION_MS = 180;
+const READER_RECOVERY_RETRY_MS = 450;
 
 export function createReaderController(context) {
   const {
@@ -21,7 +24,9 @@ export function createReaderController(context) {
   } = context;
   let readerRequestGeneration = 0;
   let readerCloseTimer = 0;
+  let readerRecoveryTimer = 0;
   let readerTranslation = null;
+  let readerLoadingMotion = null;
 
   function openExternal(url, title = "", item = null) {
     markReadOnOpen(item);
@@ -58,7 +63,9 @@ export function createReaderController(context) {
       return;
     }
     if (readerCloseTimer) window.clearTimeout(readerCloseTimer);
+    if (readerRecoveryTimer) window.clearTimeout(readerRecoveryTimer);
     readerCloseTimer = 0;
+    readerRecoveryTimer = 0;
     els.webFrameOverlay.classList.remove("closing");
     const requestGeneration = ++readerRequestGeneration;
     if (!options.preserveHistory) state.webFrameHistory = [];
@@ -75,7 +82,8 @@ export function createReaderController(context) {
     els.webFrameOverlay.classList.add("open");
     document.body.classList.add("web-frame-open");
     els.webFrame.classList.add("is-loading");
-    els.webFrame.textContent = t("webFrame.loading");
+    els.webFrame.setAttribute("aria-busy", "true");
+    renderReaderLoadingState();
     els.closeWebFrame.focus();
     try {
       const result = await apiGet(`/api/reader?url=${encodeURIComponent(parsed.href)}`);
@@ -83,11 +91,62 @@ export function createReaderController(context) {
       renderReaderResult(result, title, item);
     } catch (error) {
       if (requestGeneration !== readerRequestGeneration) return;
+      if (shouldRetryReaderConnection(error, options)) {
+        renderReaderLoadingState("reader.reconnecting");
+        readerRecoveryTimer = window.setTimeout(() => {
+          readerRecoveryTimer = 0;
+          if (requestGeneration !== readerRequestGeneration) return;
+          openFloatingWeb(parsed.href, title, item, {
+            ...options,
+            preserveHistory: true,
+            recoveryAttempt: Number(options.recoveryAttempt || 0) + 1,
+          });
+        }, READER_RECOVERY_RETRY_MS);
+        return;
+      }
       renderReaderError(error, parsed.href, title);
     }
   }
 
+  function renderReaderLoadingState(messageKey = "webFrame.loading") {
+    readerLoadingMotion?.finish();
+    const status = document.createElement("span");
+    status.className = "sr-only";
+    status.textContent = t(messageKey);
+    const skeleton = document.createElement("div");
+    skeleton.className = "reader-loading";
+    skeleton.setAttribute("aria-hidden", "true");
+    const header = document.createElement("div");
+    header.className = "reader-loading-header";
+    header.append(
+      createReaderLoadingLine("reader-loading-site"),
+      createReaderLoadingLine("reader-loading-title reader-loading-title-primary"),
+      createReaderLoadingLine("reader-loading-title reader-loading-title-secondary"),
+      createReaderLoadingLine("reader-loading-meta"),
+    );
+    const content = document.createElement("div");
+    content.className = "reader-loading-content";
+    for (let paragraphIndex = 0; paragraphIndex < 3; paragraphIndex += 1) {
+      const paragraph = document.createElement("div");
+      paragraph.className = "reader-loading-paragraph";
+      for (let lineIndex = 0; lineIndex < 4; lineIndex += 1) {
+        paragraph.append(createReaderLoadingLine("reader-loading-copy"));
+      }
+      content.append(paragraph);
+    }
+    skeleton.append(header, content);
+    els.webFrame.replaceChildren(status, skeleton);
+    readerLoadingMotion = createLoadingPhaseController([els.webFrame]);
+  }
+
+  function createReaderLoadingLine(className) {
+    const line = document.createElement("span");
+    line.className = `loading-line ${className}`;
+    return line;
+  }
+
   function renderReaderResult(result, fallbackTitle = "", item = null, scrollTop = 0, options = {}) {
+    finishReaderLoadingMotion();
     const currentUrl = result.url || result.requestedUrl || state.webFrameUrl;
     state.webFrameUrl = currentUrl;
     state.webFrameItem = item;
@@ -97,6 +156,7 @@ export function createReaderController(context) {
     els.webFrameUrl.textContent = currentUrl;
     els.webFrameFavicon.src = faviconUrl({ url: currentUrl, host: hostFromUrl(currentUrl) });
     els.webFrame.classList.remove("is-loading", "is-error");
+    els.webFrame.setAttribute("aria-busy", "false");
     const documentShell = document.createElement("div");
     documentShell.className = "reader-document";
     documentShell.append(createReaderHeader(result));
@@ -146,15 +206,16 @@ export function createReaderController(context) {
     const notices = document.createElement("div");
     notices.className = "reader-notices";
     if (result.source === "cache") notices.append(createReaderNotice("cache", t("reader.cached", { time: result.fetchedAt ? formatDateTime(result.fetchedAt) : t("reader.unknownTime"), reason: readerStaleReason(result) })));
+    if (result.source === "local-excerpt") notices.append(createReaderNotice("warning", t("reader.localFallback")));
     if (result.truncated) notices.append(createReaderNotice("warning", t("reader.truncated")));
-    if (result.quality === "partial") notices.append(createReaderNotice("warning", t("reader.partial")));
+    if (result.quality === "partial" && result.source !== "local-excerpt") notices.append(createReaderNotice("warning", t("reader.partial")));
     if (notices.childElementCount) header.append(notices);
-    const actions = createReaderHeaderActions();
+    const actions = createReaderHeaderActions(result);
     if (actions.childElementCount) header.append(actions);
     return header;
   }
 
-  function createReaderHeaderActions() {
+  function createReaderHeaderActions(result = {}) {
     const actions = document.createElement("div");
     actions.className = "reader-header-actions";
     if (state.webFrameHistory.length) {
@@ -167,6 +228,9 @@ export function createReaderController(context) {
         toggleReaderTranslation,
       );
       actions.append(translateButton);
+    }
+    if (result.source === "local-excerpt") {
+      actions.append(readerActionButton(t("reader.retryFull"), "ghost reader-retry", reloadFloatingWeb));
     }
     return actions;
   }
@@ -302,16 +366,26 @@ export function createReaderController(context) {
   }
 
   function renderReaderError(error, url, fallbackTitle = "") {
+    finishReaderLoadingMotion();
+    const fallback = error?.code === "ORIGIN_PERMISSION_REQUIRED"
+      ? null
+      : readerLocalFallback(state.webFrameItem, url, fallbackTitle);
+    if (fallback) {
+      renderReaderResult({ ...fallback, fallbackMessage: readerErrorMessage(error) }, fallbackTitle, state.webFrameItem);
+      return;
+    }
     state.webFrameResult = null;
     els.webFrameTitle.textContent = fallbackTitle || hostFromUrl(url) || t("webFrame.page");
     els.webFrameUrl.textContent = url;
     els.webFrame.classList.remove("is-loading");
     els.webFrame.classList.add("is-error");
+    els.webFrame.setAttribute("aria-busy", "false");
     const stateView = document.createElement("div");
     stateView.className = "reader-state";
-    const code = document.createElement("div");
-    code.className = "reader-state-code";
-    code.textContent = error?.code || "READER_ERROR";
+    stateView.setAttribute("role", "status");
+    const site = document.createElement("div");
+    site.className = "reader-state-site";
+    site.textContent = hostFromUrl(url) || t("webFrame.page");
     const title = document.createElement("h2");
     title.textContent = readerErrorTitle(error);
     const body = document.createElement("p");
@@ -319,18 +393,17 @@ export function createReaderController(context) {
     const actions = document.createElement("div");
     actions.className = "reader-state-actions";
     if (state.webFrameHistory.length) actions.append(readerActionButton(t("reader.back"), "ghost reader-back", backFloatingWeb));
-    if (error?.code === "ORIGIN_PERMISSION_REQUIRED") {
+    const permissionRequired = error?.code === "ORIGIN_PERMISSION_REQUIRED";
+    if (permissionRequired) {
       const authorize = readerActionButton(t("reader.authorize"), "primary", () => authorizeReaderOrigin(error, authorize));
       actions.append(authorize);
     }
-    actions.append(
-      readerActionButton(t("action.reload"), "ghost", reloadFloatingWeb),
-      readerActionButton(t("action.openExternal"), "ghost", () => {
-        if (state.webFrameItem) markOpenedItem(state.webFrameItem);
-        openExternalWindow(state.webFrameUrl);
-      }),
-    );
-    stateView.append(code, title, body, actions);
+    const openSource = readerActionButton(t("action.openExternal"), permissionRequired ? "ghost" : "primary", () => {
+      if (state.webFrameItem) markOpenedItem(state.webFrameItem);
+      openExternalWindow(state.webFrameUrl);
+    });
+    actions.append(openSource, readerActionButton(t("action.reload"), "ghost", reloadFloatingWeb));
+    stateView.append(site, title, body, actions);
     els.webFrame.replaceChildren(stateView);
     syncReaderBackButton();
   }
@@ -348,8 +421,9 @@ export function createReaderController(context) {
     const origin = error?.details?.origin || safeReaderOrigin(error?.details?.url || state.webFrameUrl);
     if (!origin || !globalThis.chrome?.permissions?.request) return;
     button.disabled = true;
+    button.textContent = t("reader.requestingPermission");
     try {
-      const granted = await chrome.permissions.request({ origins: [`${origin}/*`] });
+      const granted = await requestOrigins([`${origin}/*`]);
       if (granted) reloadFloatingWeb();
       else button.textContent = t("reader.authorizationDeclined");
     } catch {
@@ -371,6 +445,11 @@ export function createReaderController(context) {
   function readerStaleReason(result) {
     const error = { code: result.staleCode, message: result.staleReason, details: result.staleDetails || {} };
     return readerErrorMessage(error);
+  }
+
+  function shouldRetryReaderConnection(error, options) {
+    if (Number(options.recoveryAttempt || 0) >= 1) return false;
+    return !error?.code || ["EXTENSION_ERROR", "EXTENSION_RUNTIME_UNAVAILABLE"].includes(error.code);
   }
 
   function navigateReaderLink(url, title = "") {
@@ -462,6 +541,8 @@ export function createReaderController(context) {
   function closeFloatingWeb() {
     if (!els.webFrameOverlay.classList.contains("open") || els.webFrameOverlay.classList.contains("closing")) return;
     readerRequestGeneration += 1;
+    if (readerRecoveryTimer) window.clearTimeout(readerRecoveryTimer);
+    readerRecoveryTimer = 0;
     clearFloatingReadTracking();
     els.webFrameOverlay.classList.add("closing");
     const closeDelay = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : READER_CLOSE_MOTION_MS;
@@ -472,10 +553,12 @@ export function createReaderController(context) {
   }
 
   function finalizeFloatingWebClose() {
+    finishReaderLoadingMotion();
     els.webFrameOverlay.classList.remove("open", "closing");
     document.body.classList.remove("web-frame-open");
     els.webFrame.replaceChildren();
     els.webFrame.classList.remove("is-loading", "is-error");
+    els.webFrame.removeAttribute("aria-busy");
     els.webFrameFavicon.src = "favicon.svg";
     state.webFrameUrl = "";
     state.webFrameItem = null;
@@ -484,6 +567,11 @@ export function createReaderController(context) {
     state.webFrameHistory = [];
     syncReaderBackButton();
     syncNavToCurrentSection();
+  }
+
+  function finishReaderLoadingMotion() {
+    readerLoadingMotion?.finish();
+    readerLoadingMotion = null;
   }
 
   function reloadFloatingWeb() {

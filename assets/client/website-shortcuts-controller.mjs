@@ -1,5 +1,7 @@
 import { MAX_WEBSITE_SHORTCUTS } from "../../extension/core/settings.mjs";
 import { autoScrollDragContainer, createWebsiteShortcutOverflow } from "./website-shortcut-scroll.mjs";
+import { animateKeyedLayout, captureKeyedLayout, enterFirstFrame, findKeyedElement, runExitMotion, setDisclosureVisibility } from "./motion.mjs";
+import { createWebsiteShortcutSettingsRow } from "./website-shortcut-settings-row.mjs";
 
 const WEBSITE_SHORTCUT_LAYOUT_STORAGE_KEY = "ampira.websiteShortcutsLayout";
 
@@ -78,15 +80,21 @@ export function createWebsiteShortcutsController(options) {
   function syncWebsiteShortcutControls(settings = state.settings || {}) {
     editingIndex = -1;
     els.websiteShortcutsEnabledInput.checked = settings.websiteShortcutsEnabled === true;
+    syncWebsiteShortcutDetailsVisibility({ animate: false });
     cacheWebsiteShortcutLayout(settings);
     clearWebsiteShortcutForm();
     renderWebsiteShortcutSettingsList();
   }
 
   function handleWebsiteShortcutsEnabledChange() {
+    syncWebsiteShortcutDetailsVisibility({ animate: true });
     renderSettingsStatus(t(els.websiteShortcutsEnabledInput.checked
       ? "settings.shortcuts.enabledDraft"
       : "settings.shortcuts.disabledDraft"));
+  }
+
+  function syncWebsiteShortcutDetailsVisibility(options = {}) {
+    setDisclosureVisibility(els.websiteShortcutDetails, els.websiteShortcutsEnabledInput.checked, options);
   }
 
   function refreshWebsiteShortcutTranslations() {
@@ -159,6 +167,16 @@ export function createWebsiteShortcutsController(options) {
   function removeWebsiteShortcutAt(index) {
     const shortcuts = currentWebsiteShortcuts();
     if (!shortcuts[index]) return;
+    const shortcutUrl = shortcuts[index].url;
+    const row = findKeyedElement(els.websiteShortcutSettingsList, shortcutUrl, ".website-shortcut-settings-row[data-key]");
+    if (runExitMotion(row, () => finalizeWebsiteShortcutRemoval(shortcutUrl))) return;
+    finalizeWebsiteShortcutRemoval(shortcutUrl);
+  }
+
+  function finalizeWebsiteShortcutRemoval(shortcutUrl) {
+    const shortcuts = currentWebsiteShortcuts();
+    const index = shortcuts.findIndex((shortcut) => shortcut.url === shortcutUrl);
+    if (index < 0) return;
     state.settings = { ...(state.settings || {}), websiteShortcuts: removeWebsiteShortcut(shortcuts, index) };
     if (editingIndex === index) editingIndex = -1;
     else if (editingIndex > index) editingIndex -= 1;
@@ -195,6 +213,7 @@ export function createWebsiteShortcutsController(options) {
   }
 
   function renderWebsiteShortcutSettingsList() {
+    const layout = captureKeyedLayout(els.websiteShortcutSettingsList, ".website-shortcut-settings-row[data-key]");
     const shortcuts = currentWebsiteShortcuts();
     els.websiteShortcutCount.textContent = t("settings.shortcuts.count", {
       count: shortcuts.length,
@@ -208,62 +227,12 @@ export function createWebsiteShortcutsController(options) {
       syncWebsiteShortcutActionState();
       return;
     }
-    els.websiteShortcutSettingsList.replaceChildren(...shortcuts.map((shortcut, index) => {
-      const row = document.createElement("div");
-      row.className = "website-shortcut-settings-row";
-      row.classList.toggle("is-editing", index === editingIndex);
-      row.draggable = shortcuts.length > 1 && !busy;
-      row.dataset.shortcutIndex = String(index);
-      row.dataset.shortcutUrl = shortcut.url;
-
-      const main = document.createElement("div");
-      main.className = "website-shortcut-settings-main";
-      const title = document.createElement("strong");
-      title.textContent = shortcut.title;
-      const url = document.createElement("span");
-      url.textContent = shortcut.url;
-      main.append(title, url);
-
-      const actions = document.createElement("div");
-      actions.className = "website-shortcut-settings-actions";
-      const edit = textButton(t("settings.shortcuts.edit"), () => editWebsiteShortcut(index));
-      edit.classList.add("shortcut-edit-action");
-      const up = orderButton("↑", t("settings.shortcuts.moveUp", { title: shortcut.title }), () => moveWebsiteShortcutBy(index, -1));
-      up.disabled = busy || index === 0;
-      const down = orderButton("↓", t("settings.shortcuts.moveDown", { title: shortcut.title }), () => moveWebsiteShortcutBy(index, 1));
-      down.disabled = busy || index === shortcuts.length - 1;
-      const remove = document.createElement("button");
-      remove.type = "button";
-      remove.className = "btn website-shortcut-remove";
-      setIconLabel(remove, "trash-01", t("settings.shortcuts.remove"));
-      remove.addEventListener("click", () => removeWebsiteShortcutAt(index));
-      edit.disabled = busy;
-      remove.disabled = busy;
-      actions.append(edit, up, down, remove);
-      row.append(main, actions);
-      return row;
-    }));
+    els.websiteShortcutSettingsList.replaceChildren(...shortcuts.map((shortcut, index) => createWebsiteShortcutSettingsRow({
+      shortcut, index, count: shortcuts.length, editingIndex, busy, t, setIconLabel,
+      onEdit: editWebsiteShortcut, onMove: moveWebsiteShortcutBy, onRemove: removeWebsiteShortcutAt,
+    })));
+    animateKeyedLayout(els.websiteShortcutSettingsList, layout, ".website-shortcut-settings-row[data-key]");
     syncWebsiteShortcutActionState();
-  }
-
-  function textButton(label, onClick) {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "btn";
-    button.textContent = label;
-    button.addEventListener("click", onClick);
-    return button;
-  }
-
-  function orderButton(glyph, label, onClick) {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "btn website-shortcut-order";
-    button.textContent = glyph;
-    button.setAttribute("aria-label", label);
-    button.title = label;
-    button.addEventListener("click", onClick);
-    return button;
   }
 
   function setWebsiteShortcutControlsBusy(value) {
@@ -286,6 +255,8 @@ export function createWebsiteShortcutsController(options) {
   function renderWebsiteShortcuts() {
     const enabled = state.settings?.websiteShortcutsEnabled === true;
     const searching = Boolean(state.query);
+    const isInitialEntrance = els.websiteShortcuts.dataset.loading === "true";
+    const layout = captureKeyedLayout(els.websiteShortcutList, ".website-shortcut[data-key]");
     delete els.websiteShortcuts.dataset.loading;
     if (dashboardOrderBusy) els.websiteShortcuts.setAttribute("aria-busy", "true");
     else els.websiteShortcuts.removeAttribute("aria-busy");
@@ -301,12 +272,20 @@ export function createWebsiteShortcutsController(options) {
       els.websiteShortcuts.classList.add("is-empty");
       els.websiteShortcutList.replaceChildren(createDashboardEmptyState());
       shortcutOverflow.scheduleSync();
+      enterInitialShortcutRail();
       return;
     }
     els.websiteShortcutList.replaceChildren(...shortcuts.map((shortcut, index) => (
       createDashboardShortcut(shortcut, index, shortcuts.length)
     )));
     shortcutOverflow.scheduleSync();
+    if (!isInitialEntrance) animateKeyedLayout(els.websiteShortcutList, layout, ".website-shortcut[data-key]");
+    enterInitialShortcutRail();
+
+    function enterInitialShortcutRail() {
+      if (!isInitialEntrance || state.data?.onboarding?.completed === false) return;
+      enterFirstFrame(els.websiteShortcuts, { startedAt: globalThis.ampiraFirstFrameStartedAt, targetDelay: 120 });
+    }
   }
 
   function cacheWebsiteShortcutLayout(settings = {}) {
@@ -329,6 +308,7 @@ export function createWebsiteShortcutsController(options) {
     link.draggable = count > 1 && !dashboardOrderBusy;
     link.dataset.shortcutIndex = String(index);
     link.dataset.shortcutUrl = shortcut.url;
+    link.dataset.key = shortcut.url;
     link.setAttribute("aria-label", t("shortcuts.open", { title: shortcut.title }));
     link.append(createShortcutIcon(shortcut));
     const label = document.createElement("span");

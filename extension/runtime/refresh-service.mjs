@@ -1,51 +1,17 @@
+import { createCardSummaryPolicy } from "./card-summary-policy.mjs";
+import { createFeedImageService, feedImageCacheFresh, selectFeedImageEnrichmentTargets } from "./feed-image-service.mjs";
+import { localizedSummaryMatchesLocale } from "../core/feed-language-policy.mjs";
+
+export { feedImageCacheFresh, selectFeedImageEnrichmentTargets };
+
 const AI_DIGEST_MAX_TOKENS = 2400;
 const AI_ARTICLE_SUMMARY_MAX_TOKENS = 1200;
-const CARD_SUMMARY_EXCERPT_MAX_CHARS = 2000;
-const FEED_IMAGE_ENRICH_LIMIT = 12;
-const FEED_IMAGE_PER_SOURCE_LIMIT = 2;
-const FEED_IMAGE_CONCURRENCY = 3;
-const FEED_IMAGE_HIT_CACHE_MS = 24 * 60 * 60 * 1000;
-const FEED_IMAGE_MISS_CACHE_MS = 2 * 60 * 60 * 1000;
-const FEED_IMAGE_ERROR_CACHE_MS = 15 * 60 * 1000;
 const EMPTY_CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const FUTURE_TIME_TOLERANCE_MS = 15 * 60 * 1000;
 
 export function sourceStatusForFetch(result, itemCount) {
   if (Number(itemCount) > 0) return "healthy";
   return result?.pendingFeed ? "permissionRequired" : "empty";
-}
-
-export function selectFeedImageEnrichmentTargets(items, {
-  limit = FEED_IMAGE_ENRICH_LIMIT,
-  perSourceLimit = FEED_IMAGE_PER_SOURCE_LIMIT,
-} = {}) {
-  const sourceCounts = new Map();
-  return [...(items || [])]
-    .filter((item) => !item.imageUrl && sameOriginValue(item.url, item.sourceOrigin))
-    .sort((left, right) => Number(right.score || 0) - Number(left.score || 0)
-      || Date.parse(right.publishedAt || right.fetchedAt || 0) - Date.parse(left.publishedAt || left.fetchedAt || 0))
-    .filter((item) => {
-      const key = String(item.sourceKey || "");
-      const count = sourceCounts.get(key) || 0;
-      if (!key || count >= perSourceLimit) return false;
-      sourceCounts.set(key, count + 1);
-      return true;
-    })
-    .slice(0, limit);
-}
-
-export function feedImageCacheFresh(record, item, now = Date.now()) {
-  if (record?.strategyVersion !== 1 || record?.capability !== "feed-image") return false;
-  if (record.requestedUrl !== item?.url || record.sourceKey !== item?.sourceKey) return false;
-  if (record.sourceOrigin !== safeOriginValue(item?.sourceOrigin || "")) return false;
-  const checkedAt = Date.parse(record.checkedAt || "");
-  const maxAge = record.outcome === "hit"
-    ? FEED_IMAGE_HIT_CACHE_MS
-    : record.outcome === "miss" ? FEED_IMAGE_MISS_CACHE_MS : FEED_IMAGE_ERROR_CACHE_MS;
-  return ["hit", "miss", "error"].includes(record.outcome)
-    && Number.isFinite(checkedAt)
-    && now - checkedAt >= 0
-    && now - checkedAt < maxAge;
 }
 
 export function sourceFetchProfile(previousRecord, previousItems) {
@@ -84,26 +50,6 @@ export function selectDistinctEventEvidence(items, limit = 3) {
   return selected;
 }
 
-function sameOriginValue(left, right) {
-  try {
-    return new URL(left).origin === new URL(right).origin;
-  } catch {
-    return false;
-  }
-}
-
-function safeOriginValue(value) {
-  try {
-    const url = new URL(value);
-    return url.protocol === "https:" || url.protocol === "http:" && ["localhost", "127.0.0.1"].includes(url.hostname)
-      ? url.origin
-      : "";
-  } catch {
-    return "";
-  }
-}
-const CARD_SUMMARY_MAX_CHARS = 200;
-
 export function createRefreshService(options) {
   const {
     refreshCoordinator, getSettings, currentBookmarkModel, emptyBookmarkModel, currentFeedPermissionState,
@@ -112,15 +58,41 @@ export function createRefreshService(options) {
     mapWithConcurrency, summarizeQuality, retainActiveUnrefreshedItems, rankAndDedupe,
     assertFeedItemsStillPermitted, withFeedCacheMetadata, cacheMutations, aiConfigured,
     getAiAutoStatus, setAiAutoStatus, defaultAiAutoStatus, readQuota, runAiWithinQuota,
-    callProvider, translate, translateAiPrompt, settingsLocale, cleanGeneratedSummaryLine,
-    extractGeneratedSummaryTitle, limitGeneratedSummaryLines, parseGeneratedDailyDigest, dailyDigestEvidence, buildFallbackDigest,
-    digestCachePermitted, filterFeedItemsBySources, resultMessage, errorResult,
+    callProvider, translate, translateAiPrompt, settingsLocale, parseGeneratedDailyDigest, dailyDigestEvidence, buildFallbackDigest,
+    digestCachePermitted, filterFeedItemsBySources, presentableFeedItems = (items) => items,
+    resultMessage, errorResult,
     emptySourceQuality, localDateKey, uniqueStrings, safeOrigin, originPattern,
     sanitizeDailyDigest, typedError, feedCacheOrEmpty, getRefreshStatus, hostOf,
     originsFromUrls, isPermissionEpochCurrent, buildDailyCandidates,
     dailyCandidateFingerprint, rankingPolicyVersion, updateSourceQualityRecord,
-    cardSummaryPolicyVersion, fetchSourceImageCandidates, hasOriginPermission, hashText,
   } = options;
+  const cardSummaryPolicy = options.cardSummaryPolicy || createCardSummaryPolicy({
+    settingsLocale,
+    originPattern,
+    policyVersion: options.cardSummaryPolicyVersion,
+  });
+  const {
+    policyVersion: cardSummaryPolicyVersion,
+    automaticCardSummaryContext,
+    generatedCardSummary,
+    isCurrentCardSummary,
+    preserveCardAiSummary,
+    sanitizeCardAiSummaries,
+  } = cardSummaryPolicy;
+  const {
+    enrichMissingFeedImages,
+    updateImageQualityMetrics,
+    imageQualityMetrics,
+  } = options.feedImageService || createFeedImageService({
+    fetchSourceImageCandidates: options.fetchSourceImageCandidates,
+    hasOriginPermission: options.hasOriginPermission,
+    mapWithConcurrency,
+    cacheMutations,
+    getRecord,
+    setRecord,
+    hashText: options.hashText,
+    refreshCoordinator,
+  });
   return {
     startRefresh, runRefresh, refreshSource, refreshDailyDigest, refreshSingleSummary,
     generatedCardSummary, preserveCardAiSummary, sanitizeCardAiSummaries,
@@ -202,10 +174,11 @@ async function performRefresh(generation) {
   if (!refreshCoordinator.isCurrent(generation)) return;
   await setRefreshStatus(status);
   broadcast("refresh.progress", status);
-  const [previousFeedSnapshot, previousQualitySnapshot] = await Promise.all([
-    getRecord("feed", { items: [] }),
+  const [rawPreviousFeedSnapshot, previousQualitySnapshot] = await Promise.all([
+    getRecord("feed", { schemaVersion: 3, items: [] }),
     getRecord("source-quality", emptySourceQuality()),
   ]);
+  const previousFeedSnapshot = feedCacheOrEmpty(rawPreviousFeedSnapshot);
   const quality = {};
   const articles = [];
   const replacedSources = [];
@@ -293,18 +266,19 @@ async function performRefresh(generation) {
   const committed = await cacheMutations.run(async (isCurrent) => {
     if (!isCurrent() || !refreshCoordinator.isCurrent(generation)) return null;
     const [previous, previousQuality, previousDigest, feedback] = await Promise.all([
-      getRecord("feed", { items: [] }),
+      getRecord("feed", { schemaVersion: 3, items: [] }),
       getRecord("source-quality", emptySourceQuality()),
       getRecord("daily-digest", null),
       getRecord("feedback", []),
     ]);
     if (!isCurrent() || !refreshCoordinator.isCurrent(generation)) return null;
+    const previousFeed = feedCacheOrEmpty(previous);
     const retained = filterFeedItemsBySources(
-      retainActiveUnrefreshedItems(previous.items, permitted, replacedSources),
+      retainActiveUnrefreshedItems(previousFeed.items, permitted, replacedSources),
       permitted,
       feedPermissions.grantedOrigins,
     );
-    const previousByArticle = new Map((previous.items || []).map((item) => [item.articleId || item.entryKey || item.url, item]));
+    const previousByArticle = new Map(previousFeed.items.map((item) => [item.articleId || item.entryKey || item.url, item]));
     const refreshed = articles.map((item) => preserveCardAiSummary(item, previousByArticle.get(item.articleId || item.entryKey || item.url), settings));
     const items = rankAndDedupe([...refreshed, ...retained], settings.hotNewsCacheSize, {
       feedback,
@@ -312,12 +286,13 @@ async function performRefresh(generation) {
       aiRankingEnabled: aiReadyForRefresh,
       now: Date.now(),
     });
+    const visibleItems = presentableFeedItems(items, settings, aiReadyForRefresh);
     const feed = {
-      schemaVersion: 2,
+      schemaVersion: 3,
       generatedAt: new Date().toISOString(),
       items,
-      localCount: items.filter((item) => !item.externalDiscovery).length,
-      publicCount: items.filter((item) => item.externalDiscovery).length,
+      localCount: visibleItems.filter((item) => !item.externalDiscovery).length,
+      publicCount: visibleItems.filter((item) => item.externalDiscovery).length,
       deniedOrigins: originsFromUrls(denied.map((source) => source.url)),
     };
     const unrefreshedPermittedKeys = new Set(permitted.filter((source) => !refreshSources.includes(source)).map((source) => source.key));
@@ -326,7 +301,7 @@ async function performRefresh(generation) {
       && originPattern(record?.sourceOrigin || "") === feedPermissions.permittedByKey.get(key)
     )));
     const qualitySummary = summarizeQuality({ ...retainedQuality, ...quality }, denied, feedPermissions.sources);
-    const digestCandidates = buildDailyCandidates(items, {
+    const digestCandidates = buildDailyCandidates(visibleItems, {
       limit: 12,
       recentLimit: 3,
       publisherLimit: settings.todayNewsPerPublisherLimit,
@@ -334,7 +309,7 @@ async function performRefresh(generation) {
     });
     const preservedDigest = previousDigest?.locale === locale
       && previousDigest?.date === localDateKey()
-      && digestCachePermitted(previousDigest, items, feedPermissions, settings, aiReadyForRefresh)
+      && digestCachePermitted(previousDigest, visibleItems, feedPermissions, settings, aiReadyForRefresh)
       ? previousDigest
       : withFeedCacheMetadata(buildFallbackDigest(digestCandidates, "local", locale, {
           preselected: true,
@@ -351,7 +326,7 @@ async function performRefresh(generation) {
       },
       { key: "refresh-source-cursor", value: refreshBatch.nextCursor, kind: "state" },
     ]);
-    return { items, needsDigest: Boolean(items.length && aiReadyForRefresh && preservedDigest.status !== "ai") };
+    return { items, needsDigest: Boolean(visibleItems.length && aiReadyForRefresh && preservedDigest.status !== "ai") };
   }, cacheEpoch);
   if (!committed || !refreshCoordinator.isCurrent(generation)) return;
   const automaticRun = await runAutomaticAiAfterRefresh({
@@ -388,20 +363,22 @@ async function runAutomaticAiAfterFailedRefresh(generation) {
     const feedPermissions = await currentFeedPermissionState(settings, model);
     const cacheEpoch = cacheMutations.capture();
     const [feed, digest, aiReady] = await Promise.all([
-      getRecord("feed", { items: [] }),
+      getRecord("feed", { schemaVersion: 3, items: [] }),
       getRecord("daily-digest", null),
       aiConfigured(settings),
     ]);
     if (!refreshCoordinator.isCurrent(generation)) return null;
-    const items = filterFeedItemsBySources(feed.items, feedPermissions.permitted, feedPermissions.grantedOrigins);
-    if (!items.length) return null;
+    const rawFeed = feedCacheOrEmpty(feed);
+    const permittedItems = filterFeedItemsBySources(rawFeed.items, feedPermissions.permitted, feedPermissions.grantedOrigins);
+    const items = presentableFeedItems(permittedItems, settings, aiReady);
+    if (!permittedItems.length) return null;
     const needsDigest = Boolean(aiReady && (
       digest?.status !== "ai"
       || !digestCachePermitted(digest, items, feedPermissions, settings, aiReady)
     ));
     return await runAutomaticAiAfterRefresh({
       settings,
-      items,
+      items: permittedItems,
       needsDigest,
       aiReady,
       cacheEpoch,
@@ -410,108 +387,6 @@ async function runAutomaticAiAfterFailedRefresh(generation) {
   } catch {
     return null;
   }
-}
-
-async function enrichMissingFeedImages(items, { cacheEpoch, generation = null } = {}) {
-  if (typeof fetchSourceImageCandidates !== "function" || typeof hasOriginPermission !== "function") return;
-  const targets = selectFeedImageEnrichmentTargets(items);
-  await mapWithConcurrency(targets, FEED_IMAGE_CONCURRENCY, async (item) => {
-    if (!refreshStillCurrent(generation) || !cacheMutations.isCurrent(cacheEpoch)) return;
-    const record = await loadFeedImageRecord(item, { cacheEpoch, generation });
-    if (record?.outcome === "hit") applyFeedImageRecord(item, record);
-  });
-}
-
-async function loadFeedImageRecord(item, { cacheEpoch, generation = null } = {}) {
-  const requestedUrl = String(item.url || "");
-  const sourceOrigin = safeOrigin(item.sourceOrigin || "");
-  if (!requestedUrl || !sourceOrigin || !sameOrigin(requestedUrl, sourceOrigin)) return null;
-  if (!await hasOriginPermission(requestedUrl)) return null;
-  const cacheKey = `feed-image-v1-${hashText(requestedUrl)}`;
-  const cached = await getRecord(cacheKey, null);
-  if (feedImageCacheFresh(cached, item, Date.now()) && await hasOriginPermission(requestedUrl)) return cached;
-
-  let imageUrls = [];
-  let outcome = "miss";
-  try {
-    imageUrls = await fetchSourceImageCandidates(requestedUrl, {
-      validateResponse: async (response) => {
-        const finalUrl = String(response?.url || requestedUrl);
-        if (!sameOrigin(finalUrl, sourceOrigin) || !await hasOriginPermission(finalUrl)) {
-          const error = new Error("SOURCE_PERMISSION_CHANGED");
-          error.code = "SOURCE_PERMISSION_CHANGED";
-          throw error;
-        }
-      },
-    });
-    outcome = imageUrls.length ? "hit" : "miss";
-  } catch (error) {
-    if (!await hasOriginPermission(requestedUrl)) return null;
-    outcome = "error";
-  }
-  if (!refreshStillCurrent(generation) || !cacheMutations.isCurrent(cacheEpoch)) return null;
-  if (!await hasOriginPermission(requestedUrl) || !sameOrigin(requestedUrl, sourceOrigin)) return null;
-  const record = {
-    strategyVersion: 1,
-    capability: "feed-image",
-    outcome,
-    requestedUrl,
-    sourceKey: String(item.sourceKey || ""),
-    sourceOrigin,
-    imageUrl: imageUrls[0] || "",
-    imageUrls: imageUrls.slice(0, 3),
-    checkedAt: new Date().toISOString(),
-    requiredOrigins: [sourceOrigin],
-  };
-  const stored = await cacheMutations.run(async (isCurrent) => {
-    if (!isCurrent() || !refreshStillCurrent(generation) || !await hasOriginPermission(requestedUrl)) return null;
-    await setRecord(cacheKey, record, "cache");
-    return record;
-  }, cacheEpoch);
-  return stored;
-}
-
-function applyFeedImageRecord(item, record) {
-  const imageUrls = [...new Set((Array.isArray(record.imageUrls) ? record.imageUrls : [record.imageUrl])
-    .map((value) => String(value || "").trim()).filter(Boolean))].slice(0, 3);
-  if (!imageUrls.length) return;
-  item.imageUrl = imageUrls[0];
-  item.imageUrls = imageUrls;
-  item.imageSource = "origin";
-}
-
-function updateImageQualityMetrics(quality, items) {
-  for (const [sourceKey, record] of Object.entries(quality || {})) {
-    const sourceItems = (items || []).filter((item) => String(item.sourceKey || "") === sourceKey);
-    if (!sourceItems.length && Number(record.itemCount || 0) > 0) continue;
-    const imageCount = sourceItems.filter((item) => Boolean(item.imageUrl)).length;
-    quality[sourceKey] = {
-      ...record,
-      imageCount,
-      feedImageCount: sourceItems.filter((item) => item.imageSource === "feed").length,
-      enrichedImageCount: sourceItems.filter((item) => item.imageSource === "origin").length,
-      missingImageCount: Math.max(0, sourceItems.length - imageCount),
-    };
-  }
-}
-
-function imageQualityMetrics(items) {
-  const list = Array.isArray(items) ? items : [];
-  const imageCount = list.filter((item) => Boolean(item.imageUrl)).length;
-  return {
-    imageCount,
-    feedImageCount: list.filter((item) => item.imageSource === "feed").length,
-    enrichedImageCount: list.filter((item) => item.imageSource === "origin").length,
-    missingImageCount: Math.max(0, list.length - imageCount),
-  };
-}
-
-function refreshStillCurrent(generation) {
-  return generation === null || generation === undefined || refreshCoordinator.isCurrent(generation);
-}
-
-function sameOrigin(left, right) {
-  return sameOriginValue(left, right);
 }
 
 async function refreshSource(body = {}) {
@@ -526,12 +401,13 @@ async function refreshSource(body = {}) {
   const source = permissions.permitted.find((candidate) => String(candidate.key || "") === sourceKey);
   if (!source) throw typedError("SOURCE_PERMISSION_REQUIRED", "background.error.sourcePermission", {}, false);
   const [previousFeed, previousQuality, feedback] = await Promise.all([
-    getRecord("feed", { items: [] }),
+    getRecord("feed", { schemaVersion: 3, items: [] }),
     getRecord("source-quality", emptySourceQuality()),
     getRecord("feedback", []),
   ]);
+  const normalizedPreviousFeed = feedCacheOrEmpty(previousFeed);
   const previousRecord = previousQuality.records?.[sourceKey] || {};
-  const previousItems = (previousFeed.items || []).filter((item) => item.sourceKey === sourceKey);
+  const previousItems = normalizedPreviousFeed.items.filter((item) => item.sourceKey === sourceKey);
   let result;
   try {
     result = await fetchSourceArticles(source, {
@@ -604,17 +480,18 @@ async function refreshSource(body = {}) {
   const committed = await cacheMutations.run(async (isCurrent) => {
     if (!isCurrent()) return null;
     const [latestFeed, latestQuality] = await Promise.all([
-      getRecord("feed", previousFeed),
+      getRecord("feed", normalizedPreviousFeed),
       getRecord("source-quality", previousQuality),
     ]);
+    const normalizedLatestFeed = feedCacheOrEmpty(latestFeed);
     const retained = filterFeedItemsBySources(
-      (latestFeed.items || []).filter((item) => item.sourceKey !== sourceKey),
+      normalizedLatestFeed.items.filter((item) => item.sourceKey !== sourceKey),
       permissions.permitted,
       permissions.grantedOrigins,
     );
     const sourceItems = result.outcome === "notModified" || retainPreviousAfterEmpty
       ? filterFeedItemsBySources(
-        (latestFeed.items || []).filter((item) => item.sourceKey === sourceKey),
+        normalizedLatestFeed.items.filter((item) => item.sourceKey === sourceKey),
         permissions.permitted,
         permissions.grantedOrigins,
       )
@@ -630,24 +507,25 @@ async function refreshSource(body = {}) {
       aiRankingEnabled: aiReady,
       now: Date.now(),
     });
+    const visibleItems = presentableFeedItems(items, settings, aiReady);
     const qualitySummary = summarizeQuality({
       ...(latestQuality.records || {}),
       [sourceKey]: nextRecord,
     }, permissions.denied, permissions.sources);
     const locale = settingsLocale(settings);
-    const candidates = buildDailyCandidates(items, {
+    const candidates = buildDailyCandidates(visibleItems, {
       limit: 12,
       recentLimit: 3,
       publisherLimit: settings.todayNewsPerPublisherLimit,
       aiRankingEnabled: aiReady,
     });
     const feed = {
-      ...latestFeed,
-      schemaVersion: 2,
+      ...normalizedLatestFeed,
+      schemaVersion: 3,
       generatedAt: checkedAt,
       items,
-      localCount: items.filter((item) => !item.externalDiscovery).length,
-      publicCount: items.filter((item) => item.externalDiscovery).length,
+      localCount: visibleItems.filter((item) => !item.externalDiscovery).length,
+      publicCount: visibleItems.filter((item) => item.externalDiscovery).length,
       deniedOrigins: originsFromUrls(permissions.denied.map((entry) => entry.url)),
     };
     await setRecords([
@@ -686,18 +564,23 @@ async function runAutomaticAiAfterRefresh({ settings, items, needsDigest, aiRead
   const quota = await readQuota(settings.dailyAiLimit);
   const locale = settingsLocale(settings);
   const remainingQuota = Math.max(0, settings.dailyAiLimit - quota.used);
-  const availableCards = settings.cardSummaryEnabled
-    ? items.filter((item) => !isCurrentCardSummary(item, locale) && String(item.excerpt || "").trim()).length
-    : 0;
-  const digestEligible = needsDigest && remainingQuota > 0;
-  const cardEligible = Math.min(availableCards, Math.max(0, remainingQuota - Number(digestEligible)));
-  const total = Number(digestEligible) + cardEligible;
-  const hasPendingWork = needsDigest || availableCards > 0;
+  const requiredCandidates = automaticSummaryCandidates(items, locale, "required");
+  const optionalCandidates = settings.cardSummaryEnabled
+    ? automaticSummaryCandidates(items, locale, "optional")
+    : [];
+  const requiredEligible = Math.min(requiredCandidates.length, remainingQuota);
+  const digestEligible = (needsDigest || requiredEligible > 0) && remainingQuota > requiredEligible;
+  const optionalEligible = Math.min(
+    optionalCandidates.length,
+    Math.max(0, remainingQuota - requiredEligible - Number(digestEligible)),
+  );
+  const total = requiredEligible + Number(digestEligible) + optionalEligible;
+  const hasPendingWork = requiredCandidates.length > 0 || needsDigest || optionalCandidates.length > 0;
   const startedAt = new Date().toISOString();
   const base = {
     processed: 0,
     total,
-    eligible: cardEligible,
+    eligible: requiredEligible + optionalEligible,
     startedAt,
     lastRunAt: previous.lastRunAt || "",
     errorKey: "",
@@ -718,13 +601,45 @@ async function runAutomaticAiAfterRefresh({ settings, items, needsDigest, aiRead
   }
 
   let processed = 0;
-  let phase = digestEligible ? "running-digest" : "running-cards";
+  let phase = requiredEligible ? "running-cards" : digestEligible ? "running-digest" : "running-cards";
   let errorKey = "";
   let errorParams = {};
   let errorStage = "";
   await setAiAutoStatus({ ...base, phase, running: true });
 
-  if (digestEligible && refreshCoordinator.isCurrent(generation)) {
+  if (requiredEligible && refreshCoordinator.isCurrent(generation)) {
+    const automatic = await automaticallySummarizeCards(
+      settings,
+      items,
+      cacheEpoch,
+      generation,
+      requiredEligible,
+      async (cardProcessed) => {
+        await setAiAutoStatus({ ...base, phase: "running-cards", running: true, processed: processed + cardProcessed });
+      },
+      { mode: "required" },
+    );
+    items = automatic.items;
+    processed += automatic.processed;
+    if (automatic.quotaReached
+      || automatic.processed < requiredEligible
+      || requiredCandidates.length > automatic.processed) phase = "quota";
+    if (automatic.errorKey) {
+      errorKey = automatic.errorKey;
+      errorParams = automatic.errorParams || {};
+      errorStage = "cards";
+    }
+  }
+
+  const digestRequiredAfterLocalization = needsDigest || processed > 0;
+  const remainingAfterRequired = Math.max(0, remainingQuota - processed);
+  if (!errorKey
+    && phase !== "quota"
+    && digestRequiredAfterLocalization
+    && remainingAfterRequired > 0
+    && refreshCoordinator.isCurrent(generation)) {
+    phase = "running-digest";
+    await setAiAutoStatus({ ...base, phase, running: true, processed });
     const digest = await refreshDailyDigest({ automatic: true });
     if (digest.status === "ai") processed += 1;
     else if (digest.status === "quota-or-empty") phase = "quota";
@@ -735,12 +650,25 @@ async function runAutomaticAiAfterRefresh({ settings, items, needsDigest, aiRead
     }
   }
 
-  if (phase !== "quota" && cardEligible && refreshCoordinator.isCurrent(generation)) {
+  const remainingAfterDigest = Math.max(0, remainingQuota - processed);
+  const optionalLimit = Math.min(optionalCandidates.length, remainingAfterDigest);
+  if ((!errorKey || errorStage === "digest")
+    && phase !== "quota"
+    && optionalLimit
+    && refreshCoordinator.isCurrent(generation)) {
     phase = "running-cards";
     await setAiAutoStatus({ ...base, phase, running: true, processed });
-    const automatic = await automaticallySummarizeCards(settings, items, cacheEpoch, generation, cardEligible, async (cardProcessed) => {
-      await setAiAutoStatus({ ...base, phase, running: true, processed: processed + cardProcessed });
-    });
+    const automatic = await automaticallySummarizeCards(
+      settings,
+      items,
+      cacheEpoch,
+      generation,
+      optionalLimit,
+      async (cardProcessed) => {
+        await setAiAutoStatus({ ...base, phase, running: true, processed: processed + cardProcessed });
+      },
+      { mode: "optional" },
+    );
     items = automatic.items;
     processed += automatic.processed;
     if (automatic.quotaReached) phase = "quota";
@@ -768,7 +696,30 @@ async function runAutomaticAiAfterRefresh({ settings, items, needsDigest, aiRead
   return { items, errorKey, errorParams, errorStage };
 }
 
-async function automaticallySummarizeCards(settings, items, cacheEpoch, generation, candidateLimit, onProgress = null) {
+function requiresCrossLanguageLocalization(item, locale) {
+  return item?.externalDiscovery === true
+    && Boolean(String(item?.contentLocale || "").trim())
+    && String(item.contentLocale) !== String(locale);
+}
+
+function automaticSummaryCandidates(items, locale, mode) {
+  return (Array.isArray(items) ? items : []).filter((item) => {
+    if (isCurrentCardSummary(item, locale)) return false;
+    const required = requiresCrossLanguageLocalization(item, locale);
+    if (mode === "required") return required && Boolean(String(item?.title || item?.excerpt || "").trim());
+    return !required && Boolean(String(item?.excerpt || "").trim());
+  });
+}
+
+async function automaticallySummarizeCards(
+  settings,
+  items,
+  cacheEpoch,
+  generation,
+  candidateLimit,
+  onProgress = null,
+  { mode = "optional" } = {},
+) {
   if (!await aiConfigured(settings)) return { items, errorKey: "", errorParams: {}, processed: 0, eligible: 0, quotaReached: false };
   const locale = settingsLocale(settings);
   let currentItems = items;
@@ -776,10 +727,7 @@ async function automaticallySummarizeCards(settings, items, cacheEpoch, generati
   let errorParams = {};
   let processed = 0;
   let quotaReached = false;
-  const candidates = items.filter((item) => (
-    !isCurrentCardSummary(item, locale)
-    && String(item.excerpt || "").trim()
-  )).slice(0, candidateLimit);
+  const candidates = automaticSummaryCandidates(items, locale, mode).slice(0, candidateLimit);
 
   for (const candidate of candidates) {
     if (!cacheMutations.isCurrent(cacheEpoch) || !refreshCoordinator.isCurrent(generation)) break;
@@ -815,12 +763,17 @@ async function automaticallySummarizeCards(settings, items, cacheEpoch, generati
       errorKey = "background.error.aiNoText";
       break;
     }
+    if (!localizedSummaryMatchesLocale(organized.title, organized.summary, locale)) {
+      errorKey = "background.error.aiWrongLanguage";
+      break;
+    }
     const summarizedAt = new Date().toISOString();
     const providerOrigin = safeOrigin(settings.openaiBaseUrl);
     const committedItem = await cacheMutations.run(async (isCurrent) => {
       if (!isCurrent() || !refreshCoordinator.isCurrent(generation)) return null;
       const latestSettings = await getSettings();
-      if (!latestSettings.cardSummaryEnabled || !await aiConfigured(latestSettings)) return null;
+      if ((mode !== "required" && !latestSettings.cardSummaryEnabled) || !await aiConfigured(latestSettings)) return null;
+      if (settingsLocale(latestSettings) !== locale) return null;
       if (safeOrigin(latestSettings.openaiBaseUrl) !== providerOrigin) return null;
       const latestModel = latestSettings.bookmarkConsentGranted ? await currentBookmarkModel(latestSettings) : emptyBookmarkModel();
       const latestPermissions = await currentFeedPermissionState(latestSettings, latestModel);
@@ -834,7 +787,14 @@ async function automaticallySummarizeCards(settings, items, cacheEpoch, generati
         return updatedItem;
       });
       if (!updatedItem || !isCurrent()) return null;
-      await setRecord("feed", { ...feed, items: updatedItems }, "cache");
+      const visibleItems = presentableFeedItems(updatedItems, latestSettings, true);
+      await setRecord("feed", {
+        ...feed,
+        schemaVersion: 3,
+        items: updatedItems,
+        localCount: visibleItems.filter((item) => !item.externalDiscovery).length,
+        publicCount: visibleItems.filter((item) => item.externalDiscovery).length,
+      }, "cache");
       return updatedItem;
     }, cacheEpoch);
     if (!committedItem) break;
@@ -843,40 +803,6 @@ async function automaticallySummarizeCards(settings, items, cacheEpoch, generati
     if (typeof onProgress === "function") await onProgress(processed);
   }
   return { items: currentItems, errorKey, errorParams, processed, eligible: candidates.length, quotaReached };
-}
-
-function automaticCardSummaryContext(candidate) {
-  return {
-    text: String(candidate.excerpt || "").trim().slice(0, CARD_SUMMARY_EXCERPT_MAX_CHARS),
-    origins: [],
-  };
-}
-
-function preserveCardAiSummary(item, previous, settings) {
-  const locale = settingsLocale(settings);
-  if (!isCurrentCardSummary(previous, locale) || !previous.summaryTitle || !Array.isArray(previous.summary) || !previous.summary.length) return item;
-  if (originPattern(previous.summaryProviderOrigin || "") !== originPattern(settings.openaiBaseUrl)) return item;
-  return {
-    ...item,
-    summaryTitle: previous.summaryTitle,
-    summary: previous.summary,
-    summaryStatus: "ai",
-    summaryPolicyVersion: cardSummaryPolicyVersion,
-    summaryLocale: locale,
-    summarizedAt: previous.summarizedAt || "",
-    summaryProviderOrigin: previous.summaryProviderOrigin,
-  };
-}
-
-function sanitizeCardAiSummaries(items, settings, configuredForAi) {
-  const locale = settingsLocale(settings);
-  return (items || []).map((item) => {
-    if (item.summaryStatus !== "ai") return item;
-    if (configuredForAi && isCurrentCardSummary(item, locale) && originPattern(item.summaryProviderOrigin || "") === originPattern(settings.openaiBaseUrl)) return item;
-    const { summarizedAt, summaryPolicyVersion, summaryLocale, summaryProviderOrigin, summaryTitle, ...rest } = item;
-    const excerpt = String(item.excerpt || "").trim();
-    return { ...rest, summary: excerpt ? [excerpt] : [], summaryStatus: excerpt ? "excerpt" : "raw" };
-  });
 }
 
 async function refreshDailyDigest({ automatic = false } = {}) {
@@ -888,7 +814,8 @@ async function refreshDailyDigest({ automatic = false } = {}) {
   const feedPermissions = await currentFeedPermissionState(settings, model);
   const permittedItems = filterFeedItemsBySources(feed.items, feedPermissions.permitted, feedPermissions.grantedOrigins);
   const configuredForAi = await aiConfigured(settings);
-  const contextItems = buildDailyCandidates(permittedItems, {
+  const visibleItems = presentableFeedItems(permittedItems, settings, configuredForAi);
+  const contextItems = buildDailyCandidates(visibleItems, {
     limit: 12,
     recentLimit: 3,
     publisherLimit: settings.todayNewsPerPublisherLimit,
@@ -900,7 +827,7 @@ async function refreshDailyDigest({ automatic = false } = {}) {
   }), contextItems, "daily-digest");
   if (contextItems.length && cacheMutations.isCurrent(cacheEpoch) && configuredForAi) {
     const eventItems = new Map();
-    for (const item of permittedItems) {
+    for (const item of visibleItems) {
       const eventId = String(item.eventId || "");
       if (!eventId) continue;
       if (!eventItems.has(eventId)) eventItems.set(eventId, []);
@@ -1000,7 +927,7 @@ async function refreshSingleSummary(body) {
   if (!target || !permittedSourceOrigin || permittedSourceOrigin !== originPattern(target.sourceOrigin || "")) {
     return resultMessage(settings, false, "background.error.sourceNotFound");
   }
-  const excerptText = String(target.excerpt || "").trim().slice(0, CARD_SUMMARY_EXCERPT_MAX_CHARS);
+  const excerptText = automaticCardSummaryContext(target).text;
   if (!excerptText) throw typedError("SUMMARY_CONTENT_MISSING", "summary.status.noContent", {}, false);
   const summaryText = await callProvider(
     settings,
@@ -1016,6 +943,9 @@ async function refreshSingleSummary(body) {
   );
   const organized = generatedCardSummary(summaryText);
   if (!organized.title || !organized.summary.length) throw typedError("AI_EMPTY_RESPONSE", "background.error.aiNoText", {}, true);
+  if (!localizedSummaryMatchesLocale(organized.title, organized.summary, locale)) {
+    throw typedError("AI_WRONG_LANGUAGE", "background.error.aiWrongLanguage", {}, true);
+  }
   const committed = await cacheMutations.run(async (isCurrent) => {
     if (!isCurrent()) return null;
     const latestSettings = await getSettings();
@@ -1023,7 +953,7 @@ async function refreshSingleSummary(body) {
     const latestModel = await currentBookmarkModel(latestSettings);
     const latestPermissions = await currentFeedPermissionState(latestSettings, latestModel);
     if (!isCurrent() || latestPermissions.permittedByKey.get(String(target.sourceKey || "")) !== permittedSourceOrigin) return null;
-    const previous = await getRecord("feed", { items: [] });
+    const previous = feedCacheOrEmpty(await getRecord("feed", null));
     if (settingsLocale(latestSettings) !== locale) return null;
     const permittedPrevious = filterFeedItemsBySources(previous.items || [], latestPermissions.permitted, latestPermissions.grantedOrigins);
     const items = permittedPrevious.map((item) => (
@@ -1043,12 +973,14 @@ async function refreshSingleSummary(body) {
         : item
     ));
     if (!items.some((item) => item.summaryStatus === "ai" && item.url === target.url)) return null;
+    const visibleItems = presentableFeedItems(items, latestSettings, true);
     const feed = {
       ...previous,
+      schemaVersion: 3,
       generatedAt: new Date().toISOString(),
       items,
-      localCount: items.filter((item) => !item.externalDiscovery).length,
-      publicCount: items.filter((item) => item.externalDiscovery).length,
+      localCount: visibleItems.filter((item) => !item.externalDiscovery).length,
+      publicCount: visibleItems.filter((item) => item.externalDiscovery).length,
       deniedOrigins: originsFromUrls(latestPermissions.denied.map((item) => item.url)),
     };
     if (!isCurrent()) return null;
@@ -1057,7 +989,7 @@ async function refreshSingleSummary(body) {
       {
         key: "daily-digest",
         value: (() => {
-          const candidates = buildDailyCandidates(items, {
+          const candidates = buildDailyCandidates(visibleItems, {
             limit: 12,
             recentLimit: 3,
             publisherLimit: latestSettings.todayNewsPerPublisherLimit,
@@ -1079,21 +1011,4 @@ async function refreshSingleSummary(body) {
   return { ok: true, locale, item: target, quota: { usedToday: quota.used, dailyLimit: settings.dailyAiLimit } };
 }
 
-function generatedCardSummary(value) {
-  const text = String(value || "").trim();
-  if (!text) return { title: "", summary: [] };
-  const rawLines = text.split(/\n+/).map((line) => line.trim()).filter(Boolean);
-  const title = rawLines.map((line) => extractGeneratedSummaryTitle(line)).find(Boolean) || "";
-  const lines = rawLines.map(cleanGeneratedSummaryLine).filter(Boolean);
-  const summaryLines = lines.length > 1
-    ? lines.slice(0, 3)
-    : (lines[0]?.match(/[^。！？.!?]+[。！？.!?]?/g) || lines).map((line) => line.trim()).filter(Boolean).slice(0, 3);
-  return { title, summary: limitGeneratedSummaryLines(summaryLines, CARD_SUMMARY_MAX_CHARS, 3) };
-}
-
-function isCurrentCardSummary(item, locale = "") {
-  return item?.summaryStatus === "ai"
-    && item?.summaryPolicyVersion === cardSummaryPolicyVersion
-    && (!locale || item?.summaryLocale === locale);
-}
 }

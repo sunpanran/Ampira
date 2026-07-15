@@ -19,8 +19,8 @@ const manifest = JSON.parse(await fs.readFile(path.join(root, "manifest.json"), 
 
 assert.equal(manifest.manifest_version, 3);
 assert.equal(manifest.chrome_url_overrides.newtab, "dashboard.html");
-assert.equal(manifest.action.default_popup, undefined, "the toolbar action must use onClicked without a tab-reading popup");
-assert.deepEqual(manifest.permissions.sort(), ["alarms", "bookmarks", "storage"]);
+assert.equal(manifest.action.default_popup, "action-popup.html", "the toolbar action must open a visible capture confirmation popup");
+assert.deepEqual(manifest.permissions.sort(), ["activeTab", "alarms", "bookmarks", "storage"]);
 assert.deepEqual([...(manifest.optional_permissions || [])].sort(), ["favicon"], "website icons must use an optional named permission so upgrades do not disable existing installs");
 for (const forbidden of ["tabs", "history", "scripting", "webRequest", "management", "unlimitedStorage"]) {
   assert(!manifest.permissions.includes(forbidden), `manifest must not request ${forbidden}`);
@@ -35,6 +35,18 @@ assert(!/unsafe-(?:eval|inline)/.test(extensionCsp), "extension CSP must not all
 const cspDirectives = new Map(extensionCsp.split(";").map((directive) => directive.trim().split(/\s+/)).filter((parts) => parts[0]).map(([name, ...values]) => [name, values]));
 assert.deepEqual(cspDirectives.get("script-src"), ["'self'"], "extension scripts must only come from the package");
 assert(cspDirectives.get("img-src")?.includes("'self'"), "the native favicon endpoint must remain available as a same-extension image");
+
+const actionPopupHtml = await fs.readFile(path.join(root, "action-popup.html"), "utf8");
+const actionPopupSource = await fs.readFile(path.join(root, "assets/client/action-popup.mjs"), "utf8");
+const actionPopupCss = await fs.readFile(path.join(root, "assets/styles/action-popup.css"), "utf8");
+assert(actionPopupHtml.includes('role="status"') && actionPopupHtml.includes('aria-live="polite"'), "the capture popup must announce its result accessibly");
+assert(actionPopupHtml.includes('src="assets/client/action-popup.mjs"'), "the capture popup must execute only its packaged module");
+assert(actionPopupSource.includes("chrome.tabs.query({ active: true, currentWindow: true })"), "the popup must read only the actively invoked tab");
+assert(actionPopupSource.includes('sendExtensionRequest({ type: "settings:get" })'), "the popup must follow Ampira's saved locale and color mode");
+assert(actionPopupSource.includes('type: "reading-queue:capture-current"'), "the popup must route captures through the service worker");
+assert(actionPopupSource.includes('import { createThemedIcon } from "./icons.mjs"') && actionPopupSource.includes('icon: "check"') && actionPopupSource.includes('icon: "info-circle"'), "popup controls and states must use the shared local icon library");
+assert(actionPopupSource.includes("textContent") && !actionPopupSource.includes("innerHTML"), "captured page metadata must remain inert text");
+assert(actionPopupCss.includes("--popup-warning: #F4C95D") && !actionPopupCss.includes("var(--red)"), "popup warnings must use the reviewed amber state instead of red");
 
 assert.equal(DEFAULT_LOCALE, "zh-CN");
 assert.deepEqual(SUPPORTED_LOCALES, ["en", "zh-CN", "zh-Hant"]);
@@ -63,6 +75,7 @@ assert.equal(DEFAULT_SETTINGS.colorMode, "dark", "appearance must default to dar
 assert.equal(DEFAULT_SETTINGS.headerImageEnabled, true, "the header image must be enabled by default");
 assert.equal(DEFAULT_SETTINGS.headerImageBlurEnabled, false, "header-image blur must be opt-in");
 assert.equal(DEFAULT_SETTINGS.headerImageBlurAmount, 12, "header-image blur must remember a useful default amount");
+assert.equal(DEFAULT_SETTINGS.headerImageHeightScale, 100, "header-image height must preserve the existing responsive default");
 assert.equal(truncateText("标题", 4), "标题");
 assert.equal(truncateText("这是一个过长标题", 5), "这是一个…");
 assert.equal(textLength(truncateText("😀😀😀😀", 3)), 3, "text caps must count Unicode characters without splitting emoji");
@@ -81,7 +94,7 @@ assert.equal(hasStructuralSummaryPrefix(normalizeSummaryMarkup("**核心内容**
 assert.equal(extractGeneratedSummaryTitle("**标题：AI 精炼标题**"), "AI 精炼标题");
 assert.equal(extractGeneratedSummaryTitle(`标题：${"长".repeat(80)}`).length, 64, "generated card titles must be capped before caching");
 assert.equal(cleanGeneratedSummaryLine("标题：AI 精炼标题"), "", "generated title rows must not leak into summary text");
-assert.equal(CARD_SUMMARY_POLICY_VERSION, 4);
+assert.equal(CARD_SUMMARY_POLICY_VERSION, 5);
 const boundedCardSummary = limitGeneratedSummaryLines(["甲".repeat(120), "乙".repeat(120), "丙".repeat(120), "丁".repeat(20)], 280, 3);
 assert.equal(boundedCardSummary.length, 3, "card summaries must retain at most three information-dense paragraphs");
 assert.equal([...boundedCardSummary.join("")].length, 280, "card summaries must enforce the 280-character cache boundary");
@@ -100,6 +113,8 @@ assert.equal(
   "dashboard questions must expose only the user-facing answer from legacy structured responses",
 );
 assert.equal(DEFAULT_SETTINGS.floatingWebOpenEnabled, false, "in-app reading must be opt-in by default");
+assert.equal(DEFAULT_SETTINGS.retainSeenArchive, true, "viewed items must remain archived by default");
+assert.equal(DEFAULT_SETTINGS.personalizedRankingEnabled, false, "personalized ranking must be opt-in by default");
 
 const permissionUiRows = [
   { origin: "https://allowed.example/*", required: true, granted: true },
@@ -171,6 +186,8 @@ for (const id of [
   "sourcePermissionSummary",
   "headerImageBlurEnabledInput",
   "headerImageBlurAmountInput",
+  "headerImageHeightInput",
+  "headerImageLocalInput",
   "headerImageFullscreenInput",
   "saveSettings",
 ]) {
@@ -184,8 +201,20 @@ assert(!dashboardSource.slice(0, servicePanelStart).includes('id="settingsOvervi
 const browserPanelStart = dashboardSource.indexOf('<div class="settings-panel" data-settings-panel="browser">');
 const exclusionsPanelStart = dashboardSource.indexOf('<div class="settings-panel" data-settings-panel="exclusions">');
 const browserPanelSource = dashboardSource.slice(browserPanelStart, exclusionsPanelStart);
+const bookmarksPanelStart = dashboardSource.indexOf('<div class="settings-panel" data-settings-panel="bookmarks">');
+const appearancePanelStart = dashboardSource.indexOf('<div class="settings-panel" data-settings-panel="appearance">');
+const bookmarksPanelSource = dashboardSource.slice(bookmarksPanelStart, appearancePanelStart);
+const cacheFetchStart = dashboardSource.indexOf('aria-labelledby="cacheFetchTitle"');
+const sourceCoverageStart = dashboardSource.indexOf('aria-labelledby="sourceCoverageTitle"');
+const cacheAdvancedStart = dashboardSource.indexOf('aria-labelledby="cacheAdvancedTitle"');
+const cacheMaintenanceStart = dashboardSource.indexOf('aria-labelledby="cacheMaintenanceTitle"');
+const cacheFetchSource = dashboardSource.slice(cacheFetchStart, sourceCoverageStart);
+const cacheAdvancedSource = dashboardSource.slice(cacheAdvancedStart, cacheMaintenanceStart);
 assert(!/<input[^>]+(?:id|name)="[^"]*(?:new.?tab|override)[^"]*"/i.test(browserPanelSource), "browser integration must not expose a fake writable new-tab toggle");
-assert(browserPanelSource.includes('id="websiteShortcutsEnabledInput"'), "browser settings must expose the website-shortcut module switch explicitly");
+assert(bookmarksPanelSource.includes('id="websiteShortcutsEnabledInput"'), "bookmark settings must expose the quick-bookmark module switch explicitly");
+assert(!browserPanelSource.includes('id="websiteShortcutsEnabledInput"'), "browser settings must not retain quick-bookmark management");
+assert(!cacheFetchSource.includes('id="personalizedRankingEnabledInput"'), "fetch settings must not expose the advanced personalization switch");
+assert(cacheAdvancedSource.includes('<input id="personalizedRankingEnabledInput" type="checkbox">'), "advanced settings must expose personalized ranking with an unchecked first-frame default");
 assert(dashboardSource.includes('id="sourcePermissionSummary"'), "website access must expose a visible settings-page status");
 assert(dashboardSource.includes('id="sourceCoverageSummary"') && dashboardSource.includes('id="sourceCoverageList"'), "news settings must expose source coverage and per-source diagnostics");
 assert(!dashboardSource.includes('id="sourceCoverageStatus"') && !dashboardSource.includes('id="bookmarkSourceStatus"'), "settings must not repeat source summaries beside the controls that already show them");
@@ -195,12 +224,13 @@ assert(dashboardSource.includes('data-i18n="settings.cache.clearHelp"')
   && dashboardSource.includes('data-i18n="settings.sync.security"'), "copy cleanup must retain cache, bookmark, and secret-storage consequences");
 const sourceCoverageControllerSource = await fs.readFile(path.join(root, "assets", "client", "source-coverage-controller.mjs"), "utf8");
 assert(!sourceCoverageControllerSource.includes("settings.sources.method."), "source status rows must not expose internal extraction methods");
-assert(sourceCoverageControllerSource.includes('chrome.permissions.request({ origins: [pattern] })'), "cross-origin Feed discovery must require a direct user-gesture permission request");
+assert(sourceCoverageControllerSource.includes("await requestOrigins([pattern])"), "cross-origin Feed discovery must require a direct user-gesture permission request through the shared permission client");
 assert(sourceCoverageControllerSource.includes('apiPost("/api/feed/source/refresh", { sourceKey })'), "source diagnostics must support a scoped source retry");
 const refreshServiceSource = await fs.readFile(path.join(root, "extension", "runtime", "refresh-service.mjs"), "utf8");
 assert(/return\s*\{[\s\S]{0,160}\brefreshSource\b/.test(refreshServiceSource), "the refresh service factory must expose the scoped source refresh route");
-assert.equal((dashboardSource.match(/class="ai-service-group"/g) || []).length, 2, "AI settings must separate provider configuration from optional image search");
-assert(dashboardSource.includes('class="ai-image-layout"') && dashboardSource.includes('class="ai-image-controls"'), "optional image-search controls must have a dedicated responsive layout");
+assert.equal((dashboardSource.match(/class="ai-service-group"/g) || []).length, 2, "AI settings must separate provider configuration from optional image search without adding a second Feed permission path");
+assert(!dashboardSource.includes('id="aiFeedAccessGroup"') && !dashboardSource.includes('id="grantAiFeedOrigins"'), "cross-language Feed domains must use the existing initial source-permission flow");
+assert(dashboardSource.includes('class="credential-panel ai-image-layout"') && dashboardSource.includes('class="ai-image-actions"'), "optional image-search controls must use a grouped credential layout with responsive actions");
 assert(!dashboardSource.includes('id="refreshPermissionStatus"'), "website access must sync automatically without a no-op refresh button");
 assert(dashboardSource.includes('id="toggleFaviconPermission"'), "existing users must be able to manage the optional favicon permission in settings");
 assert(!dashboardSource.includes('data-permission="favicon"'), "onboarding must not duplicate the favicon permission action beside the combined primary action");
@@ -213,6 +243,7 @@ assert(dashboardSource.indexOf('id="onboardingNewsFolder"') < dashboardSource.in
 assert(!dashboardSource.includes('id="onboardingApiKey"') && !dashboardSource.includes('id="finishOnboarding"'), "AI credentials and the redundant summary screen must stay out of onboarding");
 assert(dashboardSource.includes('id="onboardingSkipFolders"') && dashboardSource.includes('id="onboardingSkipPermissions"'), "folder selection and optional website access must both remain skippable");
 const permissionUiSource = await fs.readFile(path.join(root, "assets", "client", "extension-ui.mjs"), "utf8");
+assert(!permissionUiSource.includes('createIcon("key-01", "source-permission-icon")'), "website permission rows must not repeat the section key icon for every origin");
 assert(permissionUiSource.includes("newsSourceMode,")
   && permissionUiSource.includes("inspirationSourceMode,"), "onboarding news and inspiration source choices must persist through the settings boundary");
 assert(permissionUiSource.includes('INSPIRATION_PRESET_VALUE') && permissionUiSource.includes('inspirationBookmarkValue(item.name)'), "onboarding must build the fixed preset option before encoded personal-folder options");
@@ -232,9 +263,14 @@ const aiFieldsetStart = dashboardSource.indexOf('<fieldset class="ai-provider-fi
 const aiFieldsetEnd = dashboardSource.indexOf("</fieldset>", aiFieldsetStart);
 assert(aiFieldsetStart > 0 && aiFieldsetEnd > aiFieldsetStart, "AI provider controls must use a semantic fieldset");
 assert(dashboardSource.slice(aiFieldsetStart, aiFieldsetEnd).includes(" disabled"), "AI provider fields must start locked before permission state hydrates");
+assert(dashboardSource.slice(aiFieldsetStart, aiFieldsetEnd).includes(" hidden"), "AI provider fields must stay hidden before permission state hydrates");
 assert(dashboardSource.slice(aiFieldsetStart, aiFieldsetEnd).includes('aria-describedby="aiFormAccessStatus"'), "locked AI fields must reference the live setup status");
+const aiPermissionControllerSource = await fs.readFile(path.join(root, "assets", "client", "ai-permission-controller.mjs"), "utf8");
+assert(aiPermissionControllerSource.includes("els.aiProviderFields.hidden = !aiSetupState.formUnlocked"), "AI provider fields must become visible only after the current provider origin is authorized");
 assert(dashboardSource.indexOf('id="apiBaseUrlInput"') < aiFieldsetStart, "the provider URL must remain available before the gated AI fields");
 assert(dashboardSource.indexOf('id="clearKey"') < aiFieldsetStart, "credential removal must remain available outside the gated AI fields");
+assert(dashboardSource.indexOf('id="testKey"') < dashboardSource.indexOf('id="clearKey"'), "connection testing must sit immediately before credential removal in the visible provider actions");
+assert(aiPermissionControllerSource.includes("els.testKey.disabled = busy || !readyToTest"), "connection testing outside the gated fieldset must require an authorized provider, credential policy, and model");
 assert(dashboardSource.indexOf('id="grantBraveOrigin"') > aiFieldsetEnd, "Brave authorization must remain independent of the AI provider gate");
 
 for (const file of ["assets/client/api.mjs", "assets/client/extension-ui.mjs"]) {

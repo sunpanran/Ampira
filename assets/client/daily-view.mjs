@@ -3,6 +3,14 @@ import { createDailyCardView } from "./daily-card-view.mjs";
 import { animatePanelEntrance } from "./dom.mjs";
 import { orderPresetInspiration } from "./inspiration-preset-selection.mjs";
 
+export function shouldShowColumnAction(column) {
+  const type = column?.action;
+  if (!type) return false;
+  if (type === "clearSeen") return Boolean(column.items?.length);
+  if (type === "reshuffle") return Number(column.pageInfo?.pageCount) > 1;
+  return true;
+}
+
 export function createDailyView(options) {
   const {
     state, els, t, tc, itemUrl, displayTitle, displaySummaryTitle, summaryText,
@@ -13,13 +21,17 @@ export function createDailyView(options) {
     writeValue, writeJson, readJson, pageForItems, shuffle,
     dailyNewsCount, dailyNewsBatchLimit, dailyInspirationCount,
     dailyInspirationBatchLimit, updateInspirationPreloadTimeoutMs,
-    dailyBoardCardSelector, cardExitMs, cardEnterMs, newsCardType,
+    dailyBoardCardSelector, newsCardType,
     inspirationCardType, bookmarkCardType, legacyNewsSection,
     legacyInspirationSection,
     createNewsRanker, createSeenButton, displayBookmarkTitle, localizedCategory,
     mergeRankedUnique, selectTodayNewsItems, selectUnseenPool, openExternal, persistSeen, renderAll,
-    renderTodayMeta, setIconLabel,
+    renderTodayMeta, setIconLabel, localizedStatusMessage, cardTransition,
   } = options;
+  const {
+    animateCardsIn, animateCardsOut, canReuseCard, clearCardAnimationState,
+    prefersReducedMotion, setCardItemIdentity,
+  } = cardTransition;
   let dailyBoardRenderToken = 0;
   const {
     activateCardFromKeyboard,
@@ -79,13 +91,14 @@ function renderDailyBoard(nodes, options = {}) {
   if (board.dataset.loading === "true") {
     delete board.dataset.loading;
     board.replaceChildren(...nodes);
-    animatePanelEntrance(nodes, { delay: 60 });
-    animateCardsIn(dailyBoardCards(board));
+    if (state.data?.onboarding?.completed !== false) {
+      animatePanelEntrance(nodes.flatMap((column) => Array.from(column.children)), { delay: 0 });
+    }
     return;
   }
   if (!board.children.length || prefersReducedMotion()) {
     board.replaceChildren(...nodes);
-    animateCardsIn(dailyBoardCards(board));
+    animateDailyBoardColumns(board);
     return;
   }
   syncDailyBoardColumns(board, nodes, token);
@@ -193,72 +206,12 @@ function directDailyCards(root) {
   return Array.from(root.children).filter((node) => node.matches?.(dailyBoardCardSelector));
 }
 
-function animateCardsOut(cards) {
-  let longest = cardExitMs;
-  cards.forEach((card) => {
-    const delay = 0;
-    longest = Math.max(longest, delay + cardExitMs);
-    card.classList.remove("is-entering");
-    card.classList.add("is-leaving");
-    card.style.setProperty("--card-motion-delay", `${delay}ms`);
-    card.style.setProperty("--card-motion-duration", `${cardExitMs}ms`);
-  });
-  return longest;
-}
-
-function animateCardsIn(cards) {
-  if (prefersReducedMotion()) return;
-  cards.forEach((card, index) => {
-    const delay = Math.min(index * 12, 84);
-    card.classList.remove("is-leaving");
-    card.classList.add("is-entering");
-    card.style.setProperty("--card-motion-delay", `${delay}ms`);
-    card.style.setProperty("--card-motion-duration", `${cardEnterMs}ms`);
-    card.addEventListener("animationend", () => {
-      card.classList.remove("is-entering");
-      card.style.removeProperty("--card-motion-delay");
-      card.style.removeProperty("--card-motion-duration");
-    }, { once: true });
-  });
-}
-
-function clearCardAnimationState(card) {
-  card.classList.remove("is-entering", "is-leaving");
-  card.style.removeProperty("--card-motion-delay");
-  card.style.removeProperty("--card-motion-duration");
-}
-
-function setCardItemIdentity(card, item) {
-  card.dataset.key = String(item?.key || "");
-  card.dataset.itemVersion = cardItemVersion(item);
-}
-
-function canReuseCard(currentCard, nextCard) {
-  return Boolean(nextCard.dataset.itemVersion)
-    && currentCard.dataset.itemVersion === nextCard.dataset.itemVersion
-    && currentCard.isEqualNode(nextCard);
-}
-
-function cardItemVersion(item) {
-  let text;
-  try {
-    text = JSON.stringify(item) || "";
-  } catch {
-    return "";
-  }
-  let hash = 2166136261;
-  for (let index = 0; index < text.length; index += 1) {
-    hash ^= text.charCodeAt(index);
-    hash = Math.imul(hash, 16777619);
-  }
-  return (hash >>> 0).toString(36);
-}
-
-function prefersReducedMotion() {
-  return window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches === true;
+function animateDailyBoardColumns(board) {
+  Array.from(board.children).forEach((column) => animateCardsIn(dailyBoardCards(column)));
 }
 
 function createDailyColumnEmptyState(column) {
+  if (column.id === "news" && state.data?.status?.running === true) return createDailyNewsCachingState();
   const emptyStates = {
     news: {
       title: t("daily.empty.newsTitle"),
@@ -280,6 +233,44 @@ function createDailyColumnEmptyState(column) {
     }),
     variant: ["news", "inspiration", "archive"].includes(column.id) ? "compact" : "panel",
   });
+}
+
+function createDailyNewsCachingState() {
+  const status = state.data?.status || {};
+  const rawProgress = Number(status.progress);
+  const progress = Number.isFinite(rawProgress) ? Math.min(1, Math.max(0, rawProgress)) : 0;
+  const percent = Math.round(progress * 100);
+  const node = document.createElement("div");
+  node.className = "empty-state is-compact is-loading news-cache-state";
+  node.setAttribute("role", "status");
+  node.setAttribute("aria-live", "polite");
+  node.setAttribute("aria-busy", "true");
+
+  const copy = document.createElement("div");
+  copy.className = "empty-state-copy";
+  const title = document.createElement("div");
+  title.className = "empty-state-title";
+  title.textContent = t("daily.loading.newsTitle");
+  const body = document.createElement("div");
+  body.className = "empty-state-body";
+  body.textContent = t("daily.loading.newsBody", {
+    message: localizedStatusMessage(status, "status.nextBatchPreparing"),
+  });
+  copy.append(title, body);
+
+  const meter = document.createElement("div");
+  meter.className = "news-cache-state-meter";
+  meter.setAttribute("role", "progressbar");
+  meter.setAttribute("aria-label", t("daily.loading.progressLabel"));
+  meter.setAttribute("aria-valuemin", "0");
+  meter.setAttribute("aria-valuemax", "100");
+  meter.setAttribute("aria-valuenow", String(percent));
+  const fill = document.createElement("span");
+  fill.style.width = `${percent}%`;
+  meter.append(fill);
+
+  node.append(copy, meter);
+  return node;
 }
 
 function createBoardColumn(column) {
@@ -323,7 +314,7 @@ function createBoardColumn(column) {
 
 function createColumnAction(column) {
   const type = column.action;
-  if (!type) return null;
+  if (!shouldShowColumnAction(column)) return null;
   const button = document.createElement("button");
   button.type = "button";
   button.className = "column-action";
@@ -334,7 +325,6 @@ function createColumnAction(column) {
   } else if (type === "clearSeen") {
     setIconLabel(button, "trash-01", t("action.clear"), "inline-icon", "btn-label");
     button.classList.add("danger");
-    button.disabled = column.items.length === 0;
     button.addEventListener("click", clearSeenArchive);
   }
   return button;

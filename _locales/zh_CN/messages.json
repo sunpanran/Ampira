@@ -1,5 +1,5 @@
 {
   "appName": { "message": "Ampira 新标签页" },
   "appDescription": { "message": "用灵感预设（Ampira）或选择的 Chrome 书签与资讯来源构建可搜索的新标签页信息看板。" },
-  "actionTitle": { "message": "打开 Ampira" }
+  "actionTitle": { "message": "将当前网页加入稍后读" }
 }

@@ -12,6 +12,7 @@ $dist = [System.IO.Path]::GetFullPath((Join-Path $root "dist"))
 $files = @(
   "manifest.json",
   "dashboard.html",
+  "action-popup.html",
   "favicon.svg",
   "favicon-light.svg",
   "favicon-dark.svg",
@@ -20,7 +21,7 @@ $files = @(
   "assets/extension.css",
   "assets/logo-purple.svg"
 )
-$directories = @("assets/client", "assets/icons", "assets/presets", "assets/styles", "extension", "_locales")
+$directories = @("assets/client", "assets/icons", "assets/images", "assets/presets", "assets/styles", "extension", "_locales")
 
 function Get-Sha256([string]$Path) {
   return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -164,6 +165,7 @@ $files | ForEach-Object { [void]$allowedFiles.Add($_.Replace("\", "/")) }
 $allowedPatterns = @(
   '^assets/client/(?:[a-z0-9-]+/)*[a-z0-9-]+\.mjs$',
   '^assets/icons/[a-z0-9-]+\.svg$',
+  '^assets/images/default-header\.webp$',
   '^assets/presets/inspiration/[a-z0-9-]+\.webp$',
   '^assets/styles/[a-z0-9-]+\.css$',
   '^extension/service-worker\.mjs$',

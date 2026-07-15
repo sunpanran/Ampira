@@ -1,6 +1,6 @@
 import { createDashboardApp } from "./dashboard-app.mjs";
 
-const app = createDashboardApp();
+const app = await createDashboardApp();
 
 window.addEventListener("ampira:runtime-message", (event) => {
   app.handleRuntimeMessage(event.detail);

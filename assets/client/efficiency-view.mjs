@@ -1,5 +1,10 @@
 import { animatePanelEntrance } from "./dom.mjs";
 import { createUtilityCardView } from "./utility-card-view.mjs";
+import { animateKeyedLayout, captureKeyedLayout } from "./motion.mjs";
+
+export function shouldShowQueueReadAll(items) {
+  return Boolean(items?.length);
+}
 
 export function createEfficiencyView(options) {
   const {
@@ -19,8 +24,10 @@ export function createEfficiencyView(options) {
   });
   let eventTitleReveal = null;
   let activeEventTitle = null;
+  let dailyDigestRevealPending = false;
   return { renderEfficiencyPanel, refreshDailyDigest, invalidateWeather: utilityCardView.invalidateWeather };
 function dailyDigestStatusLabel(digest, ai) {
+  if (state.dailyDigestRefreshing) return t("action.organizing");
   if (ai?.enabled !== true) return t("digest.status.noService");
   if (!digest?.generatedAt) return t("digest.status.waiting");
   if (digest.status === "ai") return t("digest.status.ai");
@@ -39,13 +46,6 @@ function createDailyDigestEmptyState(digest) {
       variant: "compact",
       actionLabel: t("action.configureAi"),
       onAction: openAiSettings,
-    });
-  }
-  if (state.dailyDigestRefreshing) {
-    return createEmptyState({
-      title: t("digest.refreshing.title"),
-      body: t("digest.refreshing.body"),
-      variant: "compact",
     });
   }
   if (digest?.status === "fallback") {
@@ -97,18 +97,56 @@ function createDailyDigestPanelCard() {
   const digest = state.data?.dailyDigest;
   const card = createEfficiencyCard(t("digest.cardTitle"), dailyDigestStatusLabel(digest, state.data?.ai), "sparkling");
   card.classList.add("digest-card");
+  card.classList.toggle("is-refreshing", state.dailyDigestRefreshing);
+  card.setAttribute("aria-busy", String(state.dailyDigestRefreshing));
+  if (state.dailyDigestRefreshing) card.querySelector(".efficiency-meta")?.setAttribute("aria-live", "polite");
   const overview = document.createElement("div");
   overview.className = "ai-digest-overview";
   const overviewLines = Array.isArray(digest?.overview)
     ? digest.overview.map((line) => String(line || "").trim()).filter(Boolean)
     : [];
   if (hasGeneratedDailyDigestOverview(digest, overviewLines)) {
+    card.classList.toggle("is-resolving", dailyDigestRevealPending && !state.dailyDigestRefreshing);
     overview.replaceChildren(...dailyDigestBriefNodes(digest));
+  } else if (state.dailyDigestRefreshing) {
+    overview.replaceChildren(createDailyDigestLoadingState());
   } else {
     overview.replaceChildren(createDailyDigestEmptyState(digest));
   }
   card.append(overview);
   return card;
+}
+
+function createDailyDigestLoadingState() {
+  const loading = document.createElement("div");
+  loading.className = "ai-digest-loading";
+  loading.setAttribute("role", "status");
+  loading.setAttribute("aria-live", "polite");
+
+  const status = document.createElement("span");
+  status.className = "sr-only";
+  status.textContent = `${t("digest.refreshing.title")} ${t("digest.refreshing.body")}`;
+
+  const lines = document.createElement("div");
+  lines.className = "ai-digest-loading-lines";
+  lines.setAttribute("aria-hidden", "true");
+  for (let paragraphIndex = 0; paragraphIndex < 3; paragraphIndex += 1) {
+    const paragraph = document.createElement("span");
+    paragraph.className = "ai-digest-loading-paragraph";
+    for (let lineIndex = 0; lineIndex < 2; lineIndex += 1) {
+      const line = document.createElement("span");
+      line.className = "loading-line ai-digest-loading-line";
+      paragraph.append(line);
+    }
+    lines.append(paragraph);
+  }
+
+  const note = document.createElement("span");
+  note.className = "ai-digest-loading-note";
+  note.setAttribute("aria-hidden", "true");
+  note.textContent = t("digest.refreshing.body");
+  loading.append(status, lines, note);
+  return loading;
 }
 
 function dailyDigestBriefNodes(digest) {
@@ -160,6 +198,7 @@ function openDigestItem(digestItem) {
 
 function renderEfficiencyPanel() {
   if (!els.efficiencyPanel) return;
+  const queueLayout = captureKeyedLayout(els.efficiencyPanel, ".queue-row[data-key]");
   const isSearching = Boolean(state.query);
   const isInitialEntrance = els.efficiencyPanel.dataset.loading === "true";
   els.efficiencyPanel.hidden = isSearching;
@@ -181,7 +220,9 @@ function renderEfficiencyPanel() {
   const renderedCards = syncEfficiencyCards(els.efficiencyPanel, cards);
   if (isInitialEntrance) {
     delete els.efficiencyPanel.dataset.loading;
-    animatePanelEntrance(renderedCards);
+    if (state.data?.onboarding?.completed !== false) animatePanelEntrance(renderedCards);
+  } else {
+    animateKeyedLayout(els.efficiencyPanel, queueLayout, ".queue-row[data-key]");
   }
 }
 
@@ -205,16 +246,17 @@ function syncEfficiencyCards(panel, nextCards) {
 
 function createQueuePanelCard(items) {
   const shouldOpen = readingQueueOpenOnReadAll();
-  const readAll = document.createElement("button");
-  readAll.className = "efficiency-action queue-read-all";
-  readAll.type = "button";
-  readAll.disabled = !items.length;
-  readAll.title = items.length
-    ? t(shouldOpen ? "queue.readAllOpen" : "queue.readAllNoOpen", { count: items.length })
-    : t("queue.noPending");
-  readAll.setAttribute("aria-label", readAll.title);
-  readAll.textContent = t("action.readAll");
-  readAll.addEventListener("click", () => openAndMarkReadingQueue(items));
+  const hasChosenReadAllBehavior = state.settings?.readingQueueReadAllPrompted === true;
+  let readAll = null;
+  if (shouldShowQueueReadAll(items)) {
+    readAll = document.createElement("button");
+    readAll.className = "efficiency-action queue-read-all";
+    readAll.type = "button";
+    readAll.title = t(hasChosenReadAllBehavior ? (shouldOpen ? "queue.readAllOpen" : "queue.readAllNoOpen") : "queue.readAllChoose", { count: items.length });
+    readAll.setAttribute("aria-label", readAll.title);
+    readAll.textContent = t("action.readAll");
+    readAll.addEventListener("click", () => openAndMarkReadingQueue(items));
+  }
   const card = createEfficiencyCard(t("queue.cardTitle"), tc("queue.pending", items.length), "bookmark-ribbon", readAll);
   card.classList.add("queue-card");
   const list = document.createElement("div");
@@ -271,6 +313,7 @@ function createQueuePanelRow(item) {
   const row = document.createElement("button");
   row.className = "efficiency-row queue-row";
   row.type = "button";
+  row.dataset.key = String(item.key || itemUrl(item));
   row.title = itemUrl(item);
   row.addEventListener("click", () => openDailyItem(item));
   attachLinkContextMenu(row, () => ({ url: itemUrl(item), item, canExplain: true }));
@@ -371,7 +414,7 @@ async function refreshDailyDigest(event) {
   try {
     const result = await apiPost("/api/daily-summary/refresh");
     if (state.data) state.data.dailyDigest = result;
-    renderEfficiencyPanel();
+    dailyDigestRevealPending = true;
     renderSummaries();
     renderDaily();
   } catch (error) {
@@ -379,6 +422,7 @@ async function refreshDailyDigest(event) {
   } finally {
     state.dailyDigestRefreshing = false;
     renderEfficiencyPanel();
+    dailyDigestRevealPending = false;
   }
 }
 }

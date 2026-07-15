@@ -15,20 +15,26 @@ import {
   rankAndDedupe,
 } from "../core/feed.mjs";
 import { normalizeFeedback } from "../core/feedback.mjs";
+import { filterPresentableFeedItems } from "../core/feed-language-policy.mjs";
+import { createHeaderCoverStore } from "../core/header-cover.mjs";
 import { clearRecords, deleteRecord, getRecord, listRecords, pruneCache, setRecord, setRecords } from "../core/db.mjs";
-import { extractPageMetadata, fetchReader, fetchReaderHtml, loadReaderWithCache, readerTextFromBlocks } from "../core/reader.mjs";
+import { extractPageMetadata, fetchReader, fetchReaderHtml, loadReaderWithCache, probeReaderUrl, readerTextFromBlocks } from "../core/reader.mjs";
 import {
+  captureCredentialState,
   clearLegacyCredentialData,
   readProviderProfile,
   readSecrets,
+  restoreCredentialState,
   secretStatus,
   updateProviderProfile,
   updateSecrets,
 } from "../core/secrets.mjs";
 import {
+  captureDeviceConsentState,
   grantBookmarkConsent,
   markOnboardingComplete,
   readDeviceConsent,
+  restoreDeviceConsentState,
   setAiDisclosureConsent,
 } from "../core/device-consent.mjs";
 import { DEFAULT_LOCALE, defaultBookmarkFoldersForLocale, normalizeLocale, translate, translateAiPrompt } from "../core/i18n.mjs";
@@ -41,7 +47,13 @@ import { bravePreviewCacheKeys, newsPreviewTargets, previewCacheKeysOutsideTarge
 import { retainActiveUnrefreshedItems, selectRefreshBatch } from "../core/refresh.mjs";
 import { createRefreshCoordinator } from "../core/refresh-coordinator.mjs";
 import { createEpochMutationQueue } from "../core/mutation-queue.mjs";
-import { bindProviderPatchToOrigin, providerTestApiKey, providerTestConsentAllowed } from "../core/provider-policy.mjs";
+import {
+  bindProviderPatchToOrigin,
+  providerCredentialAvailable,
+  providerRequiresApiKey,
+  providerTestApiKey,
+  providerTestConsentAllowed,
+} from "../core/provider-policy.mjs";
 import {
   buildPermissionRows,
   filterFeedItemsBySources,
@@ -53,7 +65,7 @@ import { isValidServiceUrl, normalizeSettings, providerOrigin } from "../core/se
 import { publicFeedsForLocale } from "../core/public-feeds.mjs";
 import { createSettingsStore } from "../core/settings-store.mjs";
 import { createSettingsTransferDocument, parseSettingsTransferDocument } from "../core/settings-transfer.mjs";
-import { CARD_SUMMARY_POLICY_VERSION, cleanGeneratedSummaryLine, dailyDigestEvidence, extractGeneratedSummaryTitle, limitGeneratedSummaryLines, parseGeneratedDailyDigest } from "../core/summary-text.mjs";
+import { CARD_SUMMARY_POLICY_VERSION, dailyDigestEvidence, parseGeneratedDailyDigest } from "../core/summary-text.mjs";
 import { normalizeUserUrl, searchFeed } from "../core/search.mjs";
 import { createMessageRouter } from "./message-router.mjs";
 import { errorResult, publicErrorDetails, resultMessage, settingsLocale, typedError } from "./runtime-result.mjs";
@@ -69,6 +81,12 @@ import { createSettingsWorkflow } from "./settings-workflow.mjs";
 import { createDashboardContentService } from "./dashboard-content-service.mjs";
 import { createBookmarkRefreshScheduler } from "./bookmark-refresh-scheduler.mjs";
 import { createWeatherService } from "./weather-service.mjs";
+import { createCardSummaryPolicy } from "./card-summary-policy.mjs";
+import { createPermissionEpoch } from "./permission-epoch.mjs";
+import { createCacheMetadataPolicy } from "./cache-metadata-policy.mjs";
+import { createAiAccessPolicy } from "./ai-access-policy.mjs";
+import { createCacheAccessPolicy } from "./cache-access-policy.mjs";
+import { createActionReadingQueueService } from "./action-reading-queue-service.mjs";
 import {
   emptySourceQuality,
   hostOf,
@@ -86,9 +104,22 @@ const chrome = deps.chrome || globalThis.chrome;
 const cacheMutations = createEpochMutationQueue();
 const clientStateStore = createClientStateStore({ getRecord, setRecord });
 const quotaManager = createQuotaManager(chrome.storage.local, localDateKey);
+const headerCoverStore = createHeaderCoverStore(chrome.storage.local);
 const settingsStore = createSettingsStore(chrome.storage.sync);
 const settingsService = createRuntimeSettingsService({ store: settingsStore, readProviderProfile, readDeviceConsent });
 const { getSettings, sanitizeLegacySyncedCredentials } = settingsService;
+const cardSummaryPolicy = createCardSummaryPolicy({ settingsLocale, originPattern, policyVersion: CARD_SUMMARY_POLICY_VERSION });
+const presentableFeedItems = (items, settings, configuredForAi) => filterPresentableFeedItems(
+  items,
+  settingsLocale(settings),
+  {
+    aiConfigured: configuredForAi === true,
+    summaryPolicyVersion: cardSummaryPolicy.policyVersion,
+    providerOrigin: settings.openaiBaseUrl,
+  },
+);
+const permissionEpoch = createPermissionEpoch();
+const cacheMetadataPolicy = createCacheMetadataPolicy({ safeOrigin, originPattern, buildPermissionRows });
 const contentSyncService = createContentSyncService({
   storage: chrome.storage.sync,
   clientStateStore,
@@ -96,6 +127,9 @@ const contentSyncService = createContentSyncService({
   getRecord,
   setRecord,
   broadcast,
+});
+const { handleActionClicked, resetActionFeedback } = createActionReadingQueueService({
+  chrome, clientStateStore, contentSyncService, getSettings, settingsLocale, translate, localDateKey, broadcast,
 });
 let publicSettings;
 let saveSettings;
@@ -116,10 +150,13 @@ const {
   permissionStatus,
   hasOriginPermission,
   hasOriginPermissions,
-} = createPermissionGateway({ chrome, getSettings, secretStatus, getRecord });
-let refreshService;
-let permissionWorkflow;
-let aiSearchService;
+} = createPermissionGateway({ chrome, getSettings, secretStatus, getRecord, providerCredentialAvailable });
+const aiAccessPolicy = createAiAccessPolicy({
+  readProviderProfile, readDeviceConsent, originPattern, cacheMutations,
+  uniqueStrings, normalizeUserUrl,
+  cacheSourceIdentitiesPermitted: cacheMetadataPolicy.cacheSourceIdentitiesPermitted,
+  hasOriginPermissions, providerCredentialAvailable,
+});
 const {
   buildDashboardPayload,
   configuredFeedSources,
@@ -133,58 +170,61 @@ const {
   sanitizeDailyDigest,
 } = createDashboardContentService({
   cacheMutations,
-  capturePermissionEpoch: (...args) => permissionWorkflow.capturePermissionEpoch(...args),
-  isPermissionEpochCurrent: (...args) => permissionWorkflow.isPermissionEpochCurrent(...args),
+  capturePermissionEpoch: permissionEpoch.capture,
+  isPermissionEpochCurrent: permissionEpoch.isCurrent,
   getSettings, settingsLocale, secretStatus, currentBookmarkModel, emptyBookmarkModel,
   feedCacheOrEmpty, getRecord, getRefreshStatus, readQuota, emptySourceQuality,
   getAiAutoStatus, filterFeedItemsBySources, originsFromUrls, buildPermissionRows,
   originPattern,
-  sanitizeCardAiSummaries: (...args) => refreshService.sanitizeCardAiSummaries(...args),
+  ...cacheMetadataPolicy,
+  sanitizeCardAiSummaries: cardSummaryPolicy.sanitizeCardAiSummaries,
   buildFallbackDigest, buildDailyCandidates, dailyCandidateFingerprint,
   digestSchemaVersion: DAILY_DIGEST_SCHEMA_VERSION, rankingPolicyVersion: NEWS_RANKING_POLICY_VERSION,
   localDateKey, summarizeQuality, pipelineStages, publicFeedsForLocale,
-  chrome, safeOrigin, typedError, uniqueStrings, normalizeUserUrl,
-  aiSearchResultPermitted: (...args) => aiSearchService.aiSearchResultPermitted(...args),
+  chrome, typedError, uniqueStrings, normalizeUserUrl,
+  aiSearchResultPermitted: aiAccessPolicy.aiSearchResultPermitted,
+  providerCredentialAvailable, aiConfigured, presentableFeedItems,
 });
 const {
   readArticle,
+  readCachedArticle,
   readWebsiteOverview,
   cacheUrlsPermitted,
   storePreviewCache,
   isSitePreviewTarget,
   previewCachePermitted,
 } = createReaderPreviewService({
-  normalizeUserUrl, hasOriginPermission, loadReaderWithCache, fetchReader, fetchReaderHtml,
+  normalizeUserUrl, hasOriginPermission, loadReaderWithCache, fetchReader, fetchReaderHtml, probeReaderUrl,
   extractPageMetadata, getRecord, setRecord, deleteRecord, cacheMutations,
   currentBookmarkModel, emptyBookmarkModel, getSettings, secretStatus,
   inspirationPreviewTargets, newsPreviewTargets, currentFeedPermissionState,
-  filterFeedItemsBySources, hashText, uniqueStrings, hasOriginPermissions, setRecords, typedError,
+  filterFeedItemsBySources, presentableFeedItems, aiConfigured, feedCacheOrEmpty,
+  hashText, uniqueStrings, hasOriginPermissions, setRecords, typedError,
 });
 const {
   loadQuestionSearchContext,
-  currentProviderCapability,
-  aiSearchResultPermitted,
   answerAiSearch,
   callProvider,
   testOpenAISettings,
   testImageSearchSettings,
-} = aiSearchService = createAiSearchService({
+} = createAiSearchService({
   getRecord, setRecord, searchFeed, settingsLocale, translate, translateAiPrompt, normalizeUserUrl,
   hasOriginPermission, originPattern, secretStatus, currentFeedPermissionState,
   getSettings, currentBookmarkModel, emptyBookmarkModel, assertUrlsStillPermitted,
   cacheSourceIdentitiesPermitted, configuredFeedSources,
-  readArticle,
+  readArticle, readCachedArticle,
   readWebsiteOverview,
   hashText, aiConfigured, requestAiCompletion, providerOrigin, readProviderProfile,
   readDeviceConsent, readSecrets, providerTestApiKey, providerTestConsentAllowed,
+  providerCredentialAvailable, providerRequiresApiKey,
   isValidServiceUrl, typedError, resultMessage, errorResult, testImageSearchConnection,
   safeOrigin, uniqueStrings, withFeedCacheMetadata,
-  filterFeedItemsBySources, cacheMutations, hasOriginPermissions, cacheUrlsPermitted,
+  filterFeedItemsBySources, presentableFeedItems, feedCacheOrEmpty, cacheMutations, hasOriginPermissions, cacheUrlsPermitted,
   localDateKey, readerTextFromBlocks, assertFeedItemsStillPermitted, normalizeSettings,
+  aiAccessPolicy,
 });
 const refreshCoordinator = createRefreshCoordinator({
   getStatus: getRefreshStatus,
-  run: (generation) => refreshService.runRefresh(generation),
   isFresh: (status) => {
     const finishedAt = Date.parse(String(status?.finishedAt || ""));
     return Number.isFinite(finishedAt) && Date.now() - finishedAt < 10 * 60 * 1000;
@@ -197,7 +237,14 @@ const {
 } = createWeatherService({
   hasOriginPermissions, getRecord, setRecord, typedError,
 });
-refreshService = createRefreshService({
+const cacheAccessPolicy = createCacheAccessPolicy({
+  aiSearchResultPermitted: aiAccessPolicy.aiSearchResultPermitted,
+  originPattern,
+  cacheUrlsPermitted,
+  previewCachePermitted,
+  weatherCachePermitted,
+});
+const refreshService = createRefreshService({
   refreshCoordinator, getSettings, currentBookmarkModel, emptyBookmarkModel, currentFeedPermissionState,
   configuredFeedSources, selectRefreshBatch, getRecord, setRecord, setRecords,
   setRefreshStatus, pipelineStages, broadcast, fetchSourceArticles, sourceFetchOptions,
@@ -206,15 +253,15 @@ refreshService = createRefreshService({
   buildDailyCandidates, dailyCandidateFingerprint, rankingPolicyVersion: NEWS_RANKING_POLICY_VERSION,
   assertFeedItemsStillPermitted, withFeedCacheMetadata, cacheMutations, aiConfigured,
   getAiAutoStatus, setAiAutoStatus, defaultAiAutoStatus, readQuota, runAiWithinQuota,
-  callProvider, translate, translateAiPrompt, settingsLocale, cleanGeneratedSummaryLine,
-  extractGeneratedSummaryTitle, limitGeneratedSummaryLines, parseGeneratedDailyDigest, dailyDigestEvidence,
-  cardSummaryPolicyVersion: CARD_SUMMARY_POLICY_VERSION, buildFallbackDigest,
-  digestCachePermitted, filterFeedItemsBySources, resultMessage, errorResult,
+  callProvider, translate, translateAiPrompt, settingsLocale, parseGeneratedDailyDigest, dailyDigestEvidence,
+  cardSummaryPolicy, buildFallbackDigest,
+  digestCachePermitted, filterFeedItemsBySources, presentableFeedItems, resultMessage, errorResult,
   emptySourceQuality, localDateKey, uniqueStrings, safeOrigin, originPattern,
   sanitizeDailyDigest, typedError, feedCacheOrEmpty, getRefreshStatus, hostOf,
   originsFromUrls, fetchSourceImageCandidates, hasOriginPermission, hashText,
-  isPermissionEpochCurrent: (...args) => isPermissionEpochCurrent(...args),
+  isPermissionEpochCurrent: permissionEpoch.isCurrent,
 });
+refreshCoordinator.setRun(refreshService.runRefresh);
 const {
   startRefresh,
   refreshDailyDigest,
@@ -235,30 +282,31 @@ const {
   pruneBravePreviewCaches,
   schedulePermissionCleanup,
   schedulePermissionReconcile,
-} = permissionWorkflow = createPermissionWorkflow({
+} = createPermissionWorkflow({
   broadcast, getSettings, currentBookmarkModel, emptyBookmarkModel, currentFeedPermissionState,
   revokedSourceKeys, getRefreshStatus, originPattern, aiConfigured, setAiAutoStatus,
-  defaultAiAutoStatus, startRefresh, cacheMutations, refreshCoordinator, setRefreshStatus,
-  defaultRefreshStatus, setRecord, setRecords, getRecord, deleteRecord, listRecords,
-  filterFeedItemsBySources, previewCacheKeysOutsideTargets, bravePreviewCacheKeys,
-  buildDashboardPayload, uniqueStrings, normalizeOriginPattern, filterSourceQuality,
-  emptySourceQuality, originsFromUrls, secretStatus, currentProviderCapability, settingsLocale,
-  aiSearchResultPermitted, previewCachePermitted, cacheUrlsPermitted, digestCachePermitted,
+  defaultAiAutoStatus, startRefresh, cacheMutations, setRefreshStatus,
+  defaultRefreshStatus, setRecords, getRecord, deleteRecord, listRecords,
+  filterFeedItemsBySources, presentableFeedItems, feedCacheOrEmpty, previewCacheKeysOutsideTargets, bravePreviewCacheKeys,
+  uniqueStrings, normalizeOriginPattern, filterSourceQuality,
+  emptySourceQuality, originsFromUrls, secretStatus, settingsLocale, digestCachePermitted,
   withFeedCacheMetadata, buildFallbackDigest, buildDailyCandidates, inspirationPreviewTargets,
   newsPreviewTargets,
-  weatherCachePermitted,
+  permissionEpoch, aiAccessPolicy, cacheAccessPolicy,
 });
 ({ publicSettings, saveSettings, exportSettings, importSettings } = createSettingsWorkflow({
   getSettings, settingsLocale, defaultBookmarkFoldersForLocale, secretStatus,
   currentBookmarkModel, emptyBookmarkModel, selectedOrigins, currentFeedPermissionState,
   filterSourceQuality, getRecord, emptySourceQuality, defaultSettings: DEFAULT_SETTINGS,
   settingsService, readProviderProfile, bindProviderPatchToOrigin, isValidServiceUrl,
-  typedError, providerTestConsentAllowed, hasOriginPermission, updateProviderProfile,
-  updateSecrets, setAiDisclosureConsent, cacheMutations, refreshCoordinator, setRecord,
+  typedError, providerTestConsentAllowed, providerRequiresApiKey, hasOriginPermission, updateProviderProfile,
+  updateSecrets, setAiDisclosureConsent, captureCredentialState, restoreCredentialState,
+  captureDeviceConsentState, restoreDeviceConsentState, cacheMutations, refreshCoordinator, setRecord,
   pruneStalePreviewCaches, pruneBravePreviewCaches, aiConfigured, setAiAutoStatus,
   defaultAiAutoStatus, startRefresh, broadcast,
   createSettingsTransferDocument, parseSettingsTransferDocument,
   contentSyncService,
+  headerCoverStore,
   getAppVersion: () => chrome.runtime.getManifest().version,
   now: () => new Date().toISOString(),
 }));
@@ -292,6 +340,7 @@ const getSitePreview = createPreviewService({
 const routeMessage = createMessageRouter({
   "dashboard:get": () => buildDashboardPayload(),
   "settings:get": () => publicSettings(),
+  "header-cover:get": () => headerCoverStore.read(),
   "settings:save": (payload) => saveSettings(payload),
   "settings:export": () => exportSettings(),
   "settings:import": (payload) => importSettings(payload),
@@ -322,6 +371,7 @@ const routeMessage = createMessageRouter({
     await contentSyncService.handleLocalPatch(payload.values || {});
     return result;
   },
+  "reading-queue:capture-current": (payload) => handleActionClicked(payload.tab || {}),
   "permissions:origins": () => selectedOrigins(),
   "permissions:status": (payload) => permissionStatus(payload.origins || []),
   "onboarding:consent": () => recordBookmarkConsent(),
@@ -340,6 +390,7 @@ const routeMessage = createMessageRouter({
     handlePermissionsAdded,
     handlePermissionsRemoved,
     handleActionClicked,
+    handleTabUpdated,
     start,
   };
 
@@ -355,7 +406,7 @@ chrome.runtime.onStartup.addListener(() => {
   ensureRuntime().catch(() => {});
 });
 
-chrome.action.onClicked.addListener(handleActionClicked);
+chrome.tabs.onUpdated.addListener(handleTabUpdated);
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   handleAlarm(alarm);
@@ -395,8 +446,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 ensureRuntime().catch(() => {});
   }
 
-  function handleActionClicked() {
-    return chrome.tabs.create({ url: chrome.runtime.getURL("dashboard.html") });
+  function handleTabUpdated(tabId, changeInfo = {}) {
+    if (changeInfo.status !== "loading") return;
+    resetActionFeedback(tabId).catch(() => {});
   }
 
 function handleAlarm(alarm) {
@@ -468,7 +520,8 @@ async function aiConfigured(settings) {
   const provider = await readProviderProfile(settings);
   const consent = await readDeviceConsent(provider.openaiBaseUrl);
   return consent.aiDisclosureAccepted === true
-    && Boolean(provider.openaiApiKey)
+    && providerCredentialAvailable(provider.openaiBaseUrl, provider.openaiApiKey)
+    && Boolean(String(provider.openaiSummaryModel || "").trim())
     && await hasOriginPermission(provider.openaiBaseUrl);
 }
 

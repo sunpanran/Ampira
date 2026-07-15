@@ -1,9 +1,18 @@
 import assert from "node:assert/strict";
 import {
   bindProviderPatchToOrigin,
+  providerCredentialAvailable,
+  providerRequiresApiKey,
   providerTestApiKey,
   providerTestConsentAllowed,
 } from "../../extension/core/provider-policy.mjs";
+
+assert.equal(providerRequiresApiKey("http://localhost:11434/v1"), false);
+assert.equal(providerRequiresApiKey("http://127.0.0.1:11434/v1"), false);
+assert.equal(providerCredentialAvailable("http://localhost:11434/v1", false), true);
+assert.equal(providerRequiresApiKey("https://ollama.example.com/v1"), true);
+assert.equal(providerCredentialAvailable("https://ollama.example.com/v1", false), false);
+assert.equal(providerCredentialAvailable("https://api.example.com/v1", "secret"), true);
 
 assert.equal(providerTestConsentAllowed({
   payloadHasConsent: true,

@@ -3,7 +3,7 @@ import { extractReaderDocument } from "./reader-document.mjs";
 import { fetchReaderHtml, READER_REQUEST_TIMEOUT_MS } from "./reader-network.mjs";
 
 export { extractPageMetadata, extractReaderDocument, readerTextFromBlocks } from "./reader-document.mjs";
-export { fetchReaderHtml } from "./reader-network.mjs";
+export { fetchReaderHtml, probeReaderUrl } from "./reader-network.mjs";
 
 export async function fetchReader(url, timeoutOrOptions = READER_REQUEST_TIMEOUT_MS) {
   const options = typeof timeoutOrOptions === "object" && timeoutOrOptions ? timeoutOrOptions : {};

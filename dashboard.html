@@ -29,7 +29,7 @@
           </button>
           <button class="nav-btn" type="button" data-scroll="library" aria-label="书签" title="书签" data-i18n-aria-label="nav.bookmarks" data-i18n-title="nav.bookmarks">
             <img class="nav-icon" data-icon="bookmark-ribbon" alt="" aria-hidden="true">
-            <span class="nav-label" data-i18n="nav.bookmarks">书签</span>
+            <span class="nav-label" data-i18n="nav.bookmarksShort">书签</span>
           </button>
           <button class="nav-btn" type="button" id="aiSearchNav" aria-label="AI 搜索" title="AI 搜索" data-i18n-aria-label="nav.aiSearch" data-i18n-title="nav.aiSearch">
             <img class="nav-icon" data-icon="search" alt="" aria-hidden="true">
@@ -62,8 +62,8 @@
           </div>
           <div class="section-actions dashboard-actions">
             <div class="search-wrap daily-search">
-              <input class="search" id="search" type="search" placeholder="搜索 Ampira 内容" autocomplete="off" data-i18n-placeholder="search.placeholder">
-              <button class="search-ai" id="topAiSearch" type="button" aria-label="用 AI 搜索当前内容" title="AI 搜索" data-i18n-aria-label="search.currentWithAi" data-i18n-title="nav.aiSearch">
+              <input class="search" id="search" type="search" placeholder="搜索 Ampira 已收录内容" autocomplete="off" data-i18n-placeholder="search.local.placeholder">
+              <button class="search-ai" id="topAiSearch" type="button" aria-label="打开内容搜索" title="打开内容搜索" data-i18n-aria-label="search.local.action" data-i18n-title="search.local.action">
                 <img class="action-icon" data-icon="search" alt="" aria-hidden="true">
               </button>
             </div>
@@ -97,7 +97,8 @@
             <div class="summary-tools">
               <div class="section-meta summary-batch-meta" id="summaryMeta"></div>
               <button class="btn" id="summaryBatch" type="button"><img class="btn-icon" data-icon="shuffle-01" alt="" aria-hidden="true"><span class="btn-label" data-i18n="action.nextBatch">换一批</span></button>
-              <button class="btn primary" id="refresh" type="button"><img class="btn-icon" data-icon="refresh-cw-01" alt="" aria-hidden="true"><span class="btn-label" data-i18n="action.cache">缓存</span></button>
+              <button class="btn primary" id="refresh" type="button" disabled data-disabled-reason="prerequisite" aria-describedby="refreshAvailability"><img class="btn-icon" data-icon="refresh-cw-01" alt="" aria-hidden="true"><span class="btn-label" data-i18n="action.cache">缓存</span></button>
+              <div class="refresh-availability is-visible" id="refreshAvailability" role="status" aria-live="polite" data-i18n="status.refreshUnavailable.loading">正在读取资讯状态</div>
             </div>
           </div>
         </div>
@@ -185,11 +186,10 @@
             </span>
           </button>
         </div>
-        <div class="settings-status" id="settingsStatus" role="status" aria-live="polite" data-i18n="settings.status.loading">正在读取设置。</div>
         <div class="settings-panel active" data-settings-panel="service">
           <div class="settings-panel-intro">
             <h3 data-i18n="settings.service.title">AI 摘要</h3>
-            <p data-i18n="settings.service.intro">用于今日简报、卡片摘要和 AI 搜索。</p>
+            <p data-i18n="settings.service.intro">用于跨语言资讯本地化、今日简报、卡片摘要和 AI 搜索。</p>
           </div>
           <section class="settings-section settings-runtime-section" aria-labelledby="settingsOverviewTitle">
             <div class="settings-overview" aria-label="运行概览" data-i18n-aria-label="settings.overview.label">
@@ -199,7 +199,7 @@
                   <div class="settings-overview-meta" id="settingsOverviewMeta" data-i18n="settings.overview.aiNotConfigured">配置服务后，可使用 AI 搜索与资讯摘要。</div>
                 </div>
                 <div class="settings-overview-actions">
-                  <button class="btn" id="settingsRefresh" type="button"><img class="btn-icon" data-icon="refresh-cw-01" alt="" aria-hidden="true"><span class="btn-label" data-i18n="action.cache">缓存</span></button>
+                  <button class="btn" id="settingsRefresh" type="button" disabled data-disabled-reason="prerequisite" aria-describedby="settingsCacheOverviewDetail"><img class="btn-icon" data-icon="refresh-cw-01" alt="" aria-hidden="true"><span class="btn-label" data-i18n="action.cache">缓存</span></button>
                   <button class="btn" id="settingsOverviewAction" type="button" data-i18n="settings.overview.configure">去配置</button>
                 </div>
               </div>
@@ -229,94 +229,113 @@
             <div class="ai-service-group-head">
               <h4 id="aiProviderGroupTitle" data-i18n="settings.service.providerGroup">AI Provider</h4>
             </div>
-            <div class="credential-panel settings-emphasis-surface">
-            <div class="credential-copy">
-              <strong class="feature-title"><img class="feature-title-icon" data-icon="key-01" alt="" aria-hidden="true"><span data-i18n="settings.service.localKeysTitle">本机密钥</span></strong>
-              <span data-i18n="settings.service.localKeysHelp">API 密钥仅保存在当前 Chrome 配置中，不会同步或发送给 Ampira。</span>
-            </div>
-            <div class="ai-provider-origin-row">
-              <div class="field">
-                <label for="apiBaseUrlInput" data-i18n="settings.service.baseUrl">服务地址</label>
-                <input id="apiBaseUrlInput" type="text" placeholder="https://api.openai.com/v1">
-                <div class="help" data-i18n="settings.service.baseUrlHelp">填写根地址，不要包含 /responses 或 /chat/completions。</div>
+            <div class="ai-provider-shell">
+              <div class="ai-provider-summary" id="aiProviderSummary">
+                <div class="ai-provider-summary-main">
+                  <span class="ai-provider-mark" id="aiProviderSummaryMark" aria-hidden="true">API</span>
+                  <div class="ai-provider-summary-copy">
+                    <div class="ai-provider-summary-title"><strong id="aiProviderSummaryName" data-i18n="settings.service.customProvider">自定义兼容服务</strong><span class="ai-provider-status" id="aiProviderSummaryStatus" data-state="incomplete" data-i18n="settings.service.providerStatusIncomplete">待配置</span></div>
+                    <div class="ai-provider-summary-meta" id="aiProviderSummaryMeta">—</div>
+                  </div>
+                </div>
+                <div class="ai-provider-summary-actions">
+                  <button class="btn" id="testKey" type="button" disabled><img class="btn-icon" data-icon="check" alt="" aria-hidden="true"><span class="btn-label" data-i18n="settings.service.test">测试连接</span></button>
+                  <button class="btn" id="editAiProvider" type="button"><img class="btn-icon" data-icon="edit-05" alt="" aria-hidden="true"><span class="btn-label" data-i18n="settings.service.editProvider">编辑配置</span></button>
+                  <button class="btn" id="changeAiProvider" type="button"><img class="btn-icon" data-icon="synchronize" alt="" aria-hidden="true"><span class="btn-label" data-i18n="settings.service.changeProvider">更换服务商</span></button>
+                </div>
               </div>
-              <button class="btn" id="deepseekPreset" type="button"><img class="btn-icon" data-icon="zap" alt="" aria-hidden="true"><span class="btn-label" data-i18n="settings.service.deepseek">DeepSeek 模版</span></button>
-            </div>
-            <label class="credential-consent" for="aiDisclosureConsent">
-              <span class="toggle toggle-checkbox">
-                <input id="aiDisclosureConsent" type="checkbox">
-                <span aria-hidden="true"><img class="toggle-checkbox-icon" data-icon="check" alt=""></span>
-              </span>
-              <span data-i18n="settings.service.consent">我理解：启用 AI 后，问题、文章标题、选定正文和用于上下文的文章网址会发送给我配置的服务商。</span>
-            </label>
-            <div class="credential-controls">
-              <button class="btn" id="grantAiOrigin" type="button" disabled data-disabled-reason="prerequisite" aria-controls="aiProviderFields"><img class="btn-icon" data-icon="link-external-01" alt="" aria-hidden="true"><span class="btn-label" data-i18n="settings.service.grantAi">授权 AI 服务域名</span></button>
-              <button class="btn danger" id="clearKey" type="button"><img class="btn-icon" data-icon="trash-01" alt="" aria-hidden="true"><span class="btn-label" data-i18n="settings.service.removeKey">移除密钥</span></button>
-            </div>
-            <div class="ai-form-access-status" id="aiFormAccessStatus" data-stage="needs-consent" data-i18n="settings.service.aiFormNeedsConsent" aria-live="polite">先确认数据传输说明，才能授权 AI 服务域名。</div>
-            </div>
-            <fieldset class="ai-provider-fields" id="aiProviderFields" aria-describedby="aiFormAccessStatus" disabled>
-            <legend class="sr-only" data-i18n="settings.service.aiFormLegend">AI 服务配置</legend>
-            <div class="settings-field-grid">
-              <div class="field">
-                <label for="apiKeyInput" data-i18n="settings.service.apiKey">API 密钥</label>
-                <input id="apiKeyInput" type="password" placeholder="sk-..." autocomplete="new-password" autocapitalize="off" spellcheck="false">
-                <div class="help" data-i18n="settings.service.apiKeyHelp">留空会保留现有密钥；已保存密钥不会回显。</div>
+              <div class="ai-provider-editor" id="aiProviderEditor" hidden>
+                <section class="ai-provider-catalog" id="aiProviderCatalog" aria-labelledby="aiProviderCatalogTitle" hidden>
+                  <div class="ai-provider-catalog-head">
+                    <div><h5 id="aiProviderCatalogTitle" data-i18n="settings.service.chooseProvider">选择服务商</h5><p data-i18n="settings.service.chooseProviderHelp">选择预设可自动填写兼容地址和调用方式；仍只会启用一个服务商。</p></div>
+                    <button class="btn ghost" id="closeAiProviderCatalog" type="button"><img class="btn-icon" data-icon="x-close" alt="" aria-hidden="true"><span class="btn-label" data-i18n="action.close">关闭</span></button>
+                  </div>
+                  <div class="ai-provider-list" id="aiProviderPrimaryList" role="list"></div>
+                  <button class="ai-provider-more-toggle" id="toggleMoreProviders" type="button" aria-expanded="false" aria-controls="aiProviderMoreList"><span data-i18n="settings.service.moreProviders">更多兼容服务</span><span aria-hidden="true">＋</span></button>
+                  <div class="ai-provider-list" id="aiProviderMoreList" role="list" hidden></div>
+                </section>
+                <section class="ai-provider-configuration" id="aiProviderConfiguration" aria-labelledby="aiProviderConfigurationTitle">
+                  <div class="ai-provider-configuration-head">
+                    <div><h5 id="aiProviderConfigurationTitle" data-i18n="settings.service.configureProvider">配置服务</h5><p data-i18n="settings.service.localKeysHelp">API 密钥仅保存在当前 Chrome 配置中，不会同步或发送给 Ampira。</p></div>
+                  </div>
+                  <div class="field ai-provider-region-field" id="aiProviderRegionField" hidden>
+                    <label for="aiProviderRegionSelect" data-i18n="settings.service.providerRegion">服务区域</label>
+                    <select id="aiProviderRegionSelect"></select>
+                    <div class="help" data-i18n="settings.service.providerRegionHelp">区域必须与 API 密钥所属区域一致。</div>
+                  </div>
+                  <div class="ai-provider-origin-row">
+                    <div class="field">
+                      <label for="apiBaseUrlInput" data-i18n="settings.service.baseUrl">服务地址</label>
+                      <input id="apiBaseUrlInput" type="text" placeholder="https://api.openai.com/v1">
+                      <div class="help" data-i18n="settings.service.baseUrlHelp">填写根地址，不要包含 /responses 或 /chat/completions。</div>
+                    </div>
+                    <div class="field">
+                      <label for="apiStyleSelect" data-i18n="settings.service.apiStyle">调用方式</label>
+                      <select id="apiStyleSelect">
+                        <option value="responses">Responses</option>
+                        <option value="chat_completions" data-i18n="settings.service.chatCompletions">聊天补全</option>
+                      </select>
+                      <div class="help" data-i18n="settings.service.apiStyleHelp">OpenAI 建议 Responses；兼容服务通常选择聊天补全。</div>
+                    </div>
+                  </div>
+                  <input id="aiDisclosureConsent" type="checkbox" hidden>
+                  <div class="ai-provider-access-step" id="aiProviderAccessStep">
+                    <div class="ai-provider-disclosure" id="aiProviderDisclosure"><strong data-i18n="settings.service.dataTransferTitle">发送给服务商的数据</strong><span data-i18n="settings.service.consent">启用 AI 后，问题、文章标题、摘要、选定正文和用于上下文的文章网址会发送给你配置的服务商；如公共 Feed 已包含跨语言来源，其标题、摘要和网址会自动发送用于本地化。</span></div>
+                    <button class="btn primary" id="grantAiOrigin" type="button" disabled data-disabled-reason="prerequisite" aria-controls="aiProviderFields" aria-describedby="aiProviderDisclosure aiFormAccessStatus"><img class="btn-icon" data-icon="link-external-01" alt="" aria-hidden="true"><span class="btn-label" data-i18n="settings.service.acceptAndGrant">理解并授权</span></button>
+                  </div>
+                  <div class="ai-form-access-status" id="aiFormAccessStatus" data-stage="needs-consent" data-i18n="settings.service.aiFormNeedsConsent" aria-live="polite">确认数据传输说明并授权当前服务域名。</div>
+                  <div class="ai-provider-editor-actions"><button class="btn danger" id="clearKey" type="button" hidden><img class="btn-icon" data-icon="trash-01" alt="" aria-hidden="true"><span class="btn-label" data-i18n="settings.service.removeKey">移除密钥</span></button></div>
+                  <fieldset class="ai-provider-fields" id="aiProviderFields" aria-describedby="aiFormAccessStatus" disabled hidden>
+                    <legend class="sr-only" data-i18n="settings.service.aiFormLegend">AI 服务配置</legend>
+                    <div class="field ai-provider-key-field" id="aiProviderKeyField">
+                      <label for="apiKeyInput" data-i18n="settings.service.apiKey">API 密钥</label>
+                      <input id="apiKeyInput" type="password" placeholder="sk-..." autocomplete="new-password" autocapitalize="off" spellcheck="false">
+                      <div class="help" data-i18n="settings.service.apiKeyHelp">留空会保留当前服务商已保存的密钥；密钥不会回显。</div>
+                    </div>
+                    <div class="settings-field-grid">
+                      <div class="field">
+                        <label for="modelInput" data-i18n="settings.service.model">模型</label>
+                        <input id="modelInput" type="text" placeholder="gpt-5.4-mini" required>
+                        <div class="help"><span data-i18n="settings.service.modelHelp">必须填写服务商支持的模型名称。</span> <a id="aiModelDocsLink" href="https://platform.openai.com/docs/models" target="_blank" rel="noopener noreferrer" data-i18n="settings.service.viewModels">查看模型</a></div>
+                      </div>
+                      <div class="field">
+                        <label for="dailyLimitInput" data-i18n="settings.service.dailyLimit">自动额度</label>
+                        <input id="dailyLimitInput" type="number" min="1" max="500" step="1" inputmode="numeric" placeholder="50">
+                        <div class="help" data-i18n="settings.service.dailyLimitHelp">仅限制自动整理；手动整理不计入。</div>
+                      </div>
+                    </div>
+                    <div class="ai-connection-status" id="aiConnectionStatus" aria-live="polite"></div>
+                  </fieldset>
+                </section>
               </div>
-              <div class="field">
-                <label for="apiStyleSelect" data-i18n="settings.service.apiStyle">调用方式</label>
-                <select id="apiStyleSelect">
-                  <option value="responses">Responses</option>
-                  <option value="chat_completions" data-i18n="settings.service.chatCompletions">聊天补全</option>
-                </select>
-                <div class="help" data-i18n="settings.service.apiStyleHelp">OpenAI 建议 Responses；DeepSeek 等兼容服务通常选聊天补全。</div>
-              </div>
-              <div class="field">
-                <label for="modelInput" data-i18n="settings.service.model">模型</label>
-                <input id="modelInput" type="text" placeholder="gpt-5.4-mini">
-                <div class="help" data-i18n="settings.service.modelHelp">留空时按服务地址使用默认模型。</div>
-              </div>
-              <div class="field">
-                <label for="dailyLimitInput" data-i18n="settings.service.dailyLimit">每日上限</label>
-                <input id="dailyLimitInput" type="number" min="1" max="500" step="1" inputmode="numeric" placeholder="50">
-                <div class="help" data-i18n="settings.service.dailyLimitHelp">仅限制自动整理；手动整理不计入。</div>
-              </div>
             </div>
-            <div class="settings-panel-actions settings-ai-actions settings-section-actions">
-              <button class="btn" id="testKey" type="button"><img class="btn-icon" data-icon="check" alt="" aria-hidden="true"><span class="btn-label" data-i18n="settings.service.test">测试连接</span></button>
-            </div>
-            </fieldset>
           </section>
-          <section class="ai-service-group" aria-labelledby="aiImageGroupTitle">
+          <section class="ai-service-group" id="imageSearchSettingsGroup" aria-labelledby="aiImageGroupTitle">
             <div class="ai-service-group-head">
               <h4 id="aiImageGroupTitle" data-i18n="settings.service.imageGroup">图片搜索兜底</h4>
             </div>
-            <div class="ai-image-layout">
-              <div class="settings-field-grid">
-                <div class="field">
-                  <label for="imageSearchApiKeyInput" data-i18n="settings.service.imageKey">Brave 图片搜索密钥</label>
-                  <input id="imageSearchApiKeyInput" type="password" placeholder="BSA..." autocomplete="new-password" autocapitalize="off" spellcheck="false">
-                  <div class="help"><span data-i18n="settings.service.imageKeyHelp">仅在原图缺失时用于全网搜图；补取原站图片需先授权对应网站。</span> <a href="https://brave.com/search/api/" target="_blank" rel="noreferrer" data-i18n="settings.service.getImageKey">获取密钥</a></div>
-                  <div class="credential-controls">
-                    <button class="btn" id="grantBraveOrigin" type="button"><img class="btn-icon" data-icon="search-lg" alt="" aria-hidden="true"><span class="btn-label" data-i18n="settings.service.grantBrave">授权 Brave 图片搜索</span></button>
-                  </div>
-                </div>
+            <label class="switch-field ai-image-switch" for="webImageSearchEnabledInput">
+              <span class="switch-copy">
+                <span class="switch-title" id="webImageSearchLabel" data-i18n="settings.service.webImageSearch">全网搜图兜底</span>
+                <span class="switch-help" id="webImageSearchHelp" data-i18n="settings.service.webImageSearchHelp">原图不可用时，使用 Brave 搜索替代图片。</span>
+              </span>
+              <span class="toggle">
+                <input id="webImageSearchEnabledInput" type="checkbox" aria-labelledby="webImageSearchLabel" aria-describedby="webImageSearchHelp">
+                <span aria-hidden="true"></span>
+              </span>
+            </label>
+            <div class="credential-panel ai-image-layout" id="imageSearchStrategy" hidden>
+              <div class="field">
+                <label for="imageSearchApiKeyInput" data-i18n="settings.service.imageKey">Brave 图片搜索密钥</label>
+                <input id="imageSearchApiKeyInput" type="password" placeholder="BSA..." autocomplete="new-password" autocapitalize="off" spellcheck="false">
+                <div class="help"><span data-i18n="settings.service.imageKeyHelp">仅在原图缺失时用于全网搜图；补取原站图片需先授权对应网站。</span> <a href="https://brave.com/search/api/" target="_blank" rel="noreferrer" data-i18n="settings.service.getImageKey">获取密钥</a></div>
               </div>
-              <div class="ai-image-controls">
-                <span class="field-label" id="webImageSearchLabel" data-i18n="settings.service.webImageSearch">全网搜图兜底</span>
-                <label class="switch-field ai-image-switch" for="webImageSearchEnabledInput">
-                  <span class="switch-copy">
-                    <span class="switch-help" id="webImageSearchHelp" data-i18n="settings.service.webImageSearchHelp">原图不可用时，使用 Brave 搜索替代图片。</span>
-                  </span>
-                  <span class="toggle">
-                    <input id="webImageSearchEnabledInput" type="checkbox" checked aria-labelledby="webImageSearchLabel" aria-describedby="webImageSearchHelp">
-                    <span aria-hidden="true"></span>
-                  </span>
-                </label>
-                <div class="settings-panel-actions settings-section-actions">
+              <div class="ai-image-actions">
+                <div class="credential-controls">
+                  <button class="btn" id="grantBraveOrigin" type="button"><img class="btn-icon" data-icon="search-lg" alt="" aria-hidden="true"><span class="btn-label" data-i18n="settings.service.grantBrave">授权 Brave 图片搜索</span></button>
                   <button class="btn" id="testImageSearchKey" type="button"><img class="btn-icon" data-icon="check" alt="" aria-hidden="true"><span class="btn-label" data-i18n="settings.service.testImage">测试图片搜索</span></button>
-                  <button class="btn danger" id="clearImageSearchKey" type="button"><img class="btn-icon" data-icon="trash-01" alt="" aria-hidden="true"><span class="btn-label" data-i18n="settings.service.removeImageKey">移除搜图密钥</span></button>
                 </div>
+                <button class="btn danger" id="clearImageSearchKey" type="button"><img class="btn-icon" data-icon="trash-01" alt="" aria-hidden="true"><span class="btn-label" data-i18n="settings.service.removeImageKey">移除搜图密钥</span></button>
               </div>
             </div>
           </section>
@@ -325,13 +344,55 @@
           <div class="settings-panel-intro">
             <h3 data-i18n="settings.cache.title">资讯缓存</h3>
           </div>
+          <section class="settings-section" aria-labelledby="cacheReadingTitle">
+            <div class="settings-section-head"><div><h4 id="cacheReadingTitle" data-i18n="settings.section.reading">阅读与留存</h4></div></div>
+            <div class="settings-row-list">
+              <label class="switch-field" for="floatingOpenInput">
+                <span class="switch-copy"><span class="switch-title" data-i18n="settings.cache.inAppReading">站内阅读</span><span class="switch-help" data-i18n="settings.cache.inAppReadingHelp">点击入口时在当前页打开阅读窗口，不跳转到新窗口。</span></span>
+                <span class="toggle"><input id="floatingOpenInput" type="checkbox"><span aria-hidden="true"></span></span>
+              </label>
+              <label class="switch-field" for="retainSeenArchiveInput">
+                <span class="switch-copy"><span class="switch-title" data-i18n="settings.cache.retainArchive">保留已看归档</span><span class="switch-help" data-i18n="settings.cache.retainArchiveHelp">关闭时，已看内容将在隔天自动清除；开启后会一直保留，直到手动清空。</span></span>
+                <span class="toggle"><input id="retainSeenArchiveInput" type="checkbox"><span aria-hidden="true"></span></span>
+              </label>
+            </div>
+          </section>
           <section class="settings-section" aria-labelledby="cacheFetchTitle">
             <div class="settings-section-head">
               <div>
                 <h4 id="cacheFetchTitle" data-i18n="settings.section.fetch">抓取与整理</h4>
               </div>
             </div>
+            <div class="settings-row-list">
+              <label class="switch-field" for="cardSummaryEnabledInput">
+                <span class="switch-copy"><span class="switch-title" data-i18n="settings.cache.cardSummary">整理卡片摘要</span><span class="switch-help" data-i18n="settings.cache.cardSummaryHelp">关闭后热门资讯卡片直接显示原始标题和网页摘录。</span></span>
+                <span class="toggle"><input id="cardSummaryEnabledInput" type="checkbox"><span aria-hidden="true"></span></span>
+              </label>
+              <label class="switch-field" for="publicFeedSupplementEnabledInput">
+                <span class="switch-copy"><span class="switch-title" data-i18n="settings.cache.publicFeed">公共 Feed（Ampira）补盲</span><span class="switch-help" data-i18n="settings.cache.publicFeedHelp">补充重大事件；关闭后不参与资讯、简报与搜索。</span></span>
+                <span class="toggle"><input id="publicFeedSupplementEnabledInput" type="checkbox" checked><span aria-hidden="true"></span></span>
+              </label>
+            </div>
+          </section>
+          <section class="settings-section" aria-labelledby="sourceCoverageTitle">
+            <div class="settings-section-head"><div><h4 id="sourceCoverageTitle" data-i18n="settings.sources.coverageTitle">来源状态</h4><p data-i18n="settings.sources.coverageHelp">查看来源是否可用，并处理缺少的网站授权。</p></div></div>
+            <div class="source-coverage-summary" id="sourceCoverageSummary" aria-live="polite"></div>
+            <div class="source-health-list settings-compact-list" id="sourceCoverageList" tabindex="0" aria-labelledby="sourceCoverageTitle"></div>
+          </section>
+          <section class="settings-section" aria-labelledby="cacheAdvancedTitle">
+            <div class="settings-section-head"><div><h4 id="cacheAdvancedTitle" data-i18n="settings.section.advanced">高级设置</h4></div></div>
+            <div class="settings-row-list">
+              <label class="switch-field" for="readingQueueOpenOnReadAllInput">
+                <span class="switch-copy"><span class="switch-title" data-i18n="settings.cache.readAllOpen">一键已读时打开网站</span><span class="switch-help" data-i18n="settings.cache.readAllOpenHelp">关闭后只清空阅读队列并标记已读，不新建标签页。</span></span>
+                <span class="toggle"><input id="readingQueueOpenOnReadAllInput" type="checkbox"><span aria-hidden="true"></span></span>
+              </label>
+              <label class="switch-field" for="personalizedRankingEnabledInput">
+                <span class="switch-copy"><span class="switch-title" data-i18n="settings.cache.personalized">个性化排序</span><span class="switch-help" data-i18n="settings.cache.personalizedHelp">仅使用本机阅读行为调整排序；关闭后恢复默认排序。</span></span>
+                <span class="toggle"><input id="personalizedRankingEnabledInput" type="checkbox"><span aria-hidden="true"></span></span>
+              </label>
+            </div>
             <div class="settings-field-grid settings-field-grid-three">
+              <input id="todayNewsPerPublisherInput" type="hidden">
               <div class="field">
                 <label for="cacheSizeInput" data-i18n="settings.cache.poolSize">热门池大小</label>
                 <input id="cacheSizeInput" type="number" min="24" max="300" step="1" inputmode="numeric" placeholder="192">
@@ -347,47 +408,6 @@
                 <input id="newsPerCategoryInput" type="number" min="0" max="100" step="1" inputmode="numeric" placeholder="12">
                 <div class="help" data-i18n="settings.cache.perCategoryHelp">每个资讯分类一次最多读取的入口条数；设为 0 时不限制。</div>
               </div>
-              <div class="field">
-                <label for="todayNewsPerPublisherInput" data-i18n="settings.cache.todayPublisherLimit">今日单发布方上限</label>
-                <input id="todayNewsPerPublisherInput" type="number" min="0" max="10" step="1" inputmode="numeric" placeholder="0">
-                <div class="help" data-i18n="settings.cache.todayPublisherLimitHelp">每批优先限制同一发布方；0 为不限，数量不足时自动补齐。</div>
-              </div>
-            </div>
-            <div class="settings-row-list">
-              <label class="switch-field" for="cardSummaryEnabledInput">
-                <span class="switch-copy"><span class="switch-title" data-i18n="settings.cache.cardSummary">整理卡片摘要</span><span class="switch-help" data-i18n="settings.cache.cardSummaryHelp">关闭后热门资讯卡片直接显示原始标题和网页摘录。</span></span>
-                <span class="toggle"><input id="cardSummaryEnabledInput" type="checkbox"><span aria-hidden="true"></span></span>
-              </label>
-              <label class="switch-field" for="personalizedRankingEnabledInput">
-                <span class="switch-copy"><span class="switch-title" data-i18n="settings.cache.personalized">个性化排序</span><span class="switch-help" data-i18n="settings.cache.personalizedHelp">仅使用本机阅读行为调整排序；关闭后恢复默认排序。</span></span>
-                <span class="toggle"><input id="personalizedRankingEnabledInput" type="checkbox" checked><span aria-hidden="true"></span></span>
-              </label>
-              <label class="switch-field" for="publicFeedSupplementEnabledInput">
-                <span class="switch-copy"><span class="switch-title" data-i18n="settings.cache.publicFeed">公共 Feed（Ampira）补盲</span><span class="switch-help" data-i18n="settings.cache.publicFeedHelp">补充重大事件；关闭后不参与资讯、简报与搜索。</span></span>
-                <span class="toggle"><input id="publicFeedSupplementEnabledInput" type="checkbox" checked><span aria-hidden="true"></span></span>
-              </label>
-            </div>
-          </section>
-          <section class="settings-section" aria-labelledby="sourceCoverageTitle">
-            <div class="settings-section-head"><div><h4 id="sourceCoverageTitle" data-i18n="settings.sources.coverageTitle">来源状态</h4><p data-i18n="settings.sources.coverageHelp">查看来源是否可用，并处理缺少的网站授权。</p></div></div>
-            <div class="source-coverage-summary" id="sourceCoverageSummary" aria-live="polite"></div>
-            <div class="source-health-list settings-compact-list" id="sourceCoverageList" tabindex="0" aria-labelledby="sourceCoverageTitle"></div>
-          </section>
-          <section class="settings-section" aria-labelledby="cacheReadingTitle">
-            <div class="settings-section-head"><div><h4 id="cacheReadingTitle" data-i18n="settings.section.reading">阅读与留存</h4></div></div>
-            <div class="settings-row-list">
-              <label class="switch-field" for="floatingOpenInput">
-                <span class="switch-copy"><span class="switch-title" data-i18n="settings.cache.inAppReading">站内阅读</span><span class="switch-help" data-i18n="settings.cache.inAppReadingHelp">点击入口时在当前页打开阅读窗口，不跳转到新窗口。</span></span>
-                <span class="toggle"><input id="floatingOpenInput" type="checkbox"><span aria-hidden="true"></span></span>
-              </label>
-              <label class="switch-field" for="readingQueueOpenOnReadAllInput">
-                <span class="switch-copy"><span class="switch-title" data-i18n="settings.cache.readAllOpen">一键已读时打开网站</span><span class="switch-help" data-i18n="settings.cache.readAllOpenHelp">关闭后只清空阅读队列并标记已读，不新建标签页。</span></span>
-                <span class="toggle"><input id="readingQueueOpenOnReadAllInput" type="checkbox"><span aria-hidden="true"></span></span>
-              </label>
-              <label class="switch-field" for="retainSeenArchiveInput">
-                <span class="switch-copy"><span class="switch-title" data-i18n="settings.cache.retainArchive">保留已看归档</span><span class="switch-help" data-i18n="settings.cache.retainArchiveHelp">关闭时，已看内容将在隔天自动清除；开启后会一直保留，直到手动清空。</span></span>
-                <span class="toggle"><input id="retainSeenArchiveInput" type="checkbox"><span aria-hidden="true"></span></span>
-              </label>
             </div>
           </section>
           <section class="settings-section settings-danger-zone" aria-labelledby="cacheMaintenanceTitle">
@@ -443,6 +463,33 @@
             </div>
             <div class="exclude-list bookmark-only-list settings-compact-list" id="bookmarkOnlyFolderList"></div>
           </section>
+          <section class="settings-section" id="websiteShortcutsSettings" aria-labelledby="bookmarkShortcutsTitle">
+            <div class="settings-section-head"><div><h4 id="bookmarkShortcutsTitle" class="feature-title"><img class="feature-title-icon" data-icon="bookmark" alt="" aria-hidden="true"><span data-i18n="settings.shortcuts.title">快捷书签</span></h4></div></div>
+            <label class="switch-field" for="websiteShortcutsEnabledInput">
+              <span class="switch-copy"><span class="switch-title" data-i18n="settings.shortcuts.enabled">在首页显示快捷书签</span><span class="switch-help" data-i18n="settings.shortcuts.enabledHelp">关闭后仍保留已添加的网址。</span></span>
+              <span class="toggle"><input id="websiteShortcutsEnabledInput" type="checkbox"><span aria-hidden="true"></span></span>
+            </label>
+            <div id="websiteShortcutDetails" hidden>
+              <div class="website-shortcut-editor">
+                <div class="settings-field-grid">
+                  <div class="field">
+                    <label for="websiteShortcutTitleInput" data-i18n="settings.shortcuts.name">名称</label>
+                    <input id="websiteShortcutTitleInput" type="text" maxlength="60" autocomplete="off" placeholder="OpenAI" data-i18n-placeholder="settings.shortcuts.namePlaceholder">
+                  </div>
+                  <div class="field">
+                    <label for="websiteShortcutUrlInput" data-i18n="settings.shortcuts.url">网站地址</label>
+                    <input id="websiteShortcutUrlInput" type="text" maxlength="2048" inputmode="url" autocomplete="url" placeholder="https://openai.com" data-i18n-placeholder="settings.shortcuts.urlPlaceholder">
+                  </div>
+                </div>
+                <div class="settings-panel-actions settings-section-actions website-shortcut-editor-actions">
+                  <button class="btn" id="addWebsiteShortcut" type="button"><img class="btn-icon" data-icon="plus" alt="" aria-hidden="true"><span class="btn-label" data-i18n="settings.shortcuts.add">添加快捷书签</span></button>
+                  <button class="btn ghost" id="cancelWebsiteShortcutEdit" type="button" hidden><span class="btn-label" data-i18n="settings.shortcuts.cancelEdit">取消编辑</span></button>
+                  <span class="website-shortcut-count" id="websiteShortcutCount" aria-live="polite"></span>
+                </div>
+              </div>
+              <div class="website-shortcut-settings-list settings-compact-list" id="websiteShortcutSettingsList"></div>
+            </div>
+          </section>
           <section class="settings-section" aria-labelledby="bookmarkHiddenTitle">
             <div class="settings-section-head settings-section-head-actions">
               <div><h4 id="bookmarkHiddenTitle" data-i18n="settings.bookmarks.hiddenTitle">已隐藏分类</h4><p data-i18n="settings.bookmarks.hiddenHelp">恢复后，子分类会重新出现在书签筛选和内容列表中。</p></div>
@@ -481,7 +528,6 @@
           <section class="settings-section" aria-labelledby="appearanceAccentTitle">
             <div class="settings-section-head"><div><h4 id="appearanceAccentTitle" data-i18n="settings.section.accent">重点色</h4></div></div>
           <div class="field">
-            <div class="field-label" data-i18n="settings.accent.label">重点色</div>
             <div class="theme-swatches" id="accentThemeGroup" role="group" aria-label="重点色" data-i18n-aria-label="settings.accent.label">
               <button class="theme-swatch active" type="button" data-accent-theme="violet" aria-pressed="true">
                 <span class="theme-dot theme-violet" aria-hidden="true"></span>
@@ -511,6 +557,79 @@
             </div>
           </div>
           </section>
+          <section class="settings-section header-image-settings" aria-labelledby="appearanceHeaderTitle">
+            <div class="settings-section-head"><div><h4 id="appearanceHeaderTitle" data-i18n="settings.section.headerImage">首页头图</h4></div></div>
+            <div class="settings-field-grid header-image-primary-settings">
+              <div class="field header-image-layout-field">
+                <div class="field-label" id="headerImageLayoutLabel" data-i18n="settings.headerImage.layoutTitle">头图样式</div>
+                <div class="segmented appearance-segmented" id="headerImageLayoutGroup" role="group" aria-labelledby="headerImageLayoutLabel">
+                  <button type="button" data-header-image-layout="off" aria-pressed="false" data-i18n="settings.headerImage.offOption">关闭</button>
+                  <button class="active" type="button" data-header-image-layout="standard" aria-pressed="true" data-i18n="settings.headerImage.standardTitle">标准</button>
+                  <button type="button" data-header-image-layout="fixed" aria-pressed="false" data-i18n="settings.headerImage.fixedOption">固定</button>
+                  <button type="button" data-header-image-layout="fullscreen" aria-pressed="false" data-i18n="settings.headerImage.fullscreenOption">全屏</button>
+                </div>
+                <div class="help" data-i18n="settings.headerImage.layoutHelp">关闭时隐藏头图；标准模式随页面滚动；固定模式停在顶部；全屏模式铺满视口并增加可读性遮罩。</div>
+                <input id="headerImageEnabledInput" type="checkbox" checked hidden>
+                <input id="headerImageFixedInput" type="checkbox" hidden>
+                <span id="headerImageFullscreenField" hidden><input id="headerImageFullscreenInput" type="checkbox"></span>
+              </div>
+              <div class="field header-image-source-field">
+                <div class="header-cover-url-control">
+                  <label for="headerImageUrlInput" data-i18n="settings.headerImage.url">图片地址</label>
+                  <input id="headerImageUrlInput" type="url" placeholder="https://example.com/image.jpg" inputmode="url">
+                  <div class="help" data-i18n="settings.headerImage.urlHelp">支持 HTTPS 或本机 localhost；加载失败时自动隐藏。</div>
+                </div>
+                <div class="header-cover-local-picker">
+                  <div class="header-cover-local-copy" aria-live="polite">
+                    <span class="header-cover-local-status" id="headerImageLocalStatus" data-i18n="settings.headerImage.localEmpty">当前使用图片地址</span>
+                    <span class="header-cover-local-meta" id="headerImageLocalMeta" hidden></span>
+                  </div>
+                  <div class="header-cover-local-actions">
+                    <button class="btn" id="headerImageLocalChoose" type="button">
+                      <img class="btn-icon" data-icon="folder" alt="" aria-hidden="true">
+                      <span class="btn-label" id="headerImageLocalChooseLabel" data-i18n="settings.headerImage.localChoose">选择本地图片</span>
+                    </button>
+                    <button class="btn danger" id="headerImageLocalRemove" type="button" hidden>
+                      <img class="btn-icon" data-icon="trash-01" alt="" aria-hidden="true">
+                      <span class="btn-label" data-i18n="settings.headerImage.localRemove">移除本地图片</span>
+                    </button>
+                    <input id="headerImageLocalInput" type="file" accept="image/jpeg,image/png,image/webp,image/avif" aria-label="选择本地头图" data-i18n-aria-label="settings.headerImage.localFileLabel" hidden>
+                  </div>
+                </div>
+                <div class="help header-cover-local-help" data-i18n="settings.headerImage.localHelp">本地图片仅保存在当前设备并优先显示；移除后恢复图片地址。</div>
+              </div>
+            </div>
+            <div class="settings-row-list header-image-adjustments">
+              <div class="cover-height-setting" id="headerImageHeightSetting">
+                <div class="cover-adjustment-range cover-height-range" id="headerImageHeightField" aria-disabled="false" aria-hidden="false">
+                  <label class="cover-adjustment-label" for="headerImageHeightInput" data-i18n="settings.headerImage.heightTitle">显示高度</label>
+                  <div class="cover-adjustment-meter">
+                    <input id="headerImageHeightInput" type="range" min="70" max="140" step="5" value="100">
+                  </div>
+                  <output id="headerImageHeightOutput" for="headerImageHeightInput" aria-hidden="true">100%</output>
+                </div>
+              </div>
+              <div class="cover-blur-setting" id="headerImageBlurSetting">
+                <label class="switch-field" for="headerImageBlurEnabledInput">
+                  <span class="switch-copy">
+                    <span class="switch-title" data-i18n="settings.headerImage.blurTitle">模糊头图</span>
+                    <span class="switch-help" data-i18n="settings.headerImage.blurHelp">柔化图片细节，让前景信息更易辨认。</span>
+                  </span>
+                  <span class="toggle">
+                    <input id="headerImageBlurEnabledInput" type="checkbox">
+                    <span aria-hidden="true"></span>
+                  </span>
+                </label>
+                <div class="cover-adjustment-range cover-blur-range" id="headerImageBlurField" aria-disabled="true" aria-hidden="true">
+                  <label class="cover-adjustment-label cover-blur-label" for="headerImageBlurAmountInput" data-i18n="settings.headerImage.blurAmount">模糊度</label>
+                  <div class="cover-blur-meter">
+                    <input id="headerImageBlurAmountInput" type="range" min="0" max="24" step="1" value="12" disabled>
+                  </div>
+                  <output id="headerImageBlurAmountOutput" for="headerImageBlurAmountInput" aria-hidden="true">12 px</output>
+                </div>
+              </div>
+            </div>
+          </section>
           <section class="settings-section" aria-labelledby="appearanceInteractionTitle">
             <div class="settings-section-head"><div><h4 id="appearanceInteractionTitle" data-i18n="settings.section.interaction">交互效果</h4></div></div>
             <div class="settings-row-list">
@@ -525,70 +644,33 @@
           </label>
             </div>
           </section>
-          <section class="settings-section header-image-settings" aria-labelledby="appearanceHeaderTitle">
-            <div class="settings-section-head"><div><h4 id="appearanceHeaderTitle" data-i18n="settings.section.headerImage">首页头图</h4></div></div>
-            <div class="settings-row-list settings-dependent-list">
-          <label class="switch-field" for="headerImageEnabledInput">
-            <span class="switch-copy">
-              <span class="switch-title" data-i18n="settings.headerImage.title">头图</span>
-              <span class="switch-help" data-i18n="settings.headerImage.help">在首页顶部显示横向图片，可随时关闭。</span>
-            </span>
-            <span class="toggle">
-              <input id="headerImageEnabledInput" type="checkbox" checked>
-              <span aria-hidden="true"></span>
-            </span>
-          </label>
-          <div class="cover-blur-setting">
-            <label class="switch-field" for="headerImageBlurEnabledInput">
-              <span class="switch-copy">
-                <span class="switch-title" data-i18n="settings.headerImage.blurTitle">模糊头图</span>
-                <span class="switch-help" data-i18n="settings.headerImage.blurHelp">柔化图片细节，让前景信息更易辨认。</span>
-              </span>
-              <span class="toggle">
-                <input id="headerImageBlurEnabledInput" type="checkbox">
-                <span aria-hidden="true"></span>
-              </span>
-            </label>
-            <div class="cover-blur-range" id="headerImageBlurField" aria-disabled="true" aria-hidden="true">
-              <label class="cover-blur-label" for="headerImageBlurAmountInput" data-i18n="settings.headerImage.blurAmount">模糊度</label>
-              <div class="cover-blur-meter">
-                <input id="headerImageBlurAmountInput" type="range" min="0" max="24" step="1" value="12" disabled>
-              </div>
-              <output id="headerImageBlurAmountOutput" for="headerImageBlurAmountInput" aria-hidden="true">12 px</output>
-            </div>
-          </div>
-          <label class="switch-field" for="headerImageFixedInput">
-            <span class="switch-copy">
-              <span class="switch-title" data-i18n="settings.headerImage.fixedTitle">固定头图</span>
-              <span class="switch-help" data-i18n="settings.headerImage.fixedHelp">滚动时停在顶部，让列表内容向上覆盖。</span>
-            </span>
-            <span class="toggle">
-              <input id="headerImageFixedInput" type="checkbox">
-              <span aria-hidden="true"></span>
-            </span>
-          </label>
-          <label class="switch-field" id="headerImageFullscreenField" for="headerImageFullscreenInput" aria-disabled="true">
-            <span class="switch-copy">
-              <span class="switch-title" data-i18n="settings.headerImage.fullscreenTitle">全屏显示</span>
-              <span class="switch-help" data-i18n="settings.headerImage.fullscreenHelp">仅固定头图时可用；图片铺满视口，并自动增加可读性遮罩。</span>
-            </span>
-            <span class="toggle">
-              <input id="headerImageFullscreenInput" type="checkbox" disabled>
-              <span aria-hidden="true"></span>
-            </span>
-          </label>
-            </div>
-          <div class="field">
-            <label for="headerImageUrlInput" data-i18n="settings.headerImage.url">图片地址</label>
-            <input id="headerImageUrlInput" type="url" placeholder="https://example.com/image.jpg" inputmode="url">
-            <div class="help" data-i18n="settings.headerImage.urlHelp">支持 HTTPS 或本机 localhost；加载失败时自动隐藏。</div>
-          </div>
-          </section>
         </div>
         <div class="settings-panel" data-settings-panel="browser">
           <div class="settings-panel-intro">
             <h3 class="feature-title"><img class="feature-title-icon" data-icon="monitor-01" alt="" aria-hidden="true"><span data-i18n="settings.browser.title">浏览器集成</span></h3>
           </div>
+          <section class="settings-section" aria-labelledby="browserContentSyncTitle">
+            <div class="settings-section-head"><div><h4 id="browserContentSyncTitle" class="feature-title"><img class="feature-title-icon" data-icon="synchronize" alt="" aria-hidden="true"><span data-i18n="settings.sync.title">跨设备内容</span></h4><p data-i18n="settings.sync.help">内容默认仅保存在本机，可按需开启 Chrome Sync。</p></div></div>
+            <div class="settings-row-list">
+              <label class="switch-field" for="contentSyncEnabledInput">
+                <span class="switch-copy"><span class="switch-title" data-i18n="settings.sync.master">跨设备同步</span><span class="switch-help" data-i18n="settings.sync.masterHelp">统一开启或关闭稍后读、待办事项和天气城市同步。</span></span>
+                <span class="toggle"><input id="contentSyncEnabledInput" type="checkbox"><span aria-hidden="true"></span></span>
+              </label>
+              <label class="switch-field" for="syncReadingQueueEnabledInput">
+                <span class="switch-copy"><span class="switch-title" data-i18n="settings.sync.readingQueue">同步稍后读</span></span>
+                <span class="toggle"><input id="syncReadingQueueEnabledInput" type="checkbox"><span aria-hidden="true"></span></span>
+              </label>
+              <label class="switch-field" for="syncTodosEnabledInput">
+                <span class="switch-copy"><span class="switch-title" data-i18n="settings.sync.todos">同步待办事项</span></span>
+                <span class="toggle"><input id="syncTodosEnabledInput" type="checkbox"><span aria-hidden="true"></span></span>
+              </label>
+              <label class="switch-field" for="syncWeatherLocationEnabledInput">
+                <span class="switch-copy"><span class="switch-title" data-i18n="settings.sync.weather">同步天气城市</span></span>
+                <span class="toggle"><input id="syncWeatherLocationEnabledInput" type="checkbox"><span aria-hidden="true"></span></span>
+              </label>
+            </div>
+            <div class="settings-cache-note settings-inline-status" data-i18n="settings.sync.security">API 密钥和 AI 服务配置不会同步。</div>
+          </section>
           <section class="settings-section" aria-labelledby="browserChromeTitle">
             <div class="settings-section-head"><div><h4 id="browserChromeTitle" class="feature-title"><img class="feature-title-icon" data-icon="monitor-01" alt="" aria-hidden="true"><span data-i18n="settings.section.chromeIntegration">新标签页</span></h4><p data-i18n="settings.browser.disableHelp">要恢复 Chrome 默认新标签页，请停用或卸载 Ampira。</p></div></div>
             <div class="browser-status-card settings-status-row">
@@ -599,31 +681,6 @@
               <span class="browser-status-badge" data-i18n="settings.browser.controlled">由扩展安装状态控制</span>
               <button class="btn" id="openExtensionManager" type="button"><img class="btn-icon" data-icon="link-external-01" alt="" aria-hidden="true"><span class="btn-label" data-i18n="settings.browser.openManager">打开扩展管理页</span></button>
             </div>
-          </section>
-          <section class="settings-section" id="websiteShortcutsSettings" aria-labelledby="browserShortcutsTitle">
-            <div class="settings-section-head"><div><h4 id="browserShortcutsTitle" class="feature-title"><img class="feature-title-icon" data-icon="bookmark" alt="" aria-hidden="true"><span data-i18n="settings.shortcuts.title">网站快捷方式</span></h4></div></div>
-            <label class="switch-field" for="websiteShortcutsEnabledInput">
-              <span class="switch-copy"><span class="switch-title" data-i18n="settings.shortcuts.enabled">显示网站快捷方式</span><span class="switch-help" data-i18n="settings.shortcuts.enabledHelp">关闭后仍保留已添加的网址。</span></span>
-              <span class="toggle"><input id="websiteShortcutsEnabledInput" type="checkbox"><span aria-hidden="true"></span></span>
-            </label>
-            <div class="website-shortcut-editor">
-              <div class="settings-field-grid">
-                <div class="field">
-                  <label for="websiteShortcutTitleInput" data-i18n="settings.shortcuts.name">名称</label>
-                  <input id="websiteShortcutTitleInput" type="text" maxlength="60" autocomplete="off" placeholder="OpenAI" data-i18n-placeholder="settings.shortcuts.namePlaceholder">
-                </div>
-                <div class="field">
-                  <label for="websiteShortcutUrlInput" data-i18n="settings.shortcuts.url">网站地址</label>
-                  <input id="websiteShortcutUrlInput" type="text" maxlength="2048" inputmode="url" autocomplete="url" placeholder="https://openai.com" data-i18n-placeholder="settings.shortcuts.urlPlaceholder">
-                </div>
-              </div>
-              <div class="settings-panel-actions settings-section-actions website-shortcut-editor-actions">
-                <button class="btn" id="addWebsiteShortcut" type="button"><img class="btn-icon" data-icon="plus" alt="" aria-hidden="true"><span class="btn-label" data-i18n="settings.shortcuts.add">添加快捷方式</span></button>
-                <button class="btn ghost" id="cancelWebsiteShortcutEdit" type="button" hidden><span class="btn-label" data-i18n="settings.shortcuts.cancelEdit">取消编辑</span></button>
-                <span class="website-shortcut-count" id="websiteShortcutCount" aria-live="polite"></span>
-              </div>
-            </div>
-            <div class="website-shortcut-settings-list settings-compact-list" id="websiteShortcutSettingsList"></div>
           </section>
           <section class="settings-section" aria-labelledby="browserFaviconTitle">
             <div class="settings-section-head"><div><h4 id="browserFaviconTitle" class="feature-title"><img class="feature-title-icon" data-icon="eye" alt="" aria-hidden="true"><span data-i18n="settings.browser.faviconTitle">网站图标</span></h4><p data-i18n="settings.browser.faviconHelp">使用 Chrome 内置接口；不会读取浏览历史或向第三方发送网址。</p></div></div>
@@ -636,27 +693,9 @@
             </div>
           </section>
           <section class="settings-section" aria-labelledby="browserPermissionsTitle">
-            <div class="settings-section-head settings-section-head-actions"><div><h4 id="browserPermissionsTitle" class="feature-title"><img class="feature-title-icon" data-icon="key-01" alt="" aria-hidden="true"><span data-i18n="settings.browser.permissionsTitle">网站访问权限</span></h4><p data-i18n="settings.browser.permissionsHelp">仅为需要读取内容的服务申请具体域名；内置灵感不需要网站权限。</p></div><div class="settings-panel-actions" id="sourcePermissionActions" hidden><button class="btn" id="grantAllSources" type="button"><img class="btn-icon" data-icon="key-01" alt="" aria-hidden="true"><span class="btn-label" data-i18n="settings.browser.grantSources">授权未授权域名</span></button></div></div>
+            <div class="settings-section-head settings-section-head-actions"><div><h4 id="browserPermissionsTitle" class="feature-title"><img class="feature-title-icon" data-icon="key-01" alt="" aria-hidden="true"><span data-i18n="settings.browser.permissionsTitle">网站访问权限</span></h4><p data-i18n="settings.browser.permissionsHelp">公共 Feed 首次授权时会一次申请当前语言包的 9 个精确来源域名；其中 3 个跨语言来源仅在 AI 就绪后读取。内置灵感不需要网站权限。</p></div><div class="settings-panel-actions" id="sourcePermissionActions" hidden><button class="btn" id="grantAllSources" type="button"><img class="btn-icon" data-icon="key-01" alt="" aria-hidden="true"><span class="btn-label" data-i18n="settings.browser.grantSources">授权未授权域名</span></button></div></div>
             <div class="settings-cache-note source-permission-summary settings-inline-status" id="sourcePermissionSummary" aria-live="polite" data-i18n="permission.loadingState">正在读取网站权限。</div>
             <div class="source-permission-list settings-compact-list" id="sourcePermissionList"></div>
-          </section>
-          <section class="settings-section" aria-labelledby="browserContentSyncTitle">
-            <div class="settings-section-head"><div><h4 id="browserContentSyncTitle" class="feature-title"><img class="feature-title-icon" data-icon="synchronize" alt="" aria-hidden="true"><span data-i18n="settings.sync.title">跨设备内容</span></h4><p data-i18n="settings.sync.help">内容默认仅保存在本机，可按需开启 Chrome Sync。</p></div></div>
-            <div class="settings-row-list">
-              <label class="switch-field" for="syncReadingQueueEnabledInput">
-                <span class="switch-copy"><span class="switch-title" data-i18n="settings.sync.readingQueue">同步稍后读</span><span class="switch-help" data-i18n="settings.sync.readingQueueHelp">同步最近 40 条；关闭后删除云端副本，保留本机内容。</span></span>
-                <span class="toggle"><input id="syncReadingQueueEnabledInput" type="checkbox"><span aria-hidden="true"></span></span>
-              </label>
-              <label class="switch-field" for="syncTodosEnabledInput">
-                <span class="switch-copy"><span class="switch-title" data-i18n="settings.sync.todos">同步待办事项</span><span class="switch-help" data-i18n="settings.sync.todosHelp">待办可能包含私人内容，请按需开启。</span></span>
-                <span class="toggle"><input id="syncTodosEnabledInput" type="checkbox"><span aria-hidden="true"></span></span>
-              </label>
-              <label class="switch-field" for="syncWeatherLocationEnabledInput">
-                <span class="switch-copy"><span class="switch-title" data-i18n="settings.sync.weather">同步天气城市</span><span class="switch-help" data-i18n="settings.sync.weatherHelp">同步城市与坐标，不同步天气缓存。</span></span>
-                <span class="toggle"><input id="syncWeatherLocationEnabledInput" type="checkbox"><span aria-hidden="true"></span></span>
-              </label>
-            </div>
-            <div class="settings-cache-note settings-inline-status" data-i18n="settings.sync.security">API 密钥和 AI 服务配置不会同步。</div>
           </section>
         </div>
         <div class="settings-panel" data-settings-panel="exclusions">
@@ -679,6 +718,11 @@
               </div>
             </div>
           </section>
+          <section class="settings-section" aria-labelledby="exclusionCurrentTitle">
+            <div class="settings-section-head"><div><h4 id="exclusionCurrentTitle" data-i18n="settings.section.currentBlocks">当前已屏蔽</h4></div></div>
+            <div class="settings-cache-note settings-inline-status" id="exclusionStatus" data-i18n="settings.exclusions.status">已屏蔽来源会在这里显示。</div>
+            <div class="exclude-list settings-compact-list" id="exclusionList"></div>
+          </section>
           <section class="settings-section source-suggestion-panel" aria-labelledby="exclusionSuggestionTitle" data-i18n-aria-label="settings.exclusions.suggestionsLabel">
             <div class="settings-section-head settings-section-head-actions">
               <div><h4 id="exclusionSuggestionTitle" data-i18n="settings.exclusions.suggestions">来源建议</h4></div>
@@ -686,13 +730,22 @@
             </div>
             <div class="source-suggestion-list settings-compact-list" id="sourceSuggestionList"></div>
           </section>
-          <section class="settings-section" aria-labelledby="exclusionCurrentTitle">
-            <div class="settings-section-head"><div><h4 id="exclusionCurrentTitle" data-i18n="settings.section.currentBlocks">当前已屏蔽</h4></div></div>
-            <div class="settings-cache-note settings-inline-status" id="exclusionStatus" data-i18n="settings.exclusions.status">已屏蔽来源会在这里显示。</div>
-            <div class="exclude-list settings-compact-list" id="exclusionList"></div>
-          </section>
         </div>
         <div class="settings-panel" data-settings-panel="about">
+          <section class="settings-section settings-transfer-section" aria-labelledby="settingsTransferTitle">
+            <div class="settings-section-head">
+              <div>
+                <h4 id="settingsTransferTitle" data-i18n="settings.transfer.title">配置迁移</h4>
+                <p data-i18n="settings.transfer.help">导入或导出普通设置；不包含 API 密钥、权限和缓存。</p>
+              </div>
+            </div>
+            <div class="settings-panel-actions settings-section-actions settings-transfer-actions">
+              <button class="btn" id="exportSettings" type="button"><img class="btn-icon" data-icon="save-01" alt="" aria-hidden="true"><span class="btn-label" data-i18n="settings.transfer.export">导出配置</span></button>
+              <button class="btn" id="importSettings" type="button"><img class="btn-icon" data-icon="database-01" alt="" aria-hidden="true"><span class="btn-label" data-i18n="settings.transfer.import">导入配置</span></button>
+              <input id="settingsImportFile" type="file" accept=".json,application/json" aria-label="选择 Ampira 配置文件" data-i18n-aria-label="settings.transfer.fileLabel" hidden>
+            </div>
+            <p class="settings-transfer-note" data-i18n="settings.transfer.note">文件可能包含网址和服务地址，请妥善保管。</p>
+          </section>
           <div class="settings-panel-intro">
             <h3 data-i18n="settings.about.title">关于</h3>
           </div>
@@ -708,49 +761,36 @@
             </div>
             <a class="about-source-link" href="https://github.com/sunpanran/Ampira" target="_blank" rel="noopener noreferrer"><span data-i18n="settings.about.githubLink">GitHub</span><span aria-hidden="true">↗</span></a>
           </div>
-          <section class="settings-section settings-transfer-section" aria-labelledby="settingsTransferTitle">
-            <div class="settings-section-head">
-              <div>
-                <h4 id="settingsTransferTitle" data-i18n="settings.transfer.title">配置迁移</h4>
-                <p data-i18n="settings.transfer.help">导入或导出普通设置；不包含 API 密钥、权限和缓存。</p>
-              </div>
-            </div>
-            <div class="settings-panel-actions settings-section-actions settings-transfer-actions">
-              <button class="btn" id="exportSettings" type="button"><img class="btn-icon" data-icon="save-01" alt="" aria-hidden="true"><span class="btn-label" data-i18n="settings.transfer.export">导出配置</span></button>
-              <button class="btn" id="importSettings" type="button"><img class="btn-icon" data-icon="database-01" alt="" aria-hidden="true"><span class="btn-label" data-i18n="settings.transfer.import">导入配置</span></button>
-              <input id="settingsImportFile" type="file" accept=".json,application/json" aria-label="选择 Ampira 配置文件" data-i18n-aria-label="settings.transfer.fileLabel" hidden>
-            </div>
-            <p class="settings-transfer-note" data-i18n="settings.transfer.note">文件可能包含网址和服务地址，请妥善保管。</p>
-          </section>
         </div>
       </form>
       <div class="modal-actions">
         <a class="settings-support-note" href="https://portaly.cc/Pirasun" target="_blank" rel="noopener noreferrer" aria-label="请作者喝杯咖啡" data-i18n-aria-label="settings.support.label">
-          <span aria-hidden="true">☕</span>
+          <img class="settings-support-icon" data-icon="coffee" alt="" aria-hidden="true">
           <span data-i18n="settings.support.label">请作者喝杯咖啡</span>
         </a>
+        <div class="settings-status" id="settingsStatus" role="status" aria-live="polite" data-i18n="settings.status.loading">正在读取设置。</div>
         <button class="btn primary" id="saveSettings" type="button"><img class="btn-icon" data-icon="save-01" alt="" aria-hidden="true"><span class="btn-label" data-i18n="action.saveSettings">保存设置</span></button>
       </div>
     </div>
   </div>
 
-  <div class="search-overlay" id="aiSearchOverlay" role="dialog" aria-modal="true" aria-label="AI 搜索" data-i18n-aria-label="aiSearch.title">
+  <div class="search-overlay" id="aiSearchOverlay" role="dialog" aria-modal="true" aria-label="搜索 Ampira" data-i18n-aria-label="aiSearch.local.title">
     <div class="ai-search-panel">
       <div class="ai-search-head" hidden>
         <div>
           <div class="ai-search-title" id="aiSearchTitle">
             <img class="card-icon" data-icon="search" alt="" aria-hidden="true">
-            <span data-i18n="aiSearch.title">AI 搜索</span>
+            <span id="aiSearchTitleText" data-i18n="aiSearch.local.title">搜索 Ampira</span>
           </div>
-          <div class="ai-search-meta" id="aiSearchMeta" data-i18n="aiSearch.meta">输入问题或网址</div>
+          <div class="ai-search-meta" id="aiSearchMeta" data-i18n="aiSearch.local.meta">在 Ampira 已收录内容中查找相关信息</div>
         </div>
         <button class="btn ghost" id="closeAiSearch" type="button"><img class="btn-icon" data-icon="x-close" alt="" aria-hidden="true"><span class="btn-label" data-i18n="aiSearch.close">关闭</span></button>
       </div>
       <form class="ai-search-form" id="aiSearchForm" autocomplete="off">
-        <input id="aiSearchInput" type="search" autocomplete="off" aria-label="输入问题或网址" placeholder="输入问题或网址" data-i18n-aria-label="aiSearch.input" data-i18n-placeholder="aiSearch.input">
-        <button class="btn primary" id="aiSearchSubmit" type="submit" data-i18n="aiSearch.send">发送</button>
+        <input id="aiSearchInput" type="search" autocomplete="off" aria-label="输入关键词" placeholder="输入关键词" data-i18n-aria-label="aiSearch.local.input" data-i18n-placeholder="aiSearch.local.input">
+        <button class="btn primary" id="aiSearchSubmit" type="submit" data-i18n="aiSearch.local.submit">搜索</button>
       </form>
-      <div class="ai-answer" id="aiAnswer" aria-live="polite" hidden></div>
+      <div class="ai-answer" id="aiAnswer" role="log" aria-live="polite" aria-relevant="additions text" hidden></div>
     </div>
   </div>
 
@@ -825,8 +865,8 @@
         <div class="onboarding-step-icon"><img data-icon="key-01" alt="" aria-hidden="true"></div>
         <div class="section-kicker" data-i18n="onboarding.step2.kicker">首次设置 · 3/3</div>
         <h1 id="onboardingPermissionTitle" data-i18n="onboarding.step2.title">只授权你需要的内容</h1>
-        <p data-i18n="onboarding.step2.body">仅在读取内容时申请对应网站权限。跳过后仍可打开书签，但不会自动获取该网站内容。</p>
-        <div class="onboarding-permission-status"><img class="inline-icon" data-icon="link-external-01" alt="" aria-hidden="true"><span id="onboardingPermissionStatus" data-i18n="onboarding.step2.loading">正在检查所需网站…</span></div>
+        <p data-i18n="onboarding.step2.body">下方一次列出当前来源所需的网站权限。公共 Feed 包含 6 个当前语言来源和 3 个仅在 AI 就绪后使用的跨语言来源；跳过后仍可打开书签，但不会自动获取内容。</p>
+        <div class="onboarding-permission-status"><img class="inline-icon" data-icon="link-external-01" alt="" aria-hidden="true"><span id="onboardingPermissionStatus" data-i18n="onboarding.step2.loading">请选择是否授权网站，然后继续</span></div>
         <div class="onboarding-actions">
           <button class="btn primary" id="onboardingGrantSources" type="button"><img class="btn-icon" data-icon="rss-01" alt="" aria-hidden="true"><span class="btn-label" data-i18n="onboarding.step2.grant">授权网站并启用图标</span></button>
           <button class="btn ghost" id="onboardingSkipPermissions" type="button"><span class="btn-label" data-i18n="onboarding.step2.skip">暂不授权</span><img class="btn-icon" data-icon="arrow-up-right" alt="" aria-hidden="true"></button>

@@ -114,6 +114,26 @@ export function normalizeWeatherCoordinates(latitudeValue, longitudeValue) {
   return latitude === null || longitude === null ? null : { latitude, longitude };
 }
 
+export function normalizeWeatherLocation(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const coordinates = normalizeWeatherCoordinates(value.latitude, value.longitude);
+  const name = cleanText(value.name, 100);
+  if (!coordinates || !name) return null;
+  return {
+    id: normalizeStoredLocationId(value.id),
+    name,
+    admin1: cleanText(value.admin1, 100),
+    admin2: cleanText(value.admin2, 100),
+    country: cleanText(value.country, 100),
+    countryCode: normalizeCode(value.countryCode, 2),
+    featureCode: normalizeCode(value.featureCode, 20),
+    population: normalizePopulation(value.population),
+    source: normalizeCode(value.source, 40),
+    confidence: ["high", "verify"].includes(value.confidence) ? value.confidence : "verify",
+    ...coordinates,
+  };
+}
+
 export function weatherLocationFingerprint(latitude, longitude) {
   const coordinates = normalizeWeatherCoordinates(latitude, longitude);
   return coordinates ? `${coordinates.latitude.toFixed(4)},${coordinates.longitude.toFixed(4)}` : "";
@@ -160,6 +180,16 @@ function normalizedLocationId(value) {
 function normalizeCountryCode(value) {
   const code = String(value || "").trim().toUpperCase();
   return /^[A-Z]{2}$/.test(code) ? code : "";
+}
+
+function normalizeCode(value, maxLength) {
+  const code = String(value || "").trim();
+  return code.length <= maxLength && /^[A-Za-z0-9._:-]*$/.test(code) ? code : "";
+}
+
+function normalizeStoredLocationId(value) {
+  const id = String(value ?? "").trim();
+  return id && Array.from(id).length <= 100 && /^[\p{L}\p{N}._:-]+$/u.test(id) ? id : "";
 }
 
 function normalizePopulation(value) {

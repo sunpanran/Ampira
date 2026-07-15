@@ -14,6 +14,11 @@ const HEADER_COVER_STORAGE_KEY = "ampira.headerCover";
 const HEADER_IMAGE_BLUR_MAX = 24;
 const HEADER_IMAGE_BLUR_DEFAULT = 12;
 const HEADER_IMAGE_BLUR_BLEED_MULTIPLIER = 1.5;
+const HEADER_IMAGE_HEIGHT_MIN = 70;
+const HEADER_IMAGE_HEIGHT_MAX = 140;
+const HEADER_IMAGE_HEIGHT_DEFAULT = 100;
+const DEFAULT_HEADER_IMAGE_URL = "https://images.unsplash.com/photo-1782827286498-241b8af47185?q=80&w=2487&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D";
+const DEFAULT_HEADER_IMAGE_ASSET = "/assets/images/default-header.webp";
 
 export function createAppearanceController(options) {
   const { state, els } = options;
@@ -29,26 +34,52 @@ export function createAppearanceController(options) {
     els.headerImageEnabledInput.checked = settings.headerImageEnabled === true;
     els.headerImageBlurEnabledInput.checked = settings.headerImageBlurEnabled === true;
     els.headerImageBlurAmountInput.value = String(normalizeHeaderImageBlurAmount(settings.headerImageBlurAmount));
-    syncBlurControl();
+    els.headerImageHeightInput.value = String(normalizeHeaderImageHeightScale(settings.headerImageHeightScale));
     els.headerImageFixedInput.checked = settings.headerImageFixed === true;
     els.headerImageFullscreenInput.checked = settings.headerImageFixed === true && settings.headerImageFullscreen === true;
-    syncFullscreenControl();
+    syncHeaderImageLayoutButtons();
+    syncHeightControl();
+    syncBlurControl();
     els.headerImageUrlInput.value = settings.headerImageUrl || "";
   }
 
   function syncFullscreenControl(busy = els.saveSettings.disabled) {
-    const available = els.headerImageFixedInput.checked && !busy;
-    els.headerImageFullscreenInput.disabled = !available;
-    els.headerImageFullscreenField.setAttribute("aria-disabled", String(!available));
+    for (const button of els.headerImageLayoutGroup.querySelectorAll("[data-header-image-layout]")) button.disabled = busy;
   }
 
   function syncBlurControl(busy = els.saveSettings.disabled) {
-    const enabled = els.headerImageBlurEnabledInput.checked;
+    const headerEnabled = els.headerImageEnabledInput.checked;
+    const enabled = headerEnabled && els.headerImageBlurEnabledInput.checked;
     const available = enabled && !busy;
+    const disabled = !headerEnabled || busy;
+    els.headerImageBlurEnabledInput.disabled = disabled;
+    els.headerImageBlurEnabledInput.closest(".switch-field")
+      ?.setAttribute("aria-disabled", String(disabled));
     els.headerImageBlurAmountInput.disabled = !available;
     els.headerImageBlurField.setAttribute("aria-disabled", String(!available));
     els.headerImageBlurField.setAttribute("aria-hidden", String(!enabled));
     syncBlurAmountLabel();
+  }
+
+  function syncHeightControl(busy = els.saveSettings.disabled) {
+    const enabled = els.headerImageEnabledInput.checked
+      && !els.headerImageFullscreenInput.checked;
+    els.headerImageHeightInput.disabled = !enabled || busy;
+    els.headerImageHeightField.setAttribute("aria-disabled", String(!enabled || busy));
+    els.headerImageHeightField.setAttribute("aria-hidden", String(!enabled));
+    syncHeightLabel();
+  }
+
+  function syncHeightLabel() {
+    const value = normalizeHeaderImageHeightScale(els.headerImageHeightInput.value);
+    const min = Number(els.headerImageHeightInput.min) || HEADER_IMAGE_HEIGHT_MIN;
+    const max = Number(els.headerImageHeightInput.max) || HEADER_IMAGE_HEIGHT_MAX;
+    const progress = max > min ? ((value - min) / (max - min)) * 100 : 0;
+    els.headerImageHeightInput.value = String(value);
+    els.headerImageHeightInput.setAttribute("aria-valuetext", `${value}%`);
+    els.headerImageHeightInput.style.setProperty("--range-progress", `${progress}%`);
+    els.headerImageHeightOutput.value = `${value}%`;
+    return value;
   }
 
   function syncBlurAmountLabel() {
@@ -71,6 +102,25 @@ export function createAppearanceController(options) {
     options.renderSettingsStatus();
   }
 
+  function selectHeaderImageLayout(layout) {
+    els.headerImageEnabledInput.checked = layout !== "off";
+    els.headerImageFixedInput.checked = layout === "fixed" || layout === "fullscreen";
+    els.headerImageFullscreenInput.checked = layout === "fullscreen";
+    syncHeaderImageLayoutButtons();
+    syncHeightControl();
+    syncBlurControl();
+  }
+
+  function syncHeaderImageLayoutButtons() {
+    const layout = !els.headerImageEnabledInput.checked ? "off" : els.headerImageFullscreenInput.checked ? "fullscreen" : els.headerImageFixedInput.checked ? "fixed" : "standard";
+    for (const button of els.headerImageLayoutGroup.querySelectorAll("[data-header-image-layout]")) {
+      const active = button.dataset.headerImageLayout === layout;
+      button.classList.toggle("active", active);
+      button.setAttribute("aria-pressed", String(active));
+    }
+    options.syncSegmentedIndicator(els.headerImageLayoutGroup);
+  }
+
   function payload() {
     return {
       uiLocale: selectedUiLocale(),
@@ -81,6 +131,7 @@ export function createAppearanceController(options) {
       headerImageEnabled: els.headerImageEnabledInput.checked,
       headerImageBlurEnabled: els.headerImageBlurEnabledInput.checked,
       headerImageBlurAmount: syncBlurAmountLabel(),
+      headerImageHeightScale: syncHeightLabel(),
       headerImageFixed: els.headerImageFixedInput.checked,
       headerImageFullscreen: els.headerImageFixedInput.checked && els.headerImageFullscreenInput.checked,
       headerImageUrl: els.headerImageUrlInput.value.trim(),
@@ -101,6 +152,7 @@ export function createAppearanceController(options) {
     const locale = setLocale(value, { persist });
     els.uiLocaleSelect.value = locale;
     translateDocument(document);
+    options.syncHeaderCoverControls?.();
     if (els.currentUiLanguage) els.currentUiLanguage.textContent = t("language.name");
     options.renderTodayMeta();
     if (state.data && render) options.renderAll();
@@ -157,22 +209,29 @@ export function createAppearanceController(options) {
 
   function renderHeaderImage(settings = {}) {
     const url = String(settings.headerImageUrl || "").trim();
+    const localUrl = String(state.localHeaderCover?.dataUrl || "");
     const enabled = settings.headerImageEnabled === true;
     const fixed = settings.headerImageFixed === true;
     const fullscreen = fixed && settings.headerImageFullscreen === true;
     const blurEnabled = settings.headerImageBlurEnabled === true;
     const blurAmount = normalizeHeaderImageBlurAmount(settings.headerImageBlurAmount);
+    const heightScale = normalizeHeaderImageHeightScale(settings.headerImageHeightScale);
+    const preferredLocalUrl = localUrl && localUrl !== failedLocalCoverDataUrl ? localUrl : "";
+    const source = preferredLocalUrl || resolveHeaderImageSource(url);
     const root = document.documentElement;
     cache(HEADER_COVER_STORAGE_KEY, JSON.stringify({
-      enabled: enabled && isHttpUrl(url),
+      enabled: enabled && Boolean(source),
       fixed,
       fullscreen,
       blurEnabled,
       blurAmount,
+      heightScale,
+      local: Boolean(localUrl),
       url: enabled ? url : "",
     }));
     applyHeaderImageBlur(root, enabled && blurEnabled ? blurAmount : 0);
-    if (!enabled || !isHttpUrl(url)) {
+    applyHeaderImageHeight(root, heightScale);
+    if (!enabled || !source) {
       els.headerImageHero.hidden = true;
       els.headerImageHero.classList.remove("is-loaded");
       els.headerImage.removeAttribute("src");
@@ -183,9 +242,9 @@ export function createAppearanceController(options) {
     root.classList.add("has-header-cover");
     root.classList.toggle("has-fixed-header-cover", fixed);
     root.classList.toggle("has-fullscreen-header-cover", fullscreen);
-    if (els.headerImage.getAttribute("src") !== url) {
+    if (els.headerImage.getAttribute("src") !== source) {
       els.headerImageHero.classList.remove("is-loaded");
-      els.headerImage.src = url;
+      els.headerImage.src = source;
     }
     syncHeaderImageLoadState();
   }
@@ -201,9 +260,23 @@ export function createAppearanceController(options) {
   }
 
   function handleHeaderImageError() {
+    const localUrl = String(state.localHeaderCover?.dataUrl || "");
+    const fallbackUrl = String(state.settings?.headerImageUrl || "").trim();
+    const fallbackSource = resolveHeaderImageSource(fallbackUrl);
+    if (localUrl && els.headerImage.getAttribute("src") === localUrl && fallbackSource) {
+      failedLocalCoverDataUrl = localUrl;
+      els.headerImageHero.classList.remove("is-loaded");
+      els.headerImage.src = fallbackSource;
+      return;
+    }
     els.headerImageHero.classList.remove("is-loaded");
     els.headerImageHero.hidden = true;
     document.documentElement.classList.remove("has-header-cover", "has-fixed-header-cover", "has-fullscreen-header-cover");
+  }
+
+  function resolveHeaderImageSource(url) {
+    if (url === DEFAULT_HEADER_IMAGE_URL) return DEFAULT_HEADER_IMAGE_ASSET;
+    return isHttpUrl(url) ? url : "";
   }
 
   function applyCustomAccentPreview(color) {
@@ -218,15 +291,27 @@ export function createAppearanceController(options) {
     root.style.setProperty("--header-cover-size-adjustment", `${bleed * 2}px`);
   }
 
+  function applyHeaderImageHeight(root, value) {
+    root.style.setProperty("--header-cover-height-scale", String(normalizeHeaderImageHeightScale(value) / 100));
+  }
+
   function cache(key, value) {
     try { localStorage.setItem(key, value); } catch {}
   }
 
-  return { syncControls, syncFullscreenControl, syncBlurControl, updatePreview, payload, selectedUiLocale, selectedColorMode, selectedAccentTheme, syncLanguageControls, applyLocale, applySettings, handleHeaderImageLoad, handleHeaderImageError, syncHeaderImageLoadState };
+  let failedLocalCoverDataUrl = "";
+
+  return { syncControls, syncFullscreenControl, syncBlurControl, syncHeightControl, updatePreview, selectHeaderImageLayout, payload, selectedUiLocale, selectedColorMode, selectedAccentTheme, syncLanguageControls, applyLocale, applySettings, handleHeaderImageLoad, handleHeaderImageError, syncHeaderImageLoadState };
 }
 
 function normalizeHeaderImageBlurAmount(value, fallback = HEADER_IMAGE_BLUR_DEFAULT) {
   const amount = Number(value);
   if (!Number.isFinite(amount)) return fallback;
   return Math.min(HEADER_IMAGE_BLUR_MAX, Math.max(0, Math.round(amount)));
+}
+
+function normalizeHeaderImageHeightScale(value, fallback = HEADER_IMAGE_HEIGHT_DEFAULT) {
+  const amount = Number(value);
+  if (!Number.isFinite(amount)) return fallback;
+  return Math.min(HEADER_IMAGE_HEIGHT_MAX, Math.max(HEADER_IMAGE_HEIGHT_MIN, Math.round(amount / 5) * 5));
 }

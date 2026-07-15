@@ -115,6 +115,12 @@ assert.equal(atomItems.length, 1);
 assert.equal(jsonItems.length, 1);
 assert(!rssItems[0].excerpt.includes("<script>"), "remote markup must never survive as executable HTML");
 assert.equal(rankAndDedupe([...rssItems, ...rssItems, ...atomItems, ...jsonItems]).length, 3);
+const duplicatePublicItem = { ...rssItems[0], source: "Public duplicate", externalDiscovery: true };
+const duplicateBookmarkItem = { ...rssItems[0], source: "Bookmark duplicate", externalDiscovery: false };
+const locallyPreferred = rankAndDedupe([duplicatePublicItem, duplicateBookmarkItem]);
+assert.equal(locallyPreferred.length, 1, "the same normalized article URL must only appear once");
+assert.equal(locallyPreferred[0].source, "Bookmark duplicate", "bookmark sources must win URL collisions even when a public source finishes first");
+assert.equal(locallyPreferred[0].externalDiscovery, false, "the retained duplicate must preserve bookmark-source identity");
 const importanceFixture = parseFeedDocument(
   `<rss><channel>
     <item><title>限时优惠：桌面配件购买指南</title><link>https://example.com/deals/desk</link><description>热门配件推荐与优惠券汇总</description><pubDate>Sun, 12 Jul 2026 10:00:00 GMT</pubDate></item>
@@ -203,10 +209,12 @@ assert.equal(faviconUrl({ url: faviconPageUrl }, {
 
 const emptyFeedCache = feedCacheOrEmpty(null);
 assert.deepEqual(emptyFeedCache.items, [], "a missing feed cache must remain empty instead of falling back to bookmark cards");
-const cachedEmptyFeed = { schemaVersion: 2, items: [] };
-assert.equal(feedCacheOrEmpty(cachedEmptyFeed), cachedEmptyFeed, "an empty feed cache must remain the authoritative empty result");
-const cachedFeed = { schemaVersion: 2, items: [{ articleId: "real-article", title: "Real article" }] };
-assert.equal(feedCacheOrEmpty(cachedFeed), cachedFeed, "real cached news must remain available");
+const legacyFeed = { schemaVersion: 2, items: [{ articleId: "legacy-article", title: "Legacy article" }] };
+assert.deepEqual(feedCacheOrEmpty(legacyFeed).items, [], "schema 2 Feed caches must be discarded instead of migrating raw content");
+const cachedEmptyFeed = { schemaVersion: 3, items: [] };
+assert.equal(feedCacheOrEmpty(cachedEmptyFeed), cachedEmptyFeed, "an empty schema 3 Feed cache must remain authoritative");
+const cachedFeed = { schemaVersion: 3, items: [{ articleId: "real-article", title: "Real article" }] };
+assert.equal(feedCacheOrEmpty(cachedFeed), cachedFeed, "current cached news must remain available");
 assert.equal(isReaderUrl("http://127.0.0.1:3000/article"), true);
 
 }

@@ -7,9 +7,13 @@ import {
 import { parseFeedDocument } from "../../extension/core/feed.mjs";
 import { extractReaderDocument } from "../../extension/core/reader.mjs";
 import { fetchSourceImageCandidates } from "../../extension/core/preview.mjs";
+import { isPrivateAddressLiteral } from "../../extension/core/network-policy.mjs";
 import { feedImageCacheFresh, selectFeedImageEnrichmentTargets } from "../../extension/runtime/refresh-service.mjs";
 
 const pageUrl = "https://news.example.com/story";
+assert.equal(isPrivateAddressLiteral("127.0.0.1"), true);
+assert.equal(isPrivateAddressLiteral("192.168.1.20"), true);
+assert.equal(isPrivateAddressLiteral("news.example.com"), false);
 const pageCandidates = extractPageImageCandidates(`
   <meta name="twitter:image" content="/twitter.jpg">
   <meta content="/hero.jpg" property="og:image">

@@ -1,4 +1,31 @@
 import { MAX_WEBSITE_SHORTCUTS } from "../../extension/core/settings.mjs";
+import { createLoadingPhaseController } from "./motion.mjs";
+
+export function refreshAvailability(data) {
+  if (!data) return { available: false, reason: "loading", messageKey: "status.refreshUnavailable.loading" };
+  if (data.status?.running === true) return { available: false, reason: "running", messageKey: "status.refreshUnavailable.running" };
+  if (data.onboarding?.bookmarkConsentGranted === false) {
+    return { available: false, reason: "consent", messageKey: "status.refreshUnavailable.consent" };
+  }
+  const configuredSources = finiteCount(data.cache?.configuredSources, data.sourceQuality?.configured);
+  const refreshableSources = finiteCount(data.cache?.refreshableSources, data.sourceQuality?.authorized);
+  if (configuredSources === 0) {
+    return { available: false, reason: "no-sources", messageKey: "status.refreshUnavailable.noSources" };
+  }
+  if (configuredSources !== null && configuredSources > 0 && refreshableSources === 0) {
+    return { available: false, reason: "permission", messageKey: "status.refreshUnavailable.permission" };
+  }
+  return { available: true, reason: "", messageKey: "" };
+}
+
+function finiteCount(primary, fallback) {
+  for (const value of [primary, fallback]) {
+    if (value === null || value === undefined || value === "") continue;
+    const number = Number(value);
+    if (Number.isFinite(number)) return Math.max(0, Math.floor(number));
+  }
+  return null;
+}
 
 export function createStatusView(options) {
   const {
@@ -33,6 +60,12 @@ function renderInitialLoadingState() {
     return column;
   }));
   els.summaryGrid.replaceChildren(...Array.from({ length: 8 }, () => createLoadingPlaceholder("summary-skeleton")));
+  return createLoadingPhaseController([
+    els.websiteShortcuts,
+    els.efficiencyPanel,
+    els.dailyBoard,
+    els.summaryGrid,
+  ]);
 }
 
 function renderWebsiteShortcutLoadingState() {
@@ -89,6 +122,7 @@ function createLoadingPlaceholder(extraClass = "") {
 function renderStatus() {
   const status = state.data?.status || {};
   const ai = state.data?.ai || {};
+  const refreshState = refreshAvailability(state.data);
   const overviewMetaKey = ai.enabled
     ? "settings.overview.aiReady"
     : ai.configured
@@ -97,10 +131,10 @@ function renderStatus() {
   renderOverviewStatus(t("settings.overview.aiService"), t(overviewMetaKey));
   els.settingsOverviewAction.textContent = t(ai.configured ? "settings.overview.manage" : "settings.overview.configure");
   renderQuotaOverview(ai);
-  renderCacheOverview(status);
+  renderCacheOverview(status, refreshState);
   renderAutoAiStatus(ai);
   renderCacheStatus();
-  renderRefreshButtons(Boolean(status.running));
+  renderRefreshButtons(refreshState);
 }
 
 function renderQuotaOverview(ai = {}) {
@@ -120,16 +154,22 @@ function setCacheOverviewLoading(isLoading) {
   els.settingsCacheLoadingIcon.hidden = !isLoading;
 }
 
-function renderCacheOverview(status = {}) {
+function renderCacheOverview(status = {}, refreshState = refreshAvailability(state.data)) {
   const isRunning = status.running === true;
   setCacheOverviewLoading(isRunning);
   els.settingsCacheOverviewStatus.removeAttribute("data-i18n");
-  els.settingsCacheOverviewStatus.textContent = t(isRunning ? "settings.overview.cacheRunning" : "settings.overview.cacheReady");
+  els.settingsCacheOverviewStatus.textContent = t(isRunning
+    ? "settings.overview.cacheRunning"
+    : refreshState.available ? "settings.overview.cacheReady" : "settings.overview.cacheUnavailable");
   els.settingsCacheOverviewDetail.removeAttribute("data-i18n");
   if (isRunning) {
     const progressValue = Number(status.progress);
     const progress = Number.isFinite(progressValue) ? Math.min(1, Math.max(0, progressValue)) : 0;
     els.settingsCacheOverviewDetail.textContent = t("settings.overview.cacheProgress", { percent: Math.round(progress * 100) });
+    return;
+  }
+  if (!refreshState.available) {
+    els.settingsCacheOverviewDetail.textContent = t(refreshState.messageKey);
     return;
   }
   const finishedAt = String(status.finishedAt || "");
@@ -210,14 +250,20 @@ function renderOverviewStatus(title, meta) {
   els.settingsOverviewMeta.textContent = meta || t("status.noRecord");
 }
 
-function renderRefreshButtons(isRunning) {
-  renderRefreshButton(els.refresh, isRunning);
-  renderRefreshButton(els.settingsRefresh, isRunning);
+function renderRefreshButtons(refreshState) {
+  renderRefreshButton(els.refresh, refreshState);
+  renderRefreshButton(els.settingsRefresh, refreshState);
+  const message = refreshState.available ? "" : t(refreshState.messageKey);
+  els.refreshAvailability.textContent = message;
+  els.refreshAvailability.classList.toggle("is-visible", Boolean(message));
 }
 
-function renderRefreshButton(button, isRunning) {
+function renderRefreshButton(button, refreshState) {
+  const isRunning = refreshState.reason === "running";
   button.classList.toggle("is-loading", isRunning);
-  button.disabled = isRunning;
+  button.disabled = !refreshState.available;
+  if (refreshState.available) button.removeAttribute("data-disabled-reason");
+  else button.dataset.disabledReason = isRunning ? "loading" : "prerequisite";
   button.replaceChildren();
   if (isRunning) {
     setIconLabel(button, "synchronize", t("status.caching"));
@@ -268,6 +314,8 @@ function renderConnectionError(error) {
   els.settingsCacheOverviewStatus.textContent = t("connection.backgroundPaused");
   els.settingsCacheOverviewDetail.removeAttribute("data-i18n");
   els.settingsCacheOverviewDetail.textContent = t("settings.overview.cachePaused");
+  const unavailable = { available: false, reason: "connection", messageKey: "status.refreshUnavailable.connection" };
+  renderRefreshButtons(unavailable);
   els.settingsAutoAiStatus.textContent = t("settings.auto.notReady");
   els.settingsAutoAiDetail.textContent = t("settings.auto.neverDetail");
   els.settingsAutoAiStatus.closest(".settings-overview-auto")?.setAttribute("data-phase", "not-ready");

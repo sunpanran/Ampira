@@ -34,6 +34,23 @@ export function setAiDisclosureConsent(accepted, openaiBaseUrl) {
   }));
 }
 
+export function captureDeviceConsentState() {
+  return enqueue(async () => {
+    const stored = await chrome.storage.local.get(LOCAL_DEVICE_CONSENT_KEY);
+    return {
+      exists: Object.hasOwn(stored, LOCAL_DEVICE_CONSENT_KEY),
+      value: stored[LOCAL_DEVICE_CONSENT_KEY],
+    };
+  });
+}
+
+export function restoreDeviceConsentState(snapshot) {
+  return enqueue(async () => {
+    if (snapshot?.exists) await chrome.storage.local.set({ [LOCAL_DEVICE_CONSENT_KEY]: snapshot.value });
+    else await chrome.storage.local.remove(LOCAL_DEVICE_CONSENT_KEY);
+  });
+}
+
 function updateConsent(action) {
   return enqueue(async () => {
     const stored = await chrome.storage.local.get(LOCAL_DEVICE_CONSENT_KEY);

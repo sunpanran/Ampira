@@ -9,7 +9,7 @@
 
 ## 基础令牌
 
-颜色令牌定义在 `assets/dashboard.css` 的 `:root` 中，并由浅色模式覆盖：
+颜色与动效令牌定义在 `assets/styles/tokens.css` 的 `:root` 中，并由浅色模式覆盖：
 
 - 页面：`--bg`、`--bg-grid`、`--bg-grid-strong`
 - 表面：`--surface-0` 至 `--surface-3`、`--surface-row`
@@ -52,6 +52,38 @@
 6. 禁用或加载状态降低透明度并阻止重复操作。
 
 状态动效使用 `--motion-press-duration`、`--motion-state-duration` 和 `--motion-emphasis-duration`。不要为相同按钮另设局部时长。
+
+## 下拉选择框
+
+- 所有单选 `select` 由 `assets/client/select-combobox.mjs` 渐进增强，并复用 `assets/styles/primitives.css` 的公共规则。触发框保持 `38px` 紧凑高度、`--radius-control` 圆角、主题表面、弱边框和右侧双线箭头；原生 `select` 继续作为选项、值、校验和表单事件的数据源。
+- 默认、悬停、展开、键盘焦点和禁用状态必须可辨认。焦点只使用重点色边界与轻量外框，不得改变盒模型、位移或缩放；禁用状态使用弱化文字、表面和不可操作光标。
+- 展开面板使用顶层 `listbox`，与触发框同宽并限制在视口内，最大高度 `280px`；选项行最小高度 `34px`。当前项显示重点色勾选，活动项、悬停项和禁用项使用各自的语义表面。空间不足时允许向上展开，长列表在面板内滚动。
+- 浮动列表不得使用 `scrollbar-gutter: stable` 预留滚动条槽；短列表必须保持左右边距对称，只有内容实际溢出时才让滚动条占用空间。新增或重构下拉框、菜单和弹出列表时都要复核这一点。
+- 触发框和选项文字均为纯文本并安全省略；完整文字放入 `title`。较长的中英文标签不得覆盖箭头、勾选标记、撑破字段网格或造成横向滚动。
+- 使用 `role="combobox"`、`listbox`、`option`、`aria-expanded`、`aria-selected` 和 `aria-activedescendant` 描述状态。保留 Tab、方向键、Home、End、Page Up/Down、Enter、Space、Escape 和按文字检索；提交选择继续派发冒泡的 `input` 与 `change` 事件。
+- 同一文档同时只展开一个列表；点击外部、Tab 或 Escape 关闭，提交后焦点返回触发框。动态增删选项、程序设置 `value` / `selectedIndex`、加载占位、空文件夹和锁定状态都必须同步到增强控件。
+- 强制高对比度模式不启用自定义列表，直接保留系统原生 `select` 与系统箭头；这是高对比度环境的可访问性回退，不要求跨平台统一展开面板。
+
+## 动效系统
+
+动效必须先说明意图：即时操作表达响应，内容进入帮助建立层级，加载反馈缓解等待焦虑，循环只说明“仍在处理”，装饰性回弹仅用于低频品牌反馈。CSS 与 Web Animations API 共用以下唯一曲线：
+
+| 曲线 | 令牌 | 使用范围 |
+|---|---|---|
+| standard | `--motion-ease-standard` | 悬停、颜色、边框、按钮状态和进度变化 |
+| enter | `--motion-ease-enter` | 首屏、浮层、内容、空态和错误态进入 |
+| exit | `--motion-ease-exit` | 浮层关闭、列表删除和内容退出 |
+| move | `--motion-ease-move` | 分段指示器、FLIP 重排和展开区域 |
+| ambient | `--motion-ease-ambient` | 长等待的低对比透明度呼吸 |
+| brand | `--motion-ease-brand` | Logo 返回和低频成功图标 |
+
+时长只使用 `100ms` 按压、`180ms` 普通状态、`240ms` 移动或强调、`300ms` 浮层、`360ms` 首屏或 Reader、`1600ms` 环境循环。`linear` 仅用于恒速旋转和骨架扫光；禁止在组件内新增匿名 `cubic-bezier` 或 `ease` 系列曲线。
+
+新标签页首屏采用分层错峰：主题、背景和最终布局在 `0ms` 可用；导航从 `24ms`、标题与日期从 `40ms`、搜索从 `88ms`、快捷栏从 `120ms` 开始进入，约半秒内完成。数据可用后只动画效率卡和三列工作台的直接内容，使用 `360ms enter`、`32ms` 错峰且最多 `96ms`，不得重复动画内部卡片。头图独立使用 `480ms enter`，从 `scale(1.018)` 回到原位。
+
+首次空载等待分三段：`<160ms` 只保留几何、不显示骨架；`160–700ms` 显示静态骨架；`>700ms` 才启动 `1600ms linear` 的低对比扫光。已有正文刷新时保留内容，不以骨架覆盖。AI 答案完整渲染后整体进入，不使用逐字延时。
+
+`prefers-reduced-motion: reduce`、后台标签页和不可见文档取消首屏错峰、位移、缩放、回弹、FLIP 与循环，只保留即时状态和静态忙碌反馈。动画不得阻断点击；WAAPI 完成或反向操作后必须清理 `will-change`、固定高度、临时 class 和 finished effect。
 
 ## 表面与内容
 

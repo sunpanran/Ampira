@@ -1,23 +1,23 @@
 export function createReaderPreviewService(options) {
   const {
-    normalizeUserUrl, hasOriginPermission, loadReaderWithCache, fetchReader, fetchReaderHtml,
+    normalizeUserUrl, hasOriginPermission, loadReaderWithCache, fetchReader, fetchReaderHtml, probeReaderUrl,
     extractPageMetadata, getRecord, setRecord, deleteRecord, cacheMutations,
     currentBookmarkModel, emptyBookmarkModel, getSettings, secretStatus,
     inspirationPreviewTargets, newsPreviewTargets, currentFeedPermissionState,
-    filterFeedItemsBySources, hashText, uniqueStrings, hasOriginPermissions, setRecords, typedError,
+    filterFeedItemsBySources, presentableFeedItems = (items) => items, aiConfigured = async () => false,
+    feedCacheOrEmpty = (value) => value?.schemaVersion === 3 ? value : { schemaVersion: 3, items: [] },
+    hashText, uniqueStrings, hasOriginPermissions, setRecords, typedError,
   } = options;
   return {
-    readArticle, readWebsiteOverview, cacheUrlsPermitted, storePreviewCache,
+    readArticle, readCachedArticle, readWebsiteOverview, cacheUrlsPermitted, storePreviewCache,
     isSitePreviewTarget, previewCachePermitted,
   };
 async function readArticle(url) {
-  const cacheEpoch = cacheMutations.capture();
   const normalized = normalizeUserUrl(url);
   if (!normalized) throw typedError("INVALID_URL", "background.error.invalidUrl", {}, false, { url: String(url || "") });
   const origin = new URL(normalized).origin;
-  if (!await hasOriginPermission(normalized)) {
-    throw typedError("ORIGIN_PERMISSION_REQUIRED", "background.error.websitePermission", {}, false, { origin, url: normalized });
-  }
+  if (!await hasOriginPermission(normalized)) return readPublicArticle(normalized, origin);
+  const cacheEpoch = cacheMutations.capture();
   const reader = await loadReaderWithCache(normalized, {
     readCache: readReaderCache,
     storeCache: (reader) => storeReaderCache(reader, cacheEpoch),
@@ -48,6 +48,37 @@ async function readArticle(url) {
     });
   }
   return reader;
+}
+
+async function readCachedArticle(url) {
+  const normalized = normalizeUserUrl(url);
+  if (!normalized) throw typedError("INVALID_URL", "background.error.invalidUrl", {}, false, { url: String(url || "") });
+  const origin = new URL(normalized).origin;
+  if (!await hasOriginPermission(normalized)) {
+    throw typedError("ORIGIN_PERMISSION_REQUIRED", "background.error.websitePermission", {}, false, {
+      origin,
+      url: normalized,
+    });
+  }
+  const cached = await readReaderCache(normalized);
+  if (cached && await cachedReaderPermitted(normalized, cached)) {
+    return { ...cached, requestedUrl: normalized, source: "cache" };
+  }
+  return readArticle(normalized);
+}
+
+async function readPublicArticle(normalized, origin) {
+  try {
+    const reader = await fetchReader(normalized);
+    return { ...reader, accessMode: "public-cors" };
+  } catch (error) {
+    if (error?.code !== "READER_NETWORK_ERROR") throw error;
+    if (typeof probeReaderUrl !== "function" || !await probeReaderUrl(normalized)) throw error;
+    throw typedError("ORIGIN_PERMISSION_REQUIRED", "background.error.websitePermission", {}, false, {
+      origin,
+      url: normalized,
+    });
+  }
 }
 
 async function readWebsiteOverview(url) {
@@ -162,14 +193,15 @@ async function currentPreviewTargets(settings, model) {
   const bookmarkTargets = inspirationPreviewTargets(model?.bookmarks);
   try {
     const [feed, feedPermissions] = await Promise.all([
-      getRecord("feed", { schemaVersion: 2, items: [] }),
+      getRecord("feed", { schemaVersion: 3, items: [] }),
       currentFeedPermissionState(settings, model),
     ]);
-    const visibleFeedItems = filterFeedItemsBySources(
-      feed?.items || [],
+    const permittedFeedItems = filterFeedItemsBySources(
+      feedCacheOrEmpty(feed).items,
       feedPermissions.permitted,
       feedPermissions.grantedOrigins,
     );
+    const visibleFeedItems = presentableFeedItems(permittedFeedItems, settings, await aiConfigured(settings));
     return [...bookmarkTargets, ...newsPreviewTargets(visibleFeedItems)];
   } catch {
     return bookmarkTargets;

@@ -12,16 +12,15 @@ export function inspirationSelectionValue(mode, folderName) {
   return mode === "bookmarks" && bookmarkValue ? bookmarkValue : INSPIRATION_PRESET_VALUE;
 }
 
-export function parseInspirationSelection(value, preservedFolder = "") {
-  const fallbackFolder = String(preservedFolder || "").trim();
+export function parseInspirationSelection(value) {
   const rawValue = String(value || "");
   if (!rawValue.startsWith(BOOKMARK_VALUE_PREFIX)) {
-    return { mode: "preset", folder: fallbackFolder };
+    return { mode: "preset", folder: "" };
   }
   try {
     const folder = decodeURIComponent(rawValue.slice(BOOKMARK_VALUE_PREFIX.length)).trim();
-    return folder ? { mode: "bookmarks", folder } : { mode: "preset", folder: fallbackFolder };
+    return folder ? { mode: "bookmarks", folder } : { mode: "preset", folder: "" };
   } catch {
-    return { mode: "preset", folder: fallbackFolder };
+    return { mode: "preset", folder: "" };
   }
 }
