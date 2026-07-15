@@ -87,11 +87,131 @@
 .has-fullscreen-header-cover .section-head h2,
 .has-fullscreen-header-cover .section-kicker,
 .has-fullscreen-header-cover .section-meta {
-  text-shadow: 0 1px 2px var(--bg), 0 0 20px var(--bg);
+  text-shadow:
+    0 1px 1px color-mix(in srgb, var(--bg) 52%, transparent),
+    0 0 12px color-mix(in srgb, var(--bg) 42%, transparent);
 }
 
 .has-fullscreen-header-cover .today-meta {
   text-shadow: none;
+}
+
+#library .controls .segmented button:not(.active):hover {
+  background: color-mix(in srgb, var(--surface-hover) 68%, transparent);
+}
+
+#summaryOrder,
+#summaryBatch,
+#refresh,
+#library .controls .segmented .segment-indicator {
+  -webkit-backdrop-filter: var(--card-backdrop-blur);
+  backdrop-filter: var(--card-backdrop-blur);
+}
+
+#summaryOrder,
+#summaryBatch {
+  background: var(--blur-panel-bg);
+}
+
+#summaryBatch:hover {
+  background: color-mix(in srgb, var(--surface-hover) 68%, transparent);
+}
+
+#refresh {
+  background:
+    linear-gradient(var(--active-bg), var(--active-bg)),
+    var(--blur-panel-bg);
+}
+
+#refresh:hover {
+  background:
+    linear-gradient(var(--active-bg-hover), var(--active-bg-hover)),
+    var(--blur-panel-bg);
+}
+
+#library .controls .segmented .segment-indicator {
+  background:
+    linear-gradient(var(--active-bg), var(--active-bg)),
+    var(--blur-panel-bg);
+}
+
+:root[data-color-mode="light"] .has-fullscreen-header-cover .today-meta {
+  color: color-mix(in srgb, var(--text) 78%, transparent);
+}
+
+:root[data-color-mode="light"] .has-fullscreen-header-cover .today-date {
+  color: var(--text-strong);
+}
+
+:root[data-color-mode="light"] .has-fullscreen-header-cover .today-weekday,
+:root[data-color-mode="light"] .has-fullscreen-header-cover .today-time {
+  color: color-mix(in srgb, var(--text) 72%, transparent);
+}
+
+:root[data-color-mode="light"] .has-fullscreen-header-cover .today-separator {
+  background: color-mix(in srgb, var(--text) 22%, transparent);
+}
+
+:root[data-color-mode="light"] .has-fullscreen-header-cover .summary-batch-meta {
+  color: color-mix(in srgb, var(--text) 88%, transparent);
+  font-weight: 650;
+}
+
+:root[data-color-mode="light"] .has-fullscreen-header-cover #library .controls .segmented button:not(.active) {
+  color: color-mix(in srgb, var(--text) 82%, transparent);
+}
+
+:root[data-color-mode="light"] .has-fullscreen-header-cover #library .controls .segmented button:not(.active) .segment-icon {
+  opacity: .88;
+}
+
+:root[data-color-mode="light"] .summary-card .summary-meta {
+  color: color-mix(in srgb, var(--muted) 58%, var(--muted-2));
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-color-mode]) .has-fullscreen-header-cover .today-meta,
+  :root[data-color-mode="system"] .has-fullscreen-header-cover .today-meta {
+    color: color-mix(in srgb, var(--text) 78%, transparent);
+  }
+
+  :root:not([data-color-mode]) .has-fullscreen-header-cover .today-date,
+  :root[data-color-mode="system"] .has-fullscreen-header-cover .today-date {
+    color: var(--text-strong);
+  }
+
+  :root:not([data-color-mode]) .has-fullscreen-header-cover .today-weekday,
+  :root:not([data-color-mode]) .has-fullscreen-header-cover .today-time,
+  :root[data-color-mode="system"] .has-fullscreen-header-cover .today-weekday,
+  :root[data-color-mode="system"] .has-fullscreen-header-cover .today-time {
+    color: color-mix(in srgb, var(--text) 72%, transparent);
+  }
+
+  :root:not([data-color-mode]) .has-fullscreen-header-cover .today-separator,
+  :root[data-color-mode="system"] .has-fullscreen-header-cover .today-separator {
+    background: color-mix(in srgb, var(--text) 22%, transparent);
+  }
+
+  :root:not([data-color-mode]) .has-fullscreen-header-cover .summary-batch-meta,
+  :root[data-color-mode="system"] .has-fullscreen-header-cover .summary-batch-meta {
+    color: color-mix(in srgb, var(--text) 88%, transparent);
+    font-weight: 650;
+  }
+
+  :root:not([data-color-mode]) .has-fullscreen-header-cover #library .controls .segmented button:not(.active),
+  :root[data-color-mode="system"] .has-fullscreen-header-cover #library .controls .segmented button:not(.active) {
+    color: color-mix(in srgb, var(--text) 82%, transparent);
+  }
+
+  :root:not([data-color-mode]) .has-fullscreen-header-cover #library .controls .segmented button:not(.active) .segment-icon,
+  :root[data-color-mode="system"] .has-fullscreen-header-cover #library .controls .segmented button:not(.active) .segment-icon {
+    opacity: .88;
+  }
+
+  :root:not([data-color-mode]) .summary-card .summary-meta,
+  :root[data-color-mode="system"] .summary-card .summary-meta {
+    color: color-mix(in srgb, var(--muted) 58%, var(--muted-2));
+  }
 }
 
 .daily-shell,
@@ -524,6 +644,7 @@
 
 .efficiency-card.digest-card {
   grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
 }
 
 .efficiency-card.digest-card.is-refreshing {

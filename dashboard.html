@@ -251,7 +251,7 @@
                     <button class="btn ghost" id="closeAiProviderCatalog" type="button"><img class="btn-icon" data-icon="x-close" alt="" aria-hidden="true"><span class="btn-label" data-i18n="action.close">关闭</span></button>
                   </div>
                   <div class="ai-provider-list" id="aiProviderPrimaryList" role="list"></div>
-                  <button class="ai-provider-more-toggle" id="toggleMoreProviders" type="button" aria-expanded="false" aria-controls="aiProviderMoreList"><span data-i18n="settings.service.moreProviders">更多兼容服务</span><span aria-hidden="true">＋</span></button>
+                  <button class="ai-provider-more-toggle" id="toggleMoreProviders" type="button" aria-expanded="false" aria-controls="aiProviderMoreList"><span data-i18n="settings.service.moreProviders">更多兼容服务</span><img class="inline-icon ai-provider-more-icon" data-icon="plus" alt="" aria-hidden="true"></button>
                   <div class="ai-provider-list" id="aiProviderMoreList" role="list" hidden></div>
                 </section>
                 <section class="ai-provider-configuration" id="aiProviderConfiguration" aria-labelledby="aiProviderConfigurationTitle">
@@ -574,58 +574,59 @@
                 <span id="headerImageFullscreenField" hidden><input id="headerImageFullscreenInput" type="checkbox"></span>
               </div>
               <div class="field header-image-source-field">
-                <div class="header-cover-url-control">
-                  <label for="headerImageUrlInput" data-i18n="settings.headerImage.url">图片地址</label>
-                  <input id="headerImageUrlInput" type="url" placeholder="https://example.com/image.jpg" inputmode="url">
-                  <div class="help" data-i18n="settings.headerImage.urlHelp">支持 HTTPS 或本机 localhost；加载失败时自动隐藏。</div>
-                </div>
-                <div class="header-cover-local-picker">
-                  <div class="header-cover-local-copy" aria-live="polite">
-                    <span class="header-cover-local-status" id="headerImageLocalStatus" data-i18n="settings.headerImage.localEmpty">当前使用图片地址</span>
-                    <span class="header-cover-local-meta" id="headerImageLocalMeta" hidden></span>
+                <div class="header-cover-source-control">
+                  <label for="headerImageUrlInput" data-i18n="settings.headerImage.url">图片来源</label>
+                  <div class="header-cover-source-entry">
+                    <div class="header-cover-source-picker">
+                      <input id="headerImageUrlInput" type="url" placeholder="https://example.com/image.jpg" inputmode="url">
+                      <div class="header-cover-local-actions">
+                        <button class="btn" id="headerImageLocalChoose" type="button">
+                          <img class="btn-icon" data-icon="folder" alt="" aria-hidden="true">
+                          <span class="btn-label" id="headerImageLocalChooseLabel" data-i18n="settings.headerImage.localChoose">选择本地图片</span>
+                        </button>
+                        <button class="btn danger" id="headerImageLocalRemove" type="button" hidden>
+                          <img class="btn-icon" data-icon="trash-01" alt="" aria-hidden="true">
+                          <span class="btn-label" data-i18n="settings.headerImage.localRemove">移除本地图片</span>
+                        </button>
+                        <input id="headerImageLocalInput" type="file" accept="image/jpeg,image/png,image/webp,image/avif" aria-label="选择本地头图" data-i18n-aria-label="settings.headerImage.localFileLabel" hidden>
+                      </div>
+                    </div>
+                    <div class="header-cover-local-copy" aria-live="polite">
+                      <span class="header-cover-local-status" id="headerImageLocalStatus" data-i18n="settings.headerImage.localEmpty">当前使用网络图片</span>
+                      <span class="header-cover-local-meta" id="headerImageLocalMeta" hidden></span>
+                    </div>
                   </div>
-                  <div class="header-cover-local-actions">
-                    <button class="btn" id="headerImageLocalChoose" type="button">
-                      <img class="btn-icon" data-icon="folder" alt="" aria-hidden="true">
-                      <span class="btn-label" id="headerImageLocalChooseLabel" data-i18n="settings.headerImage.localChoose">选择本地图片</span>
-                    </button>
-                    <button class="btn danger" id="headerImageLocalRemove" type="button" hidden>
-                      <img class="btn-icon" data-icon="trash-01" alt="" aria-hidden="true">
-                      <span class="btn-label" data-i18n="settings.headerImage.localRemove">移除本地图片</span>
-                    </button>
-                    <input id="headerImageLocalInput" type="file" accept="image/jpeg,image/png,image/webp,image/avif" aria-label="选择本地头图" data-i18n-aria-label="settings.headerImage.localFileLabel" hidden>
-                  </div>
+                  <div class="help header-cover-local-help" data-i18n="settings.headerImage.localHelp">可输入 HTTPS 或本机 localhost 地址，也可选择仅保存在当前设备的本地图片；本地图片优先，移除后恢复网络图片。</div>
                 </div>
-                <div class="help header-cover-local-help" data-i18n="settings.headerImage.localHelp">本地图片仅保存在当前设备并优先显示；移除后恢复图片地址。</div>
               </div>
             </div>
             <div class="settings-row-list header-image-adjustments">
-              <div class="cover-height-setting" id="headerImageHeightSetting">
+              <div class="cover-adjustment-setting cover-height-setting" id="headerImageHeightSetting">
+                <div class="cover-adjustment-head">
+                  <span class="switch-copy">
+                    <label class="switch-title" for="headerImageHeightInput" data-i18n="settings.headerImage.heightTitle">显示高度</label>
+                    <span class="switch-help" data-i18n="settings.headerImage.heightHelp">控制头图占据的垂直空间。</span>
+                  </span>
+                  <output id="headerImageHeightOutput" for="headerImageHeightInput" aria-hidden="true">100%</output>
+                </div>
                 <div class="cover-adjustment-range cover-height-range" id="headerImageHeightField" aria-disabled="false" aria-hidden="false">
-                  <label class="cover-adjustment-label" for="headerImageHeightInput" data-i18n="settings.headerImage.heightTitle">显示高度</label>
                   <div class="cover-adjustment-meter">
                     <input id="headerImageHeightInput" type="range" min="70" max="140" step="5" value="100">
                   </div>
-                  <output id="headerImageHeightOutput" for="headerImageHeightInput" aria-hidden="true">100%</output>
                 </div>
               </div>
-              <div class="cover-blur-setting" id="headerImageBlurSetting">
-                <label class="switch-field" for="headerImageBlurEnabledInput">
+              <div class="cover-adjustment-setting cover-blur-setting" id="headerImageBlurSetting">
+                <div class="cover-adjustment-head">
                   <span class="switch-copy">
-                    <span class="switch-title" data-i18n="settings.headerImage.blurTitle">模糊头图</span>
-                    <span class="switch-help" data-i18n="settings.headerImage.blurHelp">柔化图片细节，让前景信息更易辨认。</span>
+                    <label class="switch-title" for="headerImageBlurAmountInput" data-i18n="settings.headerImage.blurTitle">模糊强度</label>
+                    <span class="switch-help" data-i18n="settings.headerImage.blurHelp">柔化图片细节，让前景信息更易辨认；设为 0 即关闭。</span>
                   </span>
-                  <span class="toggle">
-                    <input id="headerImageBlurEnabledInput" type="checkbox">
-                    <span aria-hidden="true"></span>
-                  </span>
-                </label>
-                <div class="cover-adjustment-range cover-blur-range" id="headerImageBlurField" aria-disabled="true" aria-hidden="true">
-                  <label class="cover-adjustment-label cover-blur-label" for="headerImageBlurAmountInput" data-i18n="settings.headerImage.blurAmount">模糊度</label>
+                  <output id="headerImageBlurAmountOutput" for="headerImageBlurAmountInput" aria-hidden="true">0 px</output>
+                </div>
+                <div class="cover-adjustment-range cover-blur-range" id="headerImageBlurField" aria-disabled="false" aria-hidden="false">
                   <div class="cover-blur-meter">
-                    <input id="headerImageBlurAmountInput" type="range" min="0" max="24" step="1" value="12" disabled>
+                    <input id="headerImageBlurAmountInput" type="range" min="0" max="24" step="1" value="0">
                   </div>
-                  <output id="headerImageBlurAmountOutput" for="headerImageBlurAmountInput" aria-hidden="true">12 px</output>
                 </div>
               </div>
             </div>

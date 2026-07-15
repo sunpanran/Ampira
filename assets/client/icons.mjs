@@ -42,6 +42,7 @@ const ICON_URLS = {
   "key-01": "/assets/icons/key-01.svg",
   "link-external-01": "/assets/icons/link-external-01.svg",
   "message-question-circle": "/assets/icons/message-question-circle.svg",
+  minus: "/assets/icons/minus.svg",
   "monitor-01": "/assets/icons/monitor-01.svg",
   "moon-01": "/assets/icons/moon-01.svg",
   palette: "/assets/icons/palette.svg",

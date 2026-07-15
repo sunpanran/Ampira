@@ -184,7 +184,6 @@ for (const id of [
   "apiBaseUrlInput",
   "apiKeyInput",
   "sourcePermissionSummary",
-  "headerImageBlurEnabledInput",
   "headerImageBlurAmountInput",
   "headerImageHeightInput",
   "headerImageLocalInput",
@@ -248,6 +247,9 @@ assert(permissionUiSource.includes("newsSourceMode,")
   && permissionUiSource.includes("inspirationSourceMode,"), "onboarding news and inspiration source choices must persist through the settings boundary");
 assert(permissionUiSource.includes('INSPIRATION_PRESET_VALUE') && permissionUiSource.includes('inspirationBookmarkValue(item.name)'), "onboarding must build the fixed preset option before encoded personal-folder options");
 const bookmarkSettingsSource = await fs.readFile(path.join(root, "assets", "client", "bookmark-settings-controller.mjs"), "utf8");
+const bookmarksViewSource = await fs.readFile(path.join(root, "assets", "client", "bookmarks-view.mjs"), "utf8");
+assert(bookmarksViewSource.includes('noEntries ? t("action.openSettings") : ""')
+  && bookmarksViewSource.includes("allCategoriesHidden || noEntries ? openBookmarkSettings : undefined"), "an empty bookmark index must guide the user directly to Bookmark settings");
 assert(bookmarkSettingsSource.includes('const optionNodes = [createFolderOption(INSPIRATION_PRESET_VALUE'), "settings must place the Ampira preset first in the inspiration folder select");
 assert(permissionUiSource.includes('const optionNodes = [createOption(PUBLIC_FEED_VALUE')
   && bookmarkSettingsSource.includes('const optionNodes = [createFolderOption(PUBLIC_FEED_VALUE'), "onboarding and settings must place Public Feed first in the news source select");

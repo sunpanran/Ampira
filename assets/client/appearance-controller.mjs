@@ -32,8 +32,9 @@ export function createAppearanceController(options) {
     applyCustomAccentPreview(custom);
     els.pointerGlowEnabledInput.checked = settings.pointerGlowEnabled !== false;
     els.headerImageEnabledInput.checked = settings.headerImageEnabled === true;
-    els.headerImageBlurEnabledInput.checked = settings.headerImageBlurEnabled === true;
-    els.headerImageBlurAmountInput.value = String(normalizeHeaderImageBlurAmount(settings.headerImageBlurAmount));
+    els.headerImageBlurAmountInput.value = String(settings.headerImageBlurEnabled === true
+      ? normalizeHeaderImageBlurAmount(settings.headerImageBlurAmount)
+      : 0);
     els.headerImageHeightInput.value = String(normalizeHeaderImageHeightScale(settings.headerImageHeightScale));
     els.headerImageFixedInput.checked = settings.headerImageFixed === true;
     els.headerImageFullscreenInput.checked = settings.headerImageFixed === true && settings.headerImageFullscreen === true;
@@ -49,15 +50,10 @@ export function createAppearanceController(options) {
 
   function syncBlurControl(busy = els.saveSettings.disabled) {
     const headerEnabled = els.headerImageEnabledInput.checked;
-    const enabled = headerEnabled && els.headerImageBlurEnabledInput.checked;
-    const available = enabled && !busy;
     const disabled = !headerEnabled || busy;
-    els.headerImageBlurEnabledInput.disabled = disabled;
-    els.headerImageBlurEnabledInput.closest(".switch-field")
-      ?.setAttribute("aria-disabled", String(disabled));
-    els.headerImageBlurAmountInput.disabled = !available;
-    els.headerImageBlurField.setAttribute("aria-disabled", String(!available));
-    els.headerImageBlurField.setAttribute("aria-hidden", String(!enabled));
+    els.headerImageBlurAmountInput.disabled = disabled;
+    els.headerImageBlurField.setAttribute("aria-disabled", String(disabled));
+    els.headerImageBlurField.setAttribute("aria-hidden", String(!headerEnabled));
     syncBlurAmountLabel();
   }
 
@@ -129,7 +125,7 @@ export function createAppearanceController(options) {
       customAccentColor: normalizeHexColor(els.customAccentInput.value) || DEFAULT_CUSTOM_ACCENT_COLOR,
       pointerGlowEnabled: els.pointerGlowEnabledInput.checked,
       headerImageEnabled: els.headerImageEnabledInput.checked,
-      headerImageBlurEnabled: els.headerImageBlurEnabledInput.checked,
+      headerImageBlurEnabled: syncBlurAmountLabel() > 0,
       headerImageBlurAmount: syncBlurAmountLabel(),
       headerImageHeightScale: syncHeightLabel(),
       headerImageFixed: els.headerImageFixedInput.checked,

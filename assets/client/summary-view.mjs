@@ -297,11 +297,13 @@ function createSummaryCard(item) {
   source.textContent = item.host || item.url;
   const lines = document.createElement("div");
   lines.className = "summary-lines";
-  const detailText = truncateText(summaryDetailLines(item, cardTitle).slice(0, 3).join(" "), summaryDetailMaxLength);
+  const fullDetailText = summaryDetailLines(item, cardTitle).slice(0, 3).join(" ");
+  const detailText = truncateText(fullDetailText, summaryDetailMaxLength);
   if (detailText) {
     const node = document.createElement("div");
     node.className = "summary-line";
     node.textContent = detailText;
+    node.title = fullDetailText;
     lines.append(node);
   }
   body.append(top, title, source, lines);

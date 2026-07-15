@@ -1,8 +1,6 @@
 /* base */
 * {
   box-sizing: border-box;
-  scrollbar-color: var(--scrollbar-thumb) transparent;
-  scrollbar-width: thin;
 }
 
 *::-webkit-scrollbar {
@@ -11,6 +9,7 @@
 }
 
 *::-webkit-scrollbar-button {
+  -webkit-appearance: none;
   display: none;
   width: 0;
   height: 0;
@@ -22,7 +21,7 @@
 
 *::-webkit-scrollbar-thumb {
   min-height: 36px;
-  border: 2px solid transparent;
+  border: 1px solid transparent;
   border-radius: var(--radius-pill);
   background: var(--scrollbar-thumb);
   background-clip: padding-box;
@@ -132,9 +131,10 @@ button,
   padding: 6px;
   border: 1px solid var(--line-soft);
   border-radius: var(--radius-panel);
-  background: color-mix(in srgb, var(--surface-0) 92%, transparent);
+  background: color-mix(in srgb, var(--surface-0) 84%, transparent);
   box-shadow: var(--shadow-panel);
-  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
   transform: translateY(-50%);
   transition: width var(--motion-state-duration) var(--motion-ease-standard), border-color var(--motion-state-duration) var(--motion-ease-standard), background var(--motion-state-duration) var(--motion-ease-standard);
 }

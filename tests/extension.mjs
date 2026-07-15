@@ -1996,9 +1996,10 @@ assert(settingsControllerSource.includes("!automaticAiStarted && !sourceRefreshS
 assert(/renderAll\(\);\n\s+preloadDailyInspiration\(UPDATE_INSPIRATION_PRELOAD_TIMEOUT_MS\);/.test(appSource), "the initial dashboard must render before inspiration previews preload");
 assert(/els\.headerImage\.addEventListener\("error", handleHeaderImageError\);\n\s+syncHeaderImageLoadState\(\);/.test(appSource), "the header cover must reconcile an image that completed before its runtime listeners were bound");
 assert(appSource.includes('if (els.headerImage.complete && els.headerImage.naturalWidth > 0)'), "a cached header cover must become visible without waiting for another load event");
-assert(dashboardSource.includes('id="headerImageBlurEnabledInput"')
-  && dashboardSource.includes('id="headerImageBlurAmountInput" type="range" min="0" max="24" step="1"')
-  && dashboardSource.includes('id="headerImageBlurField" aria-disabled="true" aria-hidden="true"')
+assert(!dashboardSource.includes('id="headerImageBlurEnabledInput"')
+  && dashboardSource.includes('id="headerImageBlurAmountInput" type="range" min="0" max="24" step="1" value="0"')
+  && dashboardSource.includes('id="headerImageBlurField" aria-disabled="false" aria-hidden="false"')
+  && dashboardSource.includes('data-i18n="settings.headerImage.heightHelp"')
   && dashboardSource.includes('class="cover-blur-meter"')
   && !dashboardSource.includes('class="cover-blur-scale"')
   && !settingsCssSource.includes(".cover-blur-scale"), "appearance settings must expose an uncluttered bounded instrument slider without tick labels");
@@ -2021,15 +2022,13 @@ assert(appSource.includes("createCoverBlurPreviewController")
   && settingsCssSource.includes("width: min(560px, calc(100% - 24px));")
   && settingsCssSource.includes("grid-template-columns: max-content minmax(0, 1fr) max-content;")
   && settingsCssSource.includes("pointer-events: auto;"), "cover blur and height adjustment must reveal the dashboard temporarily without losing pointer or keyboard control");
-assert(appearanceControllerSource.includes('setAttribute("aria-hidden", String(!enabled))')
+assert(appearanceControllerSource.includes('headerImageBlurEnabled: syncBlurAmountLabel() > 0')
+  && appearanceControllerSource.includes('setAttribute("aria-hidden", String(!headerEnabled))')
   && settingsCssSource.includes('.cover-blur-range[aria-hidden="false"]')
   && settingsCssSource.includes("height var(--motion-move-duration) var(--motion-ease-move)")
   && settingsCssSource.includes("height: 46px;")
   && settingsCssSource.includes('.cover-blur-range input[type="range"] {\n  width: 100%;\n  height: 18px;\n  display: block;')
-  && settingsCssSource.includes("visibility 0s step-end var(--motion-move-duration)"), "the blur slider must expand only while enabled and collapse without leaving an interactive hidden control");
-assert(appearanceControllerSource.includes('els.headerImageBlurEnabledInput.closest(".switch-field")')
-  && appearanceControllerSource.includes('?.setAttribute("aria-disabled", String(disabled))')
-  && settingsCssSource.includes('.switch-field[aria-disabled="true"]'), "the unavailable cover blur switch must reuse the shared disabled row state");
+  && settingsCssSource.includes("visibility 0s step-end var(--motion-move-duration)"), "the blur slider must remain visible with the cover and collapse without leaving an interactive hidden control when the cover is off");
 assert(themeBootstrapSource.includes("applyHeaderCoverBlur(cover?.enabled === true && cover?.blurEnabled === true")
   && dashboardSectionsCssSource.includes("filter: blur(var(--header-cover-blur, 0px))")
   && dashboardSectionsCssSource.includes("--header-cover-size-adjustment"), "cover blur must restore on the first frame and overscan the image to protect its edges");
@@ -2140,7 +2139,8 @@ assert(efficiencyViewSource.includes("function createDailyDigestLoadingState()")
 assert(dashboardSectionsCssSource.includes(".ai-digest-loading-paragraph:nth-child(3)")
   && motionCssSource.includes("@keyframes digestTextScan")
   && motionCssSource.includes("@keyframes digestContentIn")
-  && motionCssSource.includes(".digest-card.is-refreshing .ai-digest-summary::after"), "daily brief loading must preserve final geometry and use a restrained scan-to-content transition");
+  && dashboardSectionsCssSource.includes(".efficiency-card.digest-card {\n  grid-template-rows: auto minmax(0, 1fr);\n  overflow: hidden;")
+  && motionCssSource.includes(".digest-card.is-refreshing::after"), "daily brief loading must preserve final geometry and use a continuous card-wide scan clipped to the card boundary");
 assert(appSource.includes("digest.errorKey") && appSource.includes("messageKey: digest.errorKey"), "failed daily brief cards must show the localized provider reason");
 assert(appSource.includes("state.data?.ai?.enabled !== true")
   && appSource.includes('actionLabel: t("action.configureAi")')

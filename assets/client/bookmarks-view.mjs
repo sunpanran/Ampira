@@ -158,8 +158,10 @@ function renderCategories() {
       title: t(titleKey),
       body: t(bodyKey),
       variant: "panel",
-      actionLabel: allCategoriesHidden ? t("context.bookmarkSettings") : "",
-      onAction: allCategoriesHidden ? openBookmarkSettings : undefined,
+      actionLabel: allCategoriesHidden
+        ? t("context.bookmarkSettings")
+        : (noEntries ? t("action.openSettings") : ""),
+      onAction: allCategoriesHidden || noEntries ? openBookmarkSettings : undefined,
     }));
     return;
   }

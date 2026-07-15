@@ -903,10 +903,6 @@ export async function createDashboardApp() {
     els.customAccentInput.addEventListener("input", () => updateAppearancePreview({ accentTheme: "custom" }));
     els.pointerGlowEnabledInput.addEventListener("change", () => updateAppearancePreview());
     els.headerImageEnabledInput.addEventListener("change", () => updateAppearancePreview());
-    els.headerImageBlurEnabledInput.addEventListener("change", () => {
-      syncHeaderImageBlurControl();
-      updateAppearancePreview();
-    });
     els.headerImageBlurAmountInput.addEventListener("input", () => updateAppearancePreview());
     els.headerImageHeightInput.addEventListener("input", () => updateAppearancePreview());
     els.headerImageLayoutGroup.addEventListener("click", (event) => {

@@ -99,6 +99,7 @@ export async function runArchitectureTests(root) {
   }
   assert(!summaryViewSource.includes("SUMMARY_DETAIL_MAX_LENGTH"), "summary view must receive its detail-length policy through dependencies");
   assert(summaryViewSource.slice(0, 1800).includes("summaryDetailMaxLength"), "summary view must declare its detail-length dependency");
+  assert(summaryViewSource.includes("node.title = fullDetailText"), "summary text hover must reveal the untruncated summary instead of inheriting the card title");
   assert(dashboardAppSource.includes("summaryDetailMaxLength: SUMMARY_DETAIL_MAX_LENGTH"), "dashboard composition must provide the summary detail length");
   assert(efficiencyViewSource.slice(0, 1200).includes("openAiSettings"), "efficiency view must declare its AI settings action dependency");
   assert(dashboardAppSource.includes("  openAiSettings,"), "dashboard composition must provide the AI settings action");

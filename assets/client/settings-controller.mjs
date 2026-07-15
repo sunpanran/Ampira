@@ -428,7 +428,7 @@ function setSettingsBusy(busy) {
   els.addBookmarkOnlyFolder.disabled = busy || !els.bookmarkOnlyFolderSelect.value;
   els.customAccentInput.disabled = busy;
   els.pointerGlowEnabledInput.disabled = busy;
-  els.headerImageEnabledInput.disabled = busy; els.headerImageBlurEnabledInput.disabled = busy;
+  els.headerImageEnabledInput.disabled = busy;
   syncHeaderImageBlurControl(busy); syncHeaderImageHeightControl(busy);
   els.headerImageFixedInput.disabled = busy; syncHeaderImageFullscreenControl(busy);
   els.headerImageUrlInput.disabled = busy; headerCoverController.setBusy(busy);

@@ -8,6 +8,7 @@ import {
 } from "./ai-provider-presets.mjs";
 import { containsOrigins, requestOrigins } from "./permission-client.mjs";
 import { setDisclosureVisibility } from "./motion.mjs";
+import { createIcon } from "./icons.mjs";
 
 export function createAiPermissionController(options) {
   const {
@@ -136,8 +137,8 @@ export function createAiPermissionController(options) {
     const expanded = els.toggleMoreProviders.getAttribute("aria-expanded") !== "true";
     els.toggleMoreProviders.setAttribute("aria-expanded", String(expanded));
     setDisclosureVisibility(els.aiProviderMoreList, expanded);
-    const symbol = els.toggleMoreProviders.querySelector("[aria-hidden='true']");
-    if (symbol) symbol.textContent = expanded ? "−" : "＋";
+    const icon = els.toggleMoreProviders.querySelector(".ai-provider-more-icon");
+    if (icon) icon.replaceWith(createIcon(expanded ? "minus" : "plus", "inline-icon ai-provider-more-icon"));
   }
 
   function renderProviderCatalog() {
