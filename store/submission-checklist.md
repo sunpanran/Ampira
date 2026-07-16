@@ -1,55 +1,40 @@
 # Chrome Web Store submission checklist
 
+本清单只保留每次提交都需要重新确认的发布门槛。功能级回归范围以 `design-qa.md` 和自动化测试为准。
+
 ## Accounts and public URLs
 
-- [ ] Enable two-step verification on the publishing Google account.
-- [ ] Create or select the single production Chrome Web Store item.
-- [ ] Set the repository variable `REQUIRED_SUPPORT_URL` to the real HTTPS support endpoint, replace every support-URL marker in `docs/` with that exact URL, and confirm the link accepts reports.
-- [ ] Run the release metadata check, then publish the verified `docs/` with GitHub Pages.
-- [ ] Confirm the public privacy, support, and data-deletion URLs work without sign-in and that the privacy policy includes the Limited Use disclosure.
+- [ ] 发布 Google 账号已启用两步验证，并继续使用同一个 Chrome Web Store 正式条目。
+- [ ] `REQUIRED_SUPPORT_URL` 指向真实公开 HTTPS 支持地址，`docs/` 中的隐私、支持和数据删除页面无需登录即可访问。
+- [ ] 隐私政策包含 Limited Use 声明；三语文档、商店文案、权限理由和实际行为一致。
 
 ## Unpacked extension QA
 
-- [ ] Load the repository root from `chrome://extensions` with Developer mode enabled.
-- [ ] Confirm there are no manifest or service-worker errors.
-- [ ] On an HTTPS page, click the Ampira toolbar icon; verify the confirmation popup, captured title and host, purple check badge, one queue entry after repeated clicks, immediate update in an already-open dashboard, and an amber warning plus `!` badge on `chrome://settings`.
-- [ ] Open `chrome://newtab`, confirm the inspiration-folder menu lists Inspiration preset (Ampira) first, and complete the four onboarding steps with no top-level personal inspiration folder, including both outcomes on the optional AI handoff; repeat with a personal bookmark-folder option and verify switching back to the preset preserves that folder.
-- [ ] Confirm the install disclosure and Bookmark permission warning match the listing.
-- [ ] Enable and then remove the optional website-icon permission; verify Chrome favicons appear only while granted and missing icons fall back without console errors.
-- [ ] Enable optional browser search from Settings → Browser, verify the top field uses Chrome's current default provider in the same tab while navigation search remains Ampira content search, then remove the permission and verify the original filtering behavior returns.
-- [ ] With synthetic content and non-production credentials only, cancel Factory reset once, then confirm it. Verify current-device settings, keys, consent, local cover, caches, reading state, queue, to-dos, weather location, and optional permissions are cleared; Chrome Sync copies are deleted; Chrome bookmarks remain unchanged; and every open Ampira dashboard returns to the four-step onboarding flow.
-- [ ] Grant one exact source origin and verify Feed refresh; revoke it and verify bookmark-only fallback.
-- [ ] Verify Settings → News reports per-source coverage and retry status; for a landing page that declares a cross-domain Feed, confirm no request reaches that domain before its separate exact-origin prompt is accepted, then revoke it and confirm cached Feed items disappear.
-- [ ] Grant one exact inspiration origin and verify its original page image appears without a Brave key; revoke it and verify the card remains usable without another original-page read.
-- [ ] In preset mode, verify 48 unique public HTTPS links and 24 packaged 960×600 WebP covers, no repeated cover within a daily batch, 15 unique sites and covers across the first three batches, and no preset origin or remote preview request until a Reader/AI user gesture.
-- [ ] Reload the new tab and verify all 15 fixed daily inspiration cards across the three reshuffle batches begin preloading before first render, while a deliberately slow image still falls back to progressive rendering without blocking the dashboard.
-- [ ] For an inspiration page with no usable image, enable Brave Image Search with a non-production key and verify Brave runs only as the fallback; remove the key afterward.
-- [ ] For an authorized same-origin Feed article without a Feed image, verify one bounded metadata enrichment supplies an original image. Then use a news card with no usable image, enable Brave Image Search with a non-production key, and verify the card receives a fallback; confirm a cross-origin article metadata read is skipped and an unrelated URL cannot use the preview endpoint.
-- [ ] Restart Chrome, confirm the dashboard cache renders immediately, and confirm saved API keys are not shown in full.
-- [ ] Test a provider with a non-production key, then remove the key and clear the test data.
-- [ ] Confirm the AI form stays locked before disclosure consent and exact-origin access, unlocks after authorization, and locks again after origin change or permission removal.
-- [ ] Cycle the first efficiency card through Events → Weather → To-do and reload after each mode; confirm the mode restores and the card boundary does not change.
-- [ ] In Weather, submit `慈溪`, confirm the bundled result is `慈溪市 · 宁波市 · 浙江省 · 中国` with GeoNames attribution and no geocoder request, then submit a synthetic non-China city and confirm the Open-Meteo fallback. Confirm Chrome requests only the two Open-Meteo origins, choose ambiguous candidates manually, and verify today/tomorrow/day-after rows plus the Open-Meteo attribution. Decline once, retry, then revoke each origin in Settings → Browser and confirm the weather cache is deleted without deleting the saved city.
-- [ ] In Settings → Browser → Cross-device content, confirm reading queue, to-dos, and weather city all default off. Enable each with synthetic content, verify it appears in a second signed-in synced Chrome installation, update and delete individual records on the second installation, then disable each switch and confirm its Chrome Sync copy is removed while the current local copy remains. Confirm forecast responses, utility mode, full reading history, AI configuration, and API keys never enter Chrome Sync.
-- [ ] In To-do, verify add/complete/restore/delete, Return-to-add, the 120-character item limit, the 50-item cap, unfinished-first order, internal scrolling, and persistence after reload and ordinary cache clearing.
-- [ ] Verify no horizontal overflow at 1280×800, 1440×1000, and a narrow desktop window.
+- [ ] 从 `chrome://extensions` 加载仓库根目录，确认 Manifest、Service Worker 和控制台无错误。
+- [ ] 完成四步首次引导；分别验证跳过与进入 AI 设置的交接，并确认新标签页覆盖由扩展安装状态控制。
+- [ ] 在 HTTPS 页面点击工具栏图标，确认只捕获当前页标题和 URL、重复项去重、不支持页面安全失败；不得读取页面正文或其他标签页。
+- [ ] 验证书签只读；拒绝书签或精确网站权限后界面仍可用，授权与撤权会立即更新来源、Reader 和缓存状态。
+- [ ] 启用并撤销可选 `favicon` 权限，确认 Chrome 原生图标只在授权期间使用，失败时回退到随包图标。
+- [ ] 启用并撤销可选 `search` 权限，确认顶部字段使用 Chrome 当前默认搜索服务且导航搜索仍明确为 Ampira 内容搜索。
+- [ ] 使用合成内容和非生产凭据验证 AI 同意、精确 Provider 来源授权、连接测试、手动 Token 提醒和撤权后的重新锁定；测试后删除凭据。
+- [ ] 验证 Reader 只读取已授权的公开 HTML，跨来源 Feed 需要独立授权，非本地 HTTP、无关 URL 和未授权来源均被拒绝。
+- [ ] 验证阅读队列、待办和天气城市三个 Chrome Sync 开关默认关闭、互相独立；关闭同步后远端副本删除而本地副本保留，API Key 和缓存不得进入 Sync。
+- [ ] 使用合成数据取消并确认一次恢复出厂设置；确认 Ampira 本机/同步数据与可选权限被清理，Chrome 书签不变，所有看板回到四步引导。
+- [ ] 在深色 `1280×800`、浅色 `1440×1000` 和窄屏窗口验证 Dashboard、设置、引导和 Reader：无横向溢出、键盘焦点可见、减少动态效果有效、加载/空/错误状态可用。
+- [ ] 测试和截图不得使用真实 API Key、私人书签、Chrome Profile 或运行时缓存。
 
 ## Package and listing
 
-- [ ] On PowerShell 7 with Node.js 20+, set `REQUIRED_SUPPORT_URL` to the exact real endpoint, then run `.\scripts\verify-extension.ps1 -Package`.
-- [ ] Upload the manifest-versioned ZIP printed by the script and retain its `.zip.sha256` and `.manifest.json` sidecars with the release record.
-- [ ] Use the localized copy in `store/listing/`.
-- [ ] Upload `store/assets/01-dashboard.png`, `02-permissions.png`, `03-ai-settings.png`, and `ampira-promo-440x280.png`.
-- [ ] Re-capture dashboard or permission screenshots if the visible website-icon state differs from the submitted assets.
-- [ ] Copy the single-purpose, permission, and data-use answers from `store/privacy-practices.md`.
-- [ ] Include `store/reviewer-notes.md` in the reviewer instructions.
-- [ ] Confirm there are no in-app purchases, mature content, analytics, ads, or remote code to disclose.
-- [ ] Confirm this release remains non-commercial, the visible Open-Meteo and GeoNames attributions are present, the bundled GeoNames extract remains covered by CC BY 4.0, and the current Open-Meteo terms remain compatible; otherwise use a commercial plan, self-hosted service, or a different provider before release.
-- [ ] Confirm the package manifest records the expected `GITHUB_SHA` when built in CI and that its ZIP SHA-256 matches the `.zip.sha256` sidecar.
-- [ ] Confirm the ZIP contains exactly the 24 optimized preset WebPs, stays under 4.5 MiB, and contains no PNG masters, bookmark exports, `output/`, `dashboard-cache/`, desktop paths, or private data.
+- [ ] 在 PowerShell 7 与 Node.js 20+ 环境设置真实 `REQUIRED_SUPPORT_URL`，运行 `.\scripts\verify-extension.ps1 -Package`。
+- [ ] 上传脚本生成的 Manifest 版本化 ZIP，并保留 `.zip.sha256` 与 `.manifest.json`；CI 构建时确认记录预期 `GITHUB_SHA`。
+- [ ] 审计 ZIP：根目录直接包含 `manifest.json`，不含测试、`output/`、`dashboard-cache/`、隐藏配置、密钥、本机路径、私人数据或允许列表外文件。
+- [ ] 使用 `store/listing/`、`store/privacy-practices.md` 和 `store/reviewer-notes.md` 的当前内容。
+- [ ] 上传 `store/assets/` 中当前列出的商店素材；若可见界面或权限状态变化，重新捕获对应截图。
+- [ ] 确认无应用内购买、成熟内容、分析、广告、远程代码或开发者后端需要额外披露。
+- [ ] 确认 Open-Meteo 与 GeoNames 的可见归属和许可仍满足当前发布方式。
 
 ## Rollout
 
-- [ ] Submit the same item as Private to trusted testers.
-- [ ] Resolve review or tester findings and increment the manifest version for every new ZIP.
-- [ ] Switch the reviewed item to Public; do not create a duplicate production listing.
+- [ ] 先以 Private 向可信测试者发布同一个条目。
+- [ ] 修复审核或测试反馈后，每个新 ZIP 都递增 `manifest.json` 版本并重新完整验证。
+- [ ] 将同一个已审核条目切换为 Public，不创建重复正式条目。

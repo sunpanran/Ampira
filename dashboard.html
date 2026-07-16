@@ -196,35 +196,24 @@
                 </div>
               </div>
               <div class="settings-overview-grid">
-                <div class="settings-overview-item settings-overview-metric settings-overview-quota">
+                <div class="settings-overview-item settings-overview-quota">
                   <span data-i18n="settings.overview.todayQuota">今日额度</span>
                   <strong id="settingsQuotaStatus">0 / 50</strong>
                   <small id="settingsQuotaDetail" data-i18n="settings.overview.quotaDetailInitial">已用 0，剩余 50</small>
                 </div>
-                <details class="settings-disclosure settings-runtime-details" id="settingsRuntimeDetails">
-                  <summary class="settings-disclosure-summary">
-                    <span class="settings-disclosure-copy">
-                      <strong data-i18n="settings.overview.runtimeDetails">运行详情</strong>
-                      <small class="settings-runtime-summary-status" id="settingsRuntimeSummaryStatus" data-i18n="settings.overview.runtimeDetailsHelp">缓存：已就绪 · 整理：尚未运行</small>
-                    </span>
-                    <span class="settings-disclosure-chevron" aria-hidden="true"></span>
-                  </summary>
-                  <div class="settings-runtime-detail-grid">
-                    <div class="settings-overview-item settings-overview-metric settings-overview-cache">
-                      <span data-i18n="settings.overview.backgroundCache">后台缓存</span>
-                      <div class="settings-overview-value">
-                        <img class="settings-overview-loading-icon" id="settingsCacheLoadingIcon" data-icon="synchronize" alt="" aria-hidden="true" hidden>
-                        <strong id="settingsCacheOverviewStatus" data-i18n="settings.overview.cacheReady">已就绪</strong>
-                      </div>
-                      <small id="settingsCacheOverviewDetail" data-i18n="settings.overview.cacheNoRecord">尚无缓存记录</small>
-                    </div>
-                    <div class="settings-overview-item settings-overview-auto">
-                      <span data-i18n="settings.overview.autoAi">自动整理</span>
-                      <strong id="settingsAutoAiStatus" data-i18n="settings.auto.never">尚未运行</strong>
-                      <small id="settingsAutoAiDetail" data-i18n="settings.auto.neverDetail">执行一次资讯缓存后，这里会显示后台 AI 进度。</small>
-                    </div>
+                <div class="settings-overview-item settings-overview-cache">
+                  <span data-i18n="settings.overview.backgroundCache">后台缓存</span>
+                  <div class="settings-overview-value">
+                    <img class="settings-overview-loading-icon" id="settingsCacheLoadingIcon" data-icon="synchronize" alt="" aria-hidden="true" hidden>
+                    <strong id="settingsCacheOverviewStatus" data-i18n="settings.overview.cacheReady">已就绪</strong>
                   </div>
-                </details>
+                  <small id="settingsCacheOverviewDetail" data-i18n="settings.overview.cacheNoRecord">尚无缓存记录</small>
+                </div>
+                <div class="settings-overview-item settings-overview-auto">
+                  <span data-i18n="settings.overview.autoAi">自动整理</span>
+                  <strong id="settingsAutoAiStatus" data-i18n="settings.auto.never">尚未运行</strong>
+                  <small id="settingsAutoAiDetail" data-i18n="settings.auto.neverDetail">执行一次资讯缓存后，这里会显示后台 AI 进度。</small>
+                </div>
               </div>
             </div>
           </section>
@@ -809,7 +798,7 @@
               <div class="about-identity">
                 <div class="about-heading">
                   <div class="about-title">Ampira</div>
-                  <span class="about-version">v26.2.7</span>
+                  <span class="about-version" id="aboutVersion"></span>
                 </div>
                 <div class="about-meta" data-i18n="settings.about.tagline">把书签、资讯和网页内容提纯成每日信号</div>
                 <div class="about-copyright">© 2026 Panran Sun</div>

@@ -207,16 +207,13 @@
 }
 
 .settings-overview {
-  position: relative;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 12px;
   overflow: hidden;
   padding: 12px;
   border-color: color-mix(in srgb, var(--line) 64%, transparent);
-  background:
-    linear-gradient(100deg, color-mix(in srgb, var(--accent) 6%, transparent), transparent 36%),
-    color-mix(in srgb, var(--surface-row) 30%, transparent);
+  background: color-mix(in srgb, var(--surface-row) 30%, transparent);
 }
 
 .settings-overview-head {
@@ -228,7 +225,6 @@
 }
 
 .settings-overview-copy {
-  position: relative;
   min-width: 0;
   text-align: left;
 }
@@ -263,12 +259,15 @@
 
 .settings-overview .settings-overview-grid {
   grid-column: auto;
-  grid-template-columns: minmax(132px, .32fr) minmax(0, 1fr);
-  gap: 8px;
+  grid-template-columns: minmax(120px, .7fr) minmax(160px, .9fr) minmax(240px, 1.4fr);
+  gap: 0;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--line-faint) 88%, transparent);
+  border-radius: var(--radius-row);
+  background: color-mix(in srgb, var(--surface-row) 34%, transparent);
 }
 
 .settings-overview .settings-overview-item {
-  position: relative;
   min-width: 0;
   min-height: 82px;
   grid-template-columns: minmax(0, 1fr);
@@ -276,11 +275,15 @@
   align-items: start;
   gap: 5px;
   padding: 11px 12px 12px;
-  border: 1px solid color-mix(in srgb, var(--line-faint) 88%, transparent);
-  border-radius: var(--radius-row);
-  background: color-mix(in srgb, var(--surface-row) 38%, transparent);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
   box-shadow: none;
   transition: none;
+}
+
+.settings-overview .settings-overview-item + .settings-overview-item {
+  border-inline-start: 1px solid var(--line-faint);
 }
 
 .settings-overview .settings-overview-item span {
@@ -334,30 +337,10 @@
 
 .settings-overview .settings-overview-auto {
   --overview-state-color: var(--muted-2);
-  grid-column: auto;
-  padding-left: 16px;
-  background:
-    linear-gradient(105deg, color-mix(in srgb, var(--overview-state-color) 8%, transparent), transparent 48%),
-    color-mix(in srgb, var(--surface-row) 38%, transparent);
-  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--overview-state-color) 58%, transparent);
-}
-
-.settings-overview .settings-overview-auto::before {
-  position: absolute;
-  top: 17px;
-  left: 16px;
-  width: 4px;
-  height: 4px;
-  border-radius: 50%;
-  background: var(--overview-state-color);
-  content: "";
-}
-
-.settings-overview .settings-overview-auto span {
-  padding-left: 13px;
 }
 
 .settings-overview .settings-overview-auto strong {
+  color: var(--overview-state-color);
   font-size: 15px;
 }
 
@@ -367,17 +350,8 @@
   line-height: 1.5;
 }
 
-.settings-overview .settings-overview-auto[data-phase^="running"]::before {
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 16%, transparent);
-}
-
 .settings-overview .settings-overview-auto[data-phase^="running"] {
   --overview-state-color: var(--accent);
-}
-
-.settings-overview .settings-overview-auto[data-phase="completed"]::before,
-.settings-overview .settings-overview-auto[data-phase="no-candidates"]::before {
-  box-shadow: 0 0 0 3px color-mix(in srgb, #57C785 13%, transparent);
 }
 
 .settings-overview .settings-overview-auto[data-phase="completed"],
@@ -414,32 +388,6 @@
 
 .settings-overview #settingsOverviewAction:active {
   transform: translateY(0) scale(.98);
-}
-
-.settings-runtime-details {
-  align-self: stretch;
-}
-
-.settings-runtime-details .settings-disclosure-summary {
-  min-height: 82px;
-}
-
-.settings-runtime-summary-status {
-  white-space: nowrap;
-}
-
-.settings-runtime-details[open] .settings-runtime-summary-status {
-  display: none;
-}
-
-.settings-runtime-detail-grid {
-  display: grid;
-  grid-template-columns: minmax(150px, .72fr) minmax(280px, 1.28fr);
-  gap: 8px;
-}
-
-.settings-runtime-detail-grid .settings-overview-item {
-  min-height: 84px;
 }
 
 .settings-overview-item,

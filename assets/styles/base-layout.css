@@ -140,12 +140,12 @@ button,
   z-index: 30;
   width: 56px;
   padding: 6px;
-  border: 1px solid var(--line-soft);
+  border: 1px solid var(--line-faint);
   border-radius: var(--radius-panel);
-  background: color-mix(in srgb, var(--surface-0) 84%, transparent);
-  box-shadow: var(--shadow-panel);
-  -webkit-backdrop-filter: blur(12px);
-  backdrop-filter: blur(12px);
+  background: var(--nav-panel-bg);
+  box-shadow: var(--nav-panel-shadow);
+  -webkit-backdrop-filter: blur(14px) saturate(106%);
+  backdrop-filter: blur(14px) saturate(106%);
   transform: translateY(-50%);
   transition: width var(--motion-state-duration) var(--motion-ease-standard), border-color var(--motion-state-duration) var(--motion-ease-standard), background var(--motion-state-duration) var(--motion-ease-standard);
 }
@@ -153,7 +153,8 @@ button,
 .sidebar:hover,
 .sidebar:focus-within {
   width: min(var(--nav-expanded-width), calc(100vw - 32px));
-  border-color: var(--line);
+  border-color: var(--line-soft);
+  background: var(--nav-panel-bg-expanded);
 }
 
 .side-nav,
@@ -255,8 +256,8 @@ button,
   padding: 0 var(--nav-expanded-button-pad-right) 0 0;
 }
 
-.nav-btn:hover {
-  background: var(--row-hover-fill);
+.nav-btn:not(.active):hover {
+  background: color-mix(in srgb, var(--row-hover-fill) 72%, transparent);
   color: var(--text);
 }
 
@@ -269,7 +270,7 @@ button,
 }
 
 .nav-btn.active:hover {
-  background: var(--active-bg-hover);
+  background: color-mix(in srgb, var(--active-bg-hover) 78%, transparent);
 }
 
 .nav-icon,
@@ -478,7 +479,7 @@ button,
   font-stretch: 76%;
   font-variation-settings: "wdth" 76, "opsz" 52;
   line-height: .78;
-  letter-spacing: 0;
+  letter-spacing: -.014em;
   font-kerning: normal;
   text-transform: uppercase;
   text-wrap: balance;

@@ -55,7 +55,7 @@ function syncNavExpandedWidth() {
   const iconTrackWidth = cssLength(rootStyle, "--nav-icon-track-width", iconWidth);
   const labelSlotMin = lengthValue(rootStyle.getPropertyValue("--nav-label-slot-min"));
   const maxLabelWidth = Math.max(...buttons.map((button) => navLabelWidth(button)));
-  const labelSlotWidth = Math.ceil(Math.max(labelSlotMin, maxLabelWidth + 8));
+  const labelSlotWidth = Math.ceil(Math.max(labelSlotMin, maxLabelWidth + 16));
   const iconRight = iconTrackWidth / 2 + iconWidth / 2;
   const fittedButtonWidth = iconRight + gap + labelSlotWidth + paddingRight + 2;
   const buttonWidth = Math.ceil(Math.max(minButtonWidth, fittedButtonWidth));
@@ -149,7 +149,6 @@ function insertSearchText(text) {
 
 function initializePointerHighlights() {
   const selector = [
-    ".nav-btn",
     ".efficiency-card",
     ".board-column",
     ".summary-card",

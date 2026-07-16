@@ -770,6 +770,17 @@ input::placeholder {
   box-shadow: 0 8px 24px rgba(0, 0, 0, .2);
 }
 
+:root[data-color-mode="light"] .empty-state.is-plain .empty-state-action {
+  box-shadow: 0 4px 12px rgba(17, 24, 39, .08);
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-color-mode]) .empty-state.is-plain .empty-state-action,
+  :root[data-color-mode="system"] .empty-state.is-plain .empty-state-action {
+    box-shadow: 0 4px 12px rgba(17, 24, 39, .08);
+  }
+}
+
 .has-fullscreen-header-cover .empty-state.is-plain .empty-state-title {
   color: #fff !important;
   text-shadow: 0 2px 12px rgba(0, 0, 0, .42);

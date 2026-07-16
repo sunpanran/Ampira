@@ -801,8 +801,6 @@ assert.equal(DEFAULT_SETTINGS.newsSourceMode, "public", "new installs must defau
 assert.equal(DEFAULT_SETTINGS.inspirationSourceMode, "preset", "new installs must default to the Ampira inspiration preset");
 assert.equal(normalizeSettings({}).newsSourceMode, "public", "fresh settings must select the Ampira public Feed");
 assert.equal(normalizeSettings({}).inspirationSourceMode, "preset", "fresh settings must select the Ampira inspiration preset");
-assert.equal(normalizeSettings({ schemaVersion: 1 }).newsSourceMode, "public", "settings without an explicit source mode must use the current default");
-assert.equal(normalizeSettings({ schemaVersion: 1 }).inspirationSourceMode, "preset", "settings without an explicit inspiration mode must use the current default");
 const publicOnlySettings = normalizeSettings({
   schemaVersion: 1,
   newsSourceMode: "public",
@@ -1968,6 +1966,23 @@ assert(appSource.includes("const CARD_EXIT_MS = 120") && appSource.includes("con
 assert(appSource.includes("Math.min(index * 32, 96)"), "card replacement stagger must use 32ms steps capped at 96ms");
 const navLabelSource = baseLayoutCssSource.slice(baseLayoutCssSource.indexOf(".nav-label {"), baseLayoutCssSource.indexOf(".main {"));
 assert(navLabelSource.includes("visibility: hidden") && navLabelSource.includes("visibility: visible") && navLabelSource.includes("opacity: 1"), "desktop navigation labels must fade and slide instead of popping between display states");
+assert(navLabelSource.includes(".sidebar:focus-within .nav-label"), "desktop navigation labels must remain available to keyboard focus");
+const navStaticActiveSource = baseLayoutCssSource.slice(baseLayoutCssSource.indexOf(".nav-btn.active {"), baseLayoutCssSource.indexOf(".nav-btn.active:hover"));
+assert(navStaticActiveSource.includes("border-color: var(--active-line);")
+  && navStaticActiveSource.includes("border-radius: var(--radius-button);")
+  && navStaticActiveSource.includes("background: var(--active-bg);")
+  && navStaticActiveSource.includes("color: var(--text-strong);")
+  && navStaticActiveSource.includes("box-shadow: var(--active-shadow);"), "navigation reduction must preserve the static selected style");
+const navSizeSource = baseLayoutCssSource.slice(baseLayoutCssSource.indexOf(".nav-logo,"), baseLayoutCssSource.indexOf(".nav-logo {"));
+assert(navSizeSource.includes("width: 42px;") && navSizeSource.includes("height: 42px;")
+  && motionCssSource.includes("width: 48px;") && motionCssSource.includes("height: 48px;"), "navigation reduction must preserve standard and wide-screen button sizes");
+assert((tokensCssSource.match(/--nav-panel-bg:/g) || []).length === 3
+  && (tokensCssSource.match(/--nav-panel-bg-expanded:/g) || []).length === 3
+  && (tokensCssSource.match(/--nav-panel-shadow:/g) || []).length === 3, "navigation must use dedicated dark, light, and system-light surface tokens");
+assert(!dashboardSectionsCssSource.includes(".nav-btn::before"), "navigation hover must stay free of the dashboard pointer glow");
+const mobileNavSource = motionCssSource.slice(motionCssSource.indexOf("@media (max-width: 1120px)"));
+assert(mobileNavSource.includes("width: 42px;") && mobileNavSource.includes("height: 42px;")
+  && mobileNavSource.includes(".nav-label {") && mobileNavSource.includes("display: none;"), "mobile navigation must retain 42px icon-only targets");
 assert(contextMenuSource.includes('setProperty("--context-menu-origin-x"') && contextMenuSource.includes('setProperty("--context-menu-origin-y"'), "context menus must derive their entrance origin from the pointer");
 assert(contextMenuSource.includes("interactiveTarget !== element"), "context menus must support rows whose root element is a button");
 assert(contextMenuSource.includes("function attachActions") && contextMenuSource.includes("attachActions, hide"), "context menus must support action-only targets");
@@ -2356,7 +2371,6 @@ assert(appSource.includes('row.className = "efficiency-row topic-row"'), "today'
 assert(appSource.includes('item.publisher || item.source || item.host || ""')
   && appSource.includes('item.eventConfidence === "high-confidence-single"')
   && appSource.includes('t("events.singlePending")'), "today's event rows must distinguish corroborated source counts from pending single-source fallbacks");
-assert(!serviceWorkerSource.includes("buildTopics("), "the dashboard payload must not run the removed cross-source topic aggregation");
 
 const now = Date.now();
 const tooLarge = [

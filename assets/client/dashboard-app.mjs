@@ -100,6 +100,8 @@ export async function createDashboardApp() {
   const shellElements = { ...elementGroups.shell, ...elementGroups.overlay, ...elementGroups.settings };
   const statusElements = { ...elementGroups.dashboard, ...elementGroups.settings };
   const appearanceElements = { ...elementGroups.dashboard, ...elementGroups.settings };
+  const appVersion = globalThis.chrome?.runtime?.getManifest?.().version;
+  if (els.aboutVersion && appVersion) els.aboutVersion.textContent = `v${appVersion}`;
   const { confirmAction } = createConfirmationDialogController({
     dialog: overlayElements.confirmationDialog,
     kicker: overlayElements.confirmationKicker,

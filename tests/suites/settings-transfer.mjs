@@ -24,13 +24,13 @@ export function runSettingsTransferTests() {
     sourcePermissions: [{ origin: "https://private.example/*" }],
   };
   const exported = createSettingsTransferDocument(source, {
-    appVersion: "26.1.10",
+    appVersion: "test-version",
     exportedAt: "2026-07-14T08:00:00.000Z",
   });
 
   assert.equal(exported.format, "ampira-settings");
   assert.equal(exported.formatVersion, 1);
-  assert.equal(exported.appVersion, "26.1.10");
+  assert.equal(exported.appVersion, "test-version");
   assert.deepEqual(Object.keys(exported.settings), [...PORTABLE_SETTINGS_FIELDS]);
   for (const excluded of [
     "openaiApiKey", "braveSearchApiKey", "aiDisclosureAccepted", "bookmarkConsentGranted",
@@ -85,7 +85,7 @@ function transferDocument(settings) {
   return {
     format: "ampira-settings",
     formatVersion: 1,
-    appVersion: "26.1.10",
+    appVersion: "test-version",
     exportedAt: "2026-07-14T08:00:00.000Z",
     settings,
   };

@@ -629,8 +629,12 @@
   font-family: var(--font-display);
   font-size: clamp(30px, 4vw, 42px);
   line-height: 1.04;
-  letter-spacing: -.035em;
+  letter-spacing: -.025em;
   text-wrap: balance;
+}
+
+:is([data-locale="zh-CN"], [data-locale="zh-Hant"]) .onboarding-step h1 {
+  letter-spacing: 0;
 }
 
 :is([data-locale="zh-CN"], [data-locale="zh-Hant"]) .onboarding-step h1 > span {

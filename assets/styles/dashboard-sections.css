@@ -474,7 +474,6 @@
   transition: border-color var(--motion-state-duration) var(--motion-ease-standard), background var(--motion-state-duration) var(--motion-ease-standard), transform var(--motion-state-duration) var(--motion-ease-standard), box-shadow var(--motion-state-duration) var(--motion-ease-standard);
 }
 
-.nav-btn::before,
 .efficiency-card::before,
 .board-column::before,
 .summary-card::before,
@@ -496,7 +495,6 @@
   transition: opacity var(--motion-state-duration) var(--motion-ease-standard);
 }
 
-.nav-btn::before,
 .daily-card::before,
 .news-list-card::before,
 .archive-card::before,
@@ -505,8 +503,6 @@
   background: radial-gradient(circle at var(--mx, 50%) var(--my, 50%), rgba(var(--accent-rgb), .09), transparent 240px);
 }
 
-.nav-btn:hover::before,
-.nav-btn.active:hover::before,
 .efficiency-card:hover::before,
 .efficiency-card:has(:focus-visible)::before,
 .board-column:hover::before,
@@ -530,7 +526,6 @@
   opacity: 1;
 }
 
-:root[data-pointer-glow="off"] .nav-btn::before,
 :root[data-pointer-glow="off"] .efficiency-card::before,
 :root[data-pointer-glow="off"] .board-column::before,
 :root[data-pointer-glow="off"] .summary-card::before,
@@ -1983,6 +1978,47 @@
 }
 
 :where(#daily) :is(.daily-card, .news-list-card, .archive-card, .link-row, .website-shortcut)::before {
+  background: radial-gradient(circle at var(--mx, 50%) var(--my, 50%), rgba(var(--accent-rgb), .07), transparent 180px);
+  transition: opacity var(--motion-emphasis-duration) var(--motion-ease-standard);
+}
+
+/* Page-scoped surface reduction; keep this block together for straightforward rollback. */
+:where(#news) .summary-card,
+:where(#library) .category {
+  border-color: color-mix(in srgb, var(--card-line) 65%, transparent);
+  background: color-mix(in srgb, var(--blur-panel-bg) 88%, transparent);
+  box-shadow: none;
+}
+
+:where(#news) .summary-card::before,
+:where(#library) .category::before {
+  background: radial-gradient(circle at var(--mx, 50%) var(--my, 50%), rgba(var(--accent-rgb), .055), transparent 200px);
+  transition: opacity var(--motion-emphasis-duration) var(--motion-ease-standard);
+}
+
+/* News */
+:where(#news) .summary-body {
+  gap: 8px;
+  padding: 14px;
+}
+
+:where(#news) .summary-card .thumb-favicon-glow {
+  filter: blur(20px) saturate(1.35);
+  opacity: .34;
+}
+
+/* Library */
+:where(#library) .category {
+  gap: 10px;
+  padding: 12px;
+}
+
+:where(#library) .link-row {
+  gap: 8px;
+  padding: 8px;
+}
+
+:where(#library) .link-row::before {
   background: radial-gradient(circle at var(--mx, 50%) var(--my, 50%), rgba(var(--accent-rgb), .07), transparent 180px);
   transition: opacity var(--motion-emphasis-duration) var(--motion-ease-standard);
 }

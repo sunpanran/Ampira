@@ -133,8 +133,6 @@ function renderStatus() {
   renderQuotaOverview(ai);
   renderCacheOverview(status, refreshState);
   renderAutoAiStatus(ai);
-  renderRuntimeSummaryStatus();
-  revealRuntimeDetailsWhenActive(status, ai);
   renderCacheStatus();
   renderRefreshButtons(refreshState);
 }
@@ -247,22 +245,6 @@ function renderAutoAiStatus(ai) {
   });
 }
 
-function revealRuntimeDetailsWhenActive(status = {}, ai = {}) {
-  const auto = ai.autoStatus || {};
-  const phase = String(auto.phase || "");
-  if (status.running === true || auto.running === true || phase.startsWith("running-") || phase === "error") {
-    els.settingsRuntimeDetails.open = true;
-  }
-}
-
-function renderRuntimeSummaryStatus() {
-  els.settingsRuntimeSummaryStatus.removeAttribute("data-i18n");
-  els.settingsRuntimeSummaryStatus.textContent = t("settings.overview.runtimeSummary", {
-    cache: els.settingsCacheOverviewStatus.textContent,
-    auto: els.settingsAutoAiStatus.textContent,
-  });
-}
-
 function renderOverviewStatus(title, meta) {
   els.settingsOverviewTitle.textContent = title || t("status.waitingUpdate");
   els.settingsOverviewMeta.textContent = meta || t("status.noRecord");
@@ -337,8 +319,6 @@ function renderConnectionError(error) {
   els.settingsAutoAiStatus.textContent = t("settings.auto.notReady");
   els.settingsAutoAiDetail.textContent = t("settings.auto.neverDetail");
   els.settingsAutoAiStatus.closest(".settings-overview-auto")?.setAttribute("data-phase", "not-ready");
-  renderRuntimeSummaryStatus();
-  els.settingsRuntimeDetails.open = true;
   els.dailyBoard.replaceChildren(createEmptyState({
     title: t("connection.recoveringTitle"),
     body: t("connection.recoveringBody"),

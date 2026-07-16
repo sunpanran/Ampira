@@ -841,6 +841,7 @@
     max-width: 10ch;
     font-size: 4.15rem;
     line-height: .82;
+    letter-spacing: -.01em;
   }
 
   #daily .section-head {
@@ -1063,11 +1064,12 @@
 
   .settings-overview .settings-overview-grid {
     grid-template-columns: minmax(0, 1fr);
-    gap: 8px;
+    gap: 0;
   }
 
-  .settings-runtime-detail-grid {
-    grid-template-columns: minmax(0, 1fr);
+  .settings-overview .settings-overview-item + .settings-overview-item {
+    border-block-start: 1px solid var(--line-faint);
+    border-inline-start: 0;
   }
 
   .web-frame-dialog {
@@ -1124,6 +1126,7 @@
 
   .section-head h2 {
     font-size: 3.35rem;
+    letter-spacing: -.006em;
   }
 
   .today-meta {

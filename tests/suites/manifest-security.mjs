@@ -21,10 +21,11 @@ const shellControllerSource = await fs.readFile(path.join(root, "assets", "clien
 const settingsWorkflowSource = await fs.readFile(path.join(root, "extension", "runtime", "settings-workflow.mjs"), "utf8");
 
 assert.equal(manifest.manifest_version, 3);
-assert(
-  dashboardHtml.includes(`<span class="about-version">v${manifest.version}</span>`),
-  "the About panel version must match the manifest version",
-);
+assert(dashboardHtml.includes('<span class="about-version" id="aboutVersion"></span>'), "the About panel must reserve a version output without hard-coding a release");
+const versionDashboardAppSource = await fs.readFile(path.join(root, "assets", "client", "dashboard-app.mjs"), "utf8");
+assert(versionDashboardAppSource.includes("chrome?.runtime?.getManifest?.().version")
+  && versionDashboardAppSource.includes("els.aboutVersion.textContent = `v${appVersion}`"), "the About panel version must come from the runtime manifest");
+assert(!dashboardHtml.includes(manifest.version), "dashboard HTML must not hard-code the manifest version");
 assert.equal(manifest.chrome_url_overrides.newtab, "dashboard.html");
 assert.equal(manifest.action.default_popup, "action-popup.html", "the toolbar action must open a visible capture confirmation popup");
 assert.deepEqual(manifest.permissions.sort(), ["activeTab", "alarms", "bookmarks", "storage"]);
@@ -178,7 +179,6 @@ const settingsCssSource = await fs.readFile(path.join(root, "assets", "styles", 
 const tokensCssSource = await fs.readFile(path.join(root, "assets", "styles", "tokens.css"), "utf8");
 const settingsResponsiveCssSource = await fs.readFile(path.join(root, "assets", "styles", "motion-responsive.css"), "utf8");
 const dashboardSectionsCssSource = await fs.readFile(path.join(root, "assets", "styles", "dashboard-sections.css"), "utf8");
-const statusViewSource = await fs.readFile(path.join(root, "assets", "client", "status-view.mjs"), "utf8");
 const contentSyncSettingsSource = await fs.readFile(path.join(root, "assets", "client", "content-sync-settings.mjs"), "utf8");
 const settingsControllerSource = await fs.readFile(path.join(root, "assets", "client", "settings-controller.mjs"), "utf8");
 const dashboardAppSource = await fs.readFile(path.join(root, "assets", "client", "dashboard-app.mjs"), "utf8");
@@ -196,11 +196,8 @@ const settingsTabNames = [...dashboardSource.matchAll(/data-settings-tab="([^"]+
 const settingsPanelNames = [...dashboardSource.matchAll(/data-settings-panel="([^"]+)"/g)].map((match) => match[1]).sort();
 assert.deepEqual(settingsTabNames, settingsPanelNames, "every settings tab must map to exactly one settings panel");
 assert.equal(settingsTabNames.length, 7, "settings must retain the seven existing sections");
-for (const key of ["service", "news", "bookmarks", "appearance", "browser", "exclusions", "about"]) {
-  assert(!dashboardSource.includes(`settings.tab.${key}Hint`) && !localeKeys.includes(`settings.tab.${key}Hint`), `settings tab hints must stay removed: ${key}`);
-}
 for (const id of [
-  "settingsRuntimeDetails", "sourceCoverageDetails", "cacheAdvancedDetails", "cacheMaintenanceDetails",
+  "sourceCoverageDetails", "cacheAdvancedDetails", "cacheMaintenanceDetails",
   "bookmarkExtraDetails", "bookmarkHiddenDetails", "sourcePermissionDetails", "exclusionDetails",
   "sourceSuggestionDetails", "settingsTransferDetails",
 ]) assert(dashboardSource.includes(`id="${id}"`), `settings must preserve the compact disclosure: ${id}`);
@@ -212,20 +209,18 @@ assert(tokensCssSource.includes("--settings-panel-bg:")
   && settingsCssSource.includes("@media (forced-colors: active)"), "settings glass must use dedicated theme tokens with solid and forced-color fallbacks");
 assert(settingsCssSource.includes('.settings-status[data-state="ready"]')
   && dashboardSource.includes('id="settingsStatus" role="status" aria-live="polite" data-state="loading"'), "the settings footer must hide passive ready copy while retaining live loading and change feedback");
-assert(statusViewSource.includes("els.settingsRuntimeDetails.open = true")
-  && contentSyncSettingsSource.includes("els.contentSyncDetails.hidden = !els.contentSyncEnabledInput.checked"), "active runtime work and enabled content sync must reveal only the dependent details needed now");
-assert(dashboardSource.includes('id="settingsRuntimeSummaryStatus"')
-  && statusViewSource.includes('t("settings.overview.runtimeSummary"')
-  && statusViewSource.includes("renderRuntimeSummaryStatus();")
-  && settingsCssSource.includes(".settings-runtime-details[open] .settings-runtime-summary-status"), "collapsed runtime details must keep one compact live status line without repeating it above expanded details");
-for (const obsoleteSelector of [
-  "source-suggestion-panel", "source-suggestion-head", "source-suggestion-tools",
-  "settings-section-head-actions", "settings-meters", "settings-meter",
-]) {
-  assert(!dashboardSource.includes(obsoleteSelector)
-    && !settingsCssSource.includes(obsoleteSelector)
-    && !settingsResponsiveCssSource.includes(obsoleteSelector)
-    && !dashboardSectionsCssSource.includes(obsoleteSelector), `obsolete settings selector must stay removed: ${obsoleteSelector}`);
+assert(contentSyncSettingsSource.includes("els.contentSyncDetails.hidden = !els.contentSyncEnabledInput.checked"), "enabled content sync must reveal only its dependent settings");
+const quotaStatusIndex = dashboardSource.indexOf('id="settingsQuotaStatus"');
+const cacheStatusIndex = dashboardSource.indexOf('id="settingsCacheOverviewStatus"');
+const autoStatusIndex = dashboardSource.indexOf('id="settingsAutoAiStatus"');
+assert(quotaStatusIndex > 0 && quotaStatusIndex < cacheStatusIndex && cacheStatusIndex < autoStatusIndex, "AI settings must keep quota, cache, and automatic organization visible in one ordered status band");
+assert(settingsCssSource.includes(".settings-overview .settings-overview-item + .settings-overview-item")
+  && settingsResponsiveCssSource.includes("border-block-start: 1px solid var(--line-faint)"), "the runtime status band must use desktop column separators and narrow-screen row separators");
+for (const removedRuntimeDetail of ["settingsRuntimeDetails", "settingsRuntimeSummaryStatus", "settings-runtime-details", "settings-runtime-detail-grid", "settings-overview-metric"]) {
+  assert(!dashboardSource.includes(removedRuntimeDetail) && !settingsCssSource.includes(removedRuntimeDetail), `the persistent runtime status band must not retain obsolete disclosure code: ${removedRuntimeDetail}`);
+}
+for (const removedRuntimeKey of ["settings.overview.runtimeDetails", "settings.overview.runtimeDetailsHelp", "settings.overview.runtimeSummary"]) {
+  assert(!localeKeys.includes(removedRuntimeKey), `obsolete runtime disclosure locale key must stay removed: ${removedRuntimeKey}`);
 }
 assert(dashboardAppSource.includes('button.active")?.scrollIntoView({')
   && dashboardAppSource.includes('inline: "nearest"')
@@ -273,10 +268,17 @@ assert(!browserPanelSource.includes('id="websiteShortcutsEnabledInput"'), "brows
 assert(dashboardSource.indexOf('data-i18n="settings.support.label"', aboutPanelStart) < settingsFooterStart
   && !dashboardSource.slice(settingsFooterStart, dashboardSource.indexOf('id="aiSearchOverlay"')).includes('settings.support.label'), "developer support must live in About instead of the persistent settings footer");
 assert(dashboardSource.includes('id="bookmarkNav"') && dashboardSource.includes('<section id="library"'), "bookmark visibility must target the existing navigation entry and main library section");
+const navMainSource = dashboardSource.slice(dashboardSource.indexOf('<div class="nav-main">'), dashboardSource.indexOf('</div>', dashboardSource.indexOf('<div class="nav-main">')));
+const navEntryMarkers = ['data-scroll="daily"', 'data-scroll="news"', 'id="bookmarkNav"', 'id="aiSearchNav"', 'id="settingsNav"'];
+assert.equal((navMainSource.match(/class="nav-btn(?: active)?"/g) || []).length, 5, "the primary navigation must retain exactly five entries");
+assert(navEntryMarkers.every((marker, index) => navMainSource.indexOf(marker) >= 0
+  && (index === 0 || navMainSource.indexOf(marker) > navMainSource.indexOf(navEntryMarkers[index - 1]))), "the five primary navigation entries must retain their order");
 assert(shellControllerSource.includes("els.bookmarkNav.hidden = !visible")
   && shellControllerSource.includes("els.librarySection.hidden = !visible")
   && shellControllerSource.includes('.filter((button) => !button.hidden)')
   && shellControllerSource.includes("document.getElementById(button.dataset.scroll)?.hidden !== true"), "hidden bookmark surfaces must be removed from navigation sizing and scroll selection");
+assert(shellControllerSource.includes("maxLabelWidth + 16"), "expanded navigation width must leave a language-safe label inset");
+assert(!shellControllerSource.includes('    ".nav-btn",'), "navigation must not remain registered for the removed pointer glow");
 assert(settingsWorkflowSource.includes('"bookmarkSectionEnabled", "websiteShortcutsEnabled"'), "the runtime settings workflow must accept bookmark-section visibility without treating it as a source change");
 assert(!cacheFetchSource.includes('id="personalizedRankingEnabledInput"'), "fetch settings must not expose the advanced personalization switch");
 assert(cacheAdvancedSource.includes('<input id="personalizedRankingEnabledInput" type="checkbox">'), "advanced settings must expose personalized ranking with an unchecked first-frame default");

@@ -60,6 +60,9 @@
   --scrollbar-thumb: rgba(174, 180, 191, .30);
   --scrollbar-thumb-hover: rgba(174, 180, 191, .52);
   --shadow-panel: 0 14px 34px rgba(0, 0, 0, .28);
+  --nav-panel-bg: color-mix(in srgb, var(--surface-0) 72%, transparent);
+  --nav-panel-bg-expanded: color-mix(in srgb, var(--surface-0) 80%, transparent);
+  --nav-panel-shadow: 0 12px 30px rgba(0, 0, 0, .20), inset 0 1px 0 rgba(255, 255, 255, .035);
   --icon-filter: brightness(0) invert(1);
   --icon-active-filter: brightness(0) invert(1);
   --action-icon-hover-filter: var(--icon-filter);
@@ -164,6 +167,9 @@
   --scrollbar-thumb: rgba(94, 102, 114, .28);
   --scrollbar-thumb-hover: rgba(94, 102, 114, .48);
   --shadow-panel: 0 12px 30px rgba(17, 24, 39, .07);
+  --nav-panel-bg: color-mix(in srgb, var(--surface-1) 76%, transparent);
+  --nav-panel-bg-expanded: color-mix(in srgb, var(--surface-1) 84%, transparent);
+  --nav-panel-shadow: 0 12px 30px rgba(17, 24, 39, .07), inset 0 1px 0 rgba(255, 255, 255, .56);
   --icon-filter: none;
   --icon-active-filter: none;
 }
@@ -221,6 +227,9 @@
     --scrollbar-thumb: rgba(94, 102, 114, .28);
     --scrollbar-thumb-hover: rgba(94, 102, 114, .48);
     --shadow-panel: 0 12px 30px rgba(17, 24, 39, .07);
+    --nav-panel-bg: color-mix(in srgb, var(--surface-1) 76%, transparent);
+    --nav-panel-bg-expanded: color-mix(in srgb, var(--surface-1) 84%, transparent);
+    --nav-panel-shadow: 0 12px 30px rgba(17, 24, 39, .07), inset 0 1px 0 rgba(255, 255, 255, .56);
     --icon-filter: none;
     --icon-active-filter: none;
   }
