@@ -1439,7 +1439,10 @@
   -webkit-line-clamp: 2;
 }
 
-.summary-title:hover {
+.item-title:hover,
+.summary-title:hover,
+.link-title:hover,
+.news-list-title:hover {
   color: var(--accent);
 }
 
