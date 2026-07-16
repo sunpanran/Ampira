@@ -214,8 +214,8 @@ const quotaStatusIndex = dashboardSource.indexOf('id="settingsQuotaStatus"');
 const cacheStatusIndex = dashboardSource.indexOf('id="settingsCacheOverviewStatus"');
 const autoStatusIndex = dashboardSource.indexOf('id="settingsAutoAiStatus"');
 assert(quotaStatusIndex > 0 && quotaStatusIndex < cacheStatusIndex && cacheStatusIndex < autoStatusIndex, "AI settings must keep quota, cache, and automatic organization visible in one ordered status band");
-assert(settingsCssSource.includes(".settings-overview .settings-overview-item + .settings-overview-item")
-  && settingsResponsiveCssSource.includes("border-block-start: 1px solid var(--line-faint)"), "the runtime status band must use desktop column separators and narrow-screen row separators");
+assert(!settingsCssSource.includes(".settings-overview .settings-overview-item + .settings-overview-item")
+  && settingsResponsiveCssSource.includes("border-block-start: 1px solid var(--line-faint)"), "the runtime status band must omit desktop column separators while retaining narrow-screen row separators");
 for (const removedRuntimeDetail of ["settingsRuntimeDetails", "settingsRuntimeSummaryStatus", "settings-runtime-details", "settings-runtime-detail-grid", "settings-overview-metric"]) {
   assert(!dashboardSource.includes(removedRuntimeDetail) && !settingsCssSource.includes(removedRuntimeDetail), `the persistent runtime status band must not retain obsolete disclosure code: ${removedRuntimeDetail}`);
 }

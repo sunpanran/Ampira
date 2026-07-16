@@ -282,10 +282,6 @@
   transition: none;
 }
 
-.settings-overview .settings-overview-item + .settings-overview-item {
-  border-inline-start: 1px solid var(--line-faint);
-}
-
 .settings-overview .settings-overview-item span {
   min-width: 0;
   color: var(--muted-2);

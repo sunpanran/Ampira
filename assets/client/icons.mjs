@@ -38,6 +38,7 @@ const ICON_URLS = {
   "file-search-01": "/assets/icons/file-search-01.svg",
   "filter-lines": "/assets/icons/filter-lines.svg",
   folder: "/assets/icons/folder.svg",
+  github: "/assets/icons/github.svg",
   "info-circle": "/assets/icons/info-circle.svg",
   "key-01": "/assets/icons/key-01.svg",
   "link-external-01": "/assets/icons/link-external-01.svg",
