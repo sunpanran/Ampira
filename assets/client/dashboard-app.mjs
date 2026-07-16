@@ -88,6 +88,20 @@ const BOOKMARK_CARD_TYPE = "bookmark";
 const ALL_FILTER = "all";
 const SUMMARY_DETAIL_MAX_LENGTH = 200;
 
+async function resolveAppVersion() {
+  const runtimeVersion = globalThis.chrome?.runtime?.getManifest?.().version;
+  if (runtimeVersion) return runtimeVersion;
+
+  try {
+    const response = await fetch(new URL("../../manifest.json", import.meta.url));
+    if (!response.ok) return "";
+    const manifest = await response.json();
+    return typeof manifest?.version === "string" ? manifest.version : "";
+  } catch {
+    return "";
+  }
+}
+
 export async function createDashboardApp() {
   await hydrateStorage();
   const state = createInitialState();
@@ -100,7 +114,7 @@ export async function createDashboardApp() {
   const shellElements = { ...elementGroups.shell, ...elementGroups.overlay, ...elementGroups.settings };
   const statusElements = { ...elementGroups.dashboard, ...elementGroups.settings };
   const appearanceElements = { ...elementGroups.dashboard, ...elementGroups.settings };
-  const appVersion = globalThis.chrome?.runtime?.getManifest?.().version;
+  const appVersion = await resolveAppVersion();
   if (els.aboutVersion && appVersion) els.aboutVersion.textContent = `v${appVersion}`;
   const { confirmAction } = createConfirmationDialogController({
     dialog: overlayElements.confirmationDialog,

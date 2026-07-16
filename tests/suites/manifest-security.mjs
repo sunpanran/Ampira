@@ -24,7 +24,8 @@ assert.equal(manifest.manifest_version, 3);
 assert(dashboardHtml.includes('<span class="about-version" id="aboutVersion"></span>'), "the About panel must reserve a version output without hard-coding a release");
 const versionDashboardAppSource = await fs.readFile(path.join(root, "assets", "client", "dashboard-app.mjs"), "utf8");
 assert(versionDashboardAppSource.includes("chrome?.runtime?.getManifest?.().version")
-  && versionDashboardAppSource.includes("els.aboutVersion.textContent = `v${appVersion}`"), "the About panel version must come from the runtime manifest");
+  && versionDashboardAppSource.includes('new URL("../../manifest.json", import.meta.url)')
+  && versionDashboardAppSource.includes("els.aboutVersion.textContent = `v${appVersion}`"), "the About panel version must come from the runtime manifest with a local-preview manifest fallback");
 assert(!dashboardHtml.includes(manifest.version), "dashboard HTML must not hard-code the manifest version");
 assert.equal(manifest.chrome_url_overrides.newtab, "dashboard.html");
 assert.equal(manifest.action.default_popup, "action-popup.html", "the toolbar action must open a visible capture confirmation popup");
