@@ -1,6 +1,6 @@
 # Ampira New Tab
 
-Short description: Turn Inspiration preset (Ampira), selected Chrome bookmarks, and feeds into a searchable new-tab dashboard.
+Short description: Bring long-saved bookmarks back to life. Ampira turns them into continuously updated feeds, then uses AI to help you read, distill, and organize. Your saved inspiration resurfaces in a new way every day.
 
 ## Detailed description
 
@@ -9,6 +9,7 @@ Ampira combines the ready-to-use Inspiration preset (Ampira) with bookmarked new
 - Local-first: no account, ads, analytics, or developer-operated backend.
 - Ready-made inspiration: choose 48 curated public sites with 24 packaged original covers, or switch to your existing inspiration bookmark folder at any time. Ampira never writes bookmarks.
 - One-click Read later: save the current page from the Ampira toolbar or add a news or bookmark card; items stay local by default with optional Chrome Sync.
+- Optional browser search: switch the top search field to Chrome's current default search engine and open results in the current tab while keeping Ampira content search separate in the navigation.
 - Per-origin access: website permissions are requested only after a user action.
 - Public-Feed supplement: the first authorization requests all nine exact domains in the current language pack. Six native sources are used by default; three cross-language major-news sources remain unused until AI is fully configured, and their stories appear only after successful localization.
 - Safe reader: remote pages are extracted into structured text, images, and video links without running remote scripts or embedded players.

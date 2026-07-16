@@ -26,6 +26,12 @@ export function publicErrorDetails(value) {
   if (Number.isFinite(Number(value.status))) details.status = Number(value.status);
   if (typeof value.origin === "string") details.origin = value.origin.slice(0, 500);
   if (typeof value.url === "string") details.url = value.url.slice(0, 2000);
+  if (Array.isArray(value.failedSteps)) {
+    details.failedSteps = [...new Set(value.failedSteps
+      .map((step) => String(step || "").trim())
+      .filter((step) => /^[a-z][a-z0-9-]{0,63}$/.test(step)))]
+      .slice(0, 20);
+  }
   return details;
 }
 

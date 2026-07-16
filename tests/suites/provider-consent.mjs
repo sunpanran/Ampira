@@ -51,9 +51,16 @@ globalThis.chrome = {
 };
 
 await local.set({
+  [LOCAL_PROVIDER_KEY]: {
+    schemaVersion: 1,
+    openaiApiKey: "local-openai",
+    openaiBaseUrl: "https://api.deepseek.com/v1",
+    openaiApiStyle: "chat_completions",
+    openaiSummaryModel: "deepseek-chat",
+    credentialGeneration: 1,
+  },
   [LOCAL_SECRETS_KEY]: {
-    openaiApiKey: "legacy-local-openai",
-    braveSearchApiKey: "legacy-local-brave",
+    braveSearchApiKey: "local-brave",
   },
 });
 await sync.set({
@@ -71,24 +78,24 @@ await sync.set({
 });
 
 const settingsStore = createSettingsStore(sync);
-const legacySyncedSettings = await settingsStore.read();
-const migrated = await readProviderProfile(legacySyncedSettings);
-assert.deepEqual(migrated, {
+const syncedSettings = await settingsStore.read();
+const provider = await readProviderProfile(syncedSettings);
+assert.deepEqual(provider, {
   schemaVersion: 1,
-  openaiApiKey: "legacy-local-openai",
+  openaiApiKey: "local-openai",
   openaiBaseUrl: "https://api.deepseek.com/v1",
   openaiApiStyle: "chat_completions",
   openaiSummaryModel: "deepseek-chat",
   credentialGeneration: 1,
 });
 assert.deepEqual(await readSecrets(), {
-  openaiApiKey: "legacy-local-openai",
-  braveSearchApiKey: "legacy-local-brave",
+  openaiApiKey: "local-openai",
+  braveSearchApiKey: "local-brave",
 });
 assert.deepEqual((await local.get(LOCAL_SECRETS_KEY))[LOCAL_SECRETS_KEY], {
-  braveSearchApiKey: "legacy-local-brave",
-}, "provider migration must preserve Brave while scrubbing the duplicate OpenAI key");
-assert.deepEqual(await readDeviceConsent(migrated.openaiBaseUrl), {
+  braveSearchApiKey: "local-brave",
+});
+assert.deepEqual(await readDeviceConsent(provider.openaiBaseUrl), {
   consentVersion: 0,
   bookmarkConsentGranted: false,
   onboardingCompleted: false,
@@ -109,35 +116,31 @@ const updated = await updateProviderProfile({
   openaiApiStyle: "responses",
   openaiSummaryModel: "gpt-5.4-mini",
 });
-assert.equal(updated.credentialGeneration, migrated.credentialGeneration + 1);
+assert.equal(updated.credentialGeneration, provider.credentialGeneration + 1);
 assert.deepEqual((await local.get(LOCAL_PROVIDER_KEY))[LOCAL_PROVIDER_KEY], updated);
 const providerWrites = local.setLog().filter((entry) => Object.hasOwn(entry, LOCAL_PROVIDER_KEY));
 assert.equal(providerWrites.length, 1, "one provider change must use one local storage write");
 assert.deepEqual(providerWrites[0][LOCAL_PROVIDER_KEY], updated, "the atomic record must contain key and complete provider identity");
 assert.equal((await updateProviderProfile({ ...updated })).credentialGeneration, updated.credentialGeneration, "an unchanged profile must not advance its generation");
 
-const regressionLocal = memoryStorage();
-chrome.storage.local = regressionLocal;
-await regressionLocal.set({
-  [LOCAL_SECRETS_KEY]: {
-    openaiApiKey: "legacy-key-kept-during-brave-update",
-    braveSearchApiKey: "old-brave-key",
-  },
-});
+const separateSecretLocal = memoryStorage();
+chrome.storage.local = separateSecretLocal;
+await updateProviderProfile({ openaiApiKey: "provider-key-kept-during-brave-update" });
+await updateSecrets({ braveSearchApiKey: "old-brave-key" });
 await updateSecrets({ braveSearchApiKey: "new-brave-key" });
-assert.equal((await readProviderProfile()).openaiApiKey, "legacy-key-kept-during-brave-update");
+assert.equal((await readProviderProfile()).openaiApiKey, "provider-key-kept-during-brave-update");
 assert.deepEqual(await readSecrets(), {
-  openaiApiKey: "legacy-key-kept-during-brave-update",
+  openaiApiKey: "provider-key-kept-during-brave-update",
   braveSearchApiKey: "new-brave-key",
 });
 
-const noSyncedKeyMigrationLocal = memoryStorage();
-chrome.storage.local = noSyncedKeyMigrationLocal;
+const noSyncedKeyLocal = memoryStorage();
+chrome.storage.local = noSyncedKeyLocal;
 const noLocalKeyProfile = await readProviderProfile({
-  ...legacySyncedSettings,
+  ...syncedSettings,
   openaiApiKey: "sync-only-key",
 });
-assert.equal(noLocalKeyProfile.openaiApiKey, "", "a credential present only in Sync must never be migrated locally");
+assert.equal(noLocalKeyProfile.openaiApiKey, "", "a credential present only in Sync must never be copied locally");
 
 const consentLocal = memoryStorage();
 chrome.storage.local = consentLocal;

@@ -29,14 +29,19 @@ function queryElements() {
     summaryBatch: document.querySelector("#summaryBatch"),
     refreshAvailability: document.querySelector("#refreshAvailability"),
     categoryGrid: document.querySelector("#categoryGrid"),
+    bookmarkNav: document.querySelector("#bookmarkNav"),
+    librarySection: document.querySelector("#library"),
     search: document.querySelector("#search"),
     topAiSearch: document.querySelector("#topAiSearch"),
+    browserSearchPermissionStatus: document.querySelector("#browserSearchPermissionStatus"),
+    toggleBrowserSearchPermission: document.querySelector("#toggleBrowserSearchPermission"),
     aiSearchNav: document.querySelector("#aiSearchNav"),
     aiSearchOverlay: document.querySelector("#aiSearchOverlay"),
     aiSearchForm: document.querySelector("#aiSearchForm"),
     aiSearchInput: document.querySelector("#aiSearchInput"),
     aiSearchSubmit: document.querySelector("#aiSearchSubmit"),
     aiAnswer: document.querySelector("#aiAnswer"),
+    aiSearchGeneratedDisclaimer: document.querySelector("#aiSearchGeneratedDisclaimer"),
     aiSearchTitleText: document.querySelector("#aiSearchTitleText"),
     aiSearchMeta: document.querySelector("#aiSearchMeta"),
     closeAiSearch: document.querySelector("#closeAiSearch"),
@@ -118,6 +123,7 @@ function queryElements() {
     hotNewsPerSourceInput: document.querySelector("#hotNewsPerSourceInput"),
     newsPerCategoryInput: document.querySelector("#newsPerCategoryInput"),
     todayNewsPerPublisherInput: document.querySelector("#todayNewsPerPublisherInput"),
+    bookmarkSectionEnabledInput: document.querySelector("#bookmarkSectionEnabledInput"),
     newsBookmarkFolderSelect: document.querySelector("#newsBookmarkFolderSelect"),
     inspirationBookmarkFolderSelect: document.querySelector("#inspirationBookmarkFolderSelect"),
     bookmarkOnlyFolderSelect: document.querySelector("#bookmarkOnlyFolderSelect"),
@@ -171,6 +177,7 @@ function queryElements() {
     websiteShortcutSettingsList: document.querySelector("#websiteShortcutSettingsList"),
     exportSettings: document.querySelector("#exportSettings"),
     importSettings: document.querySelector("#importSettings"),
+    factoryResetSettings: document.querySelector("#factoryResetSettings"),
     settingsImportFile: document.querySelector("#settingsImportFile"),
     saveSettings: document.querySelector("#saveSettings"),
     testKey: document.querySelector("#testKey"),
@@ -187,12 +194,18 @@ function queryElements() {
     reloadWebFrame: document.querySelector("#reloadWebFrame"),
     openWebFrameExternal: document.querySelector("#openWebFrameExternal"),
     closeWebFrame: document.querySelector("#closeWebFrame"),
+    confirmationDialog: document.querySelector("#confirmationDialog"),
+    confirmationKicker: document.querySelector("#confirmationKicker"),
+    confirmationTitle: document.querySelector("#confirmationTitle"),
+    confirmationBody: document.querySelector("#confirmationBody"),
+    confirmationCancel: document.querySelector("#confirmationCancel"),
+    confirmationConfirm: document.querySelector("#confirmationConfirm"),
     linkContextMenu: document.querySelector("#linkContextMenu")
   }
 }
 
 const SHELL_KEYS = [
-  "search", "topAiSearch", "aiSearchNav",
+  "search", "topAiSearch", "aiSearchNav", "bookmarkNav", "librarySection",
 ];
 
 const DASHBOARD_KEYS = [
@@ -224,11 +237,12 @@ const SETTINGS_KEYS = [
   "dailyLimitInput", "imageSearchSettingsGroup", "imageSearchStrategy", "imageSearchApiKeyInput", "webImageSearchEnabledInput",
   "testImageSearchKey", "clearImageSearchKey", "cardSummaryEnabledInput",
   "cacheSizeInput", "hotNewsPerSourceInput", "newsPerCategoryInput", "todayNewsPerPublisherInput",
-  "newsBookmarkFolderSelect", "inspirationBookmarkFolderSelect",
+  "bookmarkSectionEnabledInput", "newsBookmarkFolderSelect", "inspirationBookmarkFolderSelect",
   "bookmarkOnlyFolderSelect", "addBookmarkOnlyFolder", "bookmarkOnlyFolderList",
   "hiddenBookmarkCategoryList", "restoreAllBookmarkCategories",
   "floatingOpenInput", "readingQueueOpenOnReadAllInput", "retainSeenArchiveInput",
   "contentSyncEnabledInput", "syncReadingQueueEnabledInput", "syncTodosEnabledInput", "syncWeatherLocationEnabledInput",
+  "browserSearchPermissionStatus", "toggleBrowserSearchPermission",
   "personalizedRankingEnabledInput", "publicFeedSupplementEnabledInput",
   "uiLocaleSelect", "currentUiLanguage", "colorModeGroup", "accentThemeGroup",
   "customAccentInput", "pointerGlowEnabledInput", "headerImageEnabledInput",
@@ -239,16 +253,18 @@ const SETTINGS_KEYS = [
   "headerImageLocalRemove", "headerImageLocalInput", "websiteShortcutsSettings", "websiteShortcutsEnabledInput", "websiteShortcutDetails",
   "websiteShortcutTitleInput", "websiteShortcutUrlInput", "addWebsiteShortcut",
   "cancelWebsiteShortcutEdit", "websiteShortcutCount", "websiteShortcutSettingsList",
-  "exportSettings", "importSettings", "settingsImportFile",
+  "exportSettings", "importSettings", "factoryResetSettings", "settingsImportFile",
   "saveSettings", "testKey", "clearKey", "clearCache",
   "resetQuota", "resetPreferences", "closeSettings",
 ];
 
 const OVERLAY_KEYS = [
   "aiSearchOverlay", "aiSearchForm", "aiSearchInput", "aiSearchSubmit", "aiSearchTitleText",
-  "aiAnswer", "aiSearchMeta", "closeAiSearch", "webFrameOverlay", "webFrame",
+  "aiAnswer", "aiSearchGeneratedDisclaimer", "aiSearchMeta", "closeAiSearch", "webFrameOverlay", "webFrame",
   "webFrameFavicon", "webFrameTitle", "webFrameUrl",
   "reloadWebFrame", "openWebFrameExternal", "closeWebFrame", "linkContextMenu",
+  "confirmationDialog", "confirmationKicker", "confirmationTitle", "confirmationBody",
+  "confirmationCancel", "confirmationConfirm",
 ];
 
 function pick(elements, keys) {

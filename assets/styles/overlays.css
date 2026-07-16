@@ -1,4 +1,68 @@
 /* overlays */
+.confirmation-dialog {
+  width: min(440px, calc(100vw - 32px));
+  max-width: none;
+  margin: auto;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+  background: var(--blur-panel-bg);
+  color: var(--text);
+  box-shadow: var(--shadow-panel);
+  -webkit-backdrop-filter: var(--card-backdrop-blur);
+  backdrop-filter: var(--card-backdrop-blur);
+}
+
+.confirmation-dialog::backdrop {
+  background: rgba(0, 0, 0, .66);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+}
+
+.confirmation-copy {
+  display: grid;
+  gap: 10px;
+  padding: 22px 22px 20px;
+}
+
+.confirmation-kicker {
+  color: var(--accent);
+  font: 800 10px/1.2 monospace;
+  letter-spacing: .16em;
+}
+
+.confirmation-copy h2,
+.confirmation-copy p {
+  margin: 0;
+}
+
+.confirmation-copy h2 {
+  color: var(--text-strong);
+  font-family: var(--font-display);
+  font-size: 19px;
+  font-weight: 900;
+  line-height: 1.3;
+  text-wrap: balance;
+}
+
+.confirmation-copy p {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+  text-wrap: pretty;
+}
+
+.confirmation-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 14px 18px;
+  border-top: 1px solid var(--line-soft);
+  background: color-mix(in srgb, var(--surface-1) 70%, transparent);
+}
+
 .search-overlay {
   z-index: 80;
   background: var(--search-overlay-bg);

@@ -7,7 +7,7 @@ export function createDashboardController(options) {
     renderDaily, renderSummaries, renderSectionFilters, renderCategoryFilters,
     renderCategories, formatTodayMeta, getTodayKey, readNumber, writeJson,
     retainSeenArchiveEnabled, readSeenRecords, replaceSeenRecords,
-    canRefresh = () => true, syncSearchCopy = () => {},
+    canRefresh = () => true, syncSearchCopy = () => {}, refreshFeedbackMinMs = 2000,
   } = options;
   let dashboardLoadToken = 0;
   let refreshPollToken = 0;
@@ -35,25 +35,42 @@ async function loadDashboard(options = {}) {
 
 async function triggerRefresh(force) {
   if (!state.data || force !== true && !canRefresh()) return;
+  const feedbackStartedAt = Date.now();
   els.refresh.disabled = true;
   els.settingsRefresh.disabled = true;
+  setRefreshRequestFeedback(true);
   try {
     const result = await apiPost(`/api/refresh${force ? "?force=1" : ""}`);
     if (state.data && result.status) {
       state.data.status = result.status;
       renderStatus();
       renderDaily();
+      setRefreshRequestFeedback(true);
     }
     if (result.started || result.status?.running) startPolling();
     else await loadDashboard();
   } catch (error) {
     renderOverviewStatus(t("status.refreshRequestFailed"), localizedErrorMessage(error));
   } finally {
+    const remainingFeedbackMs = refreshFeedbackMinMs - (Date.now() - feedbackStartedAt);
+    if (remainingFeedbackMs > 0) {
+      setRefreshRequestFeedback(true);
+      await new Promise((resolve) => setTimeout(resolve, remainingFeedbackMs));
+    }
+    setRefreshRequestFeedback(false);
     if (state.data) renderStatus();
     else {
       els.refresh.disabled = true;
       els.settingsRefresh.disabled = true;
     }
+  }
+}
+
+function setRefreshRequestFeedback(active) {
+  for (const button of [els.refresh, els.settingsRefresh]) {
+    button.classList?.toggle("is-loading", active);
+    if (active) button.setAttribute?.("aria-busy", "true");
+    else button.removeAttribute?.("aria-busy");
   }
 }
 

@@ -11,3 +11,10 @@ window.addEventListener("ampira:favicon-permission-changed", () => {
 });
 
 await app.start();
+
+const launchUrl = new URL(location.href);
+if (launchUrl.searchParams.get("open") === "ai-settings") {
+  launchUrl.searchParams.delete("open");
+  history.replaceState(null, "", `${launchUrl.pathname}${launchUrl.search}${launchUrl.hash}`);
+  if (document.querySelector("#onboardingOverlay")?.hidden !== false) await app.openAiSettings();
+}

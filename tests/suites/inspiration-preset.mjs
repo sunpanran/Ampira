@@ -326,7 +326,7 @@ export async function runInspirationPresetTests() {
   assert.equal(applyInspirationSource(originalModel, { inspirationSourceMode: "bookmarks" }, "en"), originalModel, "bookmark mode must retain the personal model unchanged");
 
   assert.equal(normalizeSettings({}).inspirationSourceMode, "preset", "new installations must default to the preset");
-  assert.equal(normalizeSettings({ schemaVersion: 1 }).inspirationSourceMode, "bookmarks", "legacy settings without the field must retain personal bookmarks");
+  assert.equal(normalizeSettings({ schemaVersion: 1 }).inspirationSourceMode, "preset", "settings without the field must use the current preset default");
   assert.equal(normalizeSettings({ schemaVersion: 1, inspirationSourceMode: "preset" }).inspirationSourceMode, "preset");
   const presetWithExtraFolder = normalizeSettings({
     schemaVersion: 1,

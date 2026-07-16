@@ -23,6 +23,16 @@ const BODY_KEYS = Object.freeze({
   READER_ERROR: "reader.error.staleBody",
 });
 
+export function readerContentKind(item, explicitKind = "") {
+  const kind = String(explicitKind || "").trim();
+  if (kind) return kind;
+  return String(item?.cardType || "").trim();
+}
+
+export function shouldUseInAppReader({ enabled, readerUrl, contentKind } = {}) {
+  return enabled === true && readerUrl === true && contentKind === "news";
+}
+
 export function readerErrorTitleKey(code) {
   return TITLE_KEYS[code] || "reader.error.genericTitle";
 }

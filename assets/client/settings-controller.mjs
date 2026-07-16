@@ -4,10 +4,10 @@ import { newlyRequiredUngrantedOrigins } from "./permission-ui-model.mjs";
 import { createSavedSourcePermissionController, personalSourcePermissionScope } from "./saved-source-permission-controller.mjs";
 export function createSettingsController(options) {
   const {
-    state, els, t, apiGet, apiPost, localizedResponseMessage, localizedErrorMessage,
+    state, els, t, apiGet, apiPost, confirmAction, confirmManualAiUsage, localizedResponseMessage, localizedErrorMessage,
     applyUiLocale, selectedUiLocale, syncLanguageControls, applyAppearanceSettings, syncAppearanceControls,
     renderExcludeFolderOptions, renderExclusionList, renderSourceSuggestionList, syncBookmarkFolderControls,
-    syncPublicFeedSupplementControl, syncWebsiteShortcutControls, syncAiSetupControls, refreshAiSetupPermission,
+    syncBookmarkSectionControls, syncPublicFeedSupplementControl, syncWebsiteShortcutControls, syncAiSetupControls, refreshAiSetupPermission,
     prepareAiProviderUi,
     getAiSetupState, clearAiSetupFeedback, focusAiSetupRequirement, currentExcludedNewsSources,
     bookmarkSourcePayload, appearancePayload, snapshotSettingsDraft, cloneSettingsDraft, diffSettingsDraft,
@@ -27,7 +27,7 @@ export function createSettingsController(options) {
     settingsSaveCloseDelayMs, wait,
   });
   const { testKey, renderStatus: renderAiConnectionStatus } = createAiConnectionTest({
-    els, t, apiPost, localizedResponseMessage, localizedErrorMessage,
+    els, t, apiPost, confirmManualAiUsage, localizedResponseMessage, localizedErrorMessage,
     getAiSetupState, focusAiSetupRequirement, runSettingsAction,
     currentSettingsHaveUnsavedChanges, renderSettingsStatus,
   });
@@ -74,6 +74,7 @@ async function loadSettings() {
       : (state.settings.savedTodayNewsPerPublisherLimit ?? state.settings.todayNewsPerPublisherLimit ?? state.settings.defaultTodayNewsPerPublisherLimit ?? 0);
     els.todayNewsPerPublisherInput.placeholder = state.settings.defaultTodayNewsPerPublisherLimit ?? "0";
     syncBookmarkFolderControls(state.settings);
+    syncBookmarkSectionControls(state.settings);
     syncWebsiteShortcutControls(state.settings);
     els.cardSummaryEnabledInput.checked = state.settings.cardSummaryEnabled !== false;
     els.floatingOpenInput.checked = state.settings.floatingWebOpenEnabled === true;
@@ -141,6 +142,7 @@ async function saveSettings() {
       inspirationPreviews.invalidate();
     }
     syncBookmarkFolderControls(state.settings);
+    syncBookmarkSectionControls(state.settings);
     syncWebsiteShortcutControls(state.settings);
     syncAppearanceControls(state.settings);
     applyAppearanceSettings(state.settings);
@@ -185,6 +187,7 @@ function currentSettingsDraft() {
     hotNewsEntriesPerSource: els.hotNewsPerSourceInput.value,
     newsEntriesPerCategory: els.newsPerCategoryInput.value,
     todayNewsPerPublisherLimit: els.todayNewsPerPublisherInput.value,
+    bookmarkSectionEnabled: els.bookmarkSectionEnabledInput.checked,
     ...bookmarkSourcePayload(),
     floatingWebOpenEnabled: els.floatingOpenInput.checked,
     readingQueueOpenOnReadAll: els.readingQueueOpenOnReadAllInput.checked, readingQueueReadAllPrompted: state.settings?.readingQueueReadAllPrompted === true,
@@ -337,11 +340,14 @@ function focusSettingsStart({ reveal = false } = {}) {
   }
   syncAiSetupControls();
   const aiSetupState = getAiSetupState();
-  const target = aiSetupState.stage === aiSetupStage.INVALID_ORIGIN
+  const providerChoice = !els.aiProviderEditor.hidden && !els.aiProviderCatalog.hidden
+    ? (els.aiProviderCatalog.querySelector("button[aria-pressed='true']") || els.aiProviderPrimaryList.querySelector("button"))
+    : null;
+  const target = providerChoice || (aiSetupState.stage === aiSetupStage.INVALID_ORIGIN
     ? els.apiBaseUrlInput
     : (aiSetupState.stage === aiSetupStage.NEEDS_CONSENT || aiSetupState.stage === aiSetupStage.NEEDS_PERMISSION
       ? els.grantAiOrigin
-      : (els.aiProviderEditor.hidden ? els.testKey : (els.aiProviderKeyField.hidden ? els.modelInput : els.apiKeyInput)));
+      : (els.aiProviderEditor.hidden ? els.testKey : (els.aiProviderKeyField.hidden ? els.modelInput : els.apiKeyInput))));
   target.focus({ preventScroll: true });
   if (reveal) {
     target.scrollIntoView({
@@ -363,11 +369,13 @@ function closeSettings(commit = false) {
   settingsCloseTimer = window.setTimeout(() => {
     settingsCloseTimer = 0;
     els.settingsModal.classList.remove("open", "closing");
+    syncNavToCurrentSection();
   }, closeDelay);
   setSettingsBusy(false);
   if (!shouldCommit && settingsSnapshot) {
     state.settings = cloneSettingsDraft(settingsSnapshot); headerCoverController.restore();
     syncBookmarkFolderControls(state.settings);
+    syncBookmarkSectionControls(state.settings);
     syncWebsiteShortcutControls(state.settings);
     syncAppearanceControls(state.settings);
     applyAppearanceSettings(state.settings);
@@ -381,16 +389,14 @@ function closeSettings(commit = false) {
     if (!els.settingsModal.classList.contains("open")) resetSecretDrafts();
   }, 0);
   settingsSnapshot = null;
-  syncNavToCurrentSection();
 }
-function requestCloseSettings() {
+async function requestCloseSettings() {
   if (settingsBusy) return;
   const hasUnsavedChanges = currentSettingsHaveUnsavedChanges();
-  if (!hasUnsavedChanges) {
-    closeSettings();
-    return;
-  }
-  if (window.confirm(t("settings.unsaved.confirm"))) saveSettings(); else closeSettings();
+  if (!hasUnsavedChanges) { closeSettings(); return; }
+  const shouldSave = await confirmAction({ kicker: t("confirmation.unsaved.kicker"), title: t("confirmation.unsaved.title"), body: t("confirmation.unsaved.body"),
+    cancelLabel: t("confirmation.unsaved.cancel"), confirmLabel: t("confirmation.unsaved.confirm") });
+  if (shouldSave) saveSettings(); else closeSettings();
 }
 function resetSecretDrafts() {
   els.apiKeyInput.value = "";
@@ -413,6 +419,7 @@ function setSettingsBusy(busy) {
   savedSourcePermission.syncBusy(busy);
   els.cardSummaryEnabledInput.disabled = busy;
   els.todayNewsPerPublisherInput.disabled = busy;
+  els.bookmarkSectionEnabledInput.disabled = busy;
   els.floatingOpenInput.disabled = busy;
   els.readingQueueOpenOnReadAllInput.disabled = busy;
   els.retainSeenArchiveInput.disabled = busy;
@@ -434,6 +441,7 @@ function setSettingsBusy(busy) {
   els.headerImageUrlInput.disabled = busy; headerCoverController.setBusy(busy);
   els.exportSettings.disabled = busy;
   els.importSettings.disabled = busy;
+  els.factoryResetSettings.disabled = busy;
   els.settingsImportFile.disabled = busy;
   setWebsiteShortcutControlsBusy(busy);
   els.colorModeGroup.querySelectorAll("button[data-color-mode]").forEach((button) => {

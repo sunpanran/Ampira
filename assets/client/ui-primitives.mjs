@@ -29,8 +29,12 @@ export function createEmptyState({ title = "", body = "", variant = "panel", act
   if (actionLabel && typeof onAction === "function") {
     const action = document.createElement("button");
     action.type = "button";
-    action.className = "empty-state-action";
-    setIconLabel(action, emptyActionIcon(actionLabel), actionLabel, "inline-icon", "btn-label");
+    action.className = `btn empty-state-action${normalizedVariant === "plain" ? " primary" : ""}`;
+    if (normalizedVariant === "plain") {
+      action.textContent = actionLabel;
+    } else {
+      setIconLabel(action, emptyActionIcon(actionLabel), actionLabel, "inline-icon", "btn-label");
+    }
     action.addEventListener("click", (event) => {
       event.preventDefault();
       event.stopPropagation();

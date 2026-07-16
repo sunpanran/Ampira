@@ -1,4 +1,5 @@
 import { isBookmarkCategoryHidden } from "./bookmark-visibility.mjs";
+import { bookmarkEmptyStateKind } from "./empty-state-policy.mjs";
 
 export function belongsInArchiveIndex(entry) {
   return entry?.sectionKey !== "inspirationPreset"
@@ -148,20 +149,18 @@ function renderCategories() {
         isBookmarkCategoryHidden(state.settings, selectedSection.name, category.name, selectedSection.sectionKey, category.categoryKey)
       ));
     const noEntries = archiveIndexBookmarks().length === 0;
-    const titleKey = allCategoriesHidden
-      ? "empty.hiddenCategories.title"
-      : (noEntries ? "empty.noEntries.title" : "empty.noMatches.title");
-    const bodyKey = allCategoriesHidden
-      ? "empty.hiddenCategories.body"
-      : (noEntries ? "empty.noEntries.body" : "empty.noMatches.body");
+    const emptyKind = bookmarkEmptyStateKind({ query: state.query, allCategoriesHidden, noEntries });
+    const titleKey = `empty.${emptyKind}.title`;
+    const bodyKey = `empty.${emptyKind}.body`;
+    const hasAction = emptyKind === "hiddenCategories" || emptyKind === "noEntries";
     els.categoryGrid.replaceChildren(createEmptyState({
       title: t(titleKey),
       body: t(bodyKey),
-      variant: "panel",
-      actionLabel: allCategoriesHidden
+      variant: "plain",
+      actionLabel: emptyKind === "hiddenCategories"
         ? t("context.bookmarkSettings")
-        : (noEntries ? t("action.openSettings") : ""),
-      onAction: allCategoriesHidden || noEntries ? openBookmarkSettings : undefined,
+        : (emptyKind === "noEntries" ? t("action.openSettings") : ""),
+      onAction: hasAction ? openBookmarkSettings : undefined,
     }));
     return;
   }
@@ -285,6 +284,7 @@ function createReadingActions(item, options = {}) {
       active: read,
       icon: "checkmark",
       label: t(read ? "action.unmarkRead" : "action.markRead"),
+      className: "viewed-toggle",
       onClick: () => toggleSeen(item, !read, options.source || defaultSeenSource(item)),
     }));
   }

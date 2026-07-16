@@ -63,6 +63,11 @@ await assert.rejects(
 );
 assert.deepEqual(await crowdedStore.read(), normalizeSettings(DEFAULT_SETTINGS), "a rejected over-budget settings write must preserve the previous settings");
 
+const visibilityStorage = memoryStorage();
+const visibilityStore = createSettingsStore(visibilityStorage);
+await visibilityStore.write({ ...DEFAULT_SETTINGS, bookmarkSectionEnabled: false });
+assert.equal((await visibilityStore.read()).bookmarkSectionEnabled, false, "bookmark-section visibility must persist through the sync settings store");
+
 console.log("settings store tests passed");
 
 function largeSettings(prefix, count) {

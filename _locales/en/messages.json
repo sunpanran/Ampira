@@ -1,5 +1,5 @@
 {
   "appName": { "message": "Ampira New Tab" },
-  "appDescription": { "message": "Turn Inspiration preset (Ampira), selected Chrome bookmarks, and feeds into a searchable new-tab dashboard." },
+  "appDescription": { "message": "Bring long-saved bookmarks back to life. Ampira turns them into continuously updated feeds, then uses AI to help you read, distill, and organize. Your saved inspiration resurfaces in a new way every day." },
   "actionTitle": { "message": "Add current page to Read later" }
 }

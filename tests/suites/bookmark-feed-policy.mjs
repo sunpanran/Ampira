@@ -5,7 +5,9 @@ import {
   feedCacheOrEmpty, filterLikelyNewsItems, isDisplayableFeedItem, parseFeedDocument, rankAndDedupe,
 } from "../../extension/core/feed.mjs";
 import { bravePreviewCacheKeys, previewCacheKeysOutsideTargets } from "../../extension/core/preview-cache.mjs";
-import { faviconUrl, isReaderUrl, normalizeUrl as normalizeClientUrl } from "../../assets/client/urls.mjs";
+import {
+  faviconUrl, isMicrosoftEdge, isReaderUrl, normalizeUrl as normalizeClientUrl, supportsNativeFavicon,
+} from "../../assets/client/urls.mjs";
 
 export function runBookmarkFeedPolicyTests() {
 const fixtureTree = [{
@@ -182,6 +184,9 @@ assert.notEqual(normalizeClientUrl("http://127.0.0.1:3000/a"), normalizeClientUr
 assert.equal(isReaderUrl("http://news.example.com/article"), false);
 
 const faviconPageUrl = "https://example.com/path?q=one&size=128#section";
+assert.equal(isMicrosoftEdge({ userAgent: "Mozilla/5.0 Edg/140.0.0.0" }), true);
+assert.equal(isMicrosoftEdge({ userAgent: "Mozilla/5.0 Chrome/140.0.0.0 Safari/537.36" }), false);
+assert.equal(supportsNativeFavicon({ userAgent: "Mozilla/5.0 Edg/140.0.0.0" }), false);
 const faviconRuntime = {
   id: "test-extension",
   getURL(pathname) {
@@ -199,6 +204,7 @@ assert.equal(nativeFavicon.pathname, "/_favicon/");
 assert.equal(nativeFavicon.searchParams.get("pageUrl"), faviconPageUrl);
 assert.deepEqual(nativeFavicon.searchParams.getAll("size"), ["32"]);
 assert.equal(faviconUrl({ url: faviconPageUrl }, { runtime: faviconRuntime, nativeEnabled: false }), "favicon.svg", "ungranted optional favicon access must use the packaged fallback");
+assert.equal(faviconUrl({ url: faviconPageUrl }, { runtime: faviconRuntime, nativeEnabled: true, nativeSupported: false }), "favicon.svg", "unsupported browsers must not call the Chrome-only favicon service");
 assert.equal(faviconUrl({ faviconUrl: "https://tracker.example/icon.png" }, { runtime: faviconRuntime, nativeEnabled: false }), "favicon.svg", "remote favicon candidates must never bypass Chrome's native icon service");
 assert.equal(faviconUrl({ url: "javascript:alert(1)" }, { runtime: faviconRuntime, nativeEnabled: true }), "favicon.svg");
 assert.equal(faviconUrl({ url: "not a url" }, { runtime: faviconRuntime, nativeEnabled: true }), "favicon.svg");

@@ -21,6 +21,6 @@ export function createRuntimeSettingsService({ store, readProviderProfile, readD
   return {
     getSettings,
     mutate: (action) => store.mutate(action),
-    sanitizeLegacySyncedCredentials: () => store.sanitizeLocalOnlyFields(),
+    sanitizeLocalOnlyFields: () => store.sanitizeLocalOnlyFields(),
   };
 }

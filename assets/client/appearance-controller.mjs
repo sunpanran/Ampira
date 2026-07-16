@@ -18,7 +18,6 @@ const HEADER_IMAGE_HEIGHT_MIN = 70;
 const HEADER_IMAGE_FULLSCREEN_HEIGHT_MIN = 100;
 const HEADER_IMAGE_HEIGHT_MAX = 140;
 const HEADER_IMAGE_HEIGHT_DEFAULT = 100;
-const DEFAULT_HEADER_IMAGE_URL = "https://images.unsplash.com/photo-1782827286498-241b8af47185?q=80&w=2487&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D";
 const DEFAULT_HEADER_IMAGE_ASSET = "/assets/images/default-header.webp";
 
 export function createAppearanceController(options) {
@@ -275,7 +274,7 @@ export function createAppearanceController(options) {
   }
 
   function resolveHeaderImageSource(url) {
-    if (url === DEFAULT_HEADER_IMAGE_URL) return DEFAULT_HEADER_IMAGE_ASSET;
+    if (!url) return DEFAULT_HEADER_IMAGE_ASSET;
     return isHttpUrl(url) ? url : "";
   }
 

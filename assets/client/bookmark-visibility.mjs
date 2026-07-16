@@ -1,3 +1,7 @@
+export function isBookmarkSectionVisible(settings = {}) {
+  return settings?.bookmarkSectionEnabled !== false;
+}
+
 export function hiddenBookmarkCategories(settings = {}) {
   return Array.isArray(settings?.hiddenBookmarkCategories)
     ? settings.hiddenBookmarkCategories.filter((item) => (

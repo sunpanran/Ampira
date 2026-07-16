@@ -8,7 +8,7 @@ const ARTICLE_FOLLOWUP_MAX_CHARS = 500;
 const ARTICLE_FOLLOWUP_MAX_TURNS = 6;
 
 export function createAiSearchController(options) {
-  const { state, els, t, apiPost } = options;
+  const { state, els, t, apiPost, confirmManualAiUsage } = options;
   let generation = 0;
   let closeTimer = 0;
   let articleConversation = null;
@@ -62,6 +62,7 @@ export function createAiSearchController(options) {
     }
     const isFollowup = Boolean(articleConversation && !startsNewArticle);
     const query = isFollowup ? limitText(rawText, ARTICLE_FOLLOWUP_MAX_CHARS) : rawText;
+    if (!await confirmManualAiUsage({ aiEnabled: state.data?.ai?.enabled === true })) return;
     const requestGeneration = ++generation;
     const articleContext = isFollowup ? conversationPayload() : null;
     let pendingAnswer = null;
@@ -73,6 +74,7 @@ export function createAiSearchController(options) {
     if (isFollowup) {
       pendingAnswer = appendConversationRequest(query);
     } else {
+      setGeneratedDisclaimerVisible(false);
       els.aiAnswer.hidden = false;
       els.aiAnswer.dataset.mode = "loading";
       els.aiAnswer.textContent = t("aiSearch.analyzing");
@@ -107,11 +109,13 @@ export function createAiSearchController(options) {
       if (isFollowup) {
         finishConversationResponse(pendingAnswer, answer, result.usedAi ? "assistant" : "notice");
         if (result.usedAi) {
+          setGeneratedDisclaimerVisible(true);
           articleConversation.turns.push({ question: query, answer: String(result.answer || "").trim() });
           els.aiSearchInput.value = "";
         }
       } else {
         streamAnswer(answer, result.links || [], result.usedAi ? result.mode : "fallback");
+        setGeneratedDisclaimerVisible(result.usedAi);
         if (result.usedAi && result.mode === "article") startArticleConversation(result, answer);
       }
     } catch (error) {
@@ -171,6 +175,11 @@ export function createAiSearchController(options) {
     els.aiAnswer.removeAttribute("data-mode");
     els.aiAnswer.classList.remove("has-copy-action");
     els.aiAnswer.replaceChildren();
+    setGeneratedDisclaimerVisible(false);
+  }
+
+  function setGeneratedDisclaimerVisible(visible) {
+    els.aiSearchGeneratedDisclaimer.hidden = visible !== true;
   }
 
   function streamAnswer(text, links, mode = "answer") {

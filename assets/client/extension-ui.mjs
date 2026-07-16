@@ -5,7 +5,7 @@ import { permissionRowCounts, requiredUngrantedOrigins } from "./permission-ui-m
 import { INSPIRATION_PRESET_VALUE, inspirationBookmarkValue, inspirationSelectionValue, parseInspirationSelection } from "./inspiration-source-selection.mjs";
 import { PUBLIC_FEED_VALUE, newsBookmarkValue, newsSelectionValue, parseNewsSelection } from "./news-source-selection.mjs";
 import { hydrateStorage, readValue, writeValue } from "./storage.mjs";
-import { setNativeFaviconEnabled } from "./urls.mjs";
+import { isMicrosoftEdge, setNativeFaviconEnabled, supportsNativeFavicon } from "./urls.mjs";
 import { enhanceSelectComboboxes } from "./select-combobox.mjs";
 import {
   containsPermissions, removeOrigins, removePermissions,
@@ -15,6 +15,8 @@ import {
 enhanceSelectComboboxes(document);
 
 const ONBOARDING_PROGRESS_KEY = "dash.onboarding.progress";
+const microsoftEdge = isMicrosoftEdge();
+const nativeFaviconSupported = supportsNativeFavicon();
 
 const els = {
   overlay: document.querySelector("#onboardingOverlay"),
@@ -29,6 +31,9 @@ const els = {
   folderStatus: document.querySelector("#onboardingFolderStatus"),
   saveFolders: document.querySelector("#onboardingSaveFolders"),
   skipFolders: document.querySelector("#onboardingSkipFolders"),
+  aiStatus: document.querySelector("#onboardingAiStatus"),
+  configureAi: document.querySelector("#onboardingConfigureAi"),
+  skipAi: document.querySelector("#onboardingSkipAi"),
   permissionList: document.querySelector("#sourcePermissionList"),
   permissionSummary: document.querySelector("#sourcePermissionSummary"),
   permissionActions: document.querySelector("#sourcePermissionActions"),
@@ -37,6 +42,8 @@ const els = {
   grantBraveOrigin: document.querySelector("#grantBraveOrigin"),
   faviconPermissionStatus: document.querySelector("#faviconPermissionStatus"),
   toggleFaviconPermission: document.querySelector("#toggleFaviconPermission"),
+  browserSearchPermissionStatus: document.querySelector("#browserSearchPermissionStatus"),
+  toggleBrowserSearchPermission: document.querySelector("#toggleBrowserSearchPermission"),
 };
 
 let settings = null;
@@ -47,6 +54,10 @@ let permissionRefreshToken = 0;
 let faviconPermissionGranted = null;
 let faviconPermissionBusy = false;
 let faviconPermissionError = "";
+let browserSearchPermissionGranted = null;
+let browserSearchPermissionBusy = false;
+let browserSearchPermissionError = "";
+let onboardingCompletionPending = false;
 const lastOnboardingStep = Math.max(0, els.steps.length - 1);
 
 setLocale(getLocale(), { persist: false });
@@ -62,6 +73,7 @@ async function initializeExtensionUi() {
     translateDocument(document);
     renderPermissionRows(settings.sourcePermissions || []);
     refreshFaviconPermission({ notify: true });
+    refreshBrowserSearchPermission({ notify: true });
     syncOnboardingFolderControls();
     if (settings.onboardingCompleted !== true) showOnboarding(initialOnboardingStep());
   } catch (error) {
@@ -73,21 +85,24 @@ async function initializeExtensionUi() {
 function bindEvents() {
   els.startOnboarding?.addEventListener("click", acceptBookmarkConsent);
   els.grantOnboarding?.addEventListener("click", (event) => grantOrigins(requiredUngrantedOrigins(permissionRows), {
-    finish: true,
-    permissions: ["favicon"],
+    onGranted: showOnboardingAi,
+    permissions: nativeFaviconSupported ? ["favicon"] : [],
     trigger: event.currentTarget,
   }));
-  els.skipPermissions?.addEventListener("click", (event) => finishOnboarding(event.currentTarget));
+  els.skipPermissions?.addEventListener("click", showOnboardingAi);
   els.newsFolder?.addEventListener("change", renderOnboardingFolderStatus);
   els.inspirationFolder?.addEventListener("change", handleOnboardingInspirationSelection);
   els.saveFolders?.addEventListener("click", saveOnboardingFolders);
   els.skipFolders?.addEventListener("click", showOnboardingPermissions);
+  els.configureAi?.addEventListener("click", (event) => finishOnboarding(event.currentTarget, { openAiSettings: true }));
+  els.skipAi?.addEventListener("click", (event) => finishOnboarding(event.currentTarget));
   els.grantAllSources?.addEventListener("click", (event) => grantOrigins(requiredUngrantedOrigins(permissionRows), {
     trigger: event.currentTarget,
   }));
   els.permissionList?.addEventListener("click", handlePermissionAction);
   els.openExtensionManager?.addEventListener("click", () => {
-    chrome.tabs.create({ url: `chrome://extensions/?id=${chrome.runtime.id}` }).catch(() => {});
+    const managerUrl = microsoftEdge ? "edge://extensions/" : `chrome://extensions/?id=${chrome.runtime.id}`;
+    chrome.tabs.create({ url: managerUrl }).catch(() => {});
   });
   els.grantBraveOrigin?.addEventListener("click", (event) => grantOrigins(["https://api.search.brave.com/*"], {
     trigger: event.currentTarget,
@@ -95,12 +110,16 @@ function bindEvents() {
   els.toggleFaviconPermission?.addEventListener("click", () => {
     updateFaviconPermission(faviconPermissionGranted !== true);
   });
+  els.toggleBrowserSearchPermission?.addEventListener("click", () => {
+    updateBrowserSearchPermission(browserSearchPermissionGranted !== true);
+  });
   document.addEventListener("ampira:locale-changed", () => {
     queueMicrotask(() => {
       translateDocument(document);
       permissionFeedback = "";
       renderPermissionRows(permissionRows);
       renderFaviconPermission();
+      renderBrowserSearchPermission();
       syncOnboardingFolderControls({ preserveSelection: true });
     });
   });
@@ -108,6 +127,7 @@ function bindEvents() {
     if (!document.hidden) {
       refreshPermissionRows();
       refreshFaviconPermission({ notify: true });
+      refreshBrowserSearchPermission({ notify: true });
     }
   });
   window.addEventListener("ampira:runtime-message", (event) => {
@@ -115,6 +135,7 @@ function bindEvents() {
   });
   const handleNamedPermissionChange = (permissions) => {
     if (permissions?.permissions?.includes("favicon")) refreshFaviconPermission({ notify: true });
+    if (permissions?.permissions?.includes("search")) refreshBrowserSearchPermission({ notify: true });
   };
   chrome.permissions?.onAdded?.addListener(handleNamedPermissionChange);
   chrome.permissions?.onRemoved?.addListener(handleNamedPermissionChange);
@@ -141,7 +162,10 @@ function showOnboarding(index) {
 
 function initialOnboardingStep() {
   if (settings?.bookmarkConsentGranted !== true) return 0;
-  return readValue(ONBOARDING_PROGRESS_KEY) === "permissions" ? 2 : 1;
+  const progress = readValue(ONBOARDING_PROGRESS_KEY);
+  if (progress === "ai") return 3;
+  if (progress === "permissions") return 2;
+  return 1;
 }
 
 async function acceptBookmarkConsent(event) {
@@ -164,6 +188,12 @@ async function acceptBookmarkConsent(event) {
 function showOnboardingPermissions() {
   writeValue(ONBOARDING_PROGRESS_KEY, "permissions");
   showOnboarding(2);
+}
+
+function showOnboardingAi() {
+  writeValue(ONBOARDING_PROGRESS_KEY, "ai");
+  setOnboardingStatus(els.aiStatus, "");
+  showOnboarding(3);
 }
 
 function syncOnboardingFolderControls({ preserveSelection = false } = {}) {
@@ -321,17 +351,29 @@ function setOnboardingStatus(element, message, state = "") {
   else delete element.dataset.state;
 }
 
-async function finishOnboarding(trigger) {
-  if (trigger) trigger.disabled = true;
+async function finishOnboarding(trigger, { openAiSettings = false } = {}) {
+  if (onboardingCompletionPending) return;
+  onboardingCompletionPending = true;
+  setOnboardingStatus(els.aiStatus, "");
+  setOnboardingCompletionBusy(true);
   try {
-    await request("onboarding:complete");
+    settings = await request("onboarding:complete");
     writeValue(ONBOARDING_PROGRESS_KEY, "");
     els.overlay.hidden = true;
-    location.reload();
+    const targetUrl = new URL("dashboard.html", location.href);
+    if (openAiSettings) targetUrl.searchParams.set("open", "ai-settings");
+    location.replace(targetUrl.href);
   } catch (error) {
-    setPermissionFeedback(t("onboarding.actionFailed", { message: error.message || error }));
-    if (trigger?.isConnected) trigger.disabled = false;
+    onboardingCompletionPending = false;
+    setOnboardingStatus(els.aiStatus, t("onboarding.actionFailed", { message: error.message || error }), "error");
+    setOnboardingCompletionBusy(false);
+    trigger?.focus({ preventScroll: true });
   }
+}
+
+function setOnboardingCompletionBusy(busy) {
+  if (els.configureAi) els.configureAi.disabled = busy;
+  if (els.skipAi) els.skipAi.disabled = busy;
 }
 
 async function refreshPermissionRows() {
@@ -349,6 +391,13 @@ async function refreshPermissionRows() {
 
 async function refreshFaviconPermission({ notify = false } = {}) {
   const previous = faviconPermissionGranted;
+  if (!nativeFaviconSupported) {
+    faviconPermissionGranted = false;
+    faviconPermissionError = "";
+    setNativeFaviconEnabled(false);
+    renderFaviconPermission();
+    return false;
+  }
   try {
     faviconPermissionGranted = await containsPermissions(["favicon"]);
     faviconPermissionError = "";
@@ -367,6 +416,7 @@ async function refreshFaviconPermission({ notify = false } = {}) {
 }
 
 async function updateFaviconPermission(enable, { trigger = null } = {}) {
+  if (!nativeFaviconSupported) return false;
   if (faviconPermissionBusy) return false;
   faviconPermissionBusy = true;
   faviconPermissionError = "";
@@ -390,11 +440,14 @@ async function updateFaviconPermission(enable, { trigger = null } = {}) {
 
 function renderFaviconPermission() {
   if (els.faviconPermissionStatus) {
-    els.faviconPermissionStatus.textContent = faviconPermissionError || t(faviconPermissionGranted === null
+    els.faviconPermissionStatus.textContent = nativeFaviconSupported
+      ? faviconPermissionError || t(faviconPermissionGranted === null
       ? "settings.browser.faviconChecking"
-      : (faviconPermissionGranted ? "settings.browser.faviconEnabled" : "settings.browser.faviconDisabled"));
+      : (faviconPermissionGranted ? "settings.browser.faviconEnabled" : "settings.browser.faviconDisabled"))
+      : t("settings.browser.faviconUnsupported");
   }
   if (!els.toggleFaviconPermission) return;
+  els.toggleFaviconPermission.hidden = !nativeFaviconSupported;
   els.toggleFaviconPermission.disabled = faviconPermissionBusy || faviconPermissionGranted === null;
   const label = els.toggleFaviconPermission.querySelector(".btn-label");
   if (label) {
@@ -404,11 +457,60 @@ function renderFaviconPermission() {
   }
 }
 
-async function grantOrigins(origins, { finish = false, permissions = [], trigger = null } = {}) {
+async function refreshBrowserSearchPermission({ notify = false } = {}) {
+  const previous = browserSearchPermissionGranted;
+  try {
+    browserSearchPermissionGranted = await containsPermissions(["search"]);
+    browserSearchPermissionError = "";
+  } catch (error) {
+    browserSearchPermissionGranted = false;
+    browserSearchPermissionError = t("settings.browser.searchError", { message: error.message || error });
+  }
+  renderBrowserSearchPermission();
+  if (notify && previous !== browserSearchPermissionGranted) {
+    window.dispatchEvent(new CustomEvent("ampira:browser-search-permission-changed", {
+      detail: { granted: browserSearchPermissionGranted },
+    }));
+  }
+  return browserSearchPermissionGranted;
+}
+
+async function updateBrowserSearchPermission(enable) {
+  if (browserSearchPermissionBusy) return false;
+  browserSearchPermissionBusy = true;
+  browserSearchPermissionError = "";
+  renderBrowserSearchPermission();
+  try {
+    const changed = enable
+      ? await requestPermissions(["search"])
+      : await removePermissions(["search"]);
+    await refreshBrowserSearchPermission({ notify: true });
+    return changed === true;
+  } catch (error) {
+    browserSearchPermissionError = t("settings.browser.searchError", { message: error.message || error });
+    return false;
+  } finally {
+    browserSearchPermissionBusy = false;
+    renderBrowserSearchPermission();
+  }
+}
+
+function renderBrowserSearchPermission() {
+  if (els.browserSearchPermissionStatus) {
+    els.browserSearchPermissionStatus.textContent = browserSearchPermissionError || t(browserSearchPermissionGranted === null
+      ? "settings.browser.searchChecking"
+      : (browserSearchPermissionGranted ? "settings.browser.searchEnabled" : "settings.browser.searchDisabled"));
+  }
+  if (!els.toggleBrowserSearchPermission) return;
+  els.toggleBrowserSearchPermission.disabled = browserSearchPermissionBusy || browserSearchPermissionGranted === null;
+  els.toggleBrowserSearchPermission.checked = browserSearchPermissionGranted === true;
+}
+
+async function grantOrigins(origins, { onGranted = null, permissions = [], trigger = null } = {}) {
   const requested = Array.isArray(origins) ? origins.filter(Boolean) : [];
   const requestedPermissions = Array.isArray(permissions) ? permissions.filter(Boolean) : [];
   if (!requested.length && !requestedPermissions.length) {
-    if (finish) await finishOnboarding(trigger);
+    if (onGranted) await onGranted();
     return;
   }
   const label = trigger?.querySelector(".btn-label");
@@ -427,7 +529,7 @@ async function grantOrigins(origins, { finish = false, permissions = [], trigger
     }
     await refreshPermissionRows();
     if (requestedPermissions.includes("favicon")) await refreshFaviconPermission({ notify: true });
-    if (finish) await finishOnboarding(trigger);
+    if (onGranted) await onGranted();
   } catch (error) {
     setPermissionFeedback(t("permission.requestDenied", { message: error.message || error }));
   } finally {

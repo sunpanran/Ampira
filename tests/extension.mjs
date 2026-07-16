@@ -36,12 +36,14 @@ import {
   createPriorityRanker, groupItemsByKey, mergeRankedUnique,
   selectDailyEvents, selectTodayNewsItems, selectUnseenPool,
 } from "../assets/client/dashboard-selectors.mjs";
-import { readerErrorBodyKey, safeReaderOrigin, sameOrigin } from "../assets/client/reader-policy.mjs";
+import {
+  readerContentKind, readerErrorBodyKey, safeReaderOrigin, sameOrigin, shouldUseInAppReader,
+} from "../assets/client/reader-policy.mjs";
 import { normalizeAccentTheme, normalizeColorMode, normalizeHexColor, paletteFromAccent } from "../assets/client/appearance-model.mjs";
 import { cloneSettingsDraft, diffSettingsDraft, snapshotSettingsDraft } from "../assets/client/settings-draft.mjs";
 import { createInspirationPreviewController, inspirationPreviewFingerprint } from "../assets/client/inspiration-preview-controller.mjs";
 import {
-  hideBookmarkCategory, isBookmarkCategoryHidden, restoreBookmarkCategory,
+  hideBookmarkCategory, isBookmarkCategoryHidden, isBookmarkSectionVisible, restoreBookmarkCategory,
 } from "../assets/client/bookmark-visibility.mjs";
 import { AI_SETUP_STAGE, aiProviderOrigin, aiProviderOriginPattern, deriveAiSetupControlState } from "../assets/client/ai-settings-policy.mjs";
 import {
@@ -54,6 +56,7 @@ import { cleanDailyDigestOverviewLine, cleanGeneratedSummaryLine, dailyDigestEvi
 import { cleanAiAnswerMarkup, extractDirectAnswer, parseAiAnswer } from "../assets/client/ai-answer-format.mjs";
 import { copyText } from "../assets/client/clipboard.mjs";
 import { searchCopyKeys } from "../assets/client/search-copy.mjs";
+import { bookmarkEmptyStateKind, summaryEmptyStateKind } from "../assets/client/empty-state-policy.mjs";
 import { cleanSummaryLines as cleanPresentedSummaryLines, cleanSummaryTitle as cleanPresentedSummaryTitle, isCorrectlySummarized } from "../assets/client/item-presenter.mjs";
 import { animatePanelEntrance } from "../assets/client/dom.mjs";
 import {
@@ -80,6 +83,7 @@ import { runDashboardControllerTests } from "./suites/dashboard-controller.mjs";
 import { runBookmarkFeedPolicyTests } from "./suites/bookmark-feed-policy.mjs";
 import { runWeatherUtilityTests } from "./suites/weather-utility.mjs";
 import { runSettingsTransferTests } from "./suites/settings-transfer.mjs";
+import { runFactoryResetTests } from "./suites/factory-reset.mjs";
 import { runInspirationPresetTests } from "./suites/inspiration-preset.mjs";
 import { runTodayEventTests } from "./suites/today-events.mjs";
 import { createReaderPreviewService } from "../extension/runtime/reader-preview-service.mjs";
@@ -89,6 +93,18 @@ import { createPermissionGateway } from "../extension/runtime/permission-gateway
 if (!globalThis.crypto) globalThis.crypto = webcrypto;
 if (!globalThis.btoa) globalThis.btoa = (value) => Buffer.from(value, "binary").toString("base64");
 if (!globalThis.atob) globalThis.atob = (value) => Buffer.from(value, "base64").toString("binary");
+
+assert.equal(readerContentKind({ cardType: "news" }), "news");
+assert.equal(readerContentKind({ cardType: "inspiration" }), "inspiration");
+assert.equal(readerContentKind({ cardType: "bookmark" }), "bookmark");
+assert.equal(readerContentKind({ cardType: "news" }, "bookmark"), "bookmark", "explicit archive source must override a stale card type");
+assert.equal(readerContentKind(null), "", "untyped links must not be treated as articles");
+assert.equal(shouldUseInAppReader({ enabled: true, readerUrl: true, contentKind: "news" }), true);
+for (const contentKind of ["inspiration", "bookmark", ""]) {
+  assert.equal(shouldUseInAppReader({ enabled: true, readerUrl: true, contentKind }), false, `${contentKind || "unknown"} links must open outside Reader`);
+}
+assert.equal(shouldUseInAppReader({ enabled: false, readerUrl: true, contentKind: "news" }), false);
+assert.equal(shouldUseInAppReader({ enabled: true, readerUrl: false, contentKind: "news" }), false);
 
 let copiedText = "";
 assert.equal(await copyText("AI answer", {
@@ -108,6 +124,14 @@ assert.deepEqual(searchCopyKeys(false), {
 });
 assert.equal(searchCopyKeys(true).dialogTitle, "aiSearch.ai.title");
 assert.equal(searchCopyKeys(undefined).dialogTitle, "aiSearch.local.title", "partial AI setup must retain local-search copy");
+assert.deepEqual(searchCopyKeys(true, true), {
+  placeholder: "search.browser.placeholder",
+  action: "search.browser.action",
+  dialogTitle: "aiSearch.ai.title",
+  dialogMeta: "aiSearch.ai.meta",
+  dialogInput: "aiSearch.ai.input",
+  dialogSubmit: "aiSearch.ai.submit",
+}, "browser mode must change only the top search copy while preserving the navigation search dialog");
 const todayMetaValue = formatTodayMeta(todayMetaFixture);
 assert.equal(todayMetaValue.date, "2026.07.14");
 assert.equal(todayMetaValue.weekday, "周二");
@@ -299,6 +323,16 @@ else delete globalThis.matchMedia;
 const root = path.dirname(path.dirname(new URL(import.meta.url).pathname.replace(/^\/(?:[A-Za-z]:)/, (match) => match.slice(1))));
 await runArchitectureTests(root);
 const { dashboardSource, localeKeys } = await runManifestSecurityTests(root);
+const servicePanelStart = dashboardSource.indexOf('data-settings-panel="service"');
+const browserPanelStart = dashboardSource.indexOf('data-settings-panel="browser"');
+const imageSearchSettingsStart = dashboardSource.indexOf('id="imageSearchSettingsGroup"');
+const topSearchSettingsStart = dashboardSource.indexOf('aria-labelledby="browserSearchTitle"');
+assert(servicePanelStart >= 0 && topSearchSettingsStart > imageSearchSettingsStart && topSearchSettingsStart < browserPanelStart,
+  "top search mode must follow image-search fallback inside AI settings");
+assert(dashboardSource.includes('<section class="ai-service-group" aria-labelledby="browserSearchTitle">')
+  && dashboardSource.includes('<label class="switch-field ai-image-switch" for="toggleBrowserSearchPermission">')
+  && dashboardSource.includes('<span class="toggle"><input id="toggleBrowserSearchPermission" type="checkbox">'),
+"top search must reuse the image-search fallback group and control-row styling");
 const settingsWorkflowSource = await fs.readFile(path.join(root, "extension", "runtime", "settings-workflow.mjs"), "utf8");
 const websiteShortcutsControllerSource = await fs.readFile(path.join(root, "assets", "client", "website-shortcuts-controller.mjs"), "utf8");
 assert.match(settingsWorkflowSource, /"websiteShortcutsEnabled", "websiteShortcuts"/, "settings saves must allow the shortcut switch and ordered list");
@@ -335,6 +369,7 @@ assert(websiteShortcutsControllerSource.includes("setDisclosureVisibility(els.we
 "shortcut management controls must follow the draft switch state with the shared disclosure motion");
 assert.match(dashboardSource, /id="exportSettings"/);
 assert.match(dashboardSource, /id="importSettings"/);
+assert.match(dashboardSource, /id="factoryResetSettings"[^>]+class="btn danger"|class="btn danger"[^>]+id="factoryResetSettings"/);
 assert.match(dashboardSource, /id="settingsImportFile"[^>]+accept="\.json,application\/json"/);
 const transferApiSource = await fs.readFile(path.join(root, "assets", "client", "api.mjs"), "utf8");
 const messageContractSource = await fs.readFile(path.join(root, "assets", "client", "message-contract.mjs"), "utf8");
@@ -342,18 +377,25 @@ const transferRuntimeSource = await fs.readFile(path.join(root, "extension", "ru
 const transferControllerSource = await fs.readFile(path.join(root, "assets", "client", "settings-transfer-controller.mjs"), "utf8");
 assert(transferApiSource.includes("messageRequestForHttp")
   && messageContractSource.includes('"GET /api/settings/export": "settings:export"')
-  && messageContractSource.includes('"POST /api/settings/import": "settings:import"'), "settings transfer must use the shared explicit client routes");
+  && messageContractSource.includes('"POST /api/settings/import": "settings:import"')
+  && messageContractSource.includes('"POST /api/settings/factory-reset": "settings:factory-reset"'), "settings transfer must use the shared explicit client routes");
 assert(transferRuntimeSource.includes('"settings:export": () => exportSettings()')
-  && transferRuntimeSource.includes('"settings:import": (payload) => importSettings(payload)'), "settings transfer must remain behind background message routes");
+  && transferRuntimeSource.includes('"settings:import": (payload) => importSettings(payload)')
+  && transferRuntimeSource.includes('"settings:factory-reset": () => factoryReset()'), "settings transfer must remain behind background message routes");
+assert(transferRuntimeSource.includes('request?.type !== "settings:factory-reset"')
+  && transferRuntimeSource.includes('"FACTORY_RESET_IN_PROGRESS"'), "factory reset must reject competing requests while storage is being cleared");
 assert(transferControllerSource.includes("file.size > maxSettingsTransferBytes")
   && transferControllerSource.includes('input.value = ""')
   && transferControllerSource.includes("URL.revokeObjectURL(url)"), "settings transfer must bound file reads, allow retrying the same file, and release download URLs");
+assert(transferControllerSource.includes('tone: "danger"')
+  && transferControllerSource.includes('apiPost("/api/settings/factory-reset")'), "factory reset must use the shared destructive confirmation before calling the background route");
 runActivityStoreTests();
 await runActivityControllerTests();
 await runDashboardControllerTests();
 runBookmarkFeedPolicyTests();
 await runWeatherUtilityTests();
 runSettingsTransferTests();
+await runFactoryResetTests();
 await runInspirationPresetTests();
 await runTodayEventTests();
 const originalFetch = globalThis.fetch;
@@ -759,8 +801,8 @@ assert.equal(DEFAULT_SETTINGS.newsSourceMode, "public", "new installs must defau
 assert.equal(DEFAULT_SETTINGS.inspirationSourceMode, "preset", "new installs must default to the Ampira inspiration preset");
 assert.equal(normalizeSettings({}).newsSourceMode, "public", "fresh settings must select the Ampira public Feed");
 assert.equal(normalizeSettings({}).inspirationSourceMode, "preset", "fresh settings must select the Ampira inspiration preset");
-assert.equal(normalizeSettings({ schemaVersion: 1 }).newsSourceMode, "bookmarks", "legacy settings must retain their news bookmark folder");
-assert.equal(normalizeSettings({ schemaVersion: 1 }).inspirationSourceMode, "bookmarks", "legacy settings must retain their inspiration bookmark folder");
+assert.equal(normalizeSettings({ schemaVersion: 1 }).newsSourceMode, "public", "settings without an explicit source mode must use the current default");
+assert.equal(normalizeSettings({ schemaVersion: 1 }).inspirationSourceMode, "preset", "settings without an explicit inspiration mode must use the current default");
 const publicOnlySettings = normalizeSettings({
   schemaVersion: 1,
   newsSourceMode: "public",
@@ -814,7 +856,8 @@ assert.equal(normalizeSettings({ todayNewsPerPublisherLimit: 11 }).todayNewsPerP
 assert.equal(normalizeSettings({ todayNewsPerPublisherLimit: -1 }).todayNewsPerPublisherLimit, 0);
 assert.equal(normalizedSettings.aiDisclosureAccepted, false);
 assert.equal(normalizedSettings.headerImageUrl, DEFAULT_SETTINGS.headerImageUrl);
-assert.equal(normalizeSettings({ headerImageUrl: "" }).headerImageUrl, "", "the default cover URL must remain removable");
+assert.equal(DEFAULT_SETTINGS.headerImageUrl, "", "the cover URL field must be empty by default");
+assert.equal(normalizeSettings({ headerImageUrl: "" }).headerImageUrl, "", "an empty cover URL must preserve the built-in default cover state");
 assert.equal(DEFAULT_SETTINGS.headerImageBlurEnabled, false, "cover blur must remain opt-in");
 assert.equal(DEFAULT_SETTINGS.headerImageBlurAmount, 12, "cover blur must retain a useful remembered default");
 assert.equal(normalizeSettings({ headerImageBlurEnabled: true, headerImageBlurAmount: -1 }).headerImageBlurAmount, 0);
@@ -838,6 +881,10 @@ assert.equal(normalizeHiddenBookmarkCategories(Array.from({ length: 120 }, (_, i
   category: `分类 ${index}`,
 }))).length, MAX_HIDDEN_BOOKMARK_CATEGORIES, "hidden bookmark categories must stay within the sync-safe item cap");
 const visibilitySettings = { hiddenBookmarkCategories: normalizedHiddenCategories };
+assert.equal(normalizeSettings({}).bookmarkSectionEnabled, true, "the bookmark section must remain visible when the setting is missing");
+assert.equal(normalizeSettings({ bookmarkSectionEnabled: false }).bookmarkSectionEnabled, false, "an explicit bookmark-section opt-out must be preserved");
+assert.equal(isBookmarkSectionVisible({}), true);
+assert.equal(isBookmarkSectionVisible({ bookmarkSectionEnabled: false }), false);
 assert.equal(isBookmarkCategoryHidden(visibilitySettings, "资讯", "产品 动态"), true);
 assert.equal(isBookmarkCategoryHidden(visibilitySettings, "资讯", "灵感"), false, "category identity must include its parent section");
 const withHiddenCategory = hideBookmarkCategory(visibilitySettings, "资讯", "行业");
@@ -1215,8 +1262,12 @@ await settingsStore.write(DEFAULT_SETTINGS);
 const afterCompactWrite = await settingsSyncStorage.get(null);
 assert(oldSettingChunkKeys.every((key) => !Object.hasOwn(afterCompactWrite, key)), "obsolete settings chunks must be removed after a compact write");
 await settingsSyncStorage.set({ [SETTINGS_KEY]: { ...DEFAULT_SETTINGS, openaiApiKey: "legacy-synced-secret" } });
-assert.equal(await settingsStore.sanitizeLegacyCredentials(), true);
+assert.equal(await settingsStore.sanitizeLocalOnlyFields(), true);
 assert.equal(Object.hasOwn((await settingsSyncStorage.get(SETTINGS_KEY))[SETTINGS_KEY], "openaiApiKey"), false, "legacy synced credentials must be scrubbed");
+const queuedSettingsWrite = settingsStore.write(DEFAULT_SETTINGS);
+const queuedSettingsReset = settingsStore.reset();
+await Promise.all([queuedSettingsWrite, queuedSettingsReset]);
+assert.deepEqual(await settingsSyncStorage.get(null), {}, "factory reset must run after queued settings mutations and leave Sync storage empty");
 assert.deepEqual(pageForItems([1, 2, 3, 4, 5], 2, -1), {
   items: [5], page: 3, pageCount: 3, variant: 2, total: 5,
 });
@@ -1855,6 +1906,15 @@ assert(aiSearchUiSource.includes("appendAnswerCopyButton(content)")
   && overlaysCssSource.includes(".ai-conversation-message.is-assistant {\n  grid-template-columns: 30px minmax(0, 1fr) 30px;")
   && motionCssSource.includes(".ai-conversation-message.is-assistant {\n    grid-template-columns: 24px minmax(0, 1fr) 30px;"),
   "the initial AI answer and each assistant reply must expose a responsive icon-only copy action with visible feedback");
+assert(dashboardSource.includes('<small class="ai-search-meta" id="aiSearchGeneratedDisclaimer" data-i18n="aiSearch.generatedDisclaimer" hidden>内容由AI生成，请仔细甄别。</small>')
+  && aiSearchUiSource.includes("setGeneratedDisclaimerVisible(result.usedAi)")
+  && (aiSearchUiSource.match(/setGeneratedDisclaimerVisible\(false\)/g) || []).length >= 2
+  && aiSearchUiSource.includes("if (result.usedAi) {\n          setGeneratedDisclaimerVisible(true);")
+  && aiSearchUiSource.includes("els.aiSearchGeneratedDisclaimer.hidden = visible !== true"),
+  "AI-generated search results must show a localized disclaimer below the answer while local and error results keep it hidden");
+assert.equal(translate("zh-CN", "aiSearch.generatedDisclaimer"), "内容由AI生成，请仔细甄别。");
+assert.equal(translate("zh-Hant", "aiSearch.generatedDisclaimer"), "內容由AI生成，請仔細甄別。");
+assert.equal(translate("en", "aiSearch.generatedDisclaimer"), "Content is generated by AI. Please review it carefully.");
 assert(dashboardSource.includes('role="log"') && dashboardSource.includes('aria-relevant="additions text"'), "the article conversation transcript must expose appended turns to assistive technology");
 assert(!overlaysCssSource.includes(".ai-search-form:focus-within"), "the always-focused search form must not keep an active outline");
 assert((tokensCssSource.match(/--search-overlay-bg: color-mix\(in srgb, var\(--bg\) 72%, transparent\);/g) || []).length === 2
@@ -1913,10 +1973,17 @@ assert(contextMenuSource.includes("interactiveTarget !== element"), "context men
 assert(contextMenuSource.includes("function attachActions") && contextMenuSource.includes("attachActions, hide"), "context menus must support action-only targets");
 assert(contextMenuSource.includes("link?.canExplain || item?.feedItem?.articleId"), "context menus must allow explicitly explainable links");
 assert(efficiencyViewSource.includes("attachLinkContextMenu(row") && efficiencyViewSource.includes("canExplain: true"), "reading queue rows must expose link context-menu actions");
+assert(efficiencyViewSource.includes('{ contentKind: "news" }'), "daily digest fallbacks must remain explicitly eligible for Reader");
+assert(appSource.includes("contentKind: archiveSource(item)"), "archive entries must route from their recorded news or bookmark source");
 assert(appSource.includes('contextAttachActions: (...args) => contextMenu.attachActions(...args)') && appSource.includes('selectSettingsTab("bookmarks")'), "section filters must expose bookmark settings from their context menu");
 assert(bookmarksViewSource.includes('t("context.hideBookmarkCategory")')
   && bookmarksViewSource.includes("isBookmarkCategoryHidden(state.settings")
-  && bookmarksViewSource.includes('"empty.hiddenCategories.title"'), "bookmark subcategories must support hiding, filtering, and a recoverable all-hidden state");
+  && bookmarksViewSource.includes('emptyKind === "hiddenCategories"'), "bookmark subcategories must support hiding, filtering, and a recoverable all-hidden state");
+assert.equal(summaryEmptyStateKind(""), "noEntries", "news without a query must show the actionable cache empty state");
+assert.equal(summaryEmptyStateKind("Ampira"), "noMatches", "news with a query must show a search-specific empty state");
+assert.equal(bookmarkEmptyStateKind({ noEntries: true }), "noEntries", "empty bookmark sources must remain recoverable from settings");
+assert.equal(bookmarkEmptyStateKind({ allCategoriesHidden: true }), "hiddenCategories", "hidden bookmark categories must remain recoverable from settings");
+assert.equal(bookmarkEmptyStateKind({ query: "Ampira", noEntries: true }), "noMatches", "bookmark search must take priority over the underlying empty-source state");
 assert(bookmarkSettingsControllerSource.includes("renderHiddenBookmarkCategoryList")
   && bookmarkSettingsControllerSource.includes("restoreHiddenBookmarkCategory")
   && dashboardSource.includes('id="hiddenBookmarkCategoryList"'), "Bookmark settings must list and restore hidden categories");
@@ -1985,6 +2052,26 @@ assert(dashboardSource.includes('id="websiteShortcutFeedback" role="status" aria
   && dashboardSectionsCssSource.includes(".website-shortcut.is-drop-before::after")
   && settingsCssSource.includes(".website-shortcut-settings-row.is-drop-before::after"), "shortcut drag state and immediate-save failures must remain visible and accessible in both list layouts");
 assert(primitivesCssSource.includes(".empty-state.is-compact .empty-state-copy") && primitivesCssSource.includes(".empty-state.is-compact .empty-state-body") && primitivesCssSource.includes("max-width: none;"), "every compact empty state must use its available surface width instead of orphaning Chinese characters");
+assert(primitivesCssSource.includes(".empty-state.is-plain {")
+  && primitivesCssSource.includes("min-height: 0;")
+  && primitivesCssSource.includes("background: transparent;")
+  && primitivesCssSource.includes(".has-fullscreen-header-cover .empty-state.is-plain .empty-state-copy")
+  && primitivesCssSource.includes("max-width: min(100%, 480px);")
+  && primitivesCssSource.includes("background: rgba(10, 11, 13, .82);")
+  && primitivesCssSource.includes(".empty-state.is-plain .empty-state-action .btn-label")
+  && primitivesCssSource.includes("visibility: visible;")
+  && primitivesCssSource.includes("min-width: max-content;")
+  && primitivesCssSource.includes(".has-fullscreen-header-cover .empty-state.is-plain .empty-state-action")
+  && primitivesCssSource.includes("background: var(--surface-1);")
+  && primitivesCssSource.includes("background: var(--accent) !important;")
+  && primitivesCssSource.includes(".empty-state-action .btn-label {")
+  && primitivesCssSource.includes("color: #fff !important;")
+  && primitivesCssSource.includes("opacity: 1 !important;"),
+  "news and bookmark empty states must stay lightweight while retaining a readable fullscreen-cover action");
+assert(appSource.includes('action.className = `btn empty-state-action${normalizedVariant === "plain" ? " primary" : ""}`')
+  && appSource.includes('if (normalizedVariant === "plain") {')
+  && appSource.includes("action.textContent = actionLabel;"),
+  "plain empty-state actions must render a direct text button instead of depending on an icon-label pair");
 assert(dashboardSectionsCssSource.includes("overflow-wrap: anywhere;") && motionCssSource.includes(".digest-card .ai-digest-overview") && motionCssSource.includes("overflow-y: auto;"), "daily brief text must wrap long tokens and remain contained inside fixed-height desktop cards");
 assert(appSource.includes('t("settings.bookmarks.folderOption"'));
 assert(appSource.includes('isEnabled: () => state.settings?.bookmarkConsentGranted === true'), "original previews must not depend on Brave configuration");
@@ -1999,7 +2086,8 @@ assert(appSource.includes('if (els.headerImage.complete && els.headerImage.natur
 assert(!dashboardSource.includes('id="headerImageBlurEnabledInput"')
   && dashboardSource.includes('id="headerImageBlurAmountInput" type="range" min="0" max="24" step="1" value="0"')
   && dashboardSource.includes('id="headerImageBlurField" aria-disabled="false" aria-hidden="false"')
-  && dashboardSource.includes('data-i18n="settings.headerImage.heightHelp"')
+  && !dashboardSource.includes('data-i18n="settings.headerImage.heightHelp"')
+  && !dashboardSource.includes('data-i18n="settings.headerImage.blurHelp"')
   && dashboardSource.includes('class="cover-blur-meter"')
   && !dashboardSource.includes('class="cover-blur-scale"')
   && !settingsCssSource.includes(".cover-blur-scale"), "appearance settings must expose an uncluttered bounded instrument slider without tick labels");
@@ -2013,14 +2101,27 @@ assert(appearanceControllerSource.includes("const enabled = els.headerImageEnabl
   && appearanceControllerSource.includes('setProperty("--header-cover-fullscreen-height", `${scale}dvh`)')
   && themeBootstrapSource.includes('setProperty("--header-cover-fullscreen-height", `${scale}dvh`)')
   && dashboardSectionsCssSource.includes("height: var(--header-cover-fullscreen-height);"), "cover height must remain adjustable but never fall below 100% in fullscreen mode and restore before the first frame");
-assert(!dashboardSectionsCssSource.includes(".has-fullscreen-header-cover .section-head h2")
-  && !dashboardSectionsCssSource.includes(".has-fullscreen-header-cover .today-meta")
+assert(!dashboardSectionsCssSource.includes(".has-fullscreen-header-cover .today-meta")
   && !dashboardSectionsCssSource.includes(".has-fullscreen-header-cover .summary-batch-meta")
   && !dashboardSectionsCssSource.includes(".has-fullscreen-header-cover #library .controls .segmented button:not(.active)"),
-  "fullscreen covers must inherit the same text and control styling as non-fullscreen covers in every color mode");
-assert((dashboardSectionsCssSource.match(/linear-gradient\(180deg, color-mix\(in srgb, var\(--bg\) 18%, transparent\)/g) || []).length === 2
-  && (dashboardSectionsCssSource.match(/color-mix\(in srgb, var\(--bg\) 54%, transparent\) 100%/g) || []).length === 2,
+  "fullscreen covers must inherit non-heading text and control styling from non-fullscreen covers in every color mode");
+assert(dashboardSectionsCssSource.includes("text-shadow: 0 14px 32px rgba(0, 0, 0, .26);")
+  && (dashboardSectionsCssSource.match(/text-shadow: 0 14px 32px rgba\(255, 255, 255, \.52\);/g) || []).length === 2
+  && (dashboardSectionsCssSource.match(/color: var\(--text-strong\);/g) || []).length >= 2,
+  "fullscreen headings must use separate low-opacity downward shadows for dark and light color modes");
+assert((dashboardSectionsCssSource.match(/linear-gradient\(180deg, color-mix\(in srgb, var\(--bg\) 10%, transparent\)/g) || []).length === 2
+  && (dashboardSectionsCssSource.match(/color-mix\(in srgb, var\(--bg\) 40%, transparent\) 100%/g) || []).length === 2,
   "explicit and system light fullscreen covers must retain the reduced readability overlay");
+assert(dashboardSectionsCssSource.includes(':root[data-color-mode="light"].has-fullscreen-header-cover .cover-fade')
+  && dashboardSectionsCssSource.includes(':root[data-color-mode="light"].has-fullscreen-header-cover .section-head h2')
+  && dashboardSectionsCssSource.includes(':root[data-color-mode="system"].has-fullscreen-header-cover .cover-fade')
+  && !dashboardSectionsCssSource.includes(':root[data-color-mode="light"] .has-fullscreen-header-cover'),
+  "light fullscreen overrides must match the color mode and fullscreen state on the same root element");
+assert(dashboardSectionsCssSource.includes(".has-fullscreen-header-cover .dashboard-cover.is-loaded img {\n  opacity: 1;"),
+  "loaded fullscreen cover images must render at full opacity");
+assert(dashboardSectionsCssSource.includes("transform: scale(1.012);")
+  && dashboardSectionsCssSource.includes("transform 900ms var(--motion-ease-standard)"),
+  "header cover loading must use a restrained, slow zoom with smooth acceleration");
 assert(appSource.includes("createCoverBlurPreviewController")
   && dashboardSource.includes('class="settings-section header-image-settings"')
   && dashboardSource.includes('class="settings-field-grid header-image-primary-settings"')
@@ -2041,7 +2142,7 @@ assert(appearanceControllerSource.includes('headerImageBlurEnabled: syncBlurAmou
   && appearanceControllerSource.includes('setAttribute("aria-hidden", String(!headerEnabled))')
   && settingsCssSource.includes('.cover-blur-range[aria-hidden="false"]')
   && settingsCssSource.includes("height var(--motion-move-duration) var(--motion-ease-move)")
-  && settingsCssSource.includes("height: 46px;")
+  && settingsCssSource.includes("height: 32px;")
   && settingsCssSource.includes('.cover-blur-range input[type="range"] {\n  width: 100%;\n  height: 18px;\n  display: block;')
   && settingsCssSource.includes("visibility 0s step-end var(--motion-move-duration)"), "the blur slider must remain visible with the cover and collapse without leaving an interactive hidden control when the cover is off");
 assert(themeBootstrapSource.includes("applyHeaderCoverBlur(cover?.enabled === true && cover?.blurEnabled === true")
@@ -2076,6 +2177,7 @@ assert(!serviceWorkerSource.includes("bookmark-article-"), "empty feeds must not
 assert(appSource.includes('articleId: item.feedItem?.articleId || item.key'), "manual summaries must identify the clicked article, not only its feed source");
 const manualSummaryHandlerSource = appSource.slice(appSource.indexOf("async function refreshSummaryItem"), appSource.indexOf("function updateSummaryCard"));
 assert(!manualSummaryHandlerSource.includes("requestWebsitePermission"), "manual summaries must not require or request article-origin permission");
+assert(manualSummaryHandlerSource.includes("await loadDashboard({ render: false })"), "organizing one card must refresh its data without re-ranking the visible grid before a full tab reload");
 assert(appSource.includes(".filter(isDisplayableFeedItem)"), "the dashboard must hide unreadable undated items already present in an older cache");
 assert(appSource.includes("syncSummaryCard(current, createSummaryCard(item))"), "organizing one card must update it in place instead of replacing the whole card");
 assert(appSource.includes("syncSummaryCard(currentCard, node)"), "cache updates must preserve existing summary card roots when their content changes");
@@ -2260,7 +2362,7 @@ assert(pruning.remove.some((record) => record.key === "old"));
 assert(pruning.remainingSize <= 25 * 1024 * 1024);
 
 globalThis.chrome = { storage: { local: memoryStorage(), session: memoryStorage(), sync: memoryStorage() } };
-const { clearLegacyCredentialData, readSecrets, secretStatus, updateSecrets } = await import("../extension/core/secrets.mjs");
+const { readSecrets, secretStatus, updateSecrets } = await import("../extension/core/secrets.mjs");
 await updateSecrets({ openaiApiKey: "secret-test-key" });
 assert.equal((await readSecrets()).openaiApiKey, "secret-test-key");
 assert.equal((await secretStatus()).hasOpenAIKey, true);
@@ -2276,12 +2378,6 @@ assert.deepEqual(await readSecrets(), {
   braveSearchApiKey: "concurrent-brave-key",
 }, "concurrent secret updates must merge instead of overwriting each other");
 await updateSecrets({ openaiApiKey: "", braveSearchApiKey: "" });
-await chrome.storage.local.set({ "ampira.vault.v1": { legacy: true } });
-await chrome.storage.session.set({ "ampira.secrets.session.v1": { openaiApiKey: "legacy" } });
-await clearLegacyCredentialData();
-assert.equal((await chrome.storage.local.get("ampira.vault.v1"))["ampira.vault.v1"], undefined);
-assert.equal((await chrome.storage.session.get("ampira.secrets.session.v1"))["ampira.secrets.session.v1"], undefined);
-
 let clientState = {};
 const clientStateStore = createClientStateStore({
   async getRecord() { return { ...clientState }; },
@@ -2300,6 +2396,8 @@ await assert.rejects(clientStateStore.save({ values: { invalid: "value" } }), (e
 await assert.rejects(clientStateStore.save({ values: { [`dash.${"x".repeat(92)}`]: "value" } }), (error) => error.code === "INVALID_CLIENT_STATE");
 await assert.rejects(clientStateStore.save({ values: Object.fromEntries(Array.from({ length: 101 }, (_, index) => [`dash.limit.${index}`, "x"])) }), (error) => error.code === "INVALID_CLIENT_STATE");
 await assert.rejects(clientStateStore.save({ values: { "dash.multibyte": "界".repeat(180000) } }), (error) => error.code === "INVALID_CLIENT_STATE");
+await clientStateStore.reset();
+assert.deepEqual(await clientStateStore.read(), {}, "factory reset must drain queued client-state writes and replace the stored state");
 const oversizedStateStore = createClientStateStore({
   async getRecord() { return {}; },
   async setRecord() { assert.fail("oversized aggregate state must not be persisted"); },
@@ -2455,6 +2553,8 @@ for (const suite of [
   "content-sync.mjs",
   "content-sync-settings.mjs",
   "header-cover.mjs",
+  "browser-search.mjs",
+  "manual-ai-usage-notice.mjs",
   "select-combobox.mjs",
 ]) {
   await import(`./suites/${suite}`);

@@ -1,12 +1,6 @@
-import {
-  DEFAULT_SETTINGS,
-  LOCAL_PROVIDER_KEY,
-  LOCAL_SECRETS_KEY,
-} from "./constants.mjs";
+import { LOCAL_PROVIDER_KEY, LOCAL_SECRETS_KEY } from "./constants.mjs";
 import { normalizeProviderSettings } from "./settings.mjs";
 
-const LEGACY_LOCAL_KEYS = ["ampira.vault.v1"];
-const LEGACY_SESSION_KEYS = ["ampira.vault.key.session.v1", "ampira.secrets.session.v1"];
 const PROVIDER_IDENTITY_FIELDS = ["openaiApiKey", "openaiBaseUrl", "openaiApiStyle", "openaiSummaryModel"];
 let mutationQueue = Promise.resolve();
 
@@ -36,12 +30,12 @@ export function readSecrets() {
 export function updateSecrets(patch = {}) {
   return enqueue(async () => {
     const records = await chrome.storage.local.get([LOCAL_PROVIDER_KEY, LOCAL_SECRETS_KEY]);
-    const legacy = normalizeLegacySecrets(records[LOCAL_SECRETS_KEY]);
+    const secrets = normalizeSecrets(records[LOCAL_SECRETS_KEY]);
     let provider = isRecord(records[LOCAL_PROVIDER_KEY])
       ? normalizeProviderRecord(records[LOCAL_PROVIDER_KEY])
       : null;
 
-    if (Object.hasOwn(patch, "openaiApiKey") || !provider && legacy.openaiApiKey) {
+    if (Object.hasOwn(patch, "openaiApiKey")) {
       provider = provider || await readProviderProfileRaw();
       const candidate = normalizeProviderRecord(Object.hasOwn(patch, "openaiApiKey")
         ? { ...provider, openaiApiKey: patch.openaiApiKey }
@@ -54,18 +48,18 @@ export function updateSecrets(patch = {}) {
       if (changed) await chrome.storage.local.set({ [LOCAL_PROVIDER_KEY]: provider });
     }
 
-    if (Object.hasOwn(patch, "braveSearchApiKey") || legacy.openaiApiKey) {
+    if (Object.hasOwn(patch, "braveSearchApiKey")) {
       const braveSearchApiKey = Object.hasOwn(patch, "braveSearchApiKey")
         ? cleanSecret(patch.braveSearchApiKey)
-        : legacy.braveSearchApiKey;
+        : secrets.braveSearchApiKey;
       await writeBraveSecret(braveSearchApiKey);
     }
 
     return {
-      hasOpenAIKey: Boolean(provider ? provider.openaiApiKey : legacy.openaiApiKey),
+      hasOpenAIKey: Boolean(provider?.openaiApiKey),
       hasImageSearchKey: Boolean(Object.hasOwn(patch, "braveSearchApiKey")
         ? cleanSecret(patch.braveSearchApiKey)
-        : legacy.braveSearchApiKey),
+        : secrets.braveSearchApiKey),
     };
   });
 }
@@ -99,34 +93,20 @@ export async function secretStatus() {
   };
 }
 
-export function clearLegacyCredentialData() {
-  return enqueue(() => Promise.all([
-    chrome.storage.local.remove(LEGACY_LOCAL_KEYS),
-    chrome.storage.session?.remove(LEGACY_SESSION_KEYS),
-  ]));
-}
-
 async function readProviderProfileRaw(fallback = {}) {
-  const records = await chrome.storage.local.get([LOCAL_PROVIDER_KEY, LOCAL_SECRETS_KEY]);
+  const records = await chrome.storage.local.get(LOCAL_PROVIDER_KEY);
   const stored = records[LOCAL_PROVIDER_KEY];
-  const legacy = normalizeLegacySecrets(records[LOCAL_SECRETS_KEY]);
   if (isRecord(stored)) {
     const normalized = normalizeProviderRecord(stored, fallback);
     if (JSON.stringify(stored) !== JSON.stringify(normalized)) {
       await chrome.storage.local.set({ [LOCAL_PROVIDER_KEY]: normalized });
     }
-    if (legacy.openaiApiKey) await writeBraveSecret(legacy.braveSearchApiKey);
     return normalized;
   }
 
-  const migrated = normalizeProviderRecord({
-    ...fallback,
-    openaiApiKey: legacy.openaiApiKey,
-    credentialGeneration: migrationGeneration(fallback, legacy.openaiApiKey),
-  });
-  await chrome.storage.local.set({ [LOCAL_PROVIDER_KEY]: migrated });
-  if (legacy.openaiApiKey) await writeBraveSecret(legacy.braveSearchApiKey);
-  return migrated;
+  const created = normalizeProviderRecord({ ...fallback, openaiApiKey: "" });
+  await chrome.storage.local.set({ [LOCAL_PROVIDER_KEY]: created });
+  return created;
 }
 
 async function readSecretsRaw() {
@@ -134,10 +114,10 @@ async function readSecretsRaw() {
   const provider = isRecord(records[LOCAL_PROVIDER_KEY])
     ? normalizeProviderRecord(records[LOCAL_PROVIDER_KEY])
     : null;
-  const legacy = normalizeLegacySecrets(records[LOCAL_SECRETS_KEY]);
+  const secrets = normalizeSecrets(records[LOCAL_SECRETS_KEY]);
   return {
-    openaiApiKey: provider ? provider.openaiApiKey : legacy.openaiApiKey,
-    braveSearchApiKey: legacy.braveSearchApiKey,
+    openaiApiKey: provider?.openaiApiKey || "",
+    braveSearchApiKey: secrets.braveSearchApiKey,
   };
 }
 
@@ -161,10 +141,9 @@ function providerPatch(value = {}) {
   return patch;
 }
 
-function normalizeLegacySecrets(value = {}) {
+function normalizeSecrets(value = {}) {
   return {
-    openaiApiKey: cleanSecret(value?.openaiApiKey),
-    braveSearchApiKey: cleanSecret(value?.braveSearchApiKey || value?.imageSearchApiKey),
+    braveSearchApiKey: cleanSecret(value?.braveSearchApiKey),
   };
 }
 
@@ -175,14 +154,6 @@ async function writeBraveSecret(braveSearchApiKey) {
   } else {
     await chrome.storage.local.remove(LOCAL_SECRETS_KEY);
   }
-}
-
-function migrationGeneration(fallback, legacyKey) {
-  const provider = normalizeProviderSettings(fallback);
-  const customized = provider.openaiBaseUrl !== DEFAULT_SETTINGS.openaiBaseUrl
-    || provider.openaiApiStyle !== DEFAULT_SETTINGS.openaiApiStyle
-    || provider.openaiSummaryModel !== DEFAULT_SETTINGS.openaiSummaryModel;
-  return legacyKey || customized ? 1 : 0;
 }
 
 function cleanSecret(value) {

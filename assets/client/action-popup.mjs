@@ -27,6 +27,10 @@ async function initialize() {
   setLocale(settings.uiLocale || getLocale(), { persist: false, translate: false });
   applyColorMode(settings.colorMode || settings.defaultColorMode);
   translateShell();
+  if (settings.onboardingCompleted !== true) {
+    await openDashboard();
+    return;
+  }
   await captureCurrentPage();
 }
 

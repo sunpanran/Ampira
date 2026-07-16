@@ -1,6 +1,9 @@
 import { formatDateTime } from "./time.mjs";
 import { faviconUrl, hostFromUrl, isReaderUrl } from "./urls.mjs";
-import { readerErrorBodyKey, readerErrorTitleKey, readerLocalFallback, safeReaderOrigin, sameOrigin } from "./reader-policy.mjs";
+import {
+  readerContentKind, readerErrorBodyKey, readerErrorTitleKey, readerLocalFallback,
+  safeReaderOrigin, sameOrigin, shouldUseInAppReader,
+} from "./reader-policy.mjs";
 import { requestOrigins } from "./permission-client.mjs";
 import { createLoadingPhaseController } from "./motion.mjs";
 
@@ -14,6 +17,7 @@ export function createReaderController(context) {
     t,
     apiGet,
     apiPost,
+    confirmManualAiUsage,
     markOpenedItem,
     renderEfficiencyPanel,
     syncNavToCurrentSection,
@@ -28,9 +32,9 @@ export function createReaderController(context) {
   let readerTranslation = null;
   let readerLoadingMotion = null;
 
-  function openExternal(url, title = "", item = null) {
+  function openExternal(url, title = "", item = null, options = {}) {
     markReadOnOpen(item);
-    if (shouldOpenInFloatingFrame(url)) {
+    if (shouldOpenInFloatingFrame(url, readerContentKind(item, options.contentKind))) {
       openFloatingWeb(url, title, item);
       return;
     }
@@ -49,8 +53,12 @@ export function createReaderController(context) {
     window.open(url, "_blank", "noopener,noreferrer");
   }
 
-  function shouldOpenInFloatingFrame(url) {
-    return isReaderUrl(url) && state.settings?.floatingWebOpenEnabled === true;
+  function shouldOpenInFloatingFrame(url, contentKind) {
+    return shouldUseInAppReader({
+      enabled: state.settings?.floatingWebOpenEnabled,
+      readerUrl: isReaderUrl(url),
+      contentKind,
+    });
   }
 
   async function openFloatingWeb(url, title = "", item = null, options = {}) {
@@ -500,6 +508,7 @@ export function createReaderController(context) {
     }
     const original = state.webFrameResult;
     if (!original) return;
+    if (!await confirmManualAiUsage()) return;
     const button = els.webFrame.querySelector(".reader-translate");
     if (!button) return;
     button.disabled = true;

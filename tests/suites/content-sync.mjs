@@ -24,6 +24,19 @@ await device({
 }).service.initialize();
 assert(!Object.keys(await disabledStorage.get(null)).some((key) => key.startsWith("ampira.content.")), "default-off content sync must not upload local content");
 
+const resetStorage = memoryStorage();
+const resetDevice = device({
+  syncStorage: resetStorage,
+  now: 600,
+  state: { "dash.readingQueue": JSON.stringify([readingRecord("before-reset", "2026-07-14T07:00:00.000Z")]) },
+});
+await resetDevice.service.initialize();
+const resetRemoteSnapshot = await resetStorage.get(null);
+await resetDevice.service.reset();
+resetDevice.state["dash.readingQueue"] = JSON.stringify([readingRecord("after-reset", "2026-07-14T08:00:00.000Z")]);
+await resetDevice.service.handleLocalPatch({ "dash.readingQueue": resetDevice.state["dash.readingQueue"] });
+assert.deepEqual(await resetStorage.get(null), resetRemoteSnapshot, "factory-reset quiescing must prevent stale local writes from repopulating Chrome Sync");
+
 const crowdedSyncStorage = memoryStorage();
 await crowdedSyncStorage.set(Object.fromEntries(Array.from({ length: 12 }, (_, index) => [
   `ampira.settings.v1.chunk.fixture.${index}`,

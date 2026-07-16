@@ -22,8 +22,7 @@ export function createDailyView(options) {
     dailyNewsCount, dailyNewsBatchLimit, dailyInspirationCount,
     dailyInspirationBatchLimit, updateInspirationPreloadTimeoutMs,
     dailyBoardCardSelector, newsCardType,
-    inspirationCardType, bookmarkCardType, legacyNewsSection,
-    legacyInspirationSection,
+    inspirationCardType, bookmarkCardType,
     createNewsRanker, createSeenButton, displayBookmarkTitle, localizedCategory,
     mergeRankedUnique, selectTodayNewsItems, selectUnseenPool, openExternal, persistSeen, renderAll,
     renderTodayMeta, setIconLabel, localizedStatusMessage, cardTransition,
@@ -407,11 +406,11 @@ function inspirationSectionName() {
 }
 
 function isNewsCard(item) {
-  return item?.cardType === newsCardType || (!item?.cardType && item?.section === legacyNewsSection);
+  return item?.cardType === newsCardType;
 }
 
 function isInspirationCard(item) {
-  return item?.cardType === inspirationCardType || (!item?.cardType && item?.section === legacyInspirationSection);
+  return item?.cardType === inspirationCardType;
 }
 
 function isBookmarkCard(item) {

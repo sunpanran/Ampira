@@ -8,11 +8,11 @@ export function shouldShowQueueReadAll(items) {
 
 export function createEfficiencyView(options) {
   const {
-    state, els, t, tc, apiPost, createEmptyState, createIcon, createThemedIcon,
+    state, els, t, tc, apiPost, confirmManualAiUsage, createEmptyState, createIcon, createThemedIcon,
     localizedStatusMessage, localizedResponseMessage, localizedErrorMessage,
     displaySummaryTitle, itemUrl, formatDateTime, readingQueueItems,
     openAndMarkReadingQueue, openDailyItem, renderStatus,
-    allTranslations, createBookmarkFavicon, displayBookmarkTitle,
+    createBookmarkFavicon, displayBookmarkTitle,
     findNewsItemByReference, hostFromUrl, isNewsCard, openExternal,
     readingQueueOpenOnReadAll, renderDaily, renderOverviewStatus, renderSummaries, selectDailyEvents,
     openAiSettings, getLocale, writeJson, writeValue, requestWeatherPermissions, attachLinkContextMenu,
@@ -82,15 +82,7 @@ function hasGeneratedDailyDigestOverview(digest, lines) {
   const items = Array.isArray(digest?.items) ? digest.items.filter(Boolean) : [];
   if (items.length) return true;
   if (!lines.length) return false;
-  return lines.some((line) => !isFallbackDailyDigestOverview(line));
-}
-
-function isFallbackDailyDigestOverview(line) {
-  const text = String(line || "").trim();
-  return [
-    ...allTranslations("digest.legacyFallbackPrefix"),
-    ...allTranslations("digest.legacyNoAiPrefix"),
-  ].some((prefix) => text.startsWith(prefix));
+  return lines.length > 0;
 }
 
 function createDailyDigestPanelCard() {
@@ -193,7 +185,7 @@ function openDigestItem(digestItem) {
     openDailyItem(item);
     return;
   }
-  if (digestItem?.url) openExternal(digestItem.url, digestItem.title || "");
+  if (digestItem?.url) openExternal(digestItem.url, digestItem.title || "", null, { contentKind: "news" });
 }
 
 function renderEfficiencyPanel() {
@@ -409,6 +401,7 @@ async function refreshDailyDigest(event) {
   event?.preventDefault();
   event?.stopPropagation?.();
   if (state.dailyDigestRefreshing) return;
+  if (!await confirmManualAiUsage()) return;
   state.dailyDigestRefreshing = true;
   renderEfficiencyPanel();
   try {

@@ -147,7 +147,9 @@ const appearanceControllerSource = await fs.readFile(new URL("../../assets/clien
 const themeBootstrapSource = await fs.readFile(new URL("../../assets/client/theme-bootstrap.mjs", import.meta.url), "utf8");
 assert(appearanceControllerSource.includes('DEFAULT_HEADER_IMAGE_ASSET = "/assets/images/default-header.webp"'), "normal rendering must resolve the default cover to the packaged asset");
 assert(themeBootstrapSource.includes('defaultHeaderImageAsset = "/assets/images/default-header.webp"'), "first-frame rendering must resolve the default cover to the packaged asset");
-assert(themeBootstrapSource.includes("url: defaultHeaderImageUrl"), "a new profile must use the packaged default cover on its first frame");
+assert(themeBootstrapSource.includes('url: ""'), "a new profile must keep the cover URL field empty on its first frame");
+assert(themeBootstrapSource.includes("return source || defaultHeaderImageAsset"), "an empty cover URL must resolve to the packaged default cover on the first frame");
+assert(appearanceControllerSource.includes("if (!url) return DEFAULT_HEADER_IMAGE_ASSET"), "normal rendering must resolve an empty URL to the packaged cover");
 
 console.log("header cover tests passed");
 

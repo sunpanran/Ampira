@@ -11,8 +11,8 @@ export function createSettingsStore(storage) {
     read,
     write,
     mutate,
+    reset,
     sanitizeLocalOnlyFields,
-    sanitizeLegacyCredentials,
   };
 
   async function read() {
@@ -45,8 +45,8 @@ export function createSettingsStore(storage) {
     return enqueue(() => action(transaction));
   }
 
-  function sanitizeLegacyCredentials() {
-    return sanitizeLocalOnlyFields();
+  function reset() {
+    return enqueue(() => storage.clear());
   }
 
   function sanitizeLocalOnlyFields() {

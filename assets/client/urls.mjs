@@ -6,12 +6,21 @@ export function setNativeFaviconEnabled(value) {
   nativeFaviconEnabled = value === true;
 }
 
+export function isMicrosoftEdge({ userAgent = globalThis.navigator?.userAgent } = {}) {
+  return /\bEdg(?:A|iOS)?\//.test(String(userAgent || ""));
+}
+
+export function supportsNativeFavicon(options) {
+  return !isMicrosoftEdge(options);
+}
+
 export function faviconUrl(item, {
   runtime = globalThis.chrome?.runtime,
   nativeEnabled = nativeFaviconEnabled,
+  nativeSupported = supportsNativeFavicon(),
 } = {}) {
   const pageUrl = httpUrl(item?.url);
-  if (nativeEnabled && pageUrl && runtime?.id && typeof runtime.getURL === "function") {
+  if (nativeSupported && nativeEnabled && pageUrl && runtime?.id && typeof runtime.getURL === "function") {
     try {
       const url = new URL(runtime.getURL("/_favicon/"));
       if (url.protocol === "chrome-extension:") {

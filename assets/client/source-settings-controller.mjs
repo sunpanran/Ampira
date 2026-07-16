@@ -5,7 +5,7 @@ export function createSourceSettingsController(options) {
     state, els, t, tc, apiPost, setIconLabel, createEmptyState, renderSettingsStatus,
     runSettingsAction, localizedResponseMessage, localizedErrorMessage, localizedSourceLabel,
     localizedSourceReason, localizedExclusionReason, formatDateTime, normalizeUrl,
-    allTranslations, newsCardType, newsSectionName, legacyNewsSection, legacyInspirationSection,
+    allTranslations, newsCardType, newsSectionName, confirmAction,
   } = options;
   const { renderSourceCoverage } = createSourceCoverageController({
     state, els, t, tc, apiPost, setIconLabel, createEmptyState, renderSettingsStatus,
@@ -167,13 +167,20 @@ function removeNewsExclusion(id) {
   renderSettingsStatus(t("exclusion.restored"));
 }
 
-function clearSourceSuggestions() {
+async function clearSourceSuggestions() {
   const checked = Number(sourceQualitySummary().checked || 0);
   if (!checked) {
     renderSettingsStatus(t("exclusion.suggestionsEmpty"));
     return Promise.resolve();
   }
-  if (!window.confirm(t("exclusion.clearSuggestionsConfirm", { count: checked }))) return Promise.resolve();
+  if (!await confirmAction({
+    kicker: t("confirmation.clearSuggestions.kicker"),
+    title: t("confirmation.clearSuggestions.title"),
+    body: t("confirmation.clearSuggestions.body", { count: checked }),
+    cancelLabel: t("confirmation.clearSuggestions.cancel"),
+    confirmLabel: t("confirmation.clearSuggestions.confirm"),
+    tone: "danger",
+  })) return;
   return runSettingsAction(async (isCurrent) => {
     try {
       const result = await apiPost("/api/source-quality/reset");
@@ -189,10 +196,17 @@ function clearSourceSuggestions() {
   });
 }
 
-function blockAllSourceSuggestions() {
+async function blockAllSourceSuggestions() {
   const suggestions = actionableSourceSuggestions();
   if (!suggestions.length) return;
-  if (!window.confirm(t("exclusion.blockAllConfirm", { count: suggestions.length }))) return;
+  if (!await confirmAction({
+    kicker: t("confirmation.blockAll.kicker"),
+    title: t("confirmation.blockAll.title"),
+    body: t("confirmation.blockAll.body", { count: suggestions.length }),
+    cancelLabel: t("confirmation.blockAll.cancel"),
+    confirmLabel: t("confirmation.blockAll.confirm"),
+    tone: "danger",
+  })) return;
   const addedAt = new Date().toISOString();
   const timestamp = Date.now();
   const next = [...currentExcludedNewsSources()];
@@ -389,8 +403,7 @@ function isFolderExclusion(item) {
   if (item?.type === "folder") return true;
   const id = String(item?.id || "");
   const reason = String(item?.reason || "");
-  const isLegacyFolderReason = allTranslations("exclusion.reason.manualFolder").some((value) => reason.includes(value));
-  return (id.startsWith("folder-") || item?.reasonKey === "exclusion.reason.manualFolder" || isLegacyFolderReason)
+  return (id.startsWith("folder-") || item?.reasonKey === "exclusion.reason.manualFolder")
     && Boolean(folderExclusionValue(item));
 }
 
@@ -423,8 +436,6 @@ function normalizeFolderValue(value) {
   if (!parts.length) return "";
   const knownSections = new Set([
     ...(state.data?.sections || []).map((section) => section.name),
-    legacyNewsSection,
-    legacyInspirationSection,
   ]);
   if (!knownSections.has(parts[0])) parts.unshift(newsSectionName());
   return parts.join("/");

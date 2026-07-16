@@ -409,7 +409,7 @@
     --nav-icon-track-width: 46px;
     --nav-label-slot-width: 32px;
     --nav-label-slot-min: 32px;
-    --dashboard-cover-flow-x: -56px;
+    --dashboard-cover-flow-x: 0px;
   }
 
   .app {
@@ -476,7 +476,7 @@
   }
 
   .main {
-    width: min(var(--content-max), calc(100vw - var(--sidebar-w) - 48px));
+    width: min(var(--content-max), calc(100vw - var(--sidebar-w) - var(--sidebar-w) - 48px));
     margin: 0 auto;
   }
 

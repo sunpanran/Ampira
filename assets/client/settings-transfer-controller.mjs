@@ -1,12 +1,12 @@
 export function createSettingsTransferController(options) {
   const {
-    els, state, t, apiGet, apiPost, localizedErrorMessage,
+    els, state, t, apiGet, apiPost, confirmAction, localizedErrorMessage,
     runSettingsAction, renderSettingsStatus, loadSettings, captureSettingsSnapshot, resetSecretDrafts,
     applyUiLocale, getLocale, inspirationPreviews, loadDashboard, triggerRefresh,
-    parseSettingsTransferText, settingsTransferFilename, maxSettingsTransferBytes,
+    parseSettingsTransferText, settingsTransferFilename, maxSettingsTransferBytes, resetExtensionPage,
   } = options;
 
-  return { exportSettings, importSettingsFile };
+  return { exportSettings, importSettingsFile, factoryReset };
 
   function exportSettings() {
     return runSettingsAction(async (isCurrent) => {
@@ -41,10 +41,16 @@ export function createSettingsTransferController(options) {
       return;
     }
 
-    const confirmKey = transfer.providerOriginChanged
-      ? "settings.transfer.confirmProviderChanged"
-      : "settings.transfer.confirm";
-    if (!window.confirm(t(confirmKey, { fileName: file.name, count: transfer.fieldCount }))) return;
+    const bodyKey = transfer.providerOriginChanged
+      ? "confirmation.import.bodyProviderChanged"
+      : "confirmation.import.body";
+    if (!await confirmAction({
+      kicker: t("confirmation.import.kicker"),
+      title: t("confirmation.import.title"),
+      body: t(bodyKey, { fileName: file.name, count: transfer.fieldCount }),
+      cancelLabel: t("confirmation.import.cancel"),
+      confirmLabel: t("confirmation.import.confirm"),
+    })) return;
 
     return runSettingsAction(async (isCurrent) => {
       renderSettingsStatus(t("settings.transfer.importing"));
@@ -67,6 +73,35 @@ export function createSettingsTransferController(options) {
         if ((bookmarkSourceChanged || rankingChanged) && !automaticAiStarted && !sourceRefreshScheduled) await triggerRefresh(true);
       } catch (error) {
         if (isCurrent()) renderSettingsStatus(t("settings.transfer.importFailed", { message: localizedErrorMessage(error) }));
+      }
+    });
+  }
+
+  async function factoryReset() {
+    if (els.factoryResetSettings.disabled) return;
+    if (!await confirmAction({
+      kicker: t("confirmation.factoryReset.kicker"),
+      title: t("confirmation.factoryReset.title"),
+      body: t("confirmation.factoryReset.body"),
+      cancelLabel: t("confirmation.factoryReset.cancel"),
+      confirmLabel: t("confirmation.factoryReset.confirm"),
+      tone: "danger",
+    })) return;
+
+    return runSettingsAction(async (isCurrent) => {
+      renderSettingsStatus(t("settings.transfer.resetting"));
+      try {
+        const result = await apiPost("/api/settings/factory-reset");
+        if (!isCurrent()) return;
+        if (result?.ok !== true) throw new Error(t("background.error.factoryResetIncomplete", { count: 1 }));
+        renderSettingsStatus(t("settings.transfer.resetComplete"));
+        resetExtensionPage();
+      } catch (error) {
+        if (!isCurrent()) return;
+        await Promise.allSettled([loadSettings(), loadDashboard()]);
+        if (isCurrent()) {
+          renderSettingsStatus(t("settings.transfer.resetFailed", { message: localizedErrorMessage(error) }));
+        }
       }
     });
   }

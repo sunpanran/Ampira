@@ -6,6 +6,7 @@ import { refreshAvailability } from "../../assets/client/status-view.mjs";
 export async function runDashboardControllerTests() {
   testHiddenDocumentDisablesDeferredCardTransitions();
   testRefreshAvailability();
+  await testRefreshRequestShowsImmediateFeedback();
   await testUnavailableAutomaticRefreshIsSkipped();
   await testRefreshStatusRendersDaily();
   const pending = [];
@@ -44,6 +45,7 @@ export async function runDashboardControllerTests() {
     retainSeenArchiveEnabled: () => false,
     readSeenRecords: () => [],
     replaceSeenRecords: noop,
+    refreshFeedbackMinMs: 0,
   });
 
   const first = controller.loadDashboard({ render: false });
@@ -53,6 +55,66 @@ export async function runDashboardControllerTests() {
   pending[0]({ marker: "stale" });
   await first;
   assert.equal(state.data.marker, "newer", "a stale dashboard response must not replace a newer generation");
+}
+
+async function testRefreshRequestShowsImmediateFeedback() {
+  const noop = () => {};
+  const refresh = feedbackButton();
+  const settingsRefresh = feedbackButton();
+  let resolveRefresh;
+  const controller = createDashboardController({
+    state: { data: {}, variants: {}, seen: new Set(), pollTimer: null },
+    els: { refresh, settingsRefresh, dailyBoard: { removeAttribute: noop }, summaryGrid: { removeAttribute: noop } },
+    t: (key) => key,
+    apiGet: async () => ({}),
+    apiPost: () => new Promise((resolve) => { resolveRefresh = resolve; }),
+    preloadDailyInspiration: noop,
+    inspirationPreloadTimeoutMs: 0,
+    renderConnectionError: noop,
+    renderStatus: noop,
+    renderOverviewStatus: noop,
+    localizedErrorMessage: String,
+    renderExclusionList: noop,
+    renderExcludeFolderOptions: noop,
+    renderTodayMetaValue: noop,
+    renderWebsiteShortcuts: noop,
+    renderEfficiencyPanel: noop,
+    renderDaily: noop,
+    renderSummaries: noop,
+    renderSectionFilters: noop,
+    renderCategoryFilters: noop,
+    renderCategories: noop,
+    formatTodayMeta: () => ({}),
+    getTodayKey: () => "2026-07-16",
+    readNumber: (_key, fallback) => fallback,
+    writeJson: noop,
+    retainSeenArchiveEnabled: () => false,
+    readSeenRecords: () => [],
+    replaceSeenRecords: noop,
+    refreshFeedbackMinMs: 0,
+  });
+
+  const request = controller.triggerRefresh(true);
+  assert(refresh.classes.has("is-loading"), "refresh feedback must begin before the runtime responds");
+  assert.equal(refresh.attributes.get("aria-busy"), "true");
+  assert(settingsRefresh.classes.has("is-loading"), "both refresh entry points must share feedback");
+  resolveRefresh({ started: false, status: { running: false } });
+  await request;
+  assert(!refresh.classes.has("is-loading"), "transient feedback must clear after the request settles");
+  assert(!refresh.attributes.has("aria-busy"));
+}
+
+function feedbackButton() {
+  const classes = new Set();
+  const attributes = new Map();
+  return {
+    disabled: false,
+    classes,
+    attributes,
+    classList: { toggle: (name, active) => active ? classes.add(name) : classes.delete(name) },
+    setAttribute: (name, value) => attributes.set(name, value),
+    removeAttribute: (name) => attributes.delete(name),
+  };
 }
 
 function testRefreshAvailability() {
@@ -125,6 +187,7 @@ async function testRefreshStatusRendersDaily() {
     retainSeenArchiveEnabled: () => false,
     readSeenRecords: () => [],
     replaceSeenRecords: noop,
+    refreshFeedbackMinMs: 0,
   });
 
   await controller.triggerRefresh(false);
@@ -175,6 +238,7 @@ async function testUnavailableAutomaticRefreshIsSkipped() {
     readSeenRecords: () => [],
     replaceSeenRecords: noop,
     canRefresh: () => false,
+    refreshFeedbackMinMs: 0,
   });
 
   await controller.triggerRefresh(false);

@@ -307,9 +307,9 @@ function createArchiveCard(item) {
   card.setAttribute("role", "link");
   card.setAttribute("aria-label", t("card.openArchive", { title: titleText }));
   card.title = archiveSource(item) === "news" ? titleText : url;
-  card.addEventListener("click", () => openExternal(url, titleText));
+  card.addEventListener("click", () => openExternal(url, titleText, item, { contentKind: archiveSource(item) }));
   card.addEventListener("keydown", (event) => {
-    activateCardFromKeyboard(event, () => openExternal(url, titleText));
+    activateCardFromKeyboard(event, () => openExternal(url, titleText, item, { contentKind: archiveSource(item) }));
   });
   contextAttachLink(card, () => ({ url, title: titleText }));
   const main = document.createElement("div");

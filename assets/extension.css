@@ -261,7 +261,7 @@
   width: 100%;
   min-height: 54px;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
   gap: 10px;
   padding: 9px 10px;
@@ -320,16 +320,6 @@
 .ai-provider-option-copy small {
   color: var(--muted);
   font-size: 11px;
-}
-
-.ai-provider-option-check {
-  color: var(--accent);
-  font-size: 13px;
-  opacity: 0;
-}
-
-.ai-provider-option[aria-pressed="true"] .ai-provider-option-check {
-  opacity: 1;
 }
 
 .ai-provider-more-toggle {
@@ -579,7 +569,7 @@
 
 .onboarding-progress {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 8px;
 }
 
@@ -655,6 +645,7 @@
   line-height: 1;
   letter-spacing: -.035em;
   text-wrap: balance;
+  word-break: auto-phrase;
 }
 
 .onboarding-step p {
@@ -688,6 +679,35 @@
   background: var(--surface-1);
   color: var(--text);
   font-size: 13px;
+}
+
+.onboarding-ai-feature-list > span {
+  align-items: flex-start;
+  min-height: 56px;
+}
+
+.onboarding-ai-feature-list .inline-icon {
+  flex: 0 0 auto;
+  margin-top: 2px;
+}
+
+.onboarding-feature-copy {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.onboarding-feature-copy strong {
+  color: var(--text-strong);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.onboarding-feature-copy small {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .onboarding-actions {

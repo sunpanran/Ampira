@@ -7,7 +7,6 @@
   const settingsStorageKey = "ampira.settings.v1";
   const headerCoverBlurMax = 24;
   const headerCoverBlurBleedMultiplier = 1.5;
-  const defaultHeaderImageUrl = "https://images.unsplash.com/photo-1782827286498-241b8af47185?q=80&w=2487&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D";
   const defaultHeaderImageAsset = "/assets/images/default-header.webp";
   const allowedModes = new Set(["system", "dark", "light"]);
   let colorMode = "dark";
@@ -41,7 +40,7 @@
     const cachedCover = localStorage.getItem(coverStorageKey);
     const cover = cachedCover
       ? JSON.parse(cachedCover)
-      : { enabled: true, fixed: false, fullscreen: false, blurEnabled: false, blurAmount: 12, heightScale: 100, url: defaultHeaderImageUrl };
+      : { enabled: true, fixed: false, fullscreen: false, blurEnabled: false, blurAmount: 12, heightScale: 100, url: "" };
     applyHeaderCoverBlur(cover?.enabled === true && cover?.blurEnabled === true ? cover.blurAmount : 0);
     applyHeaderCoverHeight(cover?.heightScale);
     if (cover?.enabled === true) {
@@ -97,7 +96,7 @@
 
   function resolveHeaderImageSource(value) {
     const source = String(value || "");
-    return source === defaultHeaderImageUrl ? defaultHeaderImageAsset : source;
+    return source || defaultHeaderImageAsset;
   }
 
   function applyHeaderCoverBlur(value) {

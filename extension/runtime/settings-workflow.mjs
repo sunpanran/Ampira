@@ -11,20 +11,21 @@ export function createSettingsWorkflow(options) {
     pruneStalePreviewCaches, pruneBravePreviewCaches, aiConfigured, setAiAutoStatus,
     defaultAiAutoStatus, startRefresh, broadcast,
     createSettingsTransferDocument, parseSettingsTransferDocument, getAppVersion, now,
-    headerCoverStore,
+    headerCoverStore, browserSearchEnabled = async () => false,
   } = options;
 
   return { publicSettings, saveSettings, exportSettings, importSettings };
 
 async function publicSettings() {
   const settings = await getSettings();
-  const secrets = await secretStatus();
+  const [secrets, searchEnabled] = await Promise.all([secretStatus(), browserSearchEnabled()]);
   const model = settings.bookmarkConsentGranted ? await currentBookmarkModel(settings) : emptyBookmarkModel();
   const permission = await selectedOrigins(model, settings);
   const feedPermissions = await currentFeedPermissionState(settings, model);
   return {
     ...settings,
     newTabOverrideEnabled: true,
+    browserSearchEnabled: searchEnabled === true,
     hasOpenAIKey: secrets.hasOpenAIKey,
     keySource: "local-extension-storage",
     maskedKey: secrets.hasOpenAIKey ? "••••••••" : "",
@@ -106,7 +107,7 @@ async function performSaveSettings(body, transaction) {
     "syncReadingQueueEnabled", "syncTodosEnabled", "syncWeatherLocationEnabled",
     "uiLocale", "colorMode", "accentTheme", "customAccentColor", "pointerGlowEnabled", "headerImageEnabled",
     "headerImageFixed", "headerImageFullscreen", "headerImageBlurEnabled", "headerImageBlurAmount", "headerImageHeightScale", "headerImageUrl",
-    "websiteShortcutsEnabled", "websiteShortcuts",
+    "bookmarkSectionEnabled", "websiteShortcutsEnabled", "websiteShortcuts",
     "excludedNewsSources",
   ];
   for (const key of allowed) if (Object.hasOwn(body, key)) next[key] = body[key];

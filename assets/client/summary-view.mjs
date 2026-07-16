@@ -1,10 +1,11 @@
 import { normalizeComparableText, truncateText } from "./text.mjs";
 import { normalizeUrl } from "./urls.mjs";
 import { isHotNewsItem as matchesHotNews, isSummaryFillItem as matchesSummaryFill } from "./card-policy.mjs";
+import { summaryEmptyStateKind } from "./empty-state-policy.mjs";
 
 export function createSummaryView(options) {
   const {
-    state, els, t, tc, apiPost, isDisplayableFeedItem, itemUrl, displaySummaryTitle,
+    state, els, t, tc, apiPost, confirmManualAiUsage, isDisplayableFeedItem, itemUrl, displaySummaryTitle,
     summaryDetailLines, cleanSummaryLines, isCorrectlySummarized, localizedCategory,
     localizedSourceLabel, localizedResponseMessage, localizedErrorMessage,
     formatDateTime, faviconUrl, hostFromUrl, createIcon, createThemedIcon,
@@ -35,12 +36,13 @@ function renderSummaries() {
   const visible = page.items;
   els.summaryMeta.textContent = batchLabel(page);
   if (!visible.length) {
+    const emptyKind = summaryEmptyStateKind(state.query);
     renderSummaryGrid([createEmptyState({
-      title: t("summary.empty.title"),
-      body: t("summary.empty.body"),
-      variant: "panel",
-      actionLabel: t("action.cache"),
-      onAction: () => triggerRefresh(true),
+      title: t(emptyKind === "noMatches" ? "empty.noMatches.title" : "summary.empty.title"),
+      body: t(emptyKind === "noMatches" ? "empty.noMatches.body" : "summary.empty.body"),
+      variant: "plain",
+      actionLabel: emptyKind === "noMatches" ? "" : t("action.cache"),
+      onAction: emptyKind === "noMatches" ? undefined : () => triggerRefresh(true),
     })], token);
     return;
   }
@@ -285,7 +287,7 @@ function createSummaryCard(item) {
     : "";
   const cardActions = document.createElement("div");
   cardActions.className = "summary-card-actions";
-  cardActions.append(createReadingActions(item, { source: "news", compact: true, includeRead: false }));
+  cardActions.append(createReadingActions(item, { source: "news", compact: true }));
   if (cardSummaryEnabled() && !isCorrectlySummarized(item)) cardActions.append(createManualSummaryButton(item, isRefreshing));
   headMain.append(pill, meta);
   top.append(headMain, cardActions);
@@ -414,6 +416,7 @@ async function refreshSummaryItem(item, event) {
   event.preventDefault();
   event.stopPropagation();
   if (state.manualRefreshKeys.has(item.key)) return;
+  if (!await confirmManualAiUsage()) return;
 
   const articleUrl = itemUrl(item);
   let latestItem = item;
@@ -426,7 +429,7 @@ async function refreshSummaryItem(item, event) {
       url: articleUrl,
     });
     if (!result.ok) throw new Error(localizedResponseMessage(result, "error.requestFailed"));
-    await loadDashboard();
+    await loadDashboard({ render: false });
     latestItem = findNewsItemByReference({
       articleId: item.feedItem?.articleId || item.key,
       sourceKey: item.sourceKey,

@@ -6,7 +6,7 @@ const BOOLEAN_FIELDS = [
   "headerImageEnabled", "headerImageFixed", "headerImageFullscreen", "headerImageBlurEnabled", "cardSummaryEnabled",
   "floatingWebOpenEnabled", "readingQueueOpenOnReadAll", "readingQueueReadAllPrompted", "retainSeenArchive",
   "syncReadingQueueEnabled", "syncTodosEnabled", "syncWeatherLocationEnabled",
-  "personalizedRankingEnabled", "publicFeedSupplementEnabled", "webImageSearchEnabled", "websiteShortcutsEnabled",
+  "personalizedRankingEnabled", "publicFeedSupplementEnabled", "webImageSearchEnabled", "bookmarkSectionEnabled", "websiteShortcutsEnabled",
 ];
 const COLOR_MODES = new Set(["system", "dark", "light"]);
 const ACCENT_THEMES = new Set(["violet", "cyan", "emerald", "amber", "rose", "custom"]);
@@ -64,14 +64,14 @@ export function normalizeSettings(value = {}) {
   settings.newsSourceMode = enumValue(
     input.newsSourceMode,
     NEWS_SOURCE_MODES,
-    Object.hasOwn(input, "schemaVersion") ? "bookmarks" : DEFAULT_SETTINGS.newsSourceMode,
+    DEFAULT_SETTINGS.newsSourceMode,
   );
   if (settings.newsSourceMode === "public") settings.publicFeedSupplementEnabled = true;
   settings.inspirationBookmarkFolder = cleanString(input.inspirationBookmarkFolder, 200, DEFAULT_SETTINGS.inspirationBookmarkFolder);
   settings.inspirationSourceMode = enumValue(
     input.inspirationSourceMode,
     INSPIRATION_SOURCE_MODES,
-    Object.hasOwn(input, "schemaVersion") ? "bookmarks" : DEFAULT_SETTINGS.inspirationSourceMode,
+    DEFAULT_SETTINGS.inspirationSourceMode,
   );
   const primaryBookmarkFolders = [
     settings.newsSourceMode === "bookmarks" ? settings.newsBookmarkFolder : "",

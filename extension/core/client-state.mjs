@@ -11,6 +11,9 @@ export function createClientStateStore(adapters) {
       await writeQueue;
       return adapters.getRecord("client-state", {});
     },
+    reset() {
+      return enqueue(() => persist({}));
+    },
     save(payload = {}) {
       return enqueue(async () => {
         const patch = normalizePatch(payload.values);

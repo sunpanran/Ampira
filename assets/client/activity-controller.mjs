@@ -14,7 +14,7 @@ export function createActivityController(options) {
     state, itemUrl, openExternalWindow, openExternal, renderAll, renderEfficiencyPanel,
     newsSummaryItems, hostFromUrl, t, newsSectionName, newsCardType, findNewsItemReference,
     isNewsCard, displaySummaryTitle, displayTitle, displayBookmarkTitle, createThemedIcon,
-    summaryText, srOnly, writeJson, readJson, apiPost,
+    summaryText, srOnly, writeJson, readJson, apiPost, confirmAction,
   } = options;
   return {
     readingQueueItems, openAndMarkReadingQueue, findNewsItemByReference, isQueued,
@@ -41,7 +41,13 @@ async function openAndMarkReadingQueue(items) {
   let preferencePatch = null;
   try {
     if (state.settings?.readingQueueReadAllPrompted !== true) {
-      const shouldOpen = window.confirm(t("queue.readAllPrompt", { count: pendingItems.length }));
+      const shouldOpen = await confirmAction({
+        kicker: t("confirmation.readAll.kicker"),
+        title: t("confirmation.readAll.title"),
+        body: t("confirmation.readAll.body", { count: pendingItems.length }),
+        cancelLabel: t("confirmation.readAll.cancel"),
+        confirmLabel: t("confirmation.readAll.confirm"),
+      });
       state.settings = {
         ...(state.settings || {}),
         readingQueueOpenOnReadAll: shouldOpen,

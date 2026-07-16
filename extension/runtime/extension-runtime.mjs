@@ -21,7 +21,6 @@ import { clearRecords, deleteRecord, getRecord, listRecords, pruneCache, setReco
 import { extractPageMetadata, fetchReader, fetchReaderHtml, loadReaderWithCache, probeReaderUrl, readerTextFromBlocks } from "../core/reader.mjs";
 import {
   captureCredentialState,
-  clearLegacyCredentialData,
   readProviderProfile,
   readSecrets,
   restoreCredentialState,
@@ -87,6 +86,8 @@ import { createCacheMetadataPolicy } from "./cache-metadata-policy.mjs";
 import { createAiAccessPolicy } from "./ai-access-policy.mjs";
 import { createCacheAccessPolicy } from "./cache-access-policy.mjs";
 import { createActionReadingQueueService } from "./action-reading-queue-service.mjs";
+import { createBrowserSearchService } from "./browser-search-service.mjs";
+import { createFactoryResetService } from "./factory-reset-service.mjs";
 import {
   emptySourceQuality,
   hostOf,
@@ -107,8 +108,9 @@ const quotaManager = createQuotaManager(chrome.storage.local, localDateKey);
 const headerCoverStore = createHeaderCoverStore(chrome.storage.local);
 const settingsStore = createSettingsStore(chrome.storage.sync);
 const settingsService = createRuntimeSettingsService({ store: settingsStore, readProviderProfile, readDeviceConsent });
-const { getSettings, sanitizeLegacySyncedCredentials } = settingsService;
+const { getSettings, sanitizeLocalOnlyFields } = settingsService;
 const cardSummaryPolicy = createCardSummaryPolicy({ settingsLocale, originPattern, policyVersion: CARD_SUMMARY_POLICY_VERSION });
+const browserSearchService = createBrowserSearchService({ chrome, typedError });
 const presentableFeedItems = (items, settings, configuredForAi) => filterPresentableFeedItems(
   items,
   settingsLocale(settings),
@@ -135,6 +137,8 @@ let publicSettings;
 let saveSettings;
 let exportSettings;
 let importSettings;
+let factoryResetting = false;
+const activeRequests = new Set();
 const {
   getRefreshStatus,
   setRefreshStatus,
@@ -230,6 +234,19 @@ const refreshCoordinator = createRefreshCoordinator({
     return Number.isFinite(finishedAt) && Date.now() - finishedAt < 10 * 60 * 1000;
   },
 });
+const { factoryReset } = createFactoryResetService({
+  chrome,
+  cacheMutations,
+  refreshCoordinator,
+  permissionEpoch,
+  contentSyncService,
+  clientStateStore,
+  waitForActiveRequests: () => Promise.allSettled([...activeRequests]),
+  clearSyncStorage: settingsStore.reset,
+  clearRecords,
+  setResetting: (value) => { factoryResetting = value === true; },
+  broadcast,
+});
 const {
   searchLocations,
   getForecast,
@@ -307,6 +324,7 @@ const {
   createSettingsTransferDocument, parseSettingsTransferDocument,
   contentSyncService,
   headerCoverStore,
+  browserSearchEnabled: browserSearchService.enabled,
   getAppVersion: () => chrome.runtime.getManifest().version,
   now: () => new Date().toISOString(),
 }));
@@ -344,6 +362,7 @@ const routeMessage = createMessageRouter({
   "settings:save": (payload) => saveSettings(payload),
   "settings:export": () => exportSettings(),
   "settings:import": (payload) => importSettings(payload),
+  "settings:factory-reset": () => factoryReset(),
   "settings:test": (payload) => testOpenAISettings(payload),
   "settings:image-test": (payload) => testImageSearchSettings(payload),
   "refresh:start": (payload) => startRefresh(payload.force === true),
@@ -352,6 +371,7 @@ const routeMessage = createMessageRouter({
   "digest:refresh": () => refreshDailyDigest({ automatic: false }),
   "summary:refresh": (payload) => refreshSingleSummary(payload),
   "ai:search": (payload) => answerAiSearch(payload),
+  "browser:search": (payload, sender) => browserSearchService.search(payload, sender),
   "weather:search": (payload) => searchLocations(payload),
   "weather:get": (payload) => getForecast(payload),
   "reader:get": (payload) => readArticle(payload.url),
@@ -367,6 +387,7 @@ const routeMessage = createMessageRouter({
     return clientStateStore.read();
   },
   "client-state:set": async (payload) => {
+    if (factoryResetting) return { ok: true, resetInProgress: true };
     const result = await clientStateStore.save(payload);
     await contentSyncService.handleLocalPatch(payload.values || {});
     return result;
@@ -398,8 +419,11 @@ const routeMessage = createMessageRouter({
     if (started) return;
     started = true;
 
-chrome.runtime.onInstalled.addListener(() => {
+chrome.runtime.onInstalled.addListener((details = {}) => {
   ensureRuntime().catch(() => {});
+  if (details.reason === "install") {
+    chrome.tabs.create({ url: chrome.runtime.getURL("dashboard.html") }).catch(() => {});
+  }
 });
 
 chrome.runtime.onStartup.addListener(() => {
@@ -421,6 +445,7 @@ chrome.permissions.onAdded.addListener(handlePermissionsAdded);
 chrome.permissions.onRemoved.addListener(handlePermissionsRemoved);
 
 chrome.storage.onChanged?.addListener((changes, areaName) => {
+  if (factoryResetting) return;
   contentSyncService.handleStorageChanged(changes, areaName);
 });
 
@@ -447,19 +472,23 @@ ensureRuntime().catch(() => {});
   }
 
   function handleTabUpdated(tabId, changeInfo = {}) {
+    if (factoryResetting) return;
     if (changeInfo.status !== "loading") return;
     resetActionFeedback(tabId).catch(() => {});
   }
 
 function handleAlarm(alarm) {
+  if (factoryResetting) return;
   if (alarm?.name === REFRESH_ALARM) startRefresh(false).catch(() => {});
 }
 
 function handleBookmarksChanged() {
+  if (factoryResetting) return;
   scheduleBookmarkRefresh();
 }
 
 function handlePermissionsAdded(permissions) {
+  if (factoryResetting) return;
   nextPermissionEpoch();
   handleAddedOrigins(permissions?.origins || []).catch(() => {
     broadcast("settings.changed", { permissionsChanged: true });
@@ -467,6 +496,7 @@ function handlePermissionsAdded(permissions) {
 }
 
 function handlePermissionsRemoved(permissions) {
+  if (factoryResetting) return;
   const origins = permissions?.origins || [];
   const expectedPermissionEpoch = nextPermissionEpoch();
   const expectedEpoch = cacheMutations.invalidate();
@@ -483,8 +513,7 @@ async function ensureRuntime() {
   await chrome.alarms.create(REFRESH_ALARM, { periodInMinutes: REFRESH_PERIOD_MINUTES });
   await getSettings();
   await contentSyncService.initialize();
-  await sanitizeLegacySyncedCredentials();
-  await clearLegacyCredentialData();
+  await sanitizeLocalOnlyFields();
   const status = await getRefreshStatus();
   if (status.running) await setRefreshStatus({
     ...status,
@@ -497,8 +526,18 @@ async function ensureRuntime() {
   await reconcilePermissionCache().catch(() => {});
 }
 
-async function handleRequest(request) {
-  return routeMessage(request);
+async function handleRequest(request, sender) {
+  if (request?.type === "settings:factory-reset") return routeMessage(request, sender);
+  if (factoryResetting && request?.type !== "settings:factory-reset") {
+    throw typedError("FACTORY_RESET_IN_PROGRESS", "background.error.factoryResetInProgress", {}, true);
+  }
+  const operation = Promise.resolve().then(() => routeMessage(request, sender));
+  activeRequests.add(operation);
+  try {
+    return await operation;
+  } finally {
+    activeRequests.delete(operation);
+  }
 }
 
 function sourceFetchOptions(limit) {

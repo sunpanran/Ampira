@@ -25,14 +25,26 @@ export async function runArchitectureTests(root) {
   const elementsSource = await fs.readFile(path.join(root, "assets/client/elements.mjs"), "utf8");
   const dashboardAppSource = await fs.readFile(path.join(root, "assets/client/dashboard-app.mjs"), "utf8");
   const extensionRuntimeSource = await fs.readFile(path.join(root, "extension/runtime/extension-runtime.mjs"), "utf8");
+  const actionPopupSource = await fs.readFile(path.join(root, "assets/client/action-popup.mjs"), "utf8");
   const sourceSettingsSource = await fs.readFile(path.join(root, "assets/client/source-settings-controller.mjs"), "utf8");
+  const settingsControllerSource = await fs.readFile(path.join(root, "assets/client/settings-controller.mjs"), "utf8");
   const summaryViewSource = await fs.readFile(path.join(root, "assets/client/summary-view.mjs"), "utf8");
   const efficiencyViewSource = await fs.readFile(path.join(root, "assets/client/efficiency-view.mjs"), "utf8");
+  const aiSearchUiSource = await fs.readFile(path.join(root, "assets/client/ai-search-ui.mjs"), "utf8");
+  const readerUiSource = await fs.readFile(path.join(root, "assets/client/reader-ui.mjs"), "utf8");
+  const aiConnectionTestSource = await fs.readFile(path.join(root, "assets/client/ai-connection-test.mjs"), "utf8");
+  const manualAiUsageNoticeSource = await fs.readFile(path.join(root, "assets/client/manual-ai-usage-notice.mjs"), "utf8");
+  const confirmationDialogSource = await fs.readFile(path.join(root, "assets/client/confirmation-dialog.mjs"), "utf8");
+  const activityControllerSource = await fs.readFile(path.join(root, "assets/client/activity-controller.mjs"), "utf8");
+  const settingsTransferSource = await fs.readFile(path.join(root, "assets/client/settings-transfer-controller.mjs"), "utf8");
+  const dashboardHtml = await fs.readFile(path.join(root, "dashboard.html"), "utf8");
   const dailyViewSource = await fs.readFile(path.join(root, "assets/client/daily-view.mjs"), "utf8");
   const dailyCardViewSource = await fs.readFile(path.join(root, "assets/client/daily-card-view.mjs"), "utf8");
+  const bookmarksViewSource = await fs.readFile(path.join(root, "assets/client/bookmarks-view.mjs"), "utf8");
   const cardTransitionSource = await fs.readFile(path.join(root, "assets/client/card-transition.mjs"), "utf8");
   const motionSource = await fs.readFile(path.join(root, "assets/client/motion.mjs"), "utf8");
   const motionTokensSource = await fs.readFile(path.join(root, "assets/styles/tokens.css"), "utf8");
+  const dashboardSectionsCssSource = await fs.readFile(path.join(root, "assets/styles/dashboard-sections.css"), "utf8");
   const permissionClientSource = await fs.readFile(path.join(root, "assets/client/permission-client.mjs"), "utf8");
   const runtimeClientSource = await fs.readFile(path.join(root, "assets/client/runtime-client.mjs"), "utf8");
   for (const group of ["shell", "dashboard", "settings", "overlay"]) {
@@ -55,6 +67,12 @@ export async function runArchitectureTests(root) {
   assert(refreshProgressHandler.includes("renderStatus();") && refreshProgressHandler.includes("renderDaily();"), "refresh progress must update both controls and the visible daily news caching state");
   assert(dailyViewSource.includes('state.data?.status?.running === true') && dailyViewSource.includes('role", "progressbar"'), "an empty news column must expose live background cache progress");
   assert(cardTransitionSource.includes("function animateCardsOut") && cardTransitionSource.includes("function setCardItemIdentity"), "card transition behavior must remain centralized");
+  assert(summaryViewSource.includes('createReadingActions(item, { source: "news", compact: true })')
+    && !summaryViewSource.includes("includeRead: false"),
+  "summary news cards must expose the viewed-state action");
+  assert(dashboardSectionsCssSource.includes(".action-toggle.viewed-toggle.is-active,")
+    && bookmarksViewSource.includes('className: "viewed-toggle"'),
+  "viewed action toggles must use the accent color when active");
   for (const token of [
     "--motion-ease-standard: cubic-bezier(.2, 0, 0, 1)",
     "--motion-ease-enter: cubic-bezier(.16, 1, .3, 1)",
@@ -86,14 +104,19 @@ export async function runArchitectureTests(root) {
   }
   assert(runtimeClientSource.includes("sendRuntimeRequest") && permissionClientSource.includes("requestOrigins"), "browser runtime and permission access must remain behind client gateways");
   assert(extensionRuntimeSource.includes('"reading-queue:capture-current": (payload) => handleActionClicked(payload.tab || {})'), "the toolbar popup must reuse the atomic reading-queue capture service");
-  assert(!extensionRuntimeSource.includes('chrome.tabs.create({ url: chrome.runtime.getURL("dashboard.html") })'), "the toolbar action must not regress to opening a new dashboard tab");
+  assert(extensionRuntimeSource.includes('"browser:search": (payload, sender) => browserSearchService.search(payload, sender)')
+    && extensionRuntimeSource.includes("return routeMessage(request, sender)"), "browser search must stay runtime-scoped and target the requesting tab");
+  assert(extensionRuntimeSource.includes('details.reason === "install"')
+    && extensionRuntimeSource.includes('chrome.tabs.create({ url: chrome.runtime.getURL("dashboard.html") })'), "first installation must open Ampira for onboarding without reopening it after updates");
+  assert(actionPopupSource.includes("settings.onboardingCompleted !== true")
+    && actionPopupSource.indexOf("settings.onboardingCompleted !== true") < actionPopupSource.indexOf("await captureCurrentPage()"), "the toolbar popup must open onboarding before reading or capturing the active tab");
   assert(extensionRuntimeSource.includes("chrome.tabs.onUpdated.addListener(handleTabUpdated)"), "tab navigation must reset per-tab capture feedback");
   assert(!/let\s+(?:refreshService|permissionWorkflow|aiSearchService)\b/.test(extensionRuntimeSource), "runtime services must not rely on forward mutable service bindings");
   assert(extensionRuntimeSource.includes("refreshCoordinator.setRun(refreshService.runRefresh)"), "refresh coordination must bind its runner explicitly after service construction");
-  for (const leakedBinding of ["NEWS_CARD_TYPE", "LEGACY_NEWS_SECTION", "LEGACY_INSPIRATION_SECTION"]) {
+  for (const leakedBinding of ["NEWS_CARD_TYPE"]) {
     assert(!sourceSettingsSource.includes(leakedBinding), `source settings must receive ${leakedBinding} through explicit dependencies`);
   }
-  for (const dependency of ["allTranslations", "newsCardType", "newsSectionName", "legacyNewsSection", "legacyInspirationSection"]) {
+  for (const dependency of ["allTranslations", "newsCardType", "newsSectionName"]) {
     assert(sourceSettingsSource.slice(0, 600).includes(dependency), `source settings must declare the ${dependency} dependency`);
     assert(dashboardAppSource.includes(`${dependency}:`) || dashboardAppSource.includes(`  ${dependency},`), `dashboard composition must provide ${dependency}`);
   }
@@ -101,8 +124,52 @@ export async function runArchitectureTests(root) {
   assert(summaryViewSource.slice(0, 1800).includes("summaryDetailMaxLength"), "summary view must declare its detail-length dependency");
   assert(summaryViewSource.includes("node.title = fullDetailText"), "summary text hover must reveal the untruncated summary instead of inheriting the card title");
   assert(dashboardAppSource.includes("summaryDetailMaxLength: SUMMARY_DETAIL_MAX_LENGTH"), "dashboard composition must provide the summary detail length");
+  assert(dashboardHtml.includes('<dialog class="confirmation-dialog" id="confirmationDialog"')
+    && dashboardHtml.includes('id="confirmationCancel" type="button" autofocus')
+    && dashboardHtml.includes('id="confirmationConfirm" type="button"'), "all confirmations must use one accessible native dialog with a safe default action");
+  assert(confirmationDialogSource.includes("if (pendingPromise) return pendingPromise")
+    && confirmationDialogSource.includes('content.tone === "danger"')
+    && confirmationDialogSource.includes("focusTarget.focus({ preventScroll: true })"), "the shared confirmation must deduplicate opens, support destructive actions, and restore focus");
+  assert(manualAiUsageNoticeSource.includes('MANUAL_AI_USAGE_NOTICE_KEY = "dash.ai.manual-token-notice.v1"')
+    && manualAiUsageNoticeSource.includes("if (pendingPromise) return pendingPromise")
+    && manualAiUsageNoticeSource.includes("writeValue(MANUAL_AI_USAGE_NOTICE_KEY, MANUAL_AI_USAGE_ACKNOWLEDGED)"), "manual AI acknowledgement must be device-local, shared, and written only by the continue action");
+  for (const [name, source, key] of [
+    ["read all", activityControllerSource, "confirmation.readAll.title"],
+    ["unsaved settings", settingsControllerSource, "confirmation.unsaved.title"],
+    ["settings import", settingsTransferSource, "confirmation.import.title"],
+    ["clear source statistics", sourceSettingsSource, "confirmation.clearSuggestions.title"],
+    ["block suggested sources", sourceSettingsSource, "confirmation.blockAll.title"],
+  ]) assert(source.includes("await confirmAction({") && source.includes(key), `${name} must use the shared confirmation dialog`);
+  for (const file of clientFiles) {
+    const source = await fs.readFile(file, "utf8");
+    assert(!source.includes("window.confirm("), `${path.basename(file)} must not bypass the shared confirmation dialog`);
+  }
+  for (const [name, source, route] of [
+    ["single summary", summaryViewSource, 'apiPost("/api/summary/refresh"'],
+    ["daily brief", efficiencyViewSource, 'apiPost("/api/daily-summary/refresh"'],
+    ["AI search", aiSearchUiSource, 'apiPost("/api/ai/search"'],
+    ["Reader translation", readerUiSource, 'apiPost("/api/reader/translate"'],
+    ["AI connection test", aiConnectionTestSource, 'apiPost("/api/settings/test"'],
+  ]) {
+    const guardIndex = source.indexOf("await confirmManualAiUsage");
+    const requestIndex = source.indexOf(route);
+    assert(guardIndex >= 0 && requestIndex > guardIndex, `${name} must allow cancellation before entering its manual AI request`);
+  }
+  assert(aiSearchUiSource.includes("confirmManualAiUsage({ aiEnabled: state.data?.ai?.enabled === true })"), "Ampira local search must bypass the token notice when AI is unavailable");
+  assert(dashboardAppSource.includes("createConfirmationDialogController")
+    && dashboardAppSource.includes("createManualAiUsageNoticeController")
+    && (dashboardAppSource.match(/confirmManualAiUsage/g) || []).length >= 6, "dashboard composition must share one manual AI notice across all five entry points");
   assert(efficiencyViewSource.slice(0, 1200).includes("openAiSettings"), "efficiency view must declare its AI settings action dependency");
   assert(dashboardAppSource.includes("  openAiSettings,"), "dashboard composition must provide the AI settings action");
+  assert(appEntry.includes('launchUrl.searchParams.get("open") === "ai-settings"')
+    && appEntry.includes('history.replaceState(null, ""')
+    && appEntry.includes("await app.openAiSettings()"), "the onboarding AI handoff must open existing settings once and remove its launch parameter");
+  assert(/return\s*\{[\s\S]{0,160}handleFaviconPermissionChanged,[\s\S]{0,80}openAiSettings,/.test(dashboardAppSource), "the dashboard app interface must expose the existing AI settings action to its entry point");
+  assert(settingsControllerSource.includes("const providerChoice = !els.aiProviderEditor.hidden && !els.aiProviderCatalog.hidden")
+    && settingsControllerSource.includes("const target = providerChoice ||"), "AI settings handoff must focus the first provider choice before locked credential fields");
+  const settingsReleaseIndex = settingsControllerSource.indexOf('els.settingsModal.classList.remove("open", "closing");');
+  const settingsNavSyncIndex = settingsControllerSource.indexOf("syncNavToCurrentSection();", settingsReleaseIndex);
+  assert(settingsReleaseIndex >= 0 && settingsNavSyncIndex > settingsReleaseIndex && settingsNavSyncIndex - settingsReleaseIndex < 160, "closing settings must restore the active navigation item after the modal stops blocking scroll synchronization");
   const inspirationPreviewCapabilities = new Set(
     [...dailyViewSource.matchAll(/\binspirationPreviews\.([A-Za-z_$][\w$]*)/g), ...dailyCardViewSource.matchAll(/\binspirationPreviews\.([A-Za-z_$][\w$]*)/g)]
       .map((match) => match[1]),
@@ -137,10 +204,10 @@ export async function runArchitectureTests(root) {
     await fs.access(path.resolve(path.dirname(path.join(root, "assets/dashboard.css")), reference));
   }
 
-  const route = createMessageRouter({ ping: (payload) => payload.value }, (type) => {
+  const route = createMessageRouter({ ping: (payload, sender) => payload.value + sender.offset }, (type) => {
     throw Object.assign(new Error(`unknown: ${type}`), { code: "UNKNOWN_REQUEST" });
   });
-  assert.equal(route({ type: "ping", payload: { value: 7 } }), 7);
+  assert.equal(route({ type: "ping", payload: { value: 7 } }, { offset: 2 }), 9, "message routing must preserve sender context for tab-scoped browser capabilities");
   assert.throws(() => route({ type: "missing" }), (error) => error.code === "UNKNOWN_REQUEST");
 
   const settingsService = createRuntimeSettingsService({

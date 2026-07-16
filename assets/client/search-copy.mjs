@@ -1,8 +1,8 @@
-export function searchCopyKeys(aiEnabled) {
+export function searchCopyKeys(aiEnabled, browserSearchEnabled = false) {
   const mode = aiEnabled === true ? "ai" : "local";
   return {
-    placeholder: `search.${mode}.placeholder`,
-    action: `search.${mode}.action`,
+    placeholder: browserSearchEnabled ? "search.browser.placeholder" : `search.${mode}.placeholder`,
+    action: browserSearchEnabled ? "search.browser.action" : `search.${mode}.action`,
     dialogTitle: `aiSearch.${mode}.title`,
     dialogMeta: `aiSearch.${mode}.meta`,
     dialogInput: `aiSearch.${mode}.input`,
@@ -11,7 +11,10 @@ export function searchCopyKeys(aiEnabled) {
 }
 
 export function syncSearchCopy({ state, els, t, forceDialog = false }) {
-  const keys = searchCopyKeys(state.data?.ai?.enabled === true);
+  const keys = searchCopyKeys(
+    state.data?.ai?.enabled === true,
+    state.settings?.browserSearchEnabled === true,
+  );
   els.search.placeholder = t(keys.placeholder);
   els.topAiSearch.setAttribute("aria-label", t(keys.action));
   els.topAiSearch.title = t(keys.action);

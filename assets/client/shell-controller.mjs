@@ -1,3 +1,5 @@
+import { isBookmarkSectionVisible } from "./bookmark-visibility.mjs";
+
 export function createShellController(options) {
   const { state, els } = options;
   let viewportMetricWidth = 0;
@@ -5,6 +7,7 @@ export function createShellController(options) {
   return {
     syncViewportMetrics,
     syncNavExpandedWidth,
+    syncBookmarkSectionVisibility,
     handleGlobalSearchTyping,
     focusDashboardSearch,
     initializePointerHighlights,
@@ -23,9 +26,18 @@ function syncViewportMetrics() {
   document.documentElement.style.setProperty("--dashboard-viewport-half-w", `${width / 2}px`);
 }
 
+function syncBookmarkSectionVisibility(settings = {}) {
+  const visible = isBookmarkSectionVisible(settings);
+  const wasActive = els.bookmarkNav.classList.contains("active");
+  els.bookmarkNav.hidden = !visible;
+  els.librarySection.hidden = !visible;
+  syncNavExpandedWidth();
+  if (!visible && wasActive) syncNavToCurrentSection();
+}
+
 function syncNavExpandedWidth() {
   const sidebar = document.querySelector(".sidebar");
-  const buttons = [...document.querySelectorAll(".nav-btn")];
+  const buttons = [...document.querySelectorAll(".nav-btn")].filter((button) => !button.hidden);
   if (!sidebar || !buttons.length) return;
 
   if (window.matchMedia("(max-width: 1120px)").matches) {
@@ -199,7 +211,8 @@ function resetToDailyView() {
 }
 
 function getCurrentSectionButton() {
-  const buttons = [...document.querySelectorAll("[data-scroll]")];
+  const buttons = [...document.querySelectorAll("[data-scroll]")]
+    .filter((button) => !button.hidden && document.getElementById(button.dataset.scroll)?.hidden !== true);
   const activationY = Math.min(220, Math.max(120, window.innerHeight * 0.32));
   let currentButton = buttons[0] || null;
 

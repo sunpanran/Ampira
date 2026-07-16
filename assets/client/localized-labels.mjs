@@ -12,8 +12,7 @@ export function localizedErrorMessage(error) {
 
 export function localizedStatusMessage(value, fallbackKey) {
   if (value?.messageKey) return t(value.messageKey, value.messageParams || {});
-  const legacy = legacyStatusMessage(value?.message);
-  return legacy ? t(legacy.key, legacy.params) : (String(value?.message || "").trim() || t(fallbackKey));
+  return String(value?.message || "").trim() || t(fallbackKey);
 }
 
 export function localizedCategory(item = {}) {
@@ -67,18 +66,4 @@ export function themeLabel(value) {
     violet: t("settings.accent.violet"), cyan: t("settings.accent.cyan"), emerald: t("settings.accent.emerald"),
     amber: t("settings.accent.amber"), rose: t("settings.accent.rose"),
   }[value] || t("settings.accent.violet");
-}
-
-function legacyStatusMessage(message) {
-  const text = String(message || "");
-  if (!text) return null;
-  if (text === "等待首次刷新") return { key: "background.waitingFirstRefresh", params: {} };
-  if (text === "本地缓存已准备") return { key: "background.cacheReady", params: {} };
-  if (text === "没有已授权的资讯来源") return { key: "background.noAuthorizedSources", params: {} };
-  const reading = text.match(/^正在读取 (\d+) 个已授权来源$/);
-  if (reading) return { key: "background.readingSources", params: { count: reading[1] } };
-  const processed = text.match(/^已处理 (\d+)\/(\d+) 个来源$/);
-  if (processed) return { key: "background.processedSources", params: { completed: processed[1], total: processed[2] } };
-  const cached = text.match(/^已缓存 (\d+) 条资讯$/);
-  return cached ? { key: "background.cachedItems", params: { count: cached[1] } } : null;
 }

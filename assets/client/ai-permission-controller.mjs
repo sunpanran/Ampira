@@ -168,11 +168,7 @@ export function createAiPermissionController(options) {
       const hint = document.createElement("small");
       hint.textContent = t(provider.hintKey);
       copy.append(name, hint);
-      const check = document.createElement("span");
-      check.className = "ai-provider-option-check";
-      check.setAttribute("aria-hidden", "true");
-      check.textContent = "✓";
-      button.append(mark, copy, check);
+      button.append(mark, copy);
       item.append(button);
       fragment.append(item);
     }

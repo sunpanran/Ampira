@@ -1,13 +1,13 @@
 export function createAiConnectionTest(options) {
   const {
-    els, t, apiPost, localizedResponseMessage, localizedErrorMessage,
+    els, t, apiPost, confirmManualAiUsage, localizedResponseMessage, localizedErrorMessage,
     getAiSetupState, focusAiSetupRequirement, runSettingsAction,
     currentSettingsHaveUnsavedChanges, renderSettingsStatus,
   } = options;
 
   return { testKey, renderStatus };
 
-  function testKey() {
+  async function testKey() {
     if (!getAiSetupState().formUnlocked) {
       focusAiSetupRequirement();
       return;
@@ -17,6 +17,7 @@ export function createAiConnectionTest(options) {
       els.modelInput.focus({ preventScroll: true });
       return;
     }
+    if (!await confirmManualAiUsage()) return;
     return runSettingsAction(async (isCurrent) => {
       renderSettingsStatus(t("settings.test.testing"));
       renderStatus(t("settings.test.testing"), "testing");

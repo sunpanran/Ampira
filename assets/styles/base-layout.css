@@ -36,6 +36,17 @@
   background: transparent;
 }
 
+input[type="number"] {
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  margin: 0;
+  -webkit-appearance: none;
+}
+
 html {
   overflow-x: hidden;
   scroll-behavior: smooth;
@@ -318,9 +329,9 @@ button,
 }
 
 .main {
-  grid-column: 2;
+  grid-column: 1 / -1;
   min-width: 0;
-  width: min(var(--content-max), calc(100vw - var(--sidebar-w) - 48px));
+  width: min(var(--content-max), calc(100vw - var(--sidebar-w) - var(--sidebar-w) - 48px));
   margin: 0 auto;
   padding: 100px 24px 96px;
 }

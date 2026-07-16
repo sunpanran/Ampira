@@ -54,11 +54,22 @@ export function createContentSyncService(options) {
 
   return {
     initialize,
+    reset,
     applySettings,
     handleLocalPatch,
     handleStorageChanged,
     isContentSyncKey,
   };
+
+  async function reset() {
+    if (settingsRefreshTimer) clearTimeout(settingsRefreshTimer);
+    settingsRefreshTimer = 0;
+    if (initializePromise) await initializePromise.catch(() => {});
+    return enqueue(async () => {
+      activeFlags = emptyFlags();
+      initialized = true;
+    });
+  }
 
   async function initialize() {
     if (initialized) return;
