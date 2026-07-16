@@ -2089,7 +2089,9 @@ assert(/els\.headerImage\.addEventListener\("error", handleHeaderImageError\);\n
 assert(appSource.includes('if (els.headerImage.complete && els.headerImage.naturalWidth > 0)'), "a cached header cover must become visible without waiting for another load event");
 assert(!dashboardSource.includes('id="headerImageBlurEnabledInput"')
   && dashboardSource.includes('id="headerImageBlurAmountInput" type="range" min="0" max="24" step="1" value="0"')
-  && dashboardSource.includes('id="headerImageBlurField" aria-disabled="false" aria-hidden="false"')
+  && dashboardSource.includes('id="headerImageBlurField" aria-disabled="false"')
+  && !appearanceControllerSource.includes('headerImageBlurField.setAttribute("aria-hidden"')
+  && !appearanceControllerSource.includes('headerImageHeightField.setAttribute("aria-hidden"')
   && !dashboardSource.includes('data-i18n="settings.headerImage.heightHelp"')
   && !dashboardSource.includes('data-i18n="settings.headerImage.blurHelp"')
   && dashboardSource.includes('class="cover-blur-meter"')
@@ -2143,12 +2145,13 @@ assert(appSource.includes("createCoverBlurPreviewController")
   && settingsCssSource.includes("grid-template-columns: max-content minmax(0, 1fr) max-content;")
   && settingsCssSource.includes("pointer-events: auto;"), "cover blur and height adjustment must reveal the dashboard temporarily without losing pointer or keyboard control");
 assert(appearanceControllerSource.includes('headerImageBlurEnabled: syncBlurAmountLabel() > 0')
-  && appearanceControllerSource.includes('setAttribute("aria-hidden", String(!headerEnabled))')
-  && settingsCssSource.includes('.cover-blur-range[aria-hidden="false"]')
-  && settingsCssSource.includes("height var(--motion-move-duration) var(--motion-ease-move)")
+  && appearanceControllerSource.includes("els.headerImageBlurAmountInput.disabled = disabled;")
+  && appearanceControllerSource.includes("els.headerImageHeightInput.disabled = !enabled || busy;")
+  && !appearanceControllerSource.includes('setAttribute("aria-hidden"')
   && settingsCssSource.includes("height: 32px;")
   && settingsCssSource.includes('.cover-blur-range input[type="range"] {\n  width: 100%;\n  height: 18px;\n  display: block;')
-  && settingsCssSource.includes("visibility 0s step-end var(--motion-move-duration)"), "the blur slider must remain visible with the cover and collapse without leaving an interactive hidden control when the cover is off");
+  && settingsCssSource.includes('input[type="range"]:disabled::-webkit-slider-runnable-track')
+  && settingsCssSource.includes('input[type="range"]:disabled::-webkit-slider-thumb'), "cover adjustment sliders must remain visible after their labels and become gray, native-disabled controls when the cover is off");
 assert(themeBootstrapSource.includes("applyHeaderCoverBlur(cover?.enabled === true && cover?.blurEnabled === true")
   && dashboardSectionsCssSource.includes("filter: blur(var(--header-cover-blur, 0px))")
   && dashboardSectionsCssSource.includes("--header-cover-size-adjustment"), "cover blur must restore on the first frame and overscan the image to protect its edges");

@@ -24,9 +24,32 @@ button {
 
 .action-popup {
   --popup-warning: #F4C95D;
+  --popup-surface: var(--surface-1);
+  --popup-result-surface: color-mix(in srgb, var(--surface-row) 62%, var(--surface-1));
+  --popup-action-surface: var(--surface-2);
+  --popup-action-hover-surface: var(--surface-hover);
   min-height: 196px;
   border: 1px solid var(--line-soft);
-  background: var(--surface-1);
+  background: var(--popup-surface);
+}
+
+:root[data-color-mode="light"] .action-popup {
+  --popup-warning: #9A6700;
+  --popup-surface: #F8F9FB;
+  --popup-result-surface: #EEF1F5;
+  --popup-action-surface: #E9EDF2;
+  --popup-action-hover-surface: #E1E6EC;
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-color-mode]) .action-popup,
+  :root[data-color-mode="system"] .action-popup {
+    --popup-warning: #9A6700;
+    --popup-surface: #F8F9FB;
+    --popup-result-surface: #EEF1F5;
+    --popup-action-surface: #E9EDF2;
+    --popup-action-hover-surface: #E1E6EC;
+  }
 }
 
 .popup-header,
@@ -87,7 +110,7 @@ button {
   gap: 12px;
   border-bottom: 1px solid var(--line-soft);
   box-shadow: inset 2px 0 0 var(--accent);
-  background: color-mix(in srgb, var(--surface-row) 62%, var(--surface-1));
+  background: var(--popup-result-surface);
   transition: box-shadow var(--motion-state-duration) var(--motion-ease-standard), background var(--motion-state-duration) var(--motion-ease-standard);
 }
 
@@ -202,7 +225,7 @@ button {
   border: 1px solid var(--line);
   border-radius: var(--radius-button);
   color: var(--text);
-  background: var(--surface-2);
+  background: var(--popup-action-surface);
   cursor: pointer;
   font-size: 11px;
   font-weight: 650;
@@ -211,7 +234,7 @@ button {
 
 .popup-footer button:hover {
   border-color: color-mix(in srgb, var(--accent) 50%, var(--line));
-  background: var(--surface-hover);
+  background: var(--popup-action-hover-surface);
 }
 
 .popup-footer button:focus-visible {

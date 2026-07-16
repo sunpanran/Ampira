@@ -53,7 +53,6 @@ export function createAppearanceController(options) {
     const disabled = !headerEnabled || busy;
     els.headerImageBlurAmountInput.disabled = disabled;
     els.headerImageBlurField.setAttribute("aria-disabled", String(disabled));
-    els.headerImageBlurField.setAttribute("aria-hidden", String(!headerEnabled));
     syncBlurAmountLabel();
   }
 
@@ -65,7 +64,6 @@ export function createAppearanceController(options) {
     els.headerImageHeightInput.min = String(min);
     els.headerImageHeightInput.disabled = !enabled || busy;
     els.headerImageHeightField.setAttribute("aria-disabled", String(!enabled || busy));
-    els.headerImageHeightField.setAttribute("aria-hidden", String(!enabled));
     syncHeightLabel();
   }
 
