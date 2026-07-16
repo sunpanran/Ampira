@@ -436,13 +436,6 @@
   white-space: nowrap;
 }
 
-.settings-meter > div:first-child {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-}
-
 .settings-status {
   display: flex;
   align-items: center;
@@ -601,22 +594,32 @@
 }
 
 .settings-section-head h4,
-.settings-section-head p {
+.settings-section-head p,
+.ai-service-group-head h4,
+.ai-service-group-head p {
   margin: 0;
 }
 
-.settings-section-head h4 {
+.settings-section-head h4,
+.ai-service-group-head h4 {
   color: var(--text-strong);
   font-size: 14px;
   font-weight: 850;
+}
+
+.settings-section-head h4 {
   letter-spacing: -.01em;
 }
 
-.settings-section-head p {
+.settings-section-head p,
+.ai-service-group-head p {
   max-width: 68ch;
   color: var(--muted-2);
   font-size: 11px;
   line-height: 1.55;
+}
+
+.settings-section-head p {
   text-wrap: pretty;
 }
 
@@ -624,11 +627,15 @@
   align-items: center;
 }
 
-.settings-row-list {
-  display: grid;
+.settings-row-list,
+.settings-compact-list:not(:empty) {
   overflow: hidden;
   border: 1px solid var(--line-faint);
   border-radius: var(--radius-row);
+}
+
+.settings-row-list {
+  display: grid;
   background: color-mix(in srgb, var(--surface-row) 38%, transparent);
 }
 
@@ -1102,22 +1109,8 @@
   gap: 3px;
 }
 
-.ai-service-group-head h4,
-.ai-service-group-head p {
-  margin: 0;
-}
-
-.ai-service-group-head h4 {
-  color: var(--text-strong);
-  font-size: 14px;
-  font-weight: 850;
-}
-
 .ai-service-group-head p {
   max-width: 72ch;
-  color: var(--muted-2);
-  font-size: 11px;
-  line-height: 1.55;
 }
 
 .ai-image-layout {
@@ -1164,9 +1157,6 @@
 
 .settings-compact-list:not(:empty) {
   gap: 0;
-  overflow: hidden;
-  border: 1px solid var(--line-faint);
-  border-radius: var(--radius-row);
 }
 
 .settings-compact-list:not(:empty) > * {
@@ -1240,10 +1230,17 @@
   outline-offset: 1px;
 }
 
-.source-health-row {
+.source-health-row,
+.website-shortcut-settings-row,
+.source-suggestion-row,
+.exclude-row {
+  min-width: 0;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
+}
+
+.source-health-row {
   gap: 10px;
   padding: 10px;
 }
@@ -1261,14 +1258,24 @@
   box-shadow: inset 2px 0 0 #57C785;
 }
 
-.source-health-main {
+.source-health-main,
+.website-shortcut-settings-main,
+.source-suggestion-main,
+.exclude-main {
   min-width: 0;
   display: grid;
   gap: 4px;
 }
 
 .source-health-main strong,
-.source-health-main span {
+.source-health-main span,
+.website-shortcut-settings-main strong,
+.website-shortcut-settings-main span,
+.source-suggestion-title,
+.source-suggestion-meta,
+.exclude-title,
+.exclude-meta,
+.exclude-reason {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1326,10 +1333,6 @@
 
 .website-shortcut-settings-row {
   position: relative;
-  min-width: 0;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
   gap: 12px;
   padding: 10px 12px;
 }
@@ -1378,19 +1381,6 @@
 
 .website-shortcut-settings-row.is-editing {
   background: var(--active-bg) !important;
-}
-
-.website-shortcut-settings-main {
-  min-width: 0;
-  display: grid;
-  gap: 4px;
-}
-
-.website-shortcut-settings-main strong,
-.website-shortcut-settings-main span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .website-shortcut-settings-main strong {
@@ -1701,38 +1691,22 @@ section.source-suggestion-panel {
 
 .source-suggestion-row,
 .exclude-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
   gap: 10px;
   padding: 10px;
 }
 
-.source-suggestion-main,
-.exclude-main {
-  min-width: 0;
-  display: grid;
-  gap: 4px;
-}
-
 .source-suggestion-title,
 .exclude-title {
-  overflow: hidden;
   color: var(--text);
   font-size: 13px;
   font-weight: 800;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .source-suggestion-meta,
 .exclude-meta,
 .exclude-reason {
-  overflow: hidden;
   color: var(--muted-2);
   font-size: 11px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .about-brand {

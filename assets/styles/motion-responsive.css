@@ -1122,10 +1122,6 @@
     padding-top: 100px;
   }
 
-  .main > section + section {
-    margin-top: 100px;
-  }
-
   .section-head h2 {
     font-size: 3.35rem;
   }
@@ -1222,10 +1218,6 @@
     flex: 0 0 36px;
   }
 
-  #library .controls .segmented {
-    width: auto;
-  }
-
   .summary-card {
     min-height: 226px;
   }
@@ -1263,10 +1255,6 @@
   .settings-overview .settings-overview-grid,
   .settings-meters {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .settings-overview .settings-overview-auto {
-    grid-column: 1 / -1;
   }
 
   .settings-overview-head {
