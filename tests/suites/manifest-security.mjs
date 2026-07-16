@@ -71,7 +71,8 @@ assert.equal(translate("en", "empty.hiddenCategories.title"), "All categories ar
 assert(translate("en", "settings.service.consent").includes("article URLs used for context"), "the prominent AI disclosure must include context article URLs");
 assert(translate("zh-CN", "settings.service.consent").includes("文章网址"), "the Chinese AI disclosure must include context article URLs");
 assert.equal(translate("en", "onboarding.step4.searchTitle"), "Content insights", "English onboarding must describe the content interpretation capability concisely");
-assert.equal(translate("zh-CN", "onboarding.step4.searchBody"), "深度解读文章正文，解答问题，梳理资讯之间的内在关联。", "Chinese onboarding must preserve the approved content interpretation copy");
+assert.equal(translate("zh-CN", "onboarding.step4.searchTitle"), "内容解读", "Chinese onboarding must retain the concise content interpretation label");
+assert.equal(translate("zh-CN", "onboarding.step1.body"), "把资讯和灵感整理进一个新标签页。", "onboarding must use the reviewed concise product introduction");
 assert.equal(translateCount("en", "unit.entries", 1), "1 entry");
 assert.equal(translateCount("en", "unit.entries", 2), "2 entries");
 assert.equal(formatListForLocale("en", ["News", "Design"]), "News and Design");
@@ -173,6 +174,14 @@ for (const locale of ["en", "zh_CN", "zh_TW"]) {
 }
 
 const dashboardSource = await fs.readFile(path.join(root, "dashboard.html"), "utf8");
+const settingsCssSource = await fs.readFile(path.join(root, "assets", "styles", "settings.css"), "utf8");
+const tokensCssSource = await fs.readFile(path.join(root, "assets", "styles", "tokens.css"), "utf8");
+const settingsResponsiveCssSource = await fs.readFile(path.join(root, "assets", "styles", "motion-responsive.css"), "utf8");
+const dashboardSectionsCssSource = await fs.readFile(path.join(root, "assets", "styles", "dashboard-sections.css"), "utf8");
+const statusViewSource = await fs.readFile(path.join(root, "assets", "client", "status-view.mjs"), "utf8");
+const contentSyncSettingsSource = await fs.readFile(path.join(root, "assets", "client", "content-sync-settings.mjs"), "utf8");
+const settingsControllerSource = await fs.readFile(path.join(root, "assets", "client", "settings-controller.mjs"), "utf8");
+const dashboardAppSource = await fs.readFile(path.join(root, "assets", "client", "dashboard-app.mjs"), "utf8");
 const dashboardI18nKeys = [...dashboardSource.matchAll(/(?:data-i18n(?:-[\w-]+)?|data-dynamic-i18n)="([^"]+)"/g)].map((match) => match[1]);
 for (const key of dashboardI18nKeys) assert(localeKeys.includes(key), `dashboard translation key must exist: ${key}`);
 const untranslatedDashboardLines = dashboardSource.split(/\r?\n/).filter((line) => (
@@ -187,6 +196,41 @@ const settingsTabNames = [...dashboardSource.matchAll(/data-settings-tab="([^"]+
 const settingsPanelNames = [...dashboardSource.matchAll(/data-settings-panel="([^"]+)"/g)].map((match) => match[1]).sort();
 assert.deepEqual(settingsTabNames, settingsPanelNames, "every settings tab must map to exactly one settings panel");
 assert.equal(settingsTabNames.length, 7, "settings must retain the seven existing sections");
+for (const key of ["service", "news", "bookmarks", "appearance", "browser", "exclusions", "about"]) {
+  assert(!dashboardSource.includes(`settings.tab.${key}Hint`) && !localeKeys.includes(`settings.tab.${key}Hint`), `settings tab hints must stay removed: ${key}`);
+}
+for (const id of [
+  "settingsRuntimeDetails", "sourceCoverageDetails", "cacheAdvancedDetails", "cacheMaintenanceDetails",
+  "bookmarkExtraDetails", "bookmarkHiddenDetails", "sourcePermissionDetails", "exclusionDetails",
+  "sourceSuggestionDetails", "settingsTransferDetails",
+]) assert(dashboardSource.includes(`id="${id}"`), `settings must preserve the compact disclosure: ${id}`);
+assert(tokensCssSource.includes("--settings-panel-bg:")
+  && tokensCssSource.includes("--settings-panel-backdrop: blur(28px)")
+  && tokensCssSource.includes("--settings-overlay-backdrop: blur(14px)")
+  && settingsCssSource.includes("#settingsModal .modal")
+  && settingsCssSource.includes("var(--settings-panel-fallback-bg)")
+  && settingsCssSource.includes("@media (forced-colors: active)"), "settings glass must use dedicated theme tokens with solid and forced-color fallbacks");
+assert(settingsCssSource.includes('.settings-status[data-state="ready"]')
+  && dashboardSource.includes('id="settingsStatus" role="status" aria-live="polite" data-state="loading"'), "the settings footer must hide passive ready copy while retaining live loading and change feedback");
+assert(statusViewSource.includes("els.settingsRuntimeDetails.open = true")
+  && contentSyncSettingsSource.includes("els.contentSyncDetails.hidden = !els.contentSyncEnabledInput.checked"), "active runtime work and enabled content sync must reveal only the dependent details needed now");
+assert(dashboardSource.includes('id="settingsRuntimeSummaryStatus"')
+  && statusViewSource.includes('t("settings.overview.runtimeSummary"')
+  && statusViewSource.includes("renderRuntimeSummaryStatus();")
+  && settingsCssSource.includes(".settings-runtime-details[open] .settings-runtime-summary-status"), "collapsed runtime details must keep one compact live status line without repeating it above expanded details");
+for (const obsoleteSelector of [
+  "source-suggestion-panel", "source-suggestion-head", "source-suggestion-tools",
+  "settings-section-head-actions", "settings-meters", "settings-meter",
+]) {
+  assert(!dashboardSource.includes(obsoleteSelector)
+    && !settingsCssSource.includes(obsoleteSelector)
+    && !settingsResponsiveCssSource.includes(obsoleteSelector)
+    && !dashboardSectionsCssSource.includes(obsoleteSelector), `obsolete settings selector must stay removed: ${obsoleteSelector}`);
+}
+assert(dashboardAppSource.includes('button.active")?.scrollIntoView({')
+  && dashboardAppSource.includes('inline: "nearest"')
+  && settingsControllerSource.includes("window.requestAnimationFrame(revealActiveSettingsTab)")
+  && dashboardAppSource.includes("window.requestAnimationFrame(revealActiveSettingsTab)"), "the active settings tab must remain visible when a narrow horizontal rail is selected or resized");
 const dashboardIds = [...dashboardSource.matchAll(/\sid="([^"]+)"/g)].map((match) => match[1]);
 for (const id of [
   "settingsOverviewTitle",
@@ -212,6 +256,8 @@ const exclusionsPanelStart = dashboardSource.indexOf('<div class="settings-panel
 const browserPanelSource = dashboardSource.slice(browserPanelStart, exclusionsPanelStart);
 const bookmarksPanelStart = dashboardSource.indexOf('<div class="settings-panel" data-settings-panel="bookmarks">');
 const appearancePanelStart = dashboardSource.indexOf('<div class="settings-panel" data-settings-panel="appearance">');
+const aboutPanelStart = dashboardSource.indexOf('<div class="settings-panel" data-settings-panel="about">');
+const settingsFooterStart = dashboardSource.indexOf('<div class="modal-actions">', aboutPanelStart);
 const bookmarksPanelSource = dashboardSource.slice(bookmarksPanelStart, appearancePanelStart);
 const cacheFetchStart = dashboardSource.indexOf('aria-labelledby="cacheFetchTitle"');
 const sourceCoverageStart = dashboardSource.indexOf('aria-labelledby="sourceCoverageTitle"');
@@ -224,6 +270,8 @@ assert(bookmarksPanelSource.includes('<input id="bookmarkSectionEnabledInput" ty
 assert(!browserPanelSource.includes('id="bookmarkSectionEnabledInput"'), "bookmark-section visibility must remain in bookmark settings");
 assert(bookmarksPanelSource.includes('id="websiteShortcutsEnabledInput"'), "bookmark settings must expose the quick-bookmark module switch explicitly");
 assert(!browserPanelSource.includes('id="websiteShortcutsEnabledInput"'), "browser settings must not retain quick-bookmark management");
+assert(dashboardSource.indexOf('data-i18n="settings.support.label"', aboutPanelStart) < settingsFooterStart
+  && !dashboardSource.slice(settingsFooterStart, dashboardSource.indexOf('id="aiSearchOverlay"')).includes('settings.support.label'), "developer support must live in About instead of the persistent settings footer");
 assert(dashboardSource.includes('id="bookmarkNav"') && dashboardSource.includes('<section id="library"'), "bookmark visibility must target the existing navigation entry and main library section");
 assert(shellControllerSource.includes("els.bookmarkNav.hidden = !visible")
   && shellControllerSource.includes("els.librarySection.hidden = !visible")
@@ -254,6 +302,9 @@ assert(dashboardSource.includes('id="toggleBrowserSearchPermission"'), "browser 
 assert(!dashboardSource.includes('data-permission="favicon"'), "onboarding must not duplicate the favicon permission action beside the combined primary action");
 assert.equal((dashboardSource.match(/data-onboarding-step="\d"/g) || []).length, 4, "onboarding must use the four-step product, folder, permission, and AI setup flow");
 assert.equal((dashboardSource.match(/<div class="onboarding-progress"[\s\S]*?<\/div>/)?.[0].match(/<span/g) || []).length, 4, "onboarding progress must expose four visual steps");
+assert(dashboardSource.includes('data-i18n="onboarding.step1.body"')
+  && !dashboardSource.includes('class="onboarding-step-icon"')
+  && !dashboardSource.includes('class="onboarding-feature-copy"'), "onboarding must keep the simplified copy-first presentation without decorative feature cards");
 assert(dashboardSource.includes('id="onboardingNewsFolder"') && dashboardSource.includes('id="onboardingInspirationFolder"'), "onboarding must let users choose bookmark folders in place");
 assert(dashboardSource.includes('id="inspirationBookmarkFolderSelect"'), "settings must keep inspiration source selection inside the compact folder row");
 assert(!dashboardSource.includes('id="inspirationSourceModeGroup"') && !dashboardSource.includes('id="onboardingInspirationSourceMode"'), "settings and onboarding must not restore the large inspiration-source card selectors");

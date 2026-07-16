@@ -15,7 +15,7 @@ export function createSettingsController(options) {
     resetToDailyView, syncNavToCurrentSection, getLocale, setLocale, settingsSaveCloseDelayMs, settingsCloseMotionMs,
     inspirationPreviews, syncHeaderImageFullscreenControl, syncHeaderImageBlurControl, syncHeaderImageHeightControl, headerCoverController, availableNewsFolders,
     syncSourceSuggestionActionState, syncSegmentedIndicator, websiteShortcutsPayload,
-    setWebsiteShortcutControlsBusy, aiSetupStage, requestSourcePermissions,
+    setWebsiteShortcutControlsBusy, aiSetupStage, requestSourcePermissions, revealActiveSettingsTab,
   } = options;
   let settingsLoadToken = 0, settingsLocaleAtOpen = getLocale(), settingsSnapshot = null, settingsSession = 0;
   let settingsCloseTimer = 0, settingsActionGeneration = 0, settingsBusy = false, settingsTabScrollPositions = new Map();
@@ -97,11 +97,11 @@ async function loadSettings() {
     els.imageSearchApiKeyInput.placeholder = state.settings.maskedImageSearchKey || "BSA...";
     renderExcludeFolderOptions();
     renderExclusionList();
-    renderSettingsStatus(t("settings.status.ready"));
+    renderSettingsStatus(t("settings.status.ready"), "ready");
     return true;
   } catch (error) {
     if (token !== settingsLoadToken) return false;
-    els.settingsStatus.textContent = t("settings.status.loadFailed", { message: error.message || error });
+    renderSettingsStatus(t("settings.status.loadFailed", { message: error.message || error }), "error");
     return false;
   }
 }
@@ -165,7 +165,7 @@ async function saveSettings() {
     if ((bookmarkSourceChanged || rankingChanged) && !automaticAiStarted && !sourceRefreshScheduled) await triggerRefresh(true);
   } catch (error) {
     if (session !== settingsSession) return;
-    renderSettingsStatus(t("settings.status.saveFailed", { message: error.message || error }));
+    renderSettingsStatus(t("settings.status.saveFailed", { message: error.message || error }), "error");
   } finally {
     if (session === settingsSession || !els.settingsModal.classList.contains("open")) setSettingsBusy(false);
   }
@@ -320,6 +320,7 @@ async function openSettings() {
   resetSecretDrafts();
   document.querySelectorAll(".nav-btn").forEach((item) => item.classList.toggle("active", item.id === "settingsNav"));
   els.settingsModal.classList.add("open");
+  window.requestAnimationFrame(revealActiveSettingsTab);
   els.closeSettings.focus({ preventScroll: true });
   setSettingsBusy(true);
   try {
@@ -494,6 +495,7 @@ function selectSettingsTab(tab) {
     panel.classList.remove("is-entering");
   }
   if (currentPanel !== nextPanel) els.settingsForm.scrollTop = settingsTabScrollPositions.get(tab) || 0;
+  window.requestAnimationFrame(revealActiveSettingsTab);
   if (nextPanel && currentPanel && nextPanel !== currentPanel
     && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
     nextPanel.classList.add("is-entering");
@@ -509,9 +511,9 @@ function selectSettingsTab(tab) {
   if (tab === "appearance") { syncSegmentedIndicator(els.colorModeGroup); syncSegmentedIndicator(els.headerImageLayoutGroup); }
 }
 
-function renderSettingsStatus(extra) {
+function renderSettingsStatus(extra, stateName = extra ? "notice" : "pending") {
   els.settingsStatus.textContent = extra || t("settings.status.unsaved");
-  els.settingsStatus.dataset.state = extra ? "notice" : "pending";
+  els.settingsStatus.dataset.state = stateName;
 }
 
 }

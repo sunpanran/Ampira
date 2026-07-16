@@ -820,8 +820,7 @@
     padding-right: 0;
   }
 
-  .settings-overview-grid,
-  .settings-meters {
+  .settings-overview-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
@@ -940,6 +939,11 @@
     max-height: 92vh;
   }
 
+  #settingsModal .modal {
+    height: 92dvh;
+    max-height: 92dvh;
+  }
+
   #settingsModal.is-cover-previewing .modal-actions {
     border-top-color: color-mix(in srgb, var(--line-soft) 28%, transparent);
     background: color-mix(in srgb, var(--surface-1) 12%, transparent);
@@ -949,6 +953,8 @@
   .modal-body {
     grid-template-columns: 1fr;
     grid-template-rows: max-content max-content max-content;
+    gap: 14px;
+    padding: 12px;
   }
 
   .settings-tabs,
@@ -958,11 +964,18 @@
   }
 
   .settings-tabs {
-    position: static;
+    position: sticky;
+    top: 0;
+    z-index: 3;
     align-self: stretch;
     display: flex;
     gap: 4px;
-    padding: 4px;
+    padding: 4px 0 8px;
+    border-right: 0;
+    border-bottom: 1px solid var(--line-faint);
+    background: color-mix(in srgb, var(--settings-panel-bg) 88%, transparent);
+    -webkit-backdrop-filter: blur(18px);
+    backdrop-filter: blur(18px);
     overflow-x: auto;
     overscroll-behavior-inline: contain;
     scroll-snap-type: inline proximity;
@@ -971,10 +984,16 @@
   .settings-tabs button {
     flex: 0 0 auto;
     min-height: 46px;
-    min-width: 92px;
+    min-width: 76px;
     justify-content: center;
     text-align: center;
     scroll-snap-align: start;
+  }
+
+  .settings-tabs button.active::before {
+    inset: auto 14px -5px;
+    width: auto;
+    height: 2px;
   }
 
   .saved-source-permission-prompt {
@@ -985,10 +1004,6 @@
     grid-column: 2;
     justify-content: flex-start;
     flex-wrap: wrap;
-  }
-
-  .settings-tab-copy small {
-    display: none;
   }
 
   .settings-field-grid,
@@ -1015,27 +1030,12 @@
   }
 
   .source-coverage-summary {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
-  .source-coverage-metric:nth-child(2) {
-    border-right: 0;
-  }
-
-  .source-coverage-metric:nth-child(-n + 2) {
-    border-bottom: 1px solid var(--line-faint);
-  }
-
-  .settings-section-head,
-  .settings-section-head-actions,
-  .source-suggestion-tools {
+  .settings-section-head {
     align-items: stretch;
     flex-direction: column;
-  }
-
-  .settings-section-head-actions .settings-panel-actions,
-  .settings-section-head-actions .source-suggestion-actions {
-    justify-content: flex-start;
   }
 
   .settings-danger-zone .settings-section-actions .danger {
@@ -1062,12 +1062,12 @@
   }
 
   .settings-overview .settings-overview-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: minmax(0, 1fr);
     gap: 8px;
   }
 
-  .settings-overview .settings-overview-auto {
-    grid-column: 1 / -1;
+  .settings-runtime-detail-grid {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .web-frame-dialog {
@@ -1177,13 +1177,7 @@
     min-height: 58px;
   }
 
-  .source-suggestion-head,
-  .source-suggestion-tools {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .source-suggestion-actions {
+.source-suggestion-actions {
     justify-content: flex-end;
   }
 
@@ -1252,18 +1246,28 @@
     min-height: 32px;
   }
 
-  .settings-overview .settings-overview-grid,
-  .settings-meters {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .settings-overview .settings-overview-grid {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .settings-overview-head {
     align-items: flex-start;
+    flex-direction: column;
   }
 
   .settings-overview-actions {
+    width: 100%;
     flex-wrap: wrap;
-    justify-content: flex-end;
+    justify-content: flex-start;
+  }
+
+  .settings-about-panel {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .about-links {
+    grid-column: 1;
+    justify-content: flex-start;
   }
 
   .theme-swatches {

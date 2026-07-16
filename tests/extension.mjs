@@ -2141,7 +2141,7 @@ assert(appSource.includes("createCoverBlurPreviewController")
   && settingsCssSource.includes("#settingsModal.is-cover-previewing .cover-blur-range")
   && settingsCssSource.includes("#settingsModal.is-cover-height-previewing .cover-height-range")
   && settingsCssSource.includes(".header-image-settings > :not(.settings-row-list)")
-  && settingsCssSource.includes("width: min(560px, calc(100% - 24px));")
+  && !settingsCssSource.includes("width: min(560px, calc(100% - 24px));")
   && settingsCssSource.includes("grid-template-columns: max-content minmax(0, 1fr) max-content;")
   && settingsCssSource.includes("pointer-events: auto;"), "cover blur and height adjustment must reveal the dashboard temporarily without losing pointer or keyboard control");
 assert(appearanceControllerSource.includes('headerImageBlurEnabled: syncBlurAmountLabel() > 0')

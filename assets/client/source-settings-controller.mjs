@@ -236,6 +236,7 @@ function renderExclusionList() {
   els.exclusionStatus.textContent = list.length
     ? tc("exclusion.ruleCount", list.length)
     : t("exclusion.keepAll");
+  els.exclusionDetails.open = list.length > 0;
   if (!list.length) {
     els.exclusionList.replaceChildren(createEmptyState({
       title: t("exclusion.empty.title"),
@@ -255,6 +256,7 @@ function renderSourceSuggestionList() {
   els.sourceSuggestionStatus.textContent = suggestions.length
     ? tc("exclusion.pendingSuggestions", suggestions.length)
     : t(checked ? "exclusion.nonePending" : "exclusion.waitingStats");
+  els.sourceSuggestionDetails.open = suggestions.length > 0;
   if (!suggestions.length) {
     els.sourceSuggestionList.replaceChildren(createEmptyState({
       title: t(checked

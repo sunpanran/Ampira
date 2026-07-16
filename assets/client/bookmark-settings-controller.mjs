@@ -87,6 +87,7 @@ function setInspirationSourceSelection(value) {
     inspirationBookmarkFolder: selection.folder,
   };
   syncBookmarkOnlyFolderControls();
+  els.bookmarkExtraDetails.open = true;
   renderSettingsStatus();
 }
 
@@ -246,6 +247,8 @@ function removeBookmarkOnlyFolder(folder) {
 
 function renderBookmarkOnlyFolderList() {
   const folders = currentBookmarkOnlyFolders();
+  els.bookmarkExtraCount.textContent = t("settings.disclosure.count", { count: folders.length });
+  if (!folders.length) els.bookmarkExtraDetails.open = false;
   if (!folders.length) {
     const empty = document.createElement("div");
     empty.className = "exclude-row";
@@ -307,6 +310,8 @@ function restoreAllHiddenBookmarkCategories() {
 
 function renderHiddenBookmarkCategoryList() {
   const items = hiddenBookmarkCategories(state.settings);
+  els.bookmarkHiddenCount.textContent = t("settings.disclosure.count", { count: items.length });
+  if (!items.length) els.bookmarkHiddenDetails.open = false;
   els.restoreAllBookmarkCategories.hidden = items.length < 2;
   els.restoreAllBookmarkCategories.onclick = restoreAllHiddenBookmarkCategories;
   if (!items.length) {

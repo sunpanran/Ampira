@@ -19,6 +19,7 @@ export function syncContentSyncMaster(els) {
   els.contentSyncEnabledInput.checked = enabledCount > 0;
   els.contentSyncEnabledInput.indeterminate = false;
   els.contentSyncEnabledInput.setAttribute("aria-checked", String(els.contentSyncEnabledInput.checked));
+  if (els.contentSyncDetails) els.contentSyncDetails.hidden = !els.contentSyncEnabledInput.checked;
   syncContentSyncControlAvailability(els, els.contentSyncEnabledInput.disabled);
 }
 

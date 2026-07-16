@@ -15,16 +15,19 @@ applyContentSyncSettings(els, {
 assert.equal(els.contentSyncEnabledInput.checked, true, "a partial selection must keep the binary master switch on");
 assert.equal(els.contentSyncEnabledInput.indeterminate, false, "the content sync master must never expose a mixed state");
 assert.equal(els.contentSyncEnabledInput.attributes.get("aria-checked"), "true");
+assert.equal(els.contentSyncDetails.hidden, false, "enabled content sync must reveal its dependent controls");
 assertDependentAvailability(els, false);
 
 setAllContentSyncControls(els, false);
 assert.equal(els.contentSyncEnabledInput.checked, false);
 assert.equal(els.contentSyncEnabledInput.indeterminate, false);
 assert.equal(els.contentSyncEnabledInput.attributes.get("aria-checked"), "false");
+assert.equal(els.contentSyncDetails.hidden, true, "disabled content sync must hide its dependent controls");
 assertDependentAvailability(els, true);
 
 setAllContentSyncControls(els, true);
 assert.equal(els.contentSyncEnabledInput.checked, true);
+assert.equal(els.contentSyncDetails.hidden, false);
 assertDependentAvailability(els, false);
 
 setContentSyncControlsBusy(els, true);
@@ -40,6 +43,7 @@ assertDependentAvailability(els, false);
 for (const input of dependentControls(els)) input.checked = false;
 syncContentSyncMaster(els);
 assert.equal(els.contentSyncEnabledInput.checked, false);
+assert.equal(els.contentSyncDetails.hidden, true);
 assertDependentAvailability(els, true);
 
 console.log("content sync settings tests passed");
@@ -47,6 +51,7 @@ console.log("content sync settings tests passed");
 function createControls() {
   return {
     contentSyncEnabledInput: createInput(),
+    contentSyncDetails: { hidden: true },
     syncReadingQueueEnabledInput: createInput(),
     syncTodosEnabledInput: createInput(),
     syncWeatherLocationEnabledInput: createInput(),

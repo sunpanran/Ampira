@@ -605,7 +605,7 @@ export async function createDashboardApp() {
     syncSourceSuggestionActionState, syncSegmentedIndicator, isHttpUrl,
     websiteShortcutsPayload, setWebsiteShortcutControlsBusy,
     aiSetupStage: AI_SETUP_STAGE,
-    requestSourcePermissions,
+    requestSourcePermissions, revealActiveSettingsTab,
   });
   const { exportSettings, importSettingsFile, factoryReset } = createSettingsTransferController({
     els: settingsElements, state, t, apiGet, apiPost, confirmAction, localizedErrorMessage,
@@ -710,6 +710,13 @@ export async function createDashboardApp() {
     if (state.data) renderAll();
   }
 
+  function revealActiveSettingsTab() {
+    if (!els.settingsModal.classList.contains("open")) return;
+    els.settingsTabs.querySelector("button.active")?.scrollIntoView({
+      block: "nearest", inline: "nearest", behavior: "auto",
+    });
+  }
+
   async function initialize() {
     syncViewportMetrics();
     resetToDailyView();
@@ -746,6 +753,7 @@ export async function createDashboardApp() {
       syncViewportMetrics();
       syncSegmentedIndicators();
       syncNavExpandedWidth();
+      window.requestAnimationFrame(revealActiveSettingsTab);
     });
     window.visualViewport?.addEventListener("resize", syncViewportMetrics);
     contextMenu.bind();

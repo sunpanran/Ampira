@@ -15,6 +15,7 @@ export function createSourceCoverageController(options) {
       ["settings.sources.permissionPending", Number(summary.permissionRequired || 0)],
       ["settings.sources.needsReview", Number(summary.failed || 0) + Number(summary.empty || 0)],
     ];
+    if (metrics[1][1] + metrics[2][1] > 0) els.sourceCoverageDetails.open = true;
     els.sourceCoverageSummary.replaceChildren(...metrics.map(([labelKey, value]) => {
       const metric = document.createElement("div");
       metric.className = "source-coverage-metric";

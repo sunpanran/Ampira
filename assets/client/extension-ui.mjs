@@ -36,6 +36,7 @@ const els = {
   skipAi: document.querySelector("#onboardingSkipAi"),
   permissionList: document.querySelector("#sourcePermissionList"),
   permissionSummary: document.querySelector("#sourcePermissionSummary"),
+  permissionDetails: document.querySelector("#sourcePermissionDetails"),
   permissionActions: document.querySelector("#sourcePermissionActions"),
   grantAllSources: document.querySelector("#grantAllSources"),
   openExtensionManager: document.querySelector("#openExtensionManager"),
@@ -565,6 +566,7 @@ async function handlePermissionAction(event) {
 
 function renderPermissionRows(rows) {
   permissionRows = Array.isArray(rows) ? rows : [];
+  if (els.permissionDetails && permissionRowCounts(permissionRows).pending > 0) els.permissionDetails.open = true;
   if (!els.permissionList) return;
   if (!permissionRows.length) {
     const empty = document.createElement("div");
@@ -642,6 +644,7 @@ function renderPermissionActions() {
 
 function setPermissionFeedback(message) {
   permissionFeedback = String(message || "");
+  if (permissionFeedback && els.permissionDetails) els.permissionDetails.open = true;
   renderPermissionStatus();
 }
 

@@ -441,9 +441,7 @@
 .settings-overview,
 .settings-status,
 .settings-tabs,
-.settings-meter,
 .settings-cache-note,
-.source-suggestion-panel,
 .about-panel,
 .about-grid > div,
 .modal,
@@ -1948,4 +1946,43 @@
 .archive-card.link-row:hover {
   border-color: var(--line-soft);
   background: var(--row-hover-fill);
+}
+
+/* Keep the Dashboard structure intact while reducing repeated panel chrome. */
+:where(#daily) :is(.efficiency-card, .board-column, .summary-card) {
+  border-color: color-mix(in srgb, var(--card-line) 65%, transparent);
+  background: color-mix(in srgb, var(--blur-panel-bg) 88%, transparent);
+  box-shadow: none;
+}
+
+:where(#daily) :is(.efficiency-card, .board-column) {
+  gap: 10px;
+  padding: 12px;
+}
+
+:where(#daily) .board-column.is-inspiration .card-list {
+  gap: 10px;
+}
+
+:where(#daily) .website-shortcuts {
+  padding: 4px 0;
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+:where(#daily) .website-shortcuts.has-scroll-overflow:not(.is-scroll-end)::after {
+  inset-block: 4px;
+}
+
+:where(#daily) :is(.efficiency-card, .board-column, .summary-card, .website-shortcuts)::before {
+  background: radial-gradient(circle at var(--mx, 50%) var(--my, 50%), rgba(var(--accent-rgb), .055), transparent 200px);
+  transition: opacity var(--motion-emphasis-duration) var(--motion-ease-standard);
+}
+
+:where(#daily) :is(.daily-card, .news-list-card, .archive-card, .link-row, .website-shortcut)::before {
+  background: radial-gradient(circle at var(--mx, 50%) var(--my, 50%), rgba(var(--accent-rgb), .07), transparent 180px);
+  transition: opacity var(--motion-emphasis-duration) var(--motion-ease-standard);
 }
