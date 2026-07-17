@@ -35,6 +35,7 @@ assert(dashboardHtml.includes('<img class="about-logo" src="/assets/icons/ampira
 assert(!dashboardHtml.slice(dashboardHtml.indexOf('<div class="about-brand">'), dashboardHtml.indexOf('<div class="about-links">')).includes("logo-purple.svg"), "the About panel must not retain the legacy purple-only logo");
 await assert.rejects(fs.access(path.join(root, "assets", "logo-purple.svg")), /ENOENT/, "the legacy purple-only logo must be removed");
 await assert.rejects(fs.access(path.join(root, "store", "assets", "ampira-store-icon.svg")), /ENOENT/, "the blurred store-only vector must be removed");
+await assert.rejects(fs.access(path.join(root, "store", "assets", "ampira-logo.svg")), /ENOENT/, "the store directory must not retain a duplicate editable logo source");
 const versionDashboardAppSource = await fs.readFile(path.join(root, "assets", "client", "dashboard-app.mjs"), "utf8");
 assert(versionDashboardAppSource.includes("chrome?.runtime?.getManifest?.().version")
   && versionDashboardAppSource.includes('new URL("../../manifest.json", import.meta.url)')
