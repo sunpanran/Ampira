@@ -5,7 +5,7 @@
 ## Accounts and public URLs
 
 - [ ] 发布 Google 账号已启用两步验证，并继续使用同一个 Chrome Web Store 正式条目。
-- [ ] `REQUIRED_SUPPORT_URL` 指向真实公开 HTTPS 支持地址，`docs/` 中的隐私、支持和数据删除页面无需登录即可访问。
+- [x] `REQUIRED_SUPPORT_URL` 指向真实公开 HTTPS 支持地址，`docs/` 中的隐私、支持和数据删除页面无需登录即可访问。
 - [ ] 隐私政策包含 Limited Use 声明；三语文档、商店文案、权限理由和实际行为一致。
 
 ## Unpacked extension QA
