@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="store/assets/ampira-store-icon-128.png" width="128" height="128" alt="Ampira logo">
+</p>
+
 # Ampira 资讯新标签页
 
 [English](#english) · [简体中文](#简体中文)

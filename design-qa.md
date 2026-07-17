@@ -234,3 +234,4 @@ $env:REQUIRED_SUPPORT_URL = "https://github.com/sunpanran/Ampira/issues"
 ## 2026-07-17 — 26.2.13 工具栏图标统一
 
 - Chrome 工具栏使用的 `icon-16.png` 与高分屏 `icon-32.png` 改为新商店 Logo 的紧裁切版本；移除旧的纯紫色简化标记，使工具栏、扩展管理页、关于页与商店保持同一品牌图形。
+- GitHub README 标题上方展示仓库内的 `store/assets/ampira-store-icon-128.png`，不依赖外部图片地址。
