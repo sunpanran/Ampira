@@ -208,3 +208,4 @@ $env:REQUIRED_SUPPORT_URL = "https://github.com/sunpanran/Ampira/issues"
 - Chrome 隔离配置内完成可选权限回归：`favicon` 授予后启用 Chrome 原生图标，撤销后即时回退随包图标；9 个精确资讯来源全部授权后资讯正常加载，单独撤销 `36kr.com` 后来源状态立即变为未授权；恢复出厂设置清理了其余可选来源权限。
 - `search` 授予后顶部字段切换为“浏览器搜索”，非敏感测试查询由 Chrome 当前默认服务（Google）打开；撤销后即时回退为“搜索 Ampira”。恢复出厂设置确认清理 Ampira 本机/同步数据及可选权限、看板回到四步引导，未接触 Chrome 书签。
 - 工具栏 `activeTab` 捕获、真实网络 Reader、非生产 AI Provider、双实例 Sync，以及 Edge 垂直标签页与分屏仍需在商店私有测试前人工完成。
+- 公开 README 已改为 Chrome 与 Edge 双浏览器口径，补充浏览器默认搜索、Edge favicon 回退、两家商店材料和不硬编码版本的 Latest Release、隐私及支持入口。
