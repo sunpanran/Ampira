@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <defs>
+    <linearGradient id="tile" x1="28" y1="20" x2="100" y2="108" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#20232A"/>
+      <stop offset="1" stop-color="#0A0B0D"/>
+    </linearGradient>
+    <radialGradient id="accent-glow" cx="0" cy="0" r="1" gradientTransform="translate(64 35) rotate(90) scale(49)" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#9152FF" stop-opacity=".24"/>
+      <stop offset="1" stop-color="#9152FF" stop-opacity="0"/>
+    </radialGradient>
+    <clipPath id="tile-clip">
+      <rect x="16" y="16" width="96" height="96" rx="24"/>
+    </clipPath>
+  </defs>
+  <rect x="16" y="16" width="96" height="96" rx="24" fill="url(#tile)"/>
+  <g clip-path="url(#tile-clip)">
+    <circle cx="64" cy="35" r="49" fill="url(#accent-glow)"/>
+  </g>
+  <rect x="16.5" y="16.5" width="95" height="95" rx="23.5" fill="none" stroke="#FFFFFF" stroke-opacity=".12"/>
+  <g transform="translate(25.59 25.59) scale(.67)">
+    <path fill="#F7F2FF" d="M65.04,24.15l-5.92-11.54c-.74-1.45-2.82-1.45-3.56,0l-5.92,11.54c-.28.55-.81.94-1.42,1.05l-12.5,2.32c-1.55.29-2.17,2.17-1.11,3.33l8.89,9.63c.4.44.59,1.03.51,1.62l-1.75,13.16c-.21,1.6,1.45,2.78,2.89,2.05l11.27-5.7c.57-.29,1.24-.29,1.81,0l11.27,5.7c1.44.73,3.1-.45,2.89-2.05l-1.75-13.16c-.08-.59.11-1.18.51-1.62l8.89-9.63c1.07-1.16.44-3.04-1.11-3.33l-12.5-2.32c-.61-.11-1.13-.5-1.42-1.05Z"/>
+    <path fill="#9152FF" d="M92.12,34.49c-.17-1.72-2.29-2.43-3.46-1.16l-.26.28-8.81,9.54c-.4.44-.59,1.03-.51,1.62l1.75,13.2,1.5,11.27c.21,1.6-1.45,2.78-2.89,2.05l-10.15-5.13-11.05-5.59c-.57-.29-1.24-.29-1.81,0l-11.05,5.59-10.15,5.13c-1.44.73-3.1-.45-2.89-2.05l1.5-11.27,1.75-13.2c.08-.59-.11-1.18-.51-1.62l-8.81-9.54-.26-.28c-1.17-1.27-3.29-.56-3.46,1.16l-6.43,64.47c-.16,1.57,1.47,2.69,2.88,1.99l37.44-18.62c.56-.28,1.22-.28,1.78,0l37.44,18.62c1.41.7,3.04-.42,2.88-1.99l-6.43-64.47Z"/>
+  </g>
+</svg>

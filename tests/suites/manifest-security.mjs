@@ -17,6 +17,9 @@ import {
 export async function runManifestSecurityTests(root) {
 const manifest = JSON.parse(await fs.readFile(path.join(root, "manifest.json"), "utf8"));
 const dashboardHtml = await fs.readFile(path.join(root, "dashboard.html"), "utf8");
+const storeIconSource = await fs.readFile(path.join(root, "store", "assets", "ampira-store-icon.svg"), "utf8");
+const storeIconPng = await fs.readFile(path.join(root, "extension", "icons", "icon-128.png"));
+const managerIconPng = await fs.readFile(path.join(root, "extension", "icons", "icon-48.png"));
 const shellControllerSource = await fs.readFile(path.join(root, "assets", "client", "shell-controller.mjs"), "utf8");
 const settingsWorkflowSource = await fs.readFile(path.join(root, "extension", "runtime", "settings-workflow.mjs"), "utf8");
 const aiSearchRuntimeSource = await fs.readFile(path.join(root, "extension", "runtime", "ai-search-service.mjs"), "utf8");
@@ -32,6 +35,11 @@ assert(versionDashboardAppSource.includes("chrome?.runtime?.getManifest?.().vers
   && versionDashboardAppSource.includes("els.aboutVersion.textContent = `v${appVersion}`"), "the About panel version must come from the runtime manifest with a local-preview manifest fallback");
 assert(!dashboardHtml.includes(manifest.version), "dashboard HTML must not hard-code the manifest version");
 assert.equal(manifest.chrome_url_overrides.newtab, "dashboard.html");
+assert(storeIconSource.includes('<rect x="16" y="16" width="96" height="96" rx="24"')
+  && storeIconSource.includes('fill="#9152FF"')
+  && storeIconSource.includes('fill="#F7F2FF"'), "the store icon source must preserve the reviewed 96px artwork box and Ampira palette");
+assert.deepEqual([storeIconPng.readUInt32BE(16), storeIconPng.readUInt32BE(20)], [128, 128], "the Chrome Web Store icon must remain 128x128");
+assert.deepEqual([managerIconPng.readUInt32BE(16), managerIconPng.readUInt32BE(20)], [48, 48], "the extension-management icon must remain 48x48");
 assert.equal(manifest.action.default_popup, "action-popup.html", "the toolbar action must open a visible capture confirmation popup");
 assert.deepEqual(manifest.permissions.sort(), ["activeTab", "alarms", "bookmarks", "storage"]);
 assert.deepEqual([...(manifest.optional_permissions || [])].sort(), ["favicon", "search"], "website icons and browser search must use optional named permissions so upgrades do not disable existing installs");
