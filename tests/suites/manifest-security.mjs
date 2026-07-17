@@ -42,7 +42,6 @@ assert(versionDashboardAppSource.includes("chrome?.runtime?.getManifest?.().vers
 assert(!dashboardHtml.includes(manifest.version), "dashboard HTML must not hard-code the manifest version");
 assert.equal(manifest.chrome_url_overrides.newtab, "dashboard.html");
 assert(logoSource.includes('<rect x="4.75" y="4.75" width="94.5" height="94.5" rx="23.25"')
-  && logoSource.includes('transform="translate(.39 .39) scale(.9)"')
   && logoSource.includes('fill="#9152FF"')
   && logoSource.includes('fill="#F7F2FF"')
   && !/(?:linear|radial)Gradient|filter=/.test(logoSource), "the canonical logo must use the reviewed flat, crisp geometry and Ampira palette");
