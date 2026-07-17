@@ -1,6 +1,6 @@
 import { PREFERRED_FEEDS } from "./constants.mjs";
 import { hashText } from "./bookmarks.mjs";
-import { normalizeLocale, translate } from "./i18n.mjs";
+import { translate } from "./i18n.mjs";
 import { classifyFeedEntryLocale } from "./feed-language-policy.mjs";
 import { decodeResponseBuffer, fetchBounded } from "./network.mjs";
 import { isDisplayableFeedItem } from "./feed-item-policy.mjs";
@@ -19,6 +19,28 @@ import {
   rankNewsItems,
   scoreNewsArticle,
 } from "./news-ranking.mjs";
+import { buildFallbackDigest } from "./feed-digest.mjs";
+import {
+  absolutize,
+  cleanHeaderValue,
+  cleanText,
+  dedupeArticles,
+  dedupeBy,
+  firstMatch,
+  firstNonEmpty,
+  hostOf,
+  htmlToText,
+  isJsonFeed,
+  looksLikeAbsoluteUrl,
+  looksLikeHtml,
+  metaContent,
+  normalizeDate,
+  normalizeUrl,
+  parseAttributes,
+  safeSourceOrigin,
+  stripCdata,
+  tagText,
+} from "./feed-utils.mjs";
 
 export { isDisplayableFeedItem } from "./feed-item-policy.mjs";
 export {
@@ -27,6 +49,7 @@ export {
   buildDailyCandidates,
   dailyCandidateFingerprint,
 } from "./news-ranking.mjs";
+export { buildFallbackDigest } from "./feed-digest.mjs";
 
 const REQUEST_TIMEOUT_MS = 12000;
 const MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
@@ -281,55 +304,6 @@ export function feedCacheOrEmpty(feed) {
     localCount: 0,
     publicCount: 0,
     deniedOrigins: [],
-  };
-}
-
-export function buildFallbackDigest(items, reason = "no-api-key", locale = "zh-CN", options = {}) {
-  const normalizedLocale = normalizeLocale(locale);
-  const now = options.now ?? Date.now();
-  const selected = options.preselected === true
-    ? (Array.isArray(items) ? items : []).slice(0, 12)
-    : buildDailyCandidates(items, {
-        now,
-        limit: 12,
-        recentLimit: 3,
-        publisherLimit: options.publisherLimit,
-        aiRankingEnabled: options.aiRankingEnabled,
-      });
-  return {
-    schemaVersion: DAILY_DIGEST_SCHEMA_VERSION,
-    rankingPolicyVersion: NEWS_RANKING_POLICY_VERSION,
-    locale: normalizedLocale,
-    date: localDateKey(now),
-    generatedAt: new Date(now).toISOString(),
-    candidateFingerprint: dailyCandidateFingerprint(selected, {
-      policyVersion: NEWS_RANKING_POLICY_VERSION,
-      publisherLimit: options.publisherLimit,
-    }),
-    status: reason,
-    overview: selected.length
-      ? [translate(normalizedLocale, "background.digest.organized"), translate(normalizedLocale, "background.digest.configureAiHint")]
-      : [translate(normalizedLocale, "background.digest.empty")],
-    items: selected.map((item) => ({
-      id: item.articleId,
-      title: item.title,
-      summary: item.excerpt || translate(normalizedLocale, "background.digest.openOriginal"),
-      reason: translate(normalizedLocale, "background.digest.highPriority"),
-      url: item.url,
-      source: item.source,
-      host: item.host,
-      publisher: item.publisher || item.source,
-      publisherHost: item.publisherHost || item.host,
-      publishedAt: item.publishedAt || "",
-      eventId: item.eventId || "",
-      sourceCount: Number(item.eventSourceCount || 1),
-      articleCount: Number(item.eventArticleCount || 1),
-      eventConfidence: item.eventConfidence || "single-source",
-      timeScope: item.timeScope || "",
-      localImportanceScore: Number(item.localImportanceScore ?? item.publicImportanceScore ?? item.score ?? 0),
-      importanceScore: Number(item.localImportanceScore ?? item.publicImportanceScore ?? item.score ?? 0),
-      type: item.externalDiscovery ? "internet" : "bookmark",
-    })),
   };
 }
 
@@ -848,174 +822,6 @@ function isLikelyArticleDocument(html) {
   const type = metaContent(html, ["og:type"]).toLowerCase();
   if (type === "article" || type === "newsarticle") return true;
   return Boolean(normalizeDate(metaContent(html, ["article:published_time", "datepublished"])));
-}
-
-function metaContent(html, names) {
-  const accepted = new Set(names.map((name) => String(name).toLowerCase()));
-  for (const match of String(html || "").matchAll(/<meta\b[^>]*>/gi)) {
-    const attributes = parseAttributes(match[0]);
-    const name = String(attributes.property || attributes.name || "").toLowerCase();
-    if (!accepted.has(name)) continue;
-    const content = attributes.content || "";
-    if (content) return content;
-  }
-  return "";
-}
-
-function htmlToText(html) {
-  return decodeEntities(String(html || "")
-    .replace(/<script\b[\s\S]*?<\/script>/gi, " ")
-    .replace(/<style\b[\s\S]*?<\/style>/gi, " ")
-    .replace(/<svg\b[\s\S]*?<\/svg>/gi, " ")
-    .replace(/<\/(?:p|div|article|section|main|h[1-6]|li|blockquote)>/gi, "\n")
-    .replace(/<br\s*\/?\s*>/gi, "\n")
-    .replace(/<[^>]+>/g, " "))
-    .replace(/[^\S\r\n]+/g, " ")
-    .replace(/\n\s*\n+/g, "\n\n")
-    .trim();
-}
-
-function tagText(block, tag) {
-  const escaped = tag.replace(":", "\\:");
-  return stripCdata(firstMatch(block, new RegExp(`<${escaped}\\b[^>]*>([\\s\\S]*?)<\\/${escaped}>`, "i")));
-}
-
-function stripCdata(value) {
-  return String(value || "").replace(/^\s*<!\[CDATA\[([\s\S]*?)\]\]>\s*$/i, "$1").trim();
-}
-
-function parseAttributes(tag) {
-  const attributes = {};
-  const source = String(tag || "").replace(/^<[^\s>]+|\/?\s*>$/g, "");
-  const pattern = /([^\s=/>]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?/g;
-  for (const match of source.matchAll(pattern)) {
-    const name = String(match[1] || "").toLowerCase();
-    if (!name || Object.hasOwn(attributes, name)) continue;
-    attributes[name] = decodeEntities(firstNonEmpty(match[2], match[3], match[4], ""));
-  }
-  return attributes;
-}
-
-function dedupeArticles(items) {
-  const deduped = [];
-  const indexesByUrl = new Map();
-  for (const item of (items || []).filter(Boolean)) {
-    const key = normalizeUrl(item.url);
-    if (!key) continue;
-    const existingIndex = indexesByUrl.get(key);
-    if (existingIndex === undefined) {
-      indexesByUrl.set(key, deduped.length);
-      deduped.push(item);
-      continue;
-    }
-    if (deduped[existingIndex].externalDiscovery === true && item.externalDiscovery !== true) {
-      deduped[existingIndex] = item;
-    }
-  }
-  return deduped;
-}
-
-function dedupeBy(items, keyFor) {
-  const seen = new Set();
-  return items.filter((item) => {
-    const key = keyFor(item);
-    if (!key || seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-}
-
-function isJsonFeed(text, contentType) {
-  return /application\/(?:feed\+)?json/i.test(contentType) || /^\s*\{/.test(text) && /"items"\s*:/.test(text.slice(0, 1000));
-}
-
-function looksLikeHtml(text, contentType) {
-  return /text\/html|application\/xhtml/i.test(contentType) || /<(?:html|head|body)\b/i.test(String(text).slice(0, 1000));
-}
-
-function cleanText(value) {
-  return decodeEntities(String(value || "").replace(/<!\[CDATA\[|\]\]>/g, "").replace(/<[^>]+>/g, " "))
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function decodeEntities(value) {
-  const entities = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " " };
-  return String(value || "").replace(/&(#x?[0-9a-f]+|[a-z]+);/gi, (match, entity) => {
-    if (entity[0] === "#") {
-      const hex = entity[1]?.toLowerCase() === "x";
-      const code = Number.parseInt(entity.slice(hex ? 2 : 1), hex ? 16 : 10);
-      try { return Number.isFinite(code) ? String.fromCodePoint(code) : match; } catch { return match; }
-    }
-    return entities[entity.toLowerCase()] ?? match;
-  });
-}
-
-function absolutize(value, base) {
-  try {
-    const raw = decodeEntities(String(value || "").trim());
-    if (!raw) return "";
-    const url = new URL(raw, base);
-    return ["http:", "https:"].includes(url.protocol) ? url.href : "";
-  } catch {
-    return "";
-  }
-}
-
-function looksLikeAbsoluteUrl(value) {
-  return /^https?:\/\//i.test(stripCdata(value));
-}
-
-function normalizeUrl(value) {
-  try {
-    const url = new URL(value);
-    url.hash = "";
-    ["utm_source", "utm_medium", "utm_campaign", "utm_content", "utm_term"].forEach((key) => url.searchParams.delete(key));
-    return url.href.replace(/\/$/, "");
-  } catch {
-    return "";
-  }
-}
-
-function hostOf(value) {
-  try {
-    return new URL(value).hostname.toLowerCase().replace(/^www\./, "");
-  } catch {
-    return "";
-  }
-}
-
-function safeSourceOrigin(value) {
-  try {
-    const url = new URL(String(value || "").trim());
-    if (url.protocol === "https:") return url.origin;
-    if (url.protocol === "http:" && ["localhost", "127.0.0.1"].includes(url.hostname)) return url.origin;
-    return "";
-  } catch {
-    return "";
-  }
-}
-
-function normalizeDate(value) {
-  const time = Date.parse(String(value || ""));
-  return Number.isFinite(time) ? new Date(time).toISOString() : "";
-}
-
-function firstMatch(text, pattern) {
-  return String(text || "").match(pattern)?.[1]?.trim() || "";
-}
-
-function firstNonEmpty(...values) {
-  return values.find((value) => String(value || "").trim()) || "";
-}
-
-function cleanHeaderValue(value) {
-  return String(value || "").replace(/[\r\n]/g, "").trim().slice(0, 1024);
-}
-
-function localDateKey(value = Date.now()) {
-  const now = new Date(value);
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 }
 
 function feedError(code, messageKey, retryable = false, details = {}) {
