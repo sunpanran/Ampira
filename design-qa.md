@@ -225,3 +225,8 @@ $env:REQUIRED_SUPPORT_URL = "https://github.com/sunpanran/Ampira/issues"
 ## 2026-07-17 — 26.2.11 关于页品牌统一
 
 - “设置 → 关于”不再引用旧的纯紫色 Logo，改为复用软件包内的 `extension/icons/icon-128.png`；48px 显示框保留商店图标的透明安全区，并与 Chrome Web Store、安装界面和扩展管理页保持同一品牌图形。
+
+## 2026-07-17 — 26.2.12 管理页与关于页图标放大
+
+- Chrome Web Store 使用的 `icon-128.png` 继续保留官方建议的 16px 四周透明安全区；`icon-48.png` 改为从品牌源的 104px 中心区域裁切，管理页显示时透明边缘约 2px、主体约 44px。
+- “设置 → 关于”改用同一张放大后的 `icon-48.png`，避免把商店安全区二次缩小后造成 Logo 视觉尺寸偏小。

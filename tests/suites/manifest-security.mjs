@@ -29,7 +29,7 @@ const dashboardContentRuntimeSource = await fs.readFile(path.join(root, "extensi
 
 assert.equal(manifest.manifest_version, 3);
 assert(dashboardHtml.includes('<span class="about-version" id="aboutVersion"></span>'), "the About panel must reserve a version output without hard-coding a release");
-assert(dashboardHtml.includes('<img class="about-logo" src="/extension/icons/icon-128.png?v=20260717-store"'), "the About panel must reuse the current packaged Ampira logo");
+assert(dashboardHtml.includes('<img class="about-logo" src="/extension/icons/icon-48.png?v=20260717-expanded"'), "the About panel must reuse the expanded extension-management logo");
 assert(!dashboardHtml.slice(dashboardHtml.indexOf('<div class="about-brand">'), dashboardHtml.indexOf('<div class="about-links">')).includes("logo-purple.svg"), "the About panel must not retain the legacy purple-only logo");
 const versionDashboardAppSource = await fs.readFile(path.join(root, "assets", "client", "dashboard-app.mjs"), "utf8");
 assert(versionDashboardAppSource.includes("chrome?.runtime?.getManifest?.().version")
