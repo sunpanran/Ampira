@@ -209,3 +209,8 @@ $env:REQUIRED_SUPPORT_URL = "https://github.com/sunpanran/Ampira/issues"
 - `search` 授予后顶部字段切换为“浏览器搜索”，非敏感测试查询由 Chrome 当前默认服务（Google）打开；撤销后即时回退为“搜索 Ampira”。恢复出厂设置确认清理 Ampira 本机/同步数据及可选权限、看板回到四步引导，未接触 Chrome 书签。
 - 工具栏 `activeTab` 捕获、真实网络 Reader、非生产 AI Provider、双实例 Sync，以及 Edge 垂直标签页与分屏仍需在商店私有测试前人工完成。
 - 公开 README 已改为 Chrome 与 Edge 双浏览器口径，补充浏览器默认搜索、Edge favicon 回退、两家商店材料和不硬编码版本的 Latest Release、隐私及支持入口。
+
+## 2026-07-17 — 26.2.9 软件包摘要统一
+
+- `_locales/en`、`_locales/zh_CN` 与 `_locales/zh_TW` 的 Manifest 摘要统一为“把书签、资讯和网页内容提纯成每日信号。”；扩展名称与工具栏操作仍按界面语言本地化。
+- 新增软件包摘要一致性测试，避免后续三语摘要再次分叉。

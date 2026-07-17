@@ -1,5 +1,5 @@
 {
   "appName": { "message": "Ampira New Tab" },
-  "appDescription": { "message": "Bring long-saved bookmarks back to life. Ampira turns them into continuously updated feeds, then uses AI to help you read, distill, and organize. Your saved inspiration resurfaces in a new way every day." },
+  "appDescription": { "message": "把书签、资讯和网页内容提纯成每日信号。" },
   "actionTitle": { "message": "Add current page to Read later" }
 }

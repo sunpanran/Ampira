@@ -173,6 +173,7 @@ for (const file of ["en.mjs", "zh-CN.mjs", "zh-Hant.mjs"]) {
 }
 
 const manifestMessageKeys = [];
+const manifestDescriptions = [];
 for (const locale of ["en", "zh_CN", "zh_TW"]) {
   const rawMessages = await fs.readFile(path.join(root, "_locales", locale, "messages.json"), "utf8");
   const declaredKeys = [...rawMessages.matchAll(/^\s{2}"([^"]+)"\s*:/gm)].map((match) => match[1]);
@@ -181,7 +182,9 @@ for (const locale of ["en", "zh_CN", "zh_TW"]) {
   const keys = Object.keys(messages).sort();
   if (!manifestMessageKeys.length) manifestMessageKeys.push(...keys);
   assert.deepEqual(keys, manifestMessageKeys, `${locale} manifest messages must have matching keys`);
+  manifestDescriptions.push(messages.appDescription?.message);
 }
+assert.deepEqual(manifestDescriptions, Array(3).fill("把书签、资讯和网页内容提纯成每日信号。"), "all packaged locales must use the reviewed Chinese summary");
 
 const dashboardSource = await fs.readFile(path.join(root, "dashboard.html"), "utf8");
 const settingsCssSource = await fs.readFile(path.join(root, "assets", "styles", "settings.css"), "utf8");
