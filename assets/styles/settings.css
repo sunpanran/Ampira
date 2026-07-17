@@ -1971,9 +1971,10 @@
   gap: 12px;
 }
 
-.about-brand img {
-  width: 38px;
-  height: 38px;
+.about-brand .about-logo {
+  width: 48px;
+  height: 48px;
+  flex: 0 0 auto;
 }
 
 .about-title {
