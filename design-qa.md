@@ -203,4 +203,6 @@ $env:REQUIRED_SUPPORT_URL = "https://github.com/sunpanran/Ampira/issues"
 - Microsoft Edge `150.0.0.0` 成功接管 `edge://newtab`，完成四步引导和无权限降级；“设置 → 浏览器”显示原生 favicon 不受支持并使用随包图标，“打开扩展管理页”实际打开 `edge://extensions/`。窄屏横向溢出为 `0`，控制台错误与警告为 `0`。
 - Edge 实测发现首次引导仍显示“授权网站并启用图标”；现已按浏览器能力切换三语按钮文案，Edge 只显示“授权网站”，并保留不请求 `favicon` 权限的既有行为和自动化约束。
 - 商店 Dashboard、精确来源权限和 AI 设置截图已从隔离配置重新捕获为 `1280×800`，不含真实 API Key、私人书签、个人浏览资料或运行时缓存。
-- 当前受管理的正式 Chrome 忽略命令行加载未打包扩展，因此本次不声称完成真实 Chrome QA。Chrome 权限授予/撤销、工具栏 `activeTab` 捕获、真实网络 Reader、非生产 AI Provider、双实例 Sync、恢复出厂设置，以及 Edge 垂直标签页与分屏仍需在商店私有测试前人工完成。
+- Google Chrome `150.0.0.0` 使用独立临时配置从仓库根目录成功加载未打包扩展；`chrome://extensions` 显示 Ampira `26.2.8` 已启用、Service Worker 入口正常且无扩展警告。四步引导的无网站授权与稍后配置 AI 路径可用，真实 `chrome://newtab` 被 Ampira 接管；设置中的安装状态说明准确，“打开扩展管理页”实际打开带当前扩展 ID 的 Chrome 管理页。
+- 真实 Chrome 在深色 `1280×800`、浅色 `1440×1000` 和浅色 `390×844` 下均无横向溢出，窄屏五入口导航完整可见；减少动态效果媒体查询生效，动画与过渡降至 `0.00001s`。上述状态下控制台错误与警告均为 `0`。
+- Chrome 可选 `favicon`、`search` 和精确网站来源权限的授予/撤销、工具栏 `activeTab` 捕获、真实网络 Reader、非生产 AI Provider、双实例 Sync、恢复出厂设置，以及 Edge 垂直标签页与分屏仍需在商店私有测试前人工完成。

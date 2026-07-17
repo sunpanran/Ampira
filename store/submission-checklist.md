@@ -10,7 +10,7 @@
 
 ## Unpacked extension QA
 
-- [ ] 从 `chrome://extensions` 加载仓库根目录，确认 Manifest、Service Worker 和控制台无错误。
+- [x] 从 `chrome://extensions` 加载仓库根目录，确认 Manifest、Service Worker 和控制台无错误。
 - [ ] 完成四步首次引导；分别验证跳过与进入 AI 设置的交接，并确认新标签页覆盖由扩展安装状态控制。
 - [ ] 在 HTTPS 页面点击工具栏图标，确认只捕获当前页标题和 URL、重复项去重、不支持页面安全失败；不得读取页面正文或其他标签页。
 - [ ] 验证书签只读；拒绝书签或精确网站权限后界面仍可用，授权与撤权会立即更新来源、Reader 和缓存状态。
@@ -21,13 +21,13 @@
 - [ ] 验证阅读队列、待办和天气城市三个 Chrome Sync 开关默认关闭、互相独立；关闭同步后远端副本删除而本地副本保留，API Key 和缓存不得进入 Sync。
 - [ ] 使用合成数据取消并确认一次恢复出厂设置；确认 Ampira 本机/同步数据与可选权限被清理，Chrome 书签不变，所有看板回到四步引导。
 - [ ] 在深色 `1280×800`、浅色 `1440×1000` 和窄屏窗口验证 Dashboard、设置、引导和 Reader：无横向溢出、键盘焦点可见、减少动态效果有效、加载/空/错误状态可用。
-- [ ] 测试和截图不得使用真实 API Key、私人书签、Chrome Profile 或运行时缓存。
+- [x] 测试和截图不得使用真实 API Key、私人书签、Chrome Profile 或运行时缓存。
 
 ## Package and listing
 
-- [ ] 在 PowerShell 7 与 Node.js 20+ 环境设置真实 `REQUIRED_SUPPORT_URL`，运行 `.\scripts\verify-extension.ps1 -Package`。
+- [x] 在 PowerShell 7 与 Node.js 20+ 环境设置真实 `REQUIRED_SUPPORT_URL`，运行 `.\scripts\verify-extension.ps1 -Package`。
 - [ ] 上传脚本生成的 Manifest 版本化 ZIP，并保留 `.zip.sha256` 与 `.manifest.json`；CI 构建时确认记录预期 `GITHUB_SHA`。
-- [ ] 审计 ZIP：根目录直接包含 `manifest.json`，不含测试、`output/`、`dashboard-cache/`、隐藏配置、密钥、本机路径、私人数据或允许列表外文件。
+- [x] 审计 ZIP：根目录直接包含 `manifest.json`，不含测试、`output/`、`dashboard-cache/`、隐藏配置、密钥、本机路径、私人数据或允许列表外文件。
 - [ ] 使用 `store/listing/`、`store/privacy-practices.md` 和 `store/reviewer-notes.md` 的当前内容。
 - [ ] 上传 `store/assets/` 中当前列出的商店素材；若可见界面或权限状态变化，重新捕获对应截图。
 - [ ] 确认无应用内购买、成熟内容、分析、广告、远程代码或开发者后端需要额外披露。
