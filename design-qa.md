@@ -210,7 +210,7 @@ $env:REQUIRED_SUPPORT_URL = "https://github.com/sunpanran/Ampira/issues"
 - 工具栏 `activeTab` 捕获、真实网络 Reader、非生产 AI Provider、双实例 Sync，以及 Edge 垂直标签页与分屏仍需在商店私有测试前人工完成。
 - 公开 README 已改为 Chrome 与 Edge 双浏览器口径，补充浏览器默认搜索、Edge favicon 回退、两家商店材料和不硬编码版本的 Latest Release、隐私及支持入口。
 
-## 2026-07-17 — 26.2.9 软件包摘要统一
+## 2026-07-17 — 26.2.9 软件包摘要本地化统一
 
-- `_locales/en`、`_locales/zh_CN` 与 `_locales/zh_TW` 的 Manifest 摘要统一为“把书签、资讯和网页内容提纯成每日信号。”；扩展名称与工具栏操作仍按界面语言本地化。
-- 新增软件包摘要一致性测试，避免后续三语摘要再次分叉。
+- `_locales/en`、`_locales/zh_CN` 与 `_locales/zh_TW` 的 Manifest 摘要统一为“把书签、资讯和网页内容提纯成每日信号。”这一语义，并分别使用英文、简体中文和繁体中文表达；扩展名称与工具栏操作继续按界面语言本地化。
+- 新增软件包摘要本地化测试，避免后续三语摘要在含义或长度上再次分叉。

@@ -1,5 +1,5 @@
 {
   "appName": { "message": "Ampira New Tab" },
-  "appDescription": { "message": "把书签、资讯和网页内容提纯成每日信号。" },
+  "appDescription": { "message": "Distill bookmarks, news, and web content into daily signals." },
   "actionTitle": { "message": "Add current page to Read later" }
 }

@@ -184,7 +184,11 @@ for (const locale of ["en", "zh_CN", "zh_TW"]) {
   assert.deepEqual(keys, manifestMessageKeys, `${locale} manifest messages must have matching keys`);
   manifestDescriptions.push(messages.appDescription?.message);
 }
-assert.deepEqual(manifestDescriptions, Array(3).fill("把书签、资讯和网页内容提纯成每日信号。"), "all packaged locales must use the reviewed Chinese summary");
+assert.deepEqual(manifestDescriptions, [
+  "Distill bookmarks, news, and web content into daily signals.",
+  "把书签、资讯和网页内容提纯成每日信号。",
+  "將書籤、資訊與網頁內容提煉成每日訊號。",
+], "all packaged locales must use the reviewed localized summary");
 
 const dashboardSource = await fs.readFile(path.join(root, "dashboard.html"), "utf8");
 const settingsCssSource = await fs.readFile(path.join(root, "assets", "styles", "settings.css"), "utf8");
