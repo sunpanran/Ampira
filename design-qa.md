@@ -205,4 +205,6 @@ $env:REQUIRED_SUPPORT_URL = "https://github.com/sunpanran/Ampira/issues"
 - 商店 Dashboard、精确来源权限和 AI 设置截图已从隔离配置重新捕获为 `1280×800`，不含真实 API Key、私人书签、个人浏览资料或运行时缓存。
 - Google Chrome `150.0.0.0` 使用独立临时配置从仓库根目录成功加载未打包扩展；`chrome://extensions` 显示 Ampira `26.2.8` 已启用、Service Worker 入口正常且无扩展警告。四步引导的无网站授权与稍后配置 AI 路径可用，真实 `chrome://newtab` 被 Ampira 接管；设置中的安装状态说明准确，“打开扩展管理页”实际打开带当前扩展 ID 的 Chrome 管理页。
 - 真实 Chrome 在深色 `1280×800`、浅色 `1440×1000` 和浅色 `390×844` 下均无横向溢出，窄屏五入口导航完整可见；减少动态效果媒体查询生效，动画与过渡降至 `0.00001s`。上述状态下控制台错误与警告均为 `0`。
-- Chrome 可选 `favicon`、`search` 和精确网站来源权限的授予/撤销、工具栏 `activeTab` 捕获、真实网络 Reader、非生产 AI Provider、双实例 Sync、恢复出厂设置，以及 Edge 垂直标签页与分屏仍需在商店私有测试前人工完成。
+- Chrome 隔离配置内完成可选权限回归：`favicon` 授予后启用 Chrome 原生图标，撤销后即时回退随包图标；9 个精确资讯来源全部授权后资讯正常加载，单独撤销 `36kr.com` 后来源状态立即变为未授权；恢复出厂设置清理了其余可选来源权限。
+- `search` 授予后顶部字段切换为“浏览器搜索”，非敏感测试查询由 Chrome 当前默认服务（Google）打开；撤销后即时回退为“搜索 Ampira”。恢复出厂设置确认清理 Ampira 本机/同步数据及可选权限、看板回到四步引导，未接触 Chrome 书签。
+- 工具栏 `activeTab` 捕获、真实网络 Reader、非生产 AI Provider、双实例 Sync，以及 Edge 垂直标签页与分屏仍需在商店私有测试前人工完成。
