@@ -1,6 +1,6 @@
 # Ampira New Tab
 
-Short description: Bring long-saved bookmarks back to life. Ampira turns them into continuously updated feeds, then uses AI to help you read, distill, and organize. Your saved inspiration resurfaces in a new way every day.
+Short description: Distill bookmarks, news, and web content into daily signals.
 
 ## Detailed description
 

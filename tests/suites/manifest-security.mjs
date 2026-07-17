@@ -189,6 +189,16 @@ assert.deepEqual(manifestDescriptions, [
   "把书签、资讯和网页内容提纯成每日信号。",
   "將書籤、資訊與網頁內容提煉成每日訊號。",
 ], "all packaged locales must use the reviewed localized summary");
+for (const [file, summary] of [
+  ["en.md", "Distill bookmarks, news, and web content into daily signals."],
+  ["zh-CN.md", "把书签、资讯和网页内容提纯成每日信号。"],
+  ["zh-TW.md", "將書籤、資訊與網頁內容提煉成每日訊號。"],
+]) {
+  for (const directory of ["listing", "edge-listing"]) {
+    const listing = await fs.readFile(path.join(root, "store", directory, file), "utf8");
+    assert(listing.split(/\r?\n/).slice(0, 4).some((line) => line.endsWith(summary)), `${directory}/${file} must match the packaged localized summary`);
+  }
+}
 
 const dashboardSource = await fs.readFile(path.join(root, "dashboard.html"), "utf8");
 const settingsCssSource = await fs.readFile(path.join(root, "assets", "styles", "settings.css"), "utf8");

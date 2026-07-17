@@ -213,4 +213,5 @@ $env:REQUIRED_SUPPORT_URL = "https://github.com/sunpanran/Ampira/issues"
 ## 2026-07-17 — 26.2.9 软件包摘要本地化统一
 
 - `_locales/en`、`_locales/zh_CN` 与 `_locales/zh_TW` 的 Manifest 摘要统一为“把书签、资讯和网页内容提纯成每日信号。”这一语义，并分别使用英文、简体中文和繁体中文表达；扩展名称与工具栏操作继续按界面语言本地化。
-- 新增软件包摘要本地化测试，避免后续三语摘要在含义或长度上再次分叉。
+- Chrome Web Store 与 Microsoft Edge Add-ons 的三语简短说明同步采用同一组本地化摘要，详细描述保持不变。
+- 新增软件包与两家商店摘要一致性测试，避免后续三语摘要在含义或长度上再次分叉。
