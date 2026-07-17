@@ -558,6 +558,7 @@ export default {
   "onboarding.step2.body": "Ampira requests website access only for selected sources. If you skip, bookmarks still open, but content is not fetched automatically.",
   "onboarding.step2.loading": "Choose whether to allow website access, then continue",
   "onboarding.step2.grant": "Allow websites and icons",
+  "onboarding.step2.grantSites": "Allow websites",
   "onboarding.step2.skip": "Not now",
   "onboarding.step3.kicker": "First-time setup · 2/4",
   "onboarding.step3.title": "Choose your sources",

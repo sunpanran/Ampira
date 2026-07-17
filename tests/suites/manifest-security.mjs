@@ -348,6 +348,7 @@ assert(permissionUiSource.includes('const optionNodes = [createOption(PUBLIC_FEE
 assert(bookmarkSettingsSource.includes('t("settings.bookmarks.notFound"'), "settings must retain a visible missing option for a removed personal folder");
 assert(!permissionUiSource.includes('request("settings:save", { openaiApiKey, aiDisclosureAccepted: true })'), "AI credentials must be configured progressively from Settings rather than onboarding");
 assert(permissionUiSource.includes('permissions: nativeFaviconSupported ? ["favicon"] : []'), "the onboarding primary action must request website icons only where the browser supports its native favicon service");
+assert(permissionUiSource.includes('nativeFaviconSupported ? "onboarding.step2.grant" : "onboarding.step2.grantSites"'), "onboarding must not promise website icons on browsers that do not support the native favicon service");
 assert(permissionUiSource.includes('microsoftEdge ? "edge://extensions/"'), "the extension manager action must use Edge's internal management page in Microsoft Edge");
 assert(permissionUiSource.includes('writeValue(ONBOARDING_PROGRESS_KEY, "permissions")'), "onboarding must resume at the permission step after folder activation");
 assert(permissionUiSource.includes('writeValue(ONBOARDING_PROGRESS_KEY, "ai")')

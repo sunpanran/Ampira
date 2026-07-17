@@ -558,6 +558,7 @@ export default {
   "onboarding.step2.body": "仅为已选来源请求网站访问权限。跳过后仍可打开书签，但不会自动获取内容。",
   "onboarding.step2.loading": "请选择是否授权网站，然后继续",
   "onboarding.step2.grant": "授权网站并启用图标",
+  "onboarding.step2.grantSites": "授权网站",
   "onboarding.step2.skip": "暂不授权",
   "onboarding.step3.kicker": "首次设置 · 2/4",
   "onboarding.step3.title": "选择你的内容来源",

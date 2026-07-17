@@ -558,6 +558,7 @@ export default {
   "onboarding.step2.body": "僅為已選來源請求網站存取權限。略過後仍可開啟書籤，但不會自動取得內容。",
   "onboarding.step2.loading": "請選擇是否授權網站，然後繼續",
   "onboarding.step2.grant": "授權網站並啟用圖示",
+  "onboarding.step2.grantSites": "授權網站",
   "onboarding.step2.skip": "暫不授權",
   "onboarding.step3.kicker": "首次設定 · 2/4",
   "onboarding.step3.title": "選擇你的內容來源",

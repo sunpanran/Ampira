@@ -4,10 +4,10 @@
 
 ## Edge compatibility QA
 
-- [ ] 从 `edge://extensions` 加载仓库根目录，确认 Manifest、Service Worker 和控制台无错误。
-- [ ] 打开 `edge://newtab` 完成四步引导；精确网站权限不得依赖或请求 Chrome 专属 `favicon` 权限。
-- [ ] “设置 → 浏览器”应说明网站图标不受支持、隐藏权限开关并稳定使用随包图标。
-- [ ] 扩展管理操作打开 `edge://extensions/`；不得声称 Ampira 能控制 Edge 的新标签页浏览器外壳图标。
+- [x] 从 `edge://extensions` 加载仓库根目录，确认 Manifest、Service Worker 和控制台无错误。
+- [x] 打开 `edge://newtab` 完成四步引导；精确网站权限不得依赖或请求 Chrome 专属 `favicon` 权限。
+- [x] “设置 → 浏览器”应说明网站图标不受支持、隐藏权限开关并稳定使用随包图标。
+- [x] 扩展管理操作打开 `edge://extensions/`；不得声称 Ampira 能控制 Edge 的新标签页浏览器外壳图标。
 - [ ] 启用并撤销顶部搜索权限，确认使用 Edge 当前默认搜索服务，撤权后恢复 Ampira 内容搜索。
 - [ ] 使用合成数据验证工具栏捕获、只读书签、alarms、精确来源权限、恢复出厂设置和两个已登录 Edge 实例间的可选同步。
 - [ ] 在水平标签、垂直标签和分屏中复核深浅主题、键盘焦点、减少动态效果及基准视口，无横向溢出和控制台错误。

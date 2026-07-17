@@ -72,6 +72,7 @@ async function initializeExtensionUi() {
     settings = await request("settings:get");
     setLocale(settings.uiLocale || getLocale(), { persist: Boolean(settings.uiLocale) });
     translateDocument(document);
+    syncOnboardingPermissionLabel();
     renderPermissionRows(settings.sourcePermissions || []);
     refreshFaviconPermission({ notify: true });
     refreshBrowserSearchPermission({ notify: true });
@@ -81,6 +82,14 @@ async function initializeExtensionUi() {
     renderPermissionRows([]);
     setPermissionFeedback(error.message || String(error));
   }
+}
+
+function syncOnboardingPermissionLabel() {
+  const label = els.grantOnboarding?.querySelector(".btn-label");
+  if (!label) return;
+  const key = nativeFaviconSupported ? "onboarding.step2.grant" : "onboarding.step2.grantSites";
+  label.dataset.i18n = key;
+  label.textContent = t(key);
 }
 
 function bindEvents() {
@@ -117,6 +126,7 @@ function bindEvents() {
   document.addEventListener("ampira:locale-changed", () => {
     queueMicrotask(() => {
       translateDocument(document);
+      syncOnboardingPermissionLabel();
       permissionFeedback = "";
       renderPermissionRows(permissionRows);
       renderFaviconPermission();
