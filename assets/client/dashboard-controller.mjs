@@ -68,7 +68,7 @@ async function triggerRefresh(force) {
 
 function setRefreshRequestFeedback(active) {
   for (const button of [els.refresh, els.settingsRefresh]) {
-    button.classList?.toggle("is-loading", active);
+    if (active || !button.querySelector?.(".btn-icon")) button.classList?.toggle("is-loading", active);
     if (active) button.setAttribute?.("aria-busy", "true");
     else button.removeAttribute?.("aria-busy");
   }

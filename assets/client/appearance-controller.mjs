@@ -11,11 +11,10 @@ import {
 
 const COLOR_MODE_STORAGE_KEY = "ampira.colorMode";
 const HEADER_COVER_STORAGE_KEY = "ampira.headerCover";
-const HEADER_IMAGE_BLUR_MAX = 24;
+const HEADER_IMAGE_BLUR_MAX = 50;
 const HEADER_IMAGE_BLUR_DEFAULT = 12;
 const HEADER_IMAGE_BLUR_BLEED_MULTIPLIER = 1.5;
 const HEADER_IMAGE_HEIGHT_MIN = 70;
-const HEADER_IMAGE_FULLSCREEN_HEIGHT_MIN = 100;
 const HEADER_IMAGE_HEIGHT_MAX = 140;
 const HEADER_IMAGE_HEIGHT_DEFAULT = 100;
 const DEFAULT_HEADER_IMAGE_ASSET = "/assets/images/default-header.webp";
@@ -29,6 +28,7 @@ export function createAppearanceController(options) {
     const custom = normalizeHexColor(settings.customAccentColor) || settings.defaultCustomAccentColor || DEFAULT_CUSTOM_ACCENT_COLOR;
     syncAccentThemeButtons(accentTheme);
     els.customAccentInput.value = custom;
+    options.syncCustomAccentColor?.(custom);
     applyCustomAccentPreview(custom);
     els.pointerGlowEnabledInput.checked = settings.pointerGlowEnabled !== false;
     els.headerImageEnabledInput.checked = settings.headerImageEnabled === true;
@@ -58,10 +58,7 @@ export function createAppearanceController(options) {
 
   function syncHeightControl(busy = els.saveSettings.disabled) {
     const enabled = els.headerImageEnabledInput.checked;
-    const min = els.headerImageFullscreenInput.checked
-      ? HEADER_IMAGE_FULLSCREEN_HEIGHT_MIN
-      : HEADER_IMAGE_HEIGHT_MIN;
-    els.headerImageHeightInput.min = String(min);
+    els.headerImageHeightInput.min = String(HEADER_IMAGE_HEIGHT_MIN);
     els.headerImageHeightInput.disabled = !enabled || busy;
     els.headerImageHeightField.setAttribute("aria-disabled", String(!enabled || busy));
     syncHeightLabel();

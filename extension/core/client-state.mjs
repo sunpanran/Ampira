@@ -2,6 +2,7 @@ const KEY_PATTERN = /^dash\.[A-Za-z0-9._-]{1,91}$/;
 const MAX_VALUE_BYTES = 512 * 1024;
 const MAX_STATE_BYTES = 2 * 1024 * 1024;
 const MAX_PATCH_ENTRIES = 100;
+const UTF8_ENCODER = new TextEncoder();
 
 export function createClientStateStore(adapters) {
   let writeQueue = Promise.resolve();
@@ -17,7 +18,11 @@ export function createClientStateStore(adapters) {
     save(payload = {}) {
       return enqueue(async () => {
         const patch = normalizePatch(payload.values);
-        const current = payload.replace === true ? {} : await adapters.getRecord("client-state", {});
+        const patchEntries = Object.entries(patch);
+        const replace = payload.replace === true;
+        if (!replace && !patchEntries.length) return { ok: true };
+        const current = replace ? {} : await adapters.getRecord("client-state", {});
+        if (!replace && patchMatchesCurrent(current, patchEntries)) return { ok: true };
         const next = { ...current, ...patch };
         await persist(next);
         return { ok: true };
@@ -52,6 +57,13 @@ export function createClientStateStore(adapters) {
   }
 }
 
+function patchMatchesCurrent(current, patchEntries) {
+  return current
+    && typeof current === "object"
+    && !Array.isArray(current)
+    && patchEntries.every(([key, value]) => current[key] === value);
+}
+
 export function normalizeClientStatePatch(values) {
   return normalizePatch(values);
 }
@@ -82,5 +94,5 @@ function stateError(code, messageKey) {
 }
 
 function byteLength(value) {
-  return new TextEncoder().encode(String(value)).byteLength;
+  return UTF8_ENCODER.encode(String(value)).byteLength;
 }

@@ -1,6 +1,7 @@
 import {
   edgeEnabledOptionIndex,
   nextEnabledOptionIndex,
+  optionLabel,
   optionUnavailable,
   typeaheadOptionIndex,
 } from "./select-combobox-model.mjs";

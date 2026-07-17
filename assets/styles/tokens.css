@@ -112,8 +112,9 @@
   --dashboard-cover-flow-x: 0px;
   --dashboard-cover-flow-y: -100px;
   --gap: 16px;
-  --font-ui: "HarmonyOS Sans SC", "Microsoft YaHei UI", "PingFang SC", "Noto Sans CJK SC", system-ui, sans-serif;
+  --font-ui: "HarmonyOS Sans SC", "PingFang SC", "Noto Sans CJK SC", "Microsoft YaHei UI", system-ui, sans-serif;
   --font-display: "Bahnschrift", "Aptos Display", "Segoe UI Variable Display", var(--font-ui);
+  --font-mono: "Cascadia Mono", "SFMono-Regular", Consolas, "Liberation Mono", "HarmonyOS Sans SC", "PingFang SC", "Microsoft YaHei UI", monospace;
 }
 
 :root[data-color-mode="light"] {

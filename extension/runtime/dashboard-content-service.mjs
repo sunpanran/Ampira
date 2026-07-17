@@ -1,3 +1,5 @@
+import { aiOutputPartsMatchLocale } from "../core/ai-output-language.mjs";
+
 export function createDashboardContentService(options) {
   const {
     cacheMutations, capturePermissionEpoch, isPermissionEpochCurrent, getSettings,
@@ -248,6 +250,11 @@ function digestCachePermitted(digest, visibleItems, permissionState, settings, c
   ));
   if (!digestItemsVisible) return false;
   if (digest.status !== "ai") return cacheSourceIdentitiesPermitted(digest, permissionState, false);
+  const generatedParts = [
+    ...(Array.isArray(digest.overview) ? digest.overview : []),
+    ...(Array.isArray(digest.items) ? digest.items.map((item) => item?.aiTitle).filter(Boolean) : []),
+  ];
+  if (!generatedParts.length || !aiOutputPartsMatchLocale(generatedParts, settingsLocale(settings))) return false;
   return configuredForAi
     && originPattern(digest.providerOrigin || "") === originPattern(settings.openaiBaseUrl)
     && cacheSourceIdentitiesPermitted(digest, permissionState, true);

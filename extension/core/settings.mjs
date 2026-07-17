@@ -56,7 +56,7 @@ export function normalizeSettings(value = {}) {
   settings.headerImageUrl = normalizePublicUrl(
     Object.hasOwn(input, "headerImageUrl") ? input.headerImageUrl : DEFAULT_SETTINGS.headerImageUrl,
   );
-  settings.headerImageBlurAmount = boundedInteger(input.headerImageBlurAmount, 0, 24, DEFAULT_SETTINGS.headerImageBlurAmount);
+  settings.headerImageBlurAmount = boundedInteger(input.headerImageBlurAmount, 0, 50, DEFAULT_SETTINGS.headerImageBlurAmount);
   settings.headerImageHeightScale = boundedStepInteger(input.headerImageHeightScale, 70, 140, 5, DEFAULT_SETTINGS.headerImageHeightScale);
   settings.headerImageFullscreen = settings.headerImageFixed && settings.headerImageFullscreen;
   settings.websiteShortcuts = normalizeWebsiteShortcuts(input.websiteShortcuts);

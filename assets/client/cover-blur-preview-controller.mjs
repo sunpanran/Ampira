@@ -21,6 +21,9 @@ export function createCoverBlurPreviewController({ modal, input, previewClass = 
 
   function begin() {
     if (input.disabled || !modal.classList.contains("open")) return;
+    if (!modal.classList.contains(previewClass)) {
+      window.scrollTo({ top: 0, left: 0, behavior: "smooth" });
+    }
     modal.classList.add("is-cover-previewing");
     modal.classList.add(previewClass);
   }

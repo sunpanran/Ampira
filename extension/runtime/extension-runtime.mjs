@@ -37,10 +37,11 @@ import {
   setAiDisclosureConsent,
 } from "../core/device-consent.mjs";
 import { DEFAULT_LOCALE, defaultBookmarkFoldersForLocale, normalizeLocale, translate, translateAiPrompt } from "../core/i18n.mjs";
+import { readerTranslationMatchesLocale } from "../core/ai-output-language.mjs";
 import { requestAiCompletion, testImageSearchConnection } from "../core/ai.mjs";
 import { createClientStateStore } from "../core/client-state.mjs";
 import { createContentSyncService } from "../core/content-sync.mjs";
-import { createQuotaManager } from "../core/quota.mjs";
+import { createQuotaManager, shouldReleaseAutomaticAiQuota } from "../core/quota.mjs";
 import { createPreviewService, fetchSourceImageCandidates } from "../core/preview.mjs";
 import { bravePreviewCacheKeys, newsPreviewTargets, previewCacheKeysOutsideTargets } from "../core/preview-cache.mjs";
 import { retainActiveUnrefreshedItems, selectRefreshBatch } from "../core/refresh.mjs";
@@ -578,6 +579,7 @@ async function translateReaderArticle(payload = {}) {
     6000,
     "",
     () => assertUrlsStillPermitted([payload.url]),
+    { expectedLocale: locale, outputValidator: readerTranslationMatchesLocale },
   );
   const parts = String(value || "").split(/\n\s*\n/);
   const translatedTitle = parts.length > 1 ? parts.shift().trim() : title;
@@ -594,7 +596,7 @@ async function runAiWithinQuota(settings, operation) {
   try {
     return { usedAi: true, value: await operation() };
   } catch (error) {
-    await quotaManager.release(reservation);
+    if (shouldReleaseAutomaticAiQuota(error)) await quotaManager.release(reservation);
     throw error;
   }
 }

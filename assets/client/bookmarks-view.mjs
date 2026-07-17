@@ -13,7 +13,7 @@ export function createBookmarksView(options) {
     setIconLabel, syncSegmentedIndicator, openExternal, contextAttachGroup,
     contextAttachLink, contextAttachActions, openBookmarkSettings, hideBookmarkCategory,
     toggleSeen, defaultSeenSource, isQueued, actionKey,
-    toggleReadingQueue, refreshSummaryItem, allFilter,
+    toggleReadingQueue, refreshSummaryItem, allFilter, restartMotionClass, prefersReducedMotion,
   } = options;
 
   return {
@@ -300,7 +300,10 @@ function createManualSummaryButton(item, isRefreshing) {
   button.title = label;
   button.setAttribute("aria-label", label);
   button.append(createThemedIcon(isRefreshing ? "synchronize" : "sparkling", "action-toggle-icon"), srOnly(label));
-  button.addEventListener("click", (event) => refreshSummaryItem(item, event));
+  button.addEventListener("click", (event) => {
+    playSummaryActionElastic(button);
+    refreshSummaryItem(item, event);
+  });
   return button;
 }
 
@@ -315,10 +318,21 @@ function createActionToggleButton({ active, icon, label, className, readingQueue
   button.addEventListener("click", (event) => {
     event.preventDefault();
     event.stopPropagation();
+    const isSummaryAction = playSummaryActionElastic(button);
+    if (isSummaryAction && button.classList.contains("viewed-toggle") && !prefersReducedMotion()) {
+      window.setTimeout(onClick, 180);
+      return;
+    }
     onClick();
   });
   button.append(createThemedIcon(icon, "action-toggle-icon"), srOnly(label));
   return button;
+}
+
+function playSummaryActionElastic(button) {
+  if (!button.closest(".summary-card-actions")) return false;
+  restartMotionClass(button, "is-subtle-elastic");
+  return true;
 }
 
 }

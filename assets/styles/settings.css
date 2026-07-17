@@ -73,12 +73,14 @@
   justify-content: space-between;
   gap: 12px;
   padding: 14px 16px;
+}
+
+.modal-head {
   border-bottom: 1px solid var(--line-soft);
 }
 
 .modal-actions {
   border-top: 1px solid var(--line-soft);
-  border-bottom: 0;
 }
 
 #settingsModal .modal-head,
@@ -262,9 +264,9 @@
   grid-template-columns: minmax(120px, .7fr) minmax(160px, .9fr) minmax(240px, 1.4fr);
   gap: 0;
   overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--line-faint) 88%, transparent);
-  border-radius: var(--radius-row);
-  background: color-mix(in srgb, var(--surface-row) 34%, transparent);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
 }
 
 .settings-overview .settings-overview-item {
@@ -1034,6 +1036,8 @@
 
 #settingsModal.is-cover-previewing {
   background: rgba(0, 0, 0, .08);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
   pointer-events: auto;
 }
 
@@ -1709,13 +1713,270 @@
   position: relative;
 }
 
-.theme-custom-input {
+.color-picker-popover {
+  --picker-hue: hsl(263 100% 50%);
+  --picker-color: #9152FF;
+  --picker-x: 68%;
+  --picker-y: 0%;
+  position: fixed;
+  inset: auto;
+  width: min(316px, calc(100vw - 24px));
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--card-line);
+  border-radius: var(--radius-card);
+  background: var(--blur-panel-bg);
+  color: var(--text);
+  box-shadow: var(--shadow-panel), inset 0 1px 0 var(--line-faint);
+  -webkit-backdrop-filter: var(--card-backdrop-blur);
+  backdrop-filter: var(--card-backdrop-blur);
+}
+
+.color-picker-popover::backdrop {
+  background: transparent;
+}
+
+.color-picker-head {
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px 8px 12px;
+  border-bottom: 1px solid var(--line-soft);
+  background: color-mix(in srgb, var(--surface-row) 58%, transparent);
+}
+
+.color-picker-heading {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.color-picker-heading strong {
+  overflow: hidden;
+  color: var(--text-strong);
+  font-size: 13px;
+  font-weight: 850;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.color-picker-format,
+.color-picker-control-row > span:first-child {
+  color: var(--muted-2);
+  font-family: var(--font-display);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .08em;
+}
+
+.color-picker-close {
+  width: 28px;
+  min-width: 28px;
+  min-height: 28px;
+}
+
+.color-picker-plane {
+  position: relative;
+  height: 164px;
+  margin: 12px 12px 0;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--line) 76%, transparent);
+  border-radius: var(--radius-control);
+  outline: 0;
+  background: var(--surface-0);
+  isolation: isolate;
+  cursor: crosshair;
+  touch-action: none;
+}
+
+.color-picker-plane::before {
+  content: "";
   position: absolute;
-  inset: 0;
+  inset: 1px;
+  border-radius: calc(var(--radius-control) - 2px);
+  background:
+    linear-gradient(to top, #000, transparent),
+    linear-gradient(to right, #fff, var(--picker-hue));
+  pointer-events: none;
+}
+
+.color-picker-plane:focus-visible {
+  box-shadow: var(--focus-ring);
+}
+
+.color-picker-marker {
+  position: absolute;
+  left: clamp(8px, var(--picker-x), calc(100% - 8px));
+  top: clamp(8px, var(--picker-y), calc(100% - 8px));
+  width: 16px;
+  height: 16px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  background: var(--picker-color);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, .56), 0 2px 8px rgba(0, 0, 0, .28);
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+}
+
+.color-picker-controls {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+}
+
+.color-picker-control-row {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+}
+
+.field .color-picker-hue {
+  box-sizing: border-box;
   width: 100%;
-  height: 100%;
-  opacity: 0;
+  height: 18px;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  appearance: none;
+  border: 0;
+  border-radius: 0;
+  outline: 0;
+  background: transparent;
+  box-shadow: none;
   cursor: pointer;
+}
+
+.field .color-picker-hue:focus,
+.field .color-picker-hue:focus-visible {
+  border: 0;
+  outline: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.color-picker-hue::-webkit-slider-runnable-track {
+  height: 8px;
+  border: 1px solid color-mix(in srgb, var(--line) 66%, transparent);
+  border-radius: var(--radius-pill);
+  background: linear-gradient(90deg, #F35A5A, #F3E15A, #5AF377, #5AEBF3, #5A72F3, #C05AF3, #F35A72);
+}
+
+.color-picker-hue::-webkit-slider-thumb {
+  width: 16px;
+  height: 16px;
+  margin-top: -5px;
+  appearance: none;
+  border: 2px solid var(--surface-1);
+  border-radius: 50%;
+  background: var(--picker-color);
+  box-shadow: 0 0 0 1px var(--active-line);
+}
+
+.color-picker-hue::-moz-range-track {
+  height: 8px;
+  border: 1px solid color-mix(in srgb, var(--line) 66%, transparent);
+  border-radius: var(--radius-pill);
+  background: linear-gradient(90deg, #F35A5A, #F3E15A, #5AF377, #5AEBF3, #5A72F3, #C05AF3, #F35A72);
+}
+
+.color-picker-hue::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--surface-1);
+  border-radius: 50%;
+  background: var(--picker-color);
+  box-shadow: 0 0 0 1px var(--active-line);
+}
+
+.color-picker-hue:focus-visible::-webkit-slider-thumb,
+.color-picker-hue:active::-webkit-slider-thumb {
+  box-shadow: 0 0 0 1px var(--active-line), 0 0 0 4px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.color-picker-hue:focus-visible::-moz-range-thumb,
+.color-picker-hue:active::-moz-range-thumb {
+  box-shadow: 0 0 0 1px var(--active-line), 0 0 0 4px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.color-picker-hex-control {
+  min-width: 0;
+  height: 34px;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  border: 1px solid var(--control-line);
+  border-radius: var(--radius-control);
+  background: var(--control-bg);
+  transition: border-color var(--motion-state-duration) var(--motion-ease-standard), background-color var(--motion-state-duration) var(--motion-ease-standard), box-shadow var(--motion-state-duration) var(--motion-ease-standard);
+}
+
+.color-picker-hex-control:focus-within {
+  border-color: var(--active-line);
+  box-shadow: var(--focus-ring);
+}
+
+.color-picker-value-dot {
+  width: 16px;
+  height: 16px;
+  border: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
+  border-radius: 50%;
+  background: var(--picker-color);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .22);
+}
+
+.field .color-picker-hex-input {
+  box-sizing: border-box;
+  min-width: 0;
+  width: 100%;
+  height: 30px;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text-strong);
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.field .color-picker-hex-input:focus,
+.field .color-picker-hex-input:focus-visible {
+  border: 0;
+  outline: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.color-picker-hex-control:has(.color-picker-hex-input[aria-invalid="true"]) {
+  border-color: color-mix(in srgb, var(--red) 64%, var(--control-line));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--red) 16%, transparent);
+}
+
+.color-picker-error {
+  padding-left: 50px;
+  color: var(--red);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.color-picker-plane[aria-disabled="true"],
+.color-picker-hue:disabled,
+.color-picker-hex-input:disabled {
+  cursor: not-allowed;
+  opacity: .55;
 }
 
 .settings-cache-note,
@@ -1923,5 +2184,28 @@
   .settings-disclosure,
   .settings-disclosure-body {
     border-color: CanvasText;
+  }
+
+  .color-picker-popover,
+  .color-picker-plane,
+  .color-picker-hex-control {
+    border-color: CanvasText;
+    background: Canvas;
+    box-shadow: none;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  .color-picker-plane::before {
+    display: none;
+  }
+
+  .color-picker-hue {
+    appearance: auto;
+  }
+
+  .color-picker-marker,
+  .color-picker-value-dot {
+    forced-color-adjust: none;
   }
 }

@@ -50,6 +50,10 @@ export function createQuotaManager(storage, dateKey = localDateKey) {
   }
 }
 
+export function shouldReleaseAutomaticAiQuota(error) {
+  return error?.code !== "AI_WRONG_LANGUAGE";
+}
+
 function normalizeQuota(value, date, limit) {
   const used = value?.date === date ? Math.max(0, Math.round(Number(value.used || 0))) : 0;
   const generation = value?.date === date ? Math.max(0, Math.round(Number(value.generation || 0))) : 0;

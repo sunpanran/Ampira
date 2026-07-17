@@ -13,7 +13,7 @@ export function createSettingsController(options) {
     bookmarkSourcePayload, appearancePayload, snapshotSettingsDraft, cloneSettingsDraft, diffSettingsDraft,
     syncSeenArchiveRetention, loadDashboard, triggerRefresh, renderStatus, renderEfficiencyPanel, renderAll,
     resetToDailyView, syncNavToCurrentSection, getLocale, setLocale, settingsSaveCloseDelayMs, settingsCloseMotionMs,
-    inspirationPreviews, syncHeaderImageFullscreenControl, syncHeaderImageBlurControl, syncHeaderImageHeightControl, headerCoverController, availableNewsFolders,
+    inspirationPreviews, syncHeaderImageFullscreenControl, syncHeaderImageBlurControl, syncHeaderImageHeightControl, syncAccentColorPickerBusy, headerCoverController, availableNewsFolders,
     syncSourceSuggestionActionState, syncSegmentedIndicator, websiteShortcutsPayload,
     setWebsiteShortcutControlsBusy, aiSetupStage, requestSourcePermissions, revealActiveSettingsTab,
   } = options;
@@ -434,7 +434,7 @@ function setSettingsBusy(busy) {
   els.inspirationBookmarkFolderSelect.disabled = busy;
   els.bookmarkOnlyFolderSelect.disabled = busy || !els.bookmarkOnlyFolderSelect.value;
   els.addBookmarkOnlyFolder.disabled = busy || !els.bookmarkOnlyFolderSelect.value;
-  els.customAccentInput.disabled = busy;
+  els.customAccentInput.disabled = busy; syncAccentColorPickerBusy(busy);
   els.pointerGlowEnabledInput.disabled = busy;
   els.headerImageEnabledInput.disabled = busy;
   syncHeaderImageBlurControl(busy); syncHeaderImageHeightControl(busy);

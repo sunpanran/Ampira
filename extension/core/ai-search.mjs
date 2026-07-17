@@ -34,6 +34,39 @@ export function normalizeArticleContext(value, locale = "zh-CN", normalizeUrl = 
   return { type: "article", url, summary, turns };
 }
 
+export function normalizeQuestionContext(value) {
+  if (!value || value.type !== "question") return null;
+  const initialQuery = limitCodePoints(String(value.initialQuery || "").trim(), 2000);
+  const initialAnswer = limitCodePoints(String(value.initialAnswer || "").trim(), 2000);
+  if (!initialQuery || !initialAnswer) return null;
+  return {
+    type: "question",
+    initialQuery,
+    initialAnswer,
+    turns: normalizeFollowupTurns(value.turns),
+  };
+}
+
+function normalizeFollowupTurns(value) {
+  const sourceTurns = Array.isArray(value) ? value.slice(-AI_FOLLOWUP_HISTORY_MAX_TURNS) : [];
+  const turns = [];
+  let remaining = AI_FOLLOWUP_HISTORY_MAX_CHARS;
+  for (let index = sourceTurns.length - 1; index >= 0 && remaining > 0; index -= 1) {
+    const question = limitCodePoints(String(sourceTurns[index]?.question || "").trim(), AI_FOLLOWUP_QUERY_MAX_CHARS);
+    const answer = limitCodePoints(String(sourceTurns[index]?.answer || "").trim(), 1200);
+    if (!question || !answer) continue;
+    const combinedLength = codePointLength(question) + codePointLength(answer);
+    if (combinedLength > remaining && turns.length) break;
+    const boundedQuestion = limitCodePoints(question, Math.min(AI_FOLLOWUP_QUERY_MAX_CHARS, remaining));
+    const answerBudget = Math.max(0, remaining - codePointLength(boundedQuestion));
+    const boundedAnswer = limitCodePoints(answer, answerBudget);
+    if (!boundedQuestion || !boundedAnswer) break;
+    turns.unshift({ question: boundedQuestion, answer: boundedAnswer });
+    remaining -= codePointLength(boundedQuestion) + codePointLength(boundedAnswer);
+  }
+  return turns;
+}
+
 export function limitCodePoints(value, maxChars) {
   if (maxChars <= 0) return "";
   return [...String(value || "")].slice(0, maxChars).join("");

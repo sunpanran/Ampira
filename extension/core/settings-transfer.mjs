@@ -75,7 +75,7 @@ const BOOLEAN_FIELDS = new Set([
 ]);
 const ARRAY_FIELDS = new Set(["websiteShortcuts", "bookmarkOnlyFolders", "hiddenBookmarkCategories", "excludedNewsSources"]);
 const NUMBER_RANGES = Object.freeze({
-  headerImageBlurAmount: [0, 24],
+  headerImageBlurAmount: [0, 50],
   headerImageHeightScale: [70, 140],
   dailyAiLimit: [1, 500],
   hotNewsCacheSize: [16, 500],

@@ -1,12 +1,13 @@
 import {
   AI_ARTICLE_CONTEXT_MAX_CHARS, AI_FOLLOWUP_QUERY_MAX_CHARS,
-  limitArticleSummary, limitCodePoints, normalizeArticleContext,
+  limitArticleSummary, limitCodePoints, normalizeArticleContext, normalizeQuestionContext,
 } from "../core/ai-search.mjs";
+import { aiOutputMatchesLocale } from "../core/ai-output-language.mjs";
 
 const AI_CONNECTION_TEST_MAX_TOKENS = 900;
 const AI_SEARCH_MAX_TOKENS = 1400;
 const AI_ARTICLE_MAX_TOKENS = 900;
-const AI_SEARCH_CACHE_VERSION = 5;
+const AI_SEARCH_CACHE_VERSION = 6;
 
 function articleHistoryText(turns) {
   return (turns || []).map((turn, index) => [
@@ -75,6 +76,20 @@ function websitePermissionSearchResult(locale, url) {
   };
 }
 
+function localeChangedSearchResult(locale, result = {}) {
+  return {
+    ok: true,
+    locale,
+    type: result.type || "question",
+    mode: result.mode || "dashboard",
+    answer: translate(locale, "background.error.aiLocaleChanged"),
+    links: Array.isArray(result.links) ? result.links : [],
+    usedAi: false,
+    errorKey: "background.error.aiLocaleChanged",
+    errorParams: {},
+  };
+}
+
 async function sanitizeSearchResult(result, { asUrl, query, nonAiFallback }) {
   const latestSettings = await getSettings();
   const latestLocale = settingsLocale(latestSettings);
@@ -83,11 +98,12 @@ async function sanitizeSearchResult(result, { asUrl, query, nonAiFallback }) {
     if (!await cacheUrlsPermitted(contextUrls)) {
       return websitePermissionSearchResult(latestLocale, asUrl);
     }
+    if (latestLocale !== result?.locale) return localeChangedSearchResult(latestLocale, result);
     if (result?.usedAi && !await aiSearchResultPermitted(result, asUrl, latestSettings)) {
       if (!await cacheUrlsPermitted(contextUrls)) return websitePermissionSearchResult(latestLocale, asUrl);
       return withFeedCacheMetadata({ ...(nonAiFallback || websitePermissionSearchResult(latestLocale, asUrl)), locale: latestLocale }, [], "ai-search");
     }
-    return { ...result, locale: latestLocale };
+    return result;
   }
 
   const latestContext = await loadQuestionSearchContext(latestSettings, query);
@@ -106,12 +122,21 @@ async function answerAiSearch(body) {
   const settings = await getSettings();
   const locale = settingsLocale(settings);
   const articleContext = normalizeArticleContext(body.articleContext, locale, normalizeUserUrl);
-  const queryLimit = articleContext ? AI_FOLLOWUP_QUERY_MAX_CHARS : 2000;
+  const questionContext = normalizeQuestionContext(body.questionContext);
+  const followupContext = articleContext || questionContext;
+  const queryLimit = followupContext ? AI_FOLLOWUP_QUERY_MAX_CHARS : 2000;
   const query = limitCodePoints(String(body.query || "").trim(), queryLimit);
   if (!query) return resultMessage(settings, false, "background.error.searchRequired");
   const asUrl = normalizeUserUrl(query);
   if (articleContext && !asUrl) {
-    return answerArticleFollowup(settings, locale, query, articleContext);
+    const result = await answerArticleFollowup(settings, locale, query, articleContext);
+    const latestLocale = settingsLocale(await getSettings());
+    return latestLocale === result.locale ? result : localeChangedSearchResult(latestLocale, result);
+  }
+  if (questionContext && !asUrl) {
+    const result = await answerQuestionFollowup(settings, locale, query, questionContext);
+    const latestLocale = settingsLocale(await getSettings());
+    return latestLocale === result.locale ? result : localeChangedSearchResult(latestLocale, result);
   }
   const providerIdentity = `${settings.openaiBaseUrl}|${settings.openaiApiStyle}|${settings.openaiSummaryModel}|${settings.credentialGeneration}`;
   const cacheKey = `search-${locale}-${hashText(`${AI_SEARCH_CACHE_VERSION}:${localDateKey()}:${providerIdentity}:${query}`)}`;
@@ -123,7 +148,9 @@ async function answerAiSearch(body) {
     candidates = context.candidates;
   }
   const cached = await getRecord(cacheKey, null);
-  if (cached?.usedAi && await aiSearchResultPermitted(cached, asUrl, settings, feedPermissions, cacheEpoch)) {
+  if (cached?.usedAi
+    && aiOutputMatchesLocale(cached.answer, locale)
+    && await aiSearchResultPermitted(cached, asUrl, settings, feedPermissions, cacheEpoch)) {
     return { ...cached, cached: true };
   }
   let result;
@@ -252,6 +279,37 @@ async function answerArticleFollowup(settings, locale, query, context) {
   });
 }
 
+async function answerQuestionFollowup(settings, locale, query, context) {
+  const searchContext = await loadQuestionSearchContext(settings, query);
+  const candidates = searchContext.candidates;
+  const nonAiFallback = localQuestionSearchResult(locale, query, candidates);
+  const result = await answerWithOptionalAi(settings, {
+    locale,
+    type: "question",
+    mode: "question-followup",
+    fallback: nonAiFallback.answer,
+    system: translateAiPrompt(locale, "background.prompt.questionFollowup"),
+    input: translate(locale, "background.prompt.questionFollowupInput", {
+      initialQuery: context.initialQuery,
+      initialAnswer: context.initialAnswer,
+      history: articleHistoryText(context.turns),
+      content: candidates.length
+        ? candidates.map((item, index) => `${index + 1}. ${item.title}｜${item.excerpt}｜${item.url}`).join("\n")
+        : translate(locale, "background.search.noLocalResults", { query }),
+      query,
+    }),
+    links: candidates.map((item) => ({ title: item.title, url: item.url })),
+    validateRequest: () => assertFeedItemsStillPermitted(candidates),
+  });
+  const guardedResult = withFeedCacheMetadata(
+    result,
+    candidates,
+    "ai-search",
+    result.usedAi ? settings.openaiBaseUrl : "",
+  );
+  return sanitizeSearchResult(guardedResult, { asUrl: "", query, nonAiFallback });
+}
+
 async function answerWithOptionalAi(settings, options) {
   if (!await aiConfigured(settings)) return { ok: true, locale: options.locale, type: options.type, mode: options.mode, answer: options.fallback, links: options.links, usedAi: false };
   try {
@@ -262,7 +320,11 @@ async function answerWithOptionalAi(settings, options) {
       options.maxTokens || AI_SEARCH_MAX_TOKENS,
       "",
       options.validateRequest,
-      options.completionOptions || {},
+      {
+        ...(options.completionOptions || {}),
+        expectedLocale: options.locale,
+        ...(typeof options.outputValidator === "function" ? { outputValidator: options.outputValidator } : {}),
+      },
     );
     const value = typeof options.transformAnswer === "function" ? options.transformAnswer(rawValue) : rawValue;
     return { ok: true, locale: options.locale, type: options.type, mode: options.mode, answer: value, links: options.links, usedAi: true };
@@ -294,6 +356,11 @@ async function callProvider(
   completionOptions = {},
   providerOverride = false,
 ) {
+  const {
+    expectedLocale = "",
+    outputValidator = null,
+    ...providerCompletionOptions
+  } = completionOptions || {};
   let providerSettings = settings;
   let apiKey = apiKeyOverride;
   const useProviderOverride = providerOverride || Boolean(apiKeyOverride);
@@ -321,7 +388,15 @@ async function callProvider(
     credentialGeneration: providerSettings.credentialGeneration,
     openaiApiKey: apiKey,
   };
+  const assertExpectedLocale = async () => {
+    if (!expectedLocale) return;
+    const latestLocale = settingsLocale(await getSettings());
+    if (latestLocale !== expectedLocale) {
+      throw typedError("AI_LOCALE_CHANGED", "background.error.aiLocaleChanged", {}, true);
+    }
+  };
   const validateCurrentRequest = async () => {
+    await assertExpectedLocale();
     if (!useProviderOverride) {
       const latestProvider = await readProviderProfile(settings);
       const latestConsent = await readDeviceConsent(latestProvider.openaiBaseUrl);
@@ -335,16 +410,24 @@ async function callProvider(
     }
     return typeof validateRequest === "function" ? validateRequest() : null;
   };
-  return requestAiCompletion(providerSettings, {
-    system,
-    input,
-    maxTokens,
-    apiKey,
-    hasOriginPermission,
-    hasOriginPermissions,
-    validateRequest: validateCurrentRequest,
-    ...completionOptions,
-  });
+  const validateOutput = typeof outputValidator === "function" ? outputValidator : aiOutputMatchesLocale;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const response = await requestAiCompletion(providerSettings, {
+      ...providerCompletionOptions,
+      system: attempt === 0
+        ? system
+        : `${system}\n\n${translate(expectedLocale, "background.prompt.outputLanguageRepair")}`,
+      input,
+      maxTokens,
+      apiKey,
+      hasOriginPermission,
+      hasOriginPermissions,
+      validateRequest: validateCurrentRequest,
+    });
+    await assertExpectedLocale();
+    if (!expectedLocale || validateOutput(response, expectedLocale)) return response;
+  }
+  throw typedError("AI_WRONG_LANGUAGE", "background.error.aiWrongLanguage", {}, true);
 }
 
 async function testOpenAISettings(body) {

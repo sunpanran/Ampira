@@ -4,6 +4,7 @@ const memory = new Map();
 const locallyWrittenKeys = new Set();
 const CLIENT_STATE_KEY_PATTERN = /^dash\.[A-Za-z0-9._-]{1,91}$/;
 const MAX_CLIENT_STATE_VALUE_BYTES = 512 * 1024;
+const UTF8_ENCODER = new TextEncoder();
 let hydrated = false;
 let hydratePromise = null;
 const pendingWrites = new Map();
@@ -68,8 +69,12 @@ export function readValue(key) {
 export function writeValue(key, value) {
   const serialized = String(value);
   memory.set(key, serialized);
+  const persistable = isPersistableEntry(key, serialized);
+  if (!persistable) {
+    locallyWrittenKeys.delete(key);
+    return;
+  }
   locallyWrittenKeys.add(key);
-  if (!isPersistableEntry(key, serialized)) return;
   if (hasExtensionRuntime()) {
     pendingWrites.set(key, serialized);
     scheduleFlush(50);
@@ -108,10 +113,12 @@ export async function flushStorage() {
     }))
     .then((response) => {
       if (!response?.ok) throw responseError(response);
+      releaseSettledWrites(batch);
       retryDelayMs = 250;
     })
     .catch((error) => {
       if (error?.retryable === false) {
+        releaseSettledWrites(batch);
         retryDelayMs = 250;
         return;
       }
@@ -128,6 +135,12 @@ export async function flushStorage() {
   return flushPromise;
 }
 
+function releaseSettledWrites(batch) {
+  for (const [key, value] of Object.entries(batch)) {
+    if (!pendingWrites.has(key) && memory.get(key) === value) locallyWrittenKeys.delete(key);
+  }
+}
+
 function mergeHydratedValues(values) {
   for (const [key, value] of Object.entries(values)) {
     if (!locallyWrittenKeys.has(key)) memory.set(key, String(value));
@@ -137,7 +150,7 @@ function mergeHydratedValues(values) {
 function isPersistableEntry(key, value) {
   return typeof key === "string"
     && CLIENT_STATE_KEY_PATTERN.test(key)
-    && new TextEncoder().encode(value).byteLength <= MAX_CLIENT_STATE_VALUE_BYTES;
+    && UTF8_ENCODER.encode(value).byteLength <= MAX_CLIENT_STATE_VALUE_BYTES;
 }
 
 function responseError(response) {

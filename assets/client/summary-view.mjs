@@ -2,6 +2,7 @@ import { normalizeComparableText, truncateText } from "./text.mjs";
 import { normalizeUrl } from "./urls.mjs";
 import { isHotNewsItem as matchesHotNews, isSummaryFillItem as matchesSummaryFill } from "./card-policy.mjs";
 import { summaryEmptyStateKind } from "./empty-state-policy.mjs";
+import { createLoadingSurfaceController, restartMotionClass } from "./motion.mjs";
 
 export function createSummaryView(options) {
   const {
@@ -20,6 +21,7 @@ export function createSummaryView(options) {
     syncSegmentedIndicator, triggerRefresh, writeValue, newsPreviews,
   } = options;
   let summaryRenderToken = 0;
+  const manualSummaryLoadingMotions = new Map();
   return {
     renderSummaries, newsSummaryItems, updateSummaryCard, reshuffleSummaries,
     createNewsRanker, refreshSummaryItem, updateVisibleNewsThumbs,
@@ -32,7 +34,8 @@ function renderSummaries() {
   state.variants.summary = page.variant;
   syncSummaryOrderButtons();
   els.summaryBatch.disabled = page.pageCount <= 1;
-  els.summaryBatch.textContent = t(page.pageCount <= 1 ? "action.allShown" : "action.nextBatch");
+  const batchButtonLabel = els.summaryBatch.querySelector(".btn-label");
+  if (batchButtonLabel) batchButtonLabel.textContent = t(page.pageCount <= 1 ? "action.allShown" : "action.nextBatch");
   const visible = page.items;
   els.summaryMeta.textContent = batchLabel(page);
   if (!visible.length) {
@@ -246,7 +249,8 @@ function createSummaryCard(item) {
   const isRefreshing = state.manualRefreshKeys.has(item.key);
   const cardTitle = displaySummaryTitle(item);
   const card = document.createElement("article");
-  card.className = `summary-card ${isRefreshing ? "is-refreshing" : ""} ${state.opened.has(item.key) && !state.seen.has(item.key) ? "opened" : ""}`.trim();
+  card.className = `summary-card ${isRefreshing ? "is-refreshing ai-loading-surface" : ""} ${state.opened.has(item.key) && !state.seen.has(item.key) ? "opened" : ""}`.trim();
+  if (isRefreshing) card.setAttribute("aria-busy", "true");
   setCardItemIdentity(card, item);
   card.dataset.previewFingerprint = newsPreviews.fingerprint(item);
   card.ampiraItem = item;
@@ -280,23 +284,28 @@ function createSummaryCard(item) {
     ? t("category.externalDiscovery")
     : item.timeUnverified ? t("category.timeUnverified") : localizedCategory(item);
   pill.append(createIcon("news", "pill-icon"), document.createTextNode(discoveryLabel));
-  const meta = document.createElement("span");
-  meta.className = "summary-meta";
-  meta.textContent = item.summary?.publishedAt || item.summary?.updatedAt || item.summary?.fetchedAt
-    ? formatDateTime(item.summary.publishedAt || item.summary.updatedAt || item.summary.fetchedAt)
-    : "";
+  const timestamp = item.summary?.publishedAt || item.summary?.updatedAt || item.summary?.fetchedAt || "";
+  const meta = document.createElement("time");
+  meta.className = "summary-meta summary-time";
+  meta.dateTime = timestamp;
+  meta.textContent = timestamp ? formatDateTime(timestamp) : "";
   const cardActions = document.createElement("div");
   cardActions.className = "summary-card-actions";
   cardActions.append(createReadingActions(item, { source: "news", compact: true }));
   if (cardSummaryEnabled() && !isCorrectlySummarized(item)) cardActions.append(createManualSummaryButton(item, isRefreshing));
-  headMain.append(pill, meta);
+  headMain.append(pill);
   top.append(headMain, cardActions);
   const title = document.createElement("span");
   title.className = "summary-title";
   title.textContent = cardTitle;
+  const sourceRow = document.createElement("div");
+  sourceRow.className = "summary-source-row";
   const source = document.createElement("span");
-  source.className = "summary-meta";
+  source.className = "summary-meta summary-source";
   source.textContent = item.host || item.url;
+  source.title = source.textContent;
+  sourceRow.append(source);
+  if (meta.textContent) sourceRow.append(meta);
   const lines = document.createElement("div");
   lines.className = "summary-lines";
   const fullDetailText = summaryDetailLines(item, cardTitle).slice(0, 3).join(" ");
@@ -308,7 +317,7 @@ function createSummaryCard(item) {
     node.title = fullDetailText;
     lines.append(node);
   }
-  body.append(top, title, source, lines);
+  body.append(top, title, sourceRow, lines);
   card.append(body);
   return card;
 }
@@ -420,8 +429,9 @@ async function refreshSummaryItem(item, event) {
 
   const articleUrl = itemUrl(item);
   let latestItem = item;
+  let completed = false;
   state.manualRefreshKeys.add(item.key);
-  updateSummaryCard(item);
+  startManualSummaryLoadingMotion(item.key, updateSummaryCard(item));
   try {
     const result = await apiPost("/api/summary/refresh", {
       articleId: item.feedItem?.articleId || item.key,
@@ -441,23 +451,29 @@ async function refreshSummaryItem(item, event) {
       state.data.ai.dailyLimit = result.quota.dailyLimit;
       renderStatus();
     }
+    completed = true;
   } catch (error) {
     renderOverviewStatus(t("summary.manualFailed"), localizedErrorMessage(error));
   } finally {
+    finishManualSummaryLoadingMotion(item.key);
     state.manualRefreshKeys.delete(item.key);
-    updateSummaryCard(latestItem);
+    const card = updateSummaryCard(latestItem);
+    if (completed) restartMotionClass(card, "is-ai-resolving");
   }
 }
 
 function updateSummaryCard(item) {
   if (!isHotNewsItem(item) || !matchesQuery(item)) {
     renderSummaries();
-    return;
+    return [...els.summaryGrid.querySelectorAll(".summary-card")]
+      .find((node) => node.dataset.key === item.key) || null;
   }
   const current = [...els.summaryGrid.querySelectorAll(".summary-card")]
     .find((node) => node.dataset.key === item.key);
-  if (current) syncSummaryCard(current, createSummaryCard(item));
-  else renderSummaries();
+  if (current) return syncSummaryCard(current, createSummaryCard(item));
+  renderSummaries();
+  return [...els.summaryGrid.querySelectorAll(".summary-card")]
+    .find((node) => node.dataset.key === item.key) || null;
 }
 
 function syncSummaryCard(currentCard, nextCard) {
@@ -467,6 +483,8 @@ function syncSummaryCard(currentCard, nextCard) {
   currentCard.ampiraItem = nextCard.ampiraItem;
   currentCard.title = nextCard.title;
   currentCard.setAttribute("aria-label", nextCard.getAttribute("aria-label") || "");
+  if (nextCard.getAttribute("aria-busy") === "true") currentCard.setAttribute("aria-busy", "true");
+  else currentCard.removeAttribute("aria-busy");
 
   const currentThumb = currentCard.querySelector(":scope > .thumb");
   const nextThumb = nextCard.querySelector(":scope > .thumb");
@@ -486,5 +504,16 @@ function syncSummaryCard(currentCard, nextCard) {
   else if (nextBody) currentCard.append(nextBody);
   else currentBody?.remove();
   return currentCard;
+}
+
+function startManualSummaryLoadingMotion(key, card) {
+  finishManualSummaryLoadingMotion(key);
+  if (card) manualSummaryLoadingMotions.set(key, createLoadingSurfaceController(card));
+}
+
+function finishManualSummaryLoadingMotion(key) {
+  const active = manualSummaryLoadingMotions.get(key);
+  active?.finish();
+  manualSummaryLoadingMotions.delete(key);
 }
 }

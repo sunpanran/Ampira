@@ -329,6 +329,7 @@ async function saveOnboardingFolders() {
     settings = await request("settings:save", {
       newsBookmarkFolder,
       newsSourceMode,
+      publicFeedSupplementEnabled: newsSourceMode === "public",
       inspirationBookmarkFolder,
       inspirationSourceMode,
     });

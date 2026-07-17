@@ -267,7 +267,7 @@
   padding: 9px 10px;
   border: 1px solid var(--line-soft);
   border-radius: var(--radius-row);
-  background: var(--surface-0);
+  background: var(--surface-1);
   color: var(--text);
   text-align: left;
   cursor: pointer;

@@ -36,7 +36,7 @@ export function optionUnavailable(option) {
   return !option || option.disabled || option.hidden || option.parentElement?.disabled === true;
 }
 
-function optionLabel(option) {
+export function optionLabel(option) {
   return String(option?.label || option?.textContent || "").trim();
 }
 

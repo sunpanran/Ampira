@@ -2,6 +2,7 @@ import { isHotNewsItem as matchesHotNews, isSummaryFillItem as matchesSummaryFil
 import { createDailyCardView } from "./daily-card-view.mjs";
 import { animatePanelEntrance } from "./dom.mjs";
 import { orderPresetInspiration } from "./inspiration-preset-selection.mjs";
+import { fadeElementsOut } from "./motion.mjs";
 
 export function shouldShowColumnAction(column) {
   const type = column?.action;
@@ -32,6 +33,7 @@ export function createDailyView(options) {
     prefersReducedMotion, setCardItemIdentity,
   } = cardTransition;
   let dailyBoardRenderToken = 0;
+  const dailyColumnTransitionTimers = new Map();
   const {
     activateCardFromKeyboard,
     createNewsListCard,
@@ -63,20 +65,39 @@ function renderDaily() {
     renderDailyBoard([], { hideAfter: true });
     return;
   }
-  const newsPage = dailyPageForCardType(newsCardType, dailyNewsCount);
-  const inspirationPage = dailyPageForCardType(inspirationCardType, dailyInspirationCount);
-  const newsBase = newsPage.items;
-  const inspirationBase = inspirationPage.items;
-  const seenItems = seenArchiveItems();
-  const columns = [
-    { id: "news", label: t("daily.news"), icon: "news", items: newsBase, action: "reshuffle", pageInfo: newsPage },
-    { id: "inspiration", label: t("daily.inspiration"), icon: "sparkling", items: inspirationBase, action: "reshuffle", pageInfo: inspirationPage },
-    { id: "archive", label: t("daily.archive"), icon: "bookmark-ribbon", items: seenItems, action: "clearSeen", compact: true }
-  ];
+  const columns = dailyColumns();
   renderTodayMeta();
   renderDailyBoard(columns.map(createBoardColumn));
 }
 
+function dailyColumns() {
+  const newsPage = dailyPageForCardType(newsCardType, dailyNewsCount);
+  const inspirationPage = dailyPageForCardType(inspirationCardType, dailyInspirationCount);
+  const seenItems = seenArchiveItems();
+  return [
+    { id: "news", label: t("daily.news"), icon: "news", items: newsPage.items, action: "reshuffle", pageInfo: newsPage },
+    { id: "inspiration", label: t("daily.inspiration"), icon: "sparkling", items: inspirationPage.items, action: "reshuffle", pageInfo: inspirationPage },
+    { id: "archive", label: t("daily.archive"), icon: "bookmark-ribbon", items: seenItems, action: "clearSeen", compact: true }
+  ];
+}
+
+function renderDailyColumn(columnId, options = {}) {
+  const column = dailyColumns().find((candidate) => candidate.id === columnId);
+  const currentColumn = Array.from(els.dailyBoard.children)
+    .find((candidate) => candidate.dataset.columnId === columnId);
+  if (!column || !currentColumn) {
+    renderDaily();
+    return;
+  }
+  const restoreActionFocus = currentColumn.contains(document.activeElement)
+    && document.activeElement?.classList.contains("column-action");
+  const token = dailyBoardRenderToken;
+  cancelDailyColumnTransition(columnId);
+  syncDailyBoardColumn(currentColumn, createBoardColumn(column), token, { immediate: true });
+  const action = currentColumn.querySelector(":scope > .column-head .column-action");
+  if (restoreActionFocus) action?.focus({ preventScroll: true });
+  if (options.animateAction && action) { action.classList.add("is-elastic"); action.addEventListener("animationend", () => action.classList.remove("is-elastic"), { once: true }); }
+}
 function renderDailyBoard(nodes, options = {}) {
   const token = ++dailyBoardRenderToken;
   const board = els.dailyBoard;
@@ -122,7 +143,7 @@ function syncDailyBoardColumns(board, nextColumns, token) {
   });
 }
 
-function syncDailyBoardColumn(currentColumn, nextColumn, token) {
+function syncDailyBoardColumn(currentColumn, nextColumn, token, options = {}) {
   const currentHead = currentColumn.querySelector(":scope > .column-head");
   const nextHead = nextColumn.querySelector(":scope > .column-head");
   if (currentHead && nextHead && !currentHead.isEqualNode(nextHead)) currentHead.replaceWith(nextHead);
@@ -133,10 +154,11 @@ function syncDailyBoardColumn(currentColumn, nextColumn, token) {
     animateCardsIn(dailyBoardCards(currentColumn));
     return;
   }
-  syncDailyCardList(currentList, nextList, token);
+  syncDailyCardList(currentList, nextList, token, options);
 }
 
-function syncDailyCardList(currentList, nextList, token) {
+function syncDailyCardList(currentList, nextList, token, options = {}) {
+  const columnId = currentList.closest(".board-column")?.dataset.columnId || "";
   const currentCards = directDailyCards(currentList);
   const nextCards = directDailyCards(nextList);
   if (!currentCards.length) {
@@ -152,9 +174,9 @@ function syncDailyCardList(currentList, nextList, token) {
       currentList.replaceChildren(...nextList.childNodes);
     };
     const leavingCards = currentCards.filter((card) => card.dataset.key);
-    if (leavingCards.length && !prefersReducedMotion()) {
+    if (leavingCards.length && !options.immediate && !prefersReducedMotion()) {
       const exitDuration = animateCardsOut(leavingCards);
-      window.setTimeout(finishEmptyState, exitDuration);
+      scheduleDailyColumnTransition(columnId, finishEmptyState, exitDuration);
     } else {
       finishEmptyState();
     }
@@ -166,12 +188,28 @@ function syncDailyCardList(currentList, nextList, token) {
     if (token !== dailyBoardRenderToken) return;
     applyDailyCardListDiff(currentList, nextList, nextCards);
   };
-  if (leavingCards.length && !prefersReducedMotion()) {
+  if (leavingCards.length && !options.immediate && !prefersReducedMotion()) {
     const exitDuration = animateCardsOut(leavingCards);
-    window.setTimeout(applyDiff, exitDuration);
+    scheduleDailyColumnTransition(columnId, applyDiff, exitDuration);
   } else {
     applyDiff();
   }
+}
+
+function scheduleDailyColumnTransition(columnId, callback, delayMs) {
+  cancelDailyColumnTransition(columnId);
+  const timer = window.setTimeout(() => {
+    if (dailyColumnTransitionTimers.get(columnId) === timer) dailyColumnTransitionTimers.delete(columnId);
+    callback();
+  }, delayMs);
+  if (columnId) dailyColumnTransitionTimers.set(columnId, timer);
+}
+
+function cancelDailyColumnTransition(columnId) {
+  const timer = dailyColumnTransitionTimers.get(columnId);
+  if (timer === undefined) return;
+  window.clearTimeout(timer);
+  dailyColumnTransitionTimers.delete(columnId);
 }
 
 function applyDailyCardListDiff(currentList, nextList, nextCards) {
@@ -329,15 +367,15 @@ function createColumnAction(column) {
   return button;
 }
 
-async function reshuffleDailyColumn(columnId) {
+function reshuffleDailyColumn(columnId) {
   if (!Object.prototype.hasOwnProperty.call(state.variants, columnId)) return;
   const count = columnId === "news" ? dailyNewsCount : dailyInspirationCount;
   const page = dailyPageForCardType(columnId === "news" ? newsCardType : inspirationCardType, count);
   state.variants[columnId] = (page.variant + 1) % page.pageCount;
   writeValue(`dash.variant.${state.day}.${columnId}`, String(state.variants[columnId]));
   if (columnId === "inspiration") writeValue(`dash.variant.${state.day}`, String(state.variants[columnId]));
-  if (columnId === "inspiration") await preloadDailyInspiration(updateInspirationPreloadTimeoutMs);
-  renderDaily();
+  renderDailyColumn(columnId, { animateAction: true });
+  if (columnId === "inspiration") void preloadDailyInspiration(updateInspirationPreloadTimeoutMs);
 }
 
 function clearSeenArchive() {
@@ -345,9 +383,8 @@ function clearSeenArchive() {
   state.seen.clear();
   state.seenMeta.clear();
   persistSeen();
-  renderAll();
+  if (!fadeElementsOut(document.querySelectorAll(".archive-card"), renderAll)) renderAll();
 }
-
 function seenArchiveItems() {
   const byKey = new Map(displayArchiveItems().map((item) => [item.key, item]));
   return Array.from(state.seen)

@@ -19,6 +19,10 @@ const manifest = JSON.parse(await fs.readFile(path.join(root, "manifest.json"), 
 const dashboardHtml = await fs.readFile(path.join(root, "dashboard.html"), "utf8");
 const shellControllerSource = await fs.readFile(path.join(root, "assets", "client", "shell-controller.mjs"), "utf8");
 const settingsWorkflowSource = await fs.readFile(path.join(root, "extension", "runtime", "settings-workflow.mjs"), "utf8");
+const aiSearchRuntimeSource = await fs.readFile(path.join(root, "extension", "runtime", "ai-search-service.mjs"), "utf8");
+const refreshRuntimeSource = await fs.readFile(path.join(root, "extension", "runtime", "refresh-service.mjs"), "utf8");
+const extensionRuntimeSource = await fs.readFile(path.join(root, "extension", "runtime", "extension-runtime.mjs"), "utf8");
+const dashboardContentRuntimeSource = await fs.readFile(path.join(root, "extension", "runtime", "dashboard-content-service.mjs"), "utf8");
 
 assert.equal(manifest.manifest_version, 3);
 assert(dashboardHtml.includes('<span class="about-version" id="aboutVersion"></span>'), "the About panel must reserve a version output without hard-coding a release");
@@ -107,7 +111,16 @@ assert.equal(hasStructuralSummaryPrefix(normalizeSummaryMarkup("**核心内容**
 assert.equal(extractGeneratedSummaryTitle("**标题：AI 精炼标题**"), "AI 精炼标题");
 assert.equal(extractGeneratedSummaryTitle(`标题：${"长".repeat(80)}`).length, 64, "generated card titles must be capped before caching");
 assert.equal(cleanGeneratedSummaryLine("标题：AI 精炼标题"), "", "generated title rows must not leak into summary text");
-assert.equal(CARD_SUMMARY_POLICY_VERSION, 5);
+assert.equal(CARD_SUMMARY_POLICY_VERSION, 6);
+assert(aiSearchRuntimeSource.includes("for (let attempt = 0; attempt < 2; attempt += 1)")
+  && aiSearchRuntimeSource.includes('typedError("AI_LOCALE_CHANGED"')
+  && aiSearchRuntimeSource.includes("aiOutputMatchesLocale(cached.answer, locale)"), "AI search must retry language once, reject locale races, and distrust cached prose");
+assert((refreshRuntimeSource.match(/expectedLocale: locale/g) || []).length >= 3
+  && refreshRuntimeSource.includes("cardSummaryOutputMatchesLocale")
+  && refreshRuntimeSource.includes("dailyDigestOutputMatchesLocale"), "card summaries and daily briefs must use structured locale validators");
+assert(extensionRuntimeSource.includes("outputValidator: readerTranslationMatchesLocale")
+  && extensionRuntimeSource.includes("shouldReleaseAutomaticAiQuota(error)"), "Reader translation must enforce its locale and automatic language failures must retain one task quota");
+assert(dashboardContentRuntimeSource.includes("aiOutputPartsMatchLocale(generatedParts, settingsLocale(settings))"), "cached AI daily briefs must be revalidated before presentation");
 const boundedCardSummary = limitGeneratedSummaryLines(["甲".repeat(120), "乙".repeat(120), "丙".repeat(120), "丁".repeat(20)], 280, 3);
 assert.equal(boundedCardSummary.length, 3, "card summaries must retain at most three information-dense paragraphs");
 assert.equal([...boundedCardSummary.join("")].length, 280, "card summaries must enforce the 280-character cache boundary");
@@ -283,6 +296,8 @@ assert(!shellControllerSource.includes('    ".nav-btn",'), "navigation must not 
 assert(settingsWorkflowSource.includes('"bookmarkSectionEnabled", "websiteShortcutsEnabled"'), "the runtime settings workflow must accept bookmark-section visibility without treating it as a source change");
 assert(!cacheFetchSource.includes('id="personalizedRankingEnabledInput"'), "fetch settings must not expose the advanced personalization switch");
 assert(cacheAdvancedSource.includes('<input id="personalizedRankingEnabledInput" type="checkbox">'), "advanced settings must expose personalized ranking with an unchecked first-frame default");
+assert(cacheAdvancedSource.indexOf('id="newsPerCategoryInput"') < cacheAdvancedSource.indexOf('id="readingQueueOpenOnReadAllInput"')
+  && cacheAdvancedSource.indexOf('id="readingQueueOpenOnReadAllInput"') < cacheAdvancedSource.indexOf('id="personalizedRankingEnabledInput"'), "advanced switches must follow the three numeric settings");
 assert(dashboardSource.includes('id="sourcePermissionSummary"'), "website access must expose a visible settings-page status");
 assert(dashboardSource.includes('id="sourceCoverageSummary"') && dashboardSource.includes('id="sourceCoverageList"'), "news settings must expose source coverage and per-source diagnostics");
 assert(!dashboardSource.includes('id="sourceCoverageStatus"') && !dashboardSource.includes('id="bookmarkSourceStatus"'), "settings must not repeat source summaries beside the controls that already show them");
@@ -325,6 +340,8 @@ assert(permissionUiSource.includes('requestPermissions(["search"])')
 assert(!permissionUiSource.includes('createIcon("key-01", "source-permission-icon")'), "website permission rows must not repeat the section key icon for every origin");
 assert(permissionUiSource.includes("newsSourceMode,")
   && permissionUiSource.includes("inspirationSourceMode,"), "onboarding news and inspiration source choices must persist through the settings boundary");
+assert(permissionUiSource.includes('publicFeedSupplementEnabled: newsSourceMode === "public"'),
+  "onboarding must disable Public Feed coverage when a new user selects a personal news folder");
 assert(permissionUiSource.includes('INSPIRATION_PRESET_VALUE') && permissionUiSource.includes('inspirationBookmarkValue(item.name)'), "onboarding must build the fixed preset option before encoded personal-folder options");
 const bookmarkSettingsSource = await fs.readFile(path.join(root, "assets", "client", "bookmark-settings-controller.mjs"), "utf8");
 const bookmarksViewSource = await fs.readFile(path.join(root, "assets", "client", "bookmarks-view.mjs"), "utf8");

@@ -683,12 +683,21 @@ input::placeholder {
 
 .bookmark-favicon,
 .web-frame-favicon {
-  width: 22px;
-  height: 22px;
   flex: 0 0 auto;
   border-radius: 5px;
   object-fit: contain;
   background: var(--surface-1);
+}
+
+.bookmark-favicon {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+}
+
+.web-frame-favicon {
+  width: 22px;
+  height: 22px;
 }
 
 .empty,

@@ -4,7 +4,6 @@ import path from "node:path";
 import { webcrypto } from "node:crypto";
 import { buildBookmarkModel, inspirationPreviewSourceUrls, inspirationPreviewTargets, originsFromUrls } from "../extension/core/bookmarks.mjs";
 import { providerEndpoint, requestAiCompletion, searchImagePreview, testImageSearchConnection } from "../extension/core/ai.mjs";
-import { createClientStateStore } from "../extension/core/client-state.mjs";
 import { DEFAULT_SETTINGS, SETTINGS_KEY } from "../extension/core/constants.mjs";
 import { recordsToPrune } from "../extension/core/db.mjs";
 import { buildFallbackDigest, feedCacheOrEmpty, fetchSourceArticles, filterLikelyNewsItems, isDisplayableFeedItem, parseFeedDocument, rankAndDedupe } from "../extension/core/feed.mjs";
@@ -86,6 +85,8 @@ import { runSettingsTransferTests } from "./suites/settings-transfer.mjs";
 import { runFactoryResetTests } from "./suites/factory-reset.mjs";
 import { runInspirationPresetTests } from "./suites/inspiration-preset.mjs";
 import { runTodayEventTests } from "./suites/today-events.mjs";
+import { runClientStateStoreTests } from "./suites/client-state-store.mjs";
+import { runClientStorageTests } from "./suites/client-storage.mjs";
 import { createReaderPreviewService } from "../extension/runtime/reader-preview-service.mjs";
 import { createRefreshService } from "../extension/runtime/refresh-service.mjs";
 import { createPermissionGateway } from "../extension/runtime/permission-gateway.mjs";
@@ -196,43 +197,43 @@ const presentablePolicyItems = [
     articleId: "cross-wrong-output", externalDiscovery: true, contentLocale: "en",
     title: "Another raw headline", excerpt: "Another raw excerpt.",
     summaryTitle: "Still an English headline", summary: ["The provider returned an English summary instead of localized output."],
-    summaryStatus: "ai", summaryPolicyVersion: 5, summaryLocale: "zh-CN",
+    summaryStatus: "ai", summaryPolicyVersion: 6, summaryLocale: "zh-CN",
     summaryProviderOrigin: "https://api.example.com",
   },
   {
     articleId: "cross-wrong-title", externalDiscovery: true, contentLocale: "en",
     title: "Raw title for mixed output", excerpt: "Raw excerpt for mixed output.",
     summaryTitle: "English headline remains visible", summary: ["多国公布新的合作方案，相关部门将继续推进落实。"],
-    summaryStatus: "ai", summaryPolicyVersion: 5, summaryLocale: "zh-CN",
+    summaryStatus: "ai", summaryPolicyVersion: 6, summaryLocale: "zh-CN",
     summaryProviderOrigin: "https://api.example.com",
   },
   {
     articleId: "cross-localized", externalDiscovery: true, contentLocale: "en",
     title: "Raw localized source headline", excerpt: "Raw localized source excerpt.",
     summaryTitle: "重大国际政策更新", summary: ["多国公布新的合作方案，相关部门将继续推进落实。"],
-    summaryStatus: "ai", summaryPolicyVersion: 5, summaryLocale: "zh-CN",
+    summaryStatus: "ai", summaryPolicyVersion: 6, summaryLocale: "zh-CN",
     summaryProviderOrigin: "https://api.example.com",
   },
 ];
 assert.deepEqual(
   filterPresentableFeedItems(presentablePolicyItems, "zh-CN", {
-    aiConfigured: false, summaryPolicyVersion: 5, providerOrigin: "https://api.example.com/v1",
+    aiConfigured: false, summaryPolicyVersion: 6, providerOrigin: "https://api.example.com/v1",
   }).map((item) => item.articleId),
   ["personal-en", "native-zh"],
   "without complete AI configuration, raw cross-language public items must stay hidden while personal items remain unrestricted",
 );
 const presentableWithAi = filterPresentableFeedItems(presentablePolicyItems, "zh-CN", {
-  aiConfigured: true, summaryPolicyVersion: 5, providerOrigin: "https://api.example.com/v1",
+  aiConfigured: true, summaryPolicyVersion: 6, providerOrigin: "https://api.example.com/v1",
 });
 assert.deepEqual(presentableWithAi.map((item) => item.articleId), ["personal-en", "native-zh", "cross-localized"]);
 assert.equal(presentableWithAi.at(-1).title, "重大国际政策更新");
 assert.equal(presentableWithAi.at(-1).excerpt, "多国公布新的合作方案，相关部门将继续推进落实。");
 assert(!presentableWithAi.some((item) => item.title === "Raw localized source headline"), "presentable projections must not expose the raw cross-language title");
 assert.equal(filterPresentableFeedItems(presentablePolicyItems, "zh-Hant", {
-  aiConfigured: true, summaryPolicyVersion: 5, providerOrigin: "https://api.example.com/v1",
+  aiConfigured: true, summaryPolicyVersion: 6, providerOrigin: "https://api.example.com/v1",
 }).some((item) => item.articleId === "cross-localized"), false, "localized cache entries must be invalidated by an interface-language change");
 assert.equal(filterPresentableFeedItems(presentablePolicyItems, "zh-CN", {
-  aiConfigured: true, summaryPolicyVersion: 5, providerOrigin: "https://other.example.com/v1",
+  aiConfigured: true, summaryPolicyVersion: 6, providerOrigin: "https://other.example.com/v1",
 }).some((item) => item.articleId === "cross-localized"), false, "localized cache entries must be invalidated by a provider change");
 
 const languageFeedFixture = `<?xml version="1.0"?><rss><channel>
@@ -860,7 +861,7 @@ assert.equal(DEFAULT_SETTINGS.headerImageBlurEnabled, false, "cover blur must re
 assert.equal(DEFAULT_SETTINGS.headerImageBlurAmount, 12, "cover blur must retain a useful remembered default");
 assert.equal(normalizeSettings({ headerImageBlurEnabled: true, headerImageBlurAmount: -1 }).headerImageBlurAmount, 0);
 assert.equal(normalizeSettings({ headerImageBlurEnabled: true, headerImageBlurAmount: 18.7 }).headerImageBlurAmount, 19);
-assert.equal(normalizeSettings({ headerImageBlurEnabled: true, headerImageBlurAmount: 99 }).headerImageBlurAmount, 24);
+assert.equal(normalizeSettings({ headerImageBlurEnabled: true, headerImageBlurAmount: 99 }).headerImageBlurAmount, 50);
 assert.equal(DEFAULT_SETTINGS.websiteShortcutsEnabled, false, "website shortcuts must remain opt-in");
 assert.deepEqual(DEFAULT_SETTINGS.websiteShortcuts, []);
 const normalizedHiddenCategories = normalizeHiddenBookmarkCategories([
@@ -1420,11 +1421,11 @@ const todayRankedFeed = rankNewsItems([
 const todayCandidates = buildDailyCandidates(todayRankedFeed, { now: rankingNow, limit: 20, recentLimit: 3, publisherLimit: 0 });
 assert.equal(todayCandidates.filter((item) => item.timeScope === "recent").length, 3, "daily candidate selection must cap cross-day news at three");
 assert(todayCandidates.every((item) => ["today", "recent"].includes(newsTimeScope(item, rankingNow))));
-const fallbackDigestV5 = buildFallbackDigest(todayCandidates, "local", "zh-CN", { now: rankingNow, preselected: true, publisherLimit: 2 });
-assert.equal(fallbackDigestV5.schemaVersion, 5);
-assert.equal(fallbackDigestV5.rankingPolicyVersion, 4);
-assert(fallbackDigestV5.candidateFingerprint);
-assert(fallbackDigestV5.items.every((item) => item.eventId && item.eventConfidence && item.sourceCount >= 1 && item.articleCount >= 1 && item.timeScope && Number.isFinite(item.localImportanceScore) && Number.isFinite(item.importanceScore)));
+const fallbackDigestV6 = buildFallbackDigest(todayCandidates, "local", "zh-CN", { now: rankingNow, preselected: true, publisherLimit: 2 });
+assert.equal(fallbackDigestV6.schemaVersion, 6);
+assert.equal(fallbackDigestV6.rankingPolicyVersion, 4);
+assert(fallbackDigestV6.candidateFingerprint);
+assert(fallbackDigestV6.items.every((item) => item.eventId && item.eventConfidence && item.sourceCount >= 1 && item.articleCount >= 1 && item.timeScope && Number.isFinite(item.localImportanceScore) && Number.isFinite(item.importanceScore)));
 assert.notEqual(
   dailyCandidateFingerprint(todayCandidates, { publisherLimit: 2 }),
   dailyCandidateFingerprint(todayCandidates, { publisherLimit: 0 }),
@@ -1486,7 +1487,8 @@ const localizedAiPrompts = [
 ];
 for (const [locale, languageName, silentRule] of localizedAiPrompts) {
   const prompt = translateAiPrompt(locale, "background.prompt.dashboardAnswer");
-  assert(prompt.startsWith(translate(locale, "background.prompt.dashboardAnswer")), `${locale} AI prompts must retain their task instructions`);
+  assert(prompt.startsWith(`AMPIRA_OUTPUT_LOCALE=${locale}\n\n`), `${locale} AI prompts must declare their machine-readable output locale first`);
+  assert(prompt.includes(translate(locale, "background.prompt.dashboardAnswer")), `${locale} AI prompts must retain their task instructions`);
   assert(prompt.includes(languageName), `${locale} AI prompts must explicitly require the selected UI language`);
   assert(prompt.includes(silentRule), `${locale} AI prompts must forbid exposing prompt constraints in visible prose`);
 }
@@ -1504,11 +1506,11 @@ for (const locale of ["zh-CN", "zh-Hant", "en"]) {
 const localizedSummaryService = createRefreshService({
   settingsLocale: (settings) => settings.uiLocale,
   originPattern: (value) => value,
-  cardSummaryPolicyVersion: 5,
+  cardSummaryPolicyVersion: 6,
 });
 const cachedEnglishSummary = {
   summaryStatus: "ai",
-  summaryPolicyVersion: 5,
+  summaryPolicyVersion: 6,
   summaryLocale: "en",
   summaryTitle: "English title",
   summary: ["English facts.", "English impact."],
@@ -1830,9 +1832,11 @@ const appearanceControllerSource = await fs.readFile(path.join(root, "assets/cli
 const coverBlurPreviewSource = await fs.readFile(path.join(root, "assets/client/cover-blur-preview-controller.mjs"), "utf8");
 const contextMenuSource = await fs.readFile(path.join(root, "assets/client/context-menu-controller.mjs"), "utf8");
 const efficiencyViewSource = await fs.readFile(path.join(root, "assets/client/efficiency-view.mjs"), "utf8");
+const summaryViewSource = await fs.readFile(path.join(root, "assets/client/summary-view.mjs"), "utf8");
 const bookmarksViewSource = await fs.readFile(path.join(root, "assets/client/bookmarks-view.mjs"), "utf8");
 const bookmarkSettingsControllerSource = await fs.readFile(path.join(root, "assets/client/bookmark-settings-controller.mjs"), "utf8");
 const themeBootstrapSource = await fs.readFile(path.join(root, "assets/client/theme-bootstrap.mjs"), "utf8");
+const shellControllerSource = await fs.readFile(path.join(root, "assets/client/shell-controller.mjs"), "utf8");
 const tokensCssSource = await fs.readFile(path.join(root, "assets/styles/tokens.css"), "utf8");
 const overlaysCssSource = await fs.readFile(path.join(root, "assets/styles/overlays.css"), "utf8");
 const settingsCssSource = await fs.readFile(path.join(root, "assets/styles/settings.css"), "utf8");
@@ -1842,6 +1846,9 @@ const primitivesCssSource = await fs.readFile(path.join(root, "assets/styles/pri
 const dashboardSectionsCssSource = await fs.readFile(path.join(root, "assets/styles/dashboard-sections.css"), "utf8");
 const selectComboboxSource = await fs.readFile(path.join(root, "assets/client/select-combobox.mjs"), "utf8");
 const extensionUiSource = await fs.readFile(path.join(root, "assets/client/extension-ui.mjs"), "utf8");
+assert(overlaysCssSource.includes(':root[data-color-mode="light"] .confirmation-copy,\n:root[data-color-mode="light"] .confirmation-actions {')
+  && overlaysCssSource.includes(':root:not([data-color-mode]) .confirmation-actions,\n  :root[data-color-mode="system"] .confirmation-actions {')
+  && !overlaysCssSource.includes(':root[data-color-mode="light"] .confirmation-actions {\n  background: transparent;'), "light confirmation dialogs must use one continuous surface across copy and actions");
 assert(primitivesCssSource.includes("select {\n  --select-arrow-color: var(--muted-2);")
   && primitivesCssSource.includes("min-height: 38px;")
   && primitivesCssSource.includes("linear-gradient(45deg, transparent 50%, var(--select-arrow-color) 50%)")
@@ -1893,8 +1900,8 @@ assert(serviceWorkerSource.includes('record.value?.capability === "feed-image"')
 assert(readerUiSource.includes("Array.isArray(block.imageUrls)") && readerUiSource.includes("imageIndex += 1"), "Reader images must exhaust safe original candidates before showing the source fallback");
 assert(aiSearchUiSource.includes('classList.add("closing")') && aiSearchUiSource.includes("AI_SEARCH_CLOSE_MOTION_MS = 180"), "AI search must retain the overlay while its close motion completes");
 assert(aiSearchUiSource.includes('classList.remove("open", "closing")') && aiSearchUiSource.includes("prefers-reduced-motion: reduce"), "AI search close cleanup must complete immediately for reduced motion");
-assert(aiSearchUiSource.includes("articleContext") && aiSearchUiSource.includes("articleConversation.turns.push"), "AI search must append article follow-up turns to the current dialog session");
-assert(aiSearchUiSource.includes("resetArticleConversation();") && aiSearchUiSource.includes("turns.slice(-ARTICLE_FOLLOWUP_MAX_TURNS)"), "article conversations must clear on dialog reset and bound provider history");
+assert(aiSearchUiSource.includes("articleContext") && aiSearchUiSource.includes("questionContext") && aiSearchUiSource.includes("searchConversation.turns.push"), "AI search must append article and general-question follow-up turns to the current dialog session");
+assert(aiSearchUiSource.includes("resetArticleConversation();") && aiSearchUiSource.includes("turns.slice(-ARTICLE_FOLLOWUP_MAX_TURNS)"), "AI search conversations must clear on dialog reset and bound provider history");
 assert(aiSearchUiSource.includes('`${questionNumber}.`') && aiSearchUiSource.includes('querySelectorAll(".ai-conversation-message.is-user")'), "visible article follow-ups must use compact sequential numbering");
 assert(aiSearchUiSource.includes("appendAnswerCopyButton(content)")
   && aiSearchUiSource.includes('message.append(createAiCopyButton(() => body.textContent))')
@@ -2044,6 +2051,10 @@ assert(dashboardSectionsCssSource.includes(".website-shortcuts.is-empty .website
   && appSource.includes('classList.toggle("is-empty", count === 0)')
   && motionCssSource.includes("flex-direction: row;"), "the empty shortcut prompt must span the rail and remain a compact single row across breakpoints");
 assert(dashboardSectionsCssSource.includes("padding: 7px 6px 7px 10px;"), "website shortcut cards must retain a comfortable left content inset");
+assert(!shellControllerSource.includes('".website-shortcuts"')
+  && !shellControllerSource.includes('".website-shortcut"')
+  && !dashboardSectionsCssSource.includes(".website-shortcuts::before")
+  && !dashboardSectionsCssSource.includes(".website-shortcut::before"), "website shortcuts must stay free of pointer-following glow effects");
 assert.equal(MAX_WEBSITE_SHORTCUTS, 16, "website shortcuts must allow the approved wide-screen capacity");
 assert(dashboardSectionsCssSource.includes("grid-auto-columns: minmax(88px, 104px)")
   && dashboardSectionsCssSource.includes("overflow-x: auto")
@@ -2103,7 +2114,7 @@ assert(/renderAll\(\);\n\s+preloadDailyInspiration\(UPDATE_INSPIRATION_PRELOAD_T
 assert(/els\.headerImage\.addEventListener\("error", handleHeaderImageError\);\n\s+syncHeaderImageLoadState\(\);/.test(appSource), "the header cover must reconcile an image that completed before its runtime listeners were bound");
 assert(appSource.includes('if (els.headerImage.complete && els.headerImage.naturalWidth > 0)'), "a cached header cover must become visible without waiting for another load event");
 assert(!dashboardSource.includes('id="headerImageBlurEnabledInput"')
-  && dashboardSource.includes('id="headerImageBlurAmountInput" type="range" min="0" max="24" step="1" value="0"')
+  && dashboardSource.includes('id="headerImageBlurAmountInput" type="range" min="0" max="50" step="1" value="0"')
   && dashboardSource.includes('id="headerImageBlurField" aria-disabled="false"')
   && !appearanceControllerSource.includes('headerImageBlurField.setAttribute("aria-hidden"')
   && !appearanceControllerSource.includes('headerImageHeightField.setAttribute("aria-hidden"')
@@ -2117,11 +2128,14 @@ assert(appearanceControllerSource.includes("headerImageBlurAmount: syncBlurAmoun
   && appSource.includes('els.headerImageBlurAmountInput.addEventListener("input", () => updateAppearancePreview())'), "cover blur changes must persist and preview live");
 assert(appearanceControllerSource.includes("const enabled = els.headerImageEnabledInput.checked;")
   && !appearanceControllerSource.includes("&& !els.headerImageFullscreenInput.checked")
-  && appearanceControllerSource.includes("? HEADER_IMAGE_FULLSCREEN_HEIGHT_MIN")
+  && !appearanceControllerSource.includes("HEADER_IMAGE_FULLSCREEN_HEIGHT_MIN")
+  && appearanceControllerSource.includes('els.headerImageHeightInput.min = String(HEADER_IMAGE_HEIGHT_MIN)')
   && appearanceControllerSource.includes("const value = Math.max(min, normalizeHeaderImageHeightScale")
   && appearanceControllerSource.includes('setProperty("--header-cover-fullscreen-height", `${scale}dvh`)')
   && themeBootstrapSource.includes('setProperty("--header-cover-fullscreen-height", `${scale}dvh`)')
-  && dashboardSectionsCssSource.includes("height: var(--header-cover-fullscreen-height);"), "cover height must remain adjustable but never fall below 100% in fullscreen mode and restore before the first frame");
+  && dashboardSectionsCssSource.includes("height: var(--header-cover-fullscreen-height);")
+  && dashboardSectionsCssSource.includes("calc(100dvh + var(--header-cover-size-adjustment, 0px))")
+  && dashboardSectionsCssSource.includes("object-position: center top;"), "cover height must remain adjustable down to 70% in fullscreen mode while its image stays viewport-sized, top-anchored, and restored before the first frame");
 assert(!dashboardSectionsCssSource.includes(".has-fullscreen-header-cover .today-meta")
   && !dashboardSectionsCssSource.includes(".has-fullscreen-header-cover .summary-batch-meta")
   && !dashboardSectionsCssSource.includes(".has-fullscreen-header-cover #library .controls .segmented button:not(.active)"),
@@ -2149,12 +2163,15 @@ assert(appSource.includes("createCoverBlurPreviewController")
   && dashboardSource.indexOf('id="headerImageLayoutGroup"') < dashboardSource.indexOf('id="headerImageUrlInput"')
   && dashboardSource.indexOf('id="headerImageUrlInput"') < dashboardSource.indexOf('id="headerImageBlurSetting"')
   && coverBlurPreviewSource.includes('classList.add("is-cover-previewing")')
+  && coverBlurPreviewSource.includes('window.scrollTo({ top: 0, left: 0, behavior: "smooth" })')
+  && coverBlurPreviewSource.includes('if (!modal.classList.contains(previewClass))')
   && coverBlurPreviewSource.includes('begin();\n    if (pointerId === null) scheduleKeyboardEnd();')
   && coverBlurPreviewSource.includes('addEventListener("lostpointercapture"')
   && coverBlurPreviewSource.includes("KEYBOARD_PREVIEW_IDLE_MS = 600")
   && appSource.includes('previewClass: "is-cover-height-previewing"')
   && settingsCssSource.includes("#settingsModal.is-cover-previewing .cover-blur-range")
   && settingsCssSource.includes("#settingsModal.is-cover-height-previewing .cover-height-range")
+  && settingsCssSource.includes("#settingsModal.is-cover-previewing {\n  background: rgba(0, 0, 0, .08);\n  -webkit-backdrop-filter: none;\n  backdrop-filter: none;")
   && settingsCssSource.includes(".header-image-settings > :not(.settings-row-list)")
   && !settingsCssSource.includes("width: min(560px, calc(100% - 24px));")
   && settingsCssSource.includes("grid-template-columns: max-content minmax(0, 1fr) max-content;")
@@ -2215,7 +2232,8 @@ assert.deepEqual(cleanPresentedSummaryLines(["### 核心内容", "**核心内容
 assert.equal(cleanPresentedSummaryTitle("### 核心内容"), "", "structural AI headings must never render as card titles");
 assert.equal([...cleanPresentedSummaryTitle("标题".repeat(80))].length, 64, "card titles must retain their explicit character cap");
 assert.equal(isCorrectlySummarized({ summary: { summaryStatus: "ai", summaryTitle: "旧摘要", summary: ["第一段。", "第二段。"] } }), false, "legacy short card summaries must be eligible for reorganization");
-assert.equal(isCorrectlySummarized({ summary: { summaryStatus: "ai", summaryPolicyVersion: 5, summaryTitle: "新版摘要", summary: ["第一段。", "第二段。", "第三段。"] } }), true, "current compact card summaries must not be reorganized again");
+assert.equal(isCorrectlySummarized({ summary: { summaryStatus: "ai", summaryPolicyVersion: 5, summaryTitle: "旧策略摘要", summary: ["第一段。", "第二段。", "第三段。"] } }), false, "policy-5 card summaries must be invalidated by the language guard migration");
+assert.equal(isCorrectlySummarized({ summary: { summaryStatus: "ai", summaryPolicyVersion: 6, summaryTitle: "新版摘要", summary: ["第一段。", "第二段。", "第三段。"] } }), true, "current compact card summaries must not be reorganized again");
 assert(serviceWorkerSource.includes('const summaryText = await callProvider('), "manual card organization must invoke the configured AI provider");
 assert(serviceWorkerSource.includes(".map(cleanGeneratedSummaryLine)"), "new AI card summaries must discard Markdown and structural headings before caching");
 assert(serviceWorkerSource.includes('summaryStatus: "ai"'), "manual card organization must persist AI summary status in the feed cache");
@@ -2232,11 +2250,19 @@ assert(serviceWorkerSource.includes("originalTitle: item.title, title: aiTitle, 
 assert(serviceWorkerSource.includes("const excerptText = automaticCardSummaryContext(target).text"), "manual summaries must use the shared bounded feed-excerpt policy");
 assert(serviceWorkerSource.includes("AI_CONNECTION_TEST_MAX_TOKENS = 900"), "AI connection tests must match the proven search budget so reasoning models can emit visible text");
 assert(serviceWorkerSource.includes("AI_DIGEST_MAX_TOKENS = 2400"), "automatic daily briefs must leave enough output budget for ranking and visible text");
-assert(serviceWorkerSource.includes("{ preferVisibleOutput: true }") && aiCoreSource.includes("isOfficialDeepSeekEndpoint(endpoint)"), "automatic DeepSeek briefs must disable thinking without changing manual AI calls");
+assert(serviceWorkerSource.includes("preferVisibleOutput: true") && aiCoreSource.includes("isOfficialDeepSeekEndpoint(endpoint)"), "automatic DeepSeek briefs must disable thinking without changing manual AI calls");
 assert(serviceWorkerSource.includes("AI_ARTICLE_SUMMARY_MAX_TOKENS = 1200"), "article organization must leave enough output budget after processing long source text");
 assert(serviceWorkerSource.includes("CARD_SUMMARY_MAX_CHARS = 200") && serviceWorkerSource.includes("limitGeneratedSummaryLines(summaryLines, CARD_SUMMARY_MAX_CHARS, 3)"), "organized card summaries must enforce the compact 200-character cache boundary");
 assert(appSource.includes("SUMMARY_DETAIL_MAX_LENGTH = 200"), "summary cards must enforce the compact detail budget");
+assert(appSource.includes('meta.className = "summary-meta summary-time"')
+  && appSource.includes('sourceRow.className = "summary-source-row"')
+  && appSource.includes("sourceRow.append(source)")
+  && appSource.includes("if (meta.textContent) sourceRow.append(meta)"), "summary cards must keep source and timestamp together below the headline");
 const summarySectionCssSource = (await fs.readFile(path.join(root, "assets/styles/dashboard-sections.css"), "utf8")).replace(/\r\n/g, "\n");
+assert(summarySectionCssSource.includes(".summary-card-actions .action-toggle {\n  width: var(--control-height-compact);")
+  && summarySectionCssSource.includes(".summary-lines {\n  min-width: 0;\n  width: 100%;\n  color: var(--muted);")
+  && !summarySectionCssSource.includes(".summary-lines {\n  min-width: 0;\n  width: 100%;\n  align-self: end;")
+  && summarySectionCssSource.includes(".summary-lines:empty {\n  display: none;\n}"), "summary cards must retain the compact action rail and structured content rhythm");
 assert(summarySectionCssSource.includes(".summary-line {\n  display: -webkit-box;\n  overflow: hidden;\n  -webkit-box-orient: vertical;\n  -webkit-line-clamp: 6;"), "favicon summary cards must retain their six-line detail allowance");
 assert(summarySectionCssSource.includes(".summary-card:not(.has-favicon-thumb) .summary-line {\n  -webkit-line-clamp: 5;\n}"), "image summary cards must expose five lines without changing card geometry");
 assert(serviceWorkerSource.includes("const remainingQuota = Math.max(0, settings.dailyAiLimit - quota.used)"), "automatic card summaries must use the remaining shared daily quota");
@@ -2255,7 +2281,7 @@ assert(serviceWorkerSource.includes("AI_SEARCH_MAX_TOKENS = 1400"), "ordinary AI
 assert(serviceWorkerSource.includes("AI_ARTICLE_MAX_TOKENS = 900"), "article explanations and follow-ups must use the compact output budget");
 assert(aiSearchCoreSource.includes("AI_ARTICLE_CONTEXT_MAX_CHARS = 8000"), "article AI context must stay bounded for latency");
 assert(serviceWorkerSource.includes("preferVisibleOutput: true"), "article requests should disable avoidable hidden reasoning where supported");
-assert(serviceWorkerSource.includes("AI_SEARCH_CACHE_VERSION = 5"), "compact article prompts must invalidate stale cached answers");
+assert(serviceWorkerSource.includes("AI_SEARCH_CACHE_VERSION = 6"), "language-guarded prompts must invalidate stale cached answers");
 assert(serviceWorkerSource.includes("readCachedArticle(context.url)"), "article follow-ups must prefer the permission-bound Reader cache");
 assert(serviceWorkerSource.includes("const context = await automaticCardSummaryContext(candidate)"), "automatic summaries must build a bounded excerpt-only context");
 const automaticSummaryContextSource = serviceWorkerSource.slice(serviceWorkerSource.indexOf("function automaticCardSummaryContext"), serviceWorkerSource.indexOf("function preserveCardAiSummary"));
@@ -2273,13 +2299,21 @@ assert(efficiencyViewSource.includes('card.classList.toggle("is-refreshing", sta
   && efficiencyViewSource.includes('card.setAttribute("aria-busy", String(state.dailyDigestRefreshing))')
   && efficiencyViewSource.includes('summary.disabled = state.dailyDigestRefreshing'), "daily brief refresh must preserve readable content, expose busy semantics, and prevent duplicate requests");
 assert(efficiencyViewSource.includes("function createDailyDigestLoadingState()")
-  && efficiencyViewSource.includes("paragraphIndex < 3")
-  && efficiencyViewSource.includes('loading.setAttribute("role", "status")'), "a first daily brief generation must use an accessible three-paragraph skeleton instead of a generic empty state");
-assert(dashboardSectionsCssSource.includes(".ai-digest-loading-paragraph:nth-child(3)")
+  && efficiencyViewSource.includes("createAiLoadingState({")
+  && efficiencyViewSource.includes("paragraphCount: 3")
+  && efficiencyViewSource.includes('statusText: `${t("digest.refreshing.title")} ${t("digest.refreshing.body")}`'), "a first daily brief generation must use the shared accessible three-paragraph skeleton instead of a generic empty state");
+assert(dashboardSectionsCssSource.includes(".ai-loading-paragraph:nth-child(3)")
   && motionCssSource.includes("@keyframes digestTextScan")
   && motionCssSource.includes("@keyframes digestContentIn")
   && dashboardSectionsCssSource.includes(".efficiency-card.digest-card {\n  grid-template-rows: auto minmax(0, 1fr);\n  overflow: hidden;")
-  && motionCssSource.includes(".digest-card.is-refreshing::after"), "daily brief loading must preserve final geometry and use a continuous card-wide scan clipped to the card boundary");
+  && motionCssSource.includes('.ai-loading-surface[data-loading-phase="ambient"]::after'), "AI loading must preserve final geometry and use a continuous shared surface scan clipped to each boundary");
+assert(aiSearchUiSource.includes("renderInitialAnswerLoading()")
+  && aiSearchUiSource.includes('variant: "answer"')
+  && aiSearchUiSource.includes('variant: "compact"')
+  && dashboardSource.includes('id="aiSearchMeta" role="status" aria-live="polite"'), "initial AI answers and follow-ups must expose shared skeletons with a live processing label");
+assert(summaryViewSource.includes('isRefreshing ? "is-refreshing ai-loading-surface"')
+  && summaryViewSource.includes("createLoadingSurfaceController(card)")
+  && motionCssSource.includes(".summary-card.is-ai-resolving .summary-body"), "manual card summaries must retain their content, share the card scan, and reveal the completed result in place");
 assert(appSource.includes("digest.errorKey") && appSource.includes("messageKey: digest.errorKey"), "failed daily brief cards must show the localized provider reason");
 assert(appSource.includes("state.data?.ai?.enabled !== true")
   && appSource.includes('actionLabel: t("action.configureAi")')
@@ -2399,45 +2433,7 @@ assert.deepEqual(await readSecrets(), {
   braveSearchApiKey: "concurrent-brave-key",
 }, "concurrent secret updates must merge instead of overwriting each other");
 await updateSecrets({ openaiApiKey: "", braveSearchApiKey: "" });
-let clientState = {};
-const clientStateStore = createClientStateStore({
-  async getRecord() { return { ...clientState }; },
-  async setRecord(key, value) {
-    assert.equal(key, "client-state");
-    await Promise.resolve();
-    clientState = value;
-  },
-});
-await Promise.all([
-  clientStateStore.save({ values: { "dash.one": "1" } }),
-  clientStateStore.save({ values: { "dash.two": "2" } }),
-]);
-assert.deepEqual(clientState, { "dash.one": "1", "dash.two": "2" });
-await assert.rejects(clientStateStore.save({ values: { invalid: "value" } }), (error) => error.code === "INVALID_CLIENT_STATE");
-await assert.rejects(clientStateStore.save({ values: { [`dash.${"x".repeat(92)}`]: "value" } }), (error) => error.code === "INVALID_CLIENT_STATE");
-await assert.rejects(clientStateStore.save({ values: Object.fromEntries(Array.from({ length: 101 }, (_, index) => [`dash.limit.${index}`, "x"])) }), (error) => error.code === "INVALID_CLIENT_STATE");
-await assert.rejects(clientStateStore.save({ values: { "dash.multibyte": "界".repeat(180000) } }), (error) => error.code === "INVALID_CLIENT_STATE");
-await clientStateStore.reset();
-assert.deepEqual(await clientStateStore.read(), {}, "factory reset must drain queued client-state writes and replace the stored state");
-const oversizedStateStore = createClientStateStore({
-  async getRecord() { return {}; },
-  async setRecord() { assert.fail("oversized aggregate state must not be persisted"); },
-});
-await assert.rejects(oversizedStateStore.save({ values: Object.fromEntries(Array.from({ length: 5 }, (_, index) => [
-  `dash.large.${index}`,
-  "x".repeat(450000),
-])) }), (error) => error.code === "CLIENT_STATE_TOO_LARGE");
-let stateWriteAttempts = 0;
-const recoveringStateStore = createClientStateStore({
-  async getRecord() { return {}; },
-  async setRecord() {
-    stateWriteAttempts += 1;
-    if (stateWriteAttempts === 1) throw new Error("temporary write failure");
-  },
-});
-await assert.rejects(recoveringStateStore.save({ values: { "dash.first": "1" } }));
-await recoveringStateStore.save({ values: { "dash.second": "2" } });
-assert.equal(stateWriteAttempts, 2, "a failed state write must not poison the serialized mutation queue");
+await runClientStateStoreTests();
 
 const quotaStorage = memoryStorage();
 const quotaManager = createQuotaManager(quotaStorage, () => "2026-07-11");
@@ -2468,64 +2464,7 @@ assert.deepEqual(
   "unselected active sources must be retained while removed sources are dropped",
 );
 
-const stateMessages = [];
-globalThis.location = { protocol: "chrome-extension:" };
-chrome.runtime = {
-  id: "test-extension",
-  async sendMessage(message) {
-    if (message.type === "client-state:get") return { ok: true, data: {} };
-    stateMessages.push(message);
-    return { ok: true, data: { ok: true } };
-  },
-};
-const { flushStorage, hydrateStorage, writeValue } = await import("../assets/client/storage.mjs");
-await hydrateStorage();
-writeValue("dash.batch.one", "1");
-writeValue("dash.batch.two", "2");
-await flushStorage();
-assert.equal(stateMessages.length, 1, "client-state writes must be batched");
-assert.deepEqual(stateMessages[0].payload.values, { "dash.batch.one": "1", "dash.batch.two": "2" });
-
-let resolveHydration;
-chrome.runtime.sendMessage = async (message) => {
-  if (message.type === "client-state:get") return new Promise((resolve) => { resolveHydration = resolve; });
-  return { ok: true, data: { ok: true } };
-};
-const raceStorage = await import(`../assets/client/storage.mjs?hydrate-race=${Date.now()}`);
-const hydration = raceStorage.hydrateStorage();
-raceStorage.writeValue("dash.race", "local-newer");
-resolveHydration({ ok: true, data: { "dash.race": "remote-older" } });
-await hydration;
-assert.equal(raceStorage.readValue("dash.race"), "local-newer", "hydration must not overwrite a local write made while it was in flight");
-await raceStorage.flushStorage();
-raceStorage.writeValue("dash.race", "local-latest");
-raceStorage.applyExternalStoragePatch({ "dash.race": "remote-stale" });
-assert.equal(raceStorage.readValue("dash.race"), "local-latest", "an older runtime echo must not overwrite a newer pending local write");
-raceStorage.applyExternalStoragePatch({ "dash.race": "local-latest" });
-await raceStorage.flushStorage();
-
-let writeAttempt = 0;
-const persistedBatches = [];
-chrome.runtime.sendMessage = async (message) => {
-  if (message.type === "client-state:get") return { ok: true, data: {} };
-  writeAttempt += 1;
-  persistedBatches.push(message.payload.values);
-  if (writeAttempt === 1) return { ok: false, error: { message: "invalid batch", retryable: false } };
-  return { ok: true, data: { ok: true } };
-};
-const resilientStorage = await import(`../assets/client/storage.mjs?retry=${Date.now()}`);
-await resilientStorage.hydrateStorage();
-resilientStorage.writeValue("dash.rejected", "bad");
-await resilientStorage.flushStorage();
-resilientStorage.writeValue("dash.accepted", "good");
-await resilientStorage.flushStorage();
-assert.equal(writeAttempt, 2, "a non-retryable batch must not block later writes");
-assert.deepEqual(persistedBatches[1], { "dash.accepted": "good" });
-resilientStorage.writeValue("dash.too-large", "x".repeat(512 * 1024 + 1));
-await resilientStorage.flushStorage();
-assert.equal(writeAttempt, 2, "oversized client state must be isolated before transport");
-delete globalThis.location;
-delete chrome.runtime;
+await runClientStorageTests(chrome);
 
 const sourceFiles = [
   "dashboard.html",
@@ -2564,6 +2503,7 @@ for (const suite of [
   "provider-consent.mjs",
   "provider-policy.mjs",
   "ai-provider-presets.mjs",
+  "ai-output-language.mjs",
   "ai-search.mjs",
   "reader.mjs",
   "feed-coverage.mjs",
@@ -2577,6 +2517,7 @@ for (const suite of [
   "browser-search.mjs",
   "manual-ai-usage-notice.mjs",
   "select-combobox.mjs",
+  "accent-color-picker.mjs",
 ]) {
   await import(`./suites/${suite}`);
 }

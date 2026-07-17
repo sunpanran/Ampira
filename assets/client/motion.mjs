@@ -89,6 +89,23 @@ export function createLoadingPhaseController(elements, options = {}) {
   return { finish };
 }
 
+export function createLoadingSurfaceController(element, options = {}) {
+  if (!element) return { finish() {} };
+  element.classList.add("ai-loading-surface");
+  if (options.ariaBusy !== false) element.setAttribute("aria-busy", "true");
+  const phases = createLoadingPhaseController([element], options);
+  let finished = false;
+  return {
+    finish() {
+      if (finished) return;
+      finished = true;
+      phases.finish();
+      element.classList.remove("ai-loading-surface");
+      if (options.ariaBusy !== false) element.removeAttribute("aria-busy");
+    },
+  };
+}
+
 export function captureKeyedLayout(root, selector = "[data-key]") {
   return new Map(Array.from(root?.querySelectorAll?.(selector) || []).map((node) => [
     node.dataset.key,
@@ -121,6 +138,14 @@ export function restartMotionClass(element, className) {
   void element.offsetWidth;
   element.classList.add(className);
   element.addEventListener("animationend", () => element.classList.remove(className), { once: true });
+}
+
+export function fadeElementsOut(elements, onFinish) {
+  const targets = Array.from(elements || []);
+  if (!targets.length || prefersReducedMotion()) return false;
+  for (const target of targets) { target.classList.add("is-fading-out"); target.inert = true; }
+  globalThis.setTimeout(onFinish, MOTION_DURATION.state);
+  return true;
 }
 
 export function findKeyedElement(root, key, selector = "[data-key]") {

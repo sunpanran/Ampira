@@ -6,6 +6,47 @@ export function setIconLabel(node, icon, label, iconClass = "btn-icon", labelCla
   node.replaceChildren(createIcon(icon, iconClass), spanText(label, labelClass));
 }
 
+export function createAiLoadingState({
+  statusText = "",
+  noteText = "",
+  paragraphCount = 3,
+  lineCount = 2,
+  variant = "brief",
+} = {}) {
+  const loading = document.createElement("div");
+  const normalizedVariant = ["brief", "answer", "compact"].includes(variant) ? variant : "brief";
+  loading.className = `ai-loading-state is-${normalizedVariant}`;
+  loading.setAttribute("role", "status");
+  loading.setAttribute("aria-live", "polite");
+  if (statusText) loading.setAttribute("aria-label", statusText);
+
+  const lines = document.createElement("div");
+  lines.className = "ai-loading-lines";
+  lines.setAttribute("aria-hidden", "true");
+  const paragraphs = Math.max(1, Math.min(4, Number(paragraphCount) || 1));
+  const linesPerParagraph = Math.max(1, Math.min(4, Number(lineCount) || 1));
+  for (let paragraphIndex = 0; paragraphIndex < paragraphs; paragraphIndex += 1) {
+    const paragraph = document.createElement("span");
+    paragraph.className = "ai-loading-paragraph";
+    for (let lineIndex = 0; lineIndex < linesPerParagraph; lineIndex += 1) {
+      const line = document.createElement("span");
+      line.className = "loading-line ai-loading-line";
+      paragraph.append(line);
+    }
+    lines.append(paragraph);
+  }
+  loading.append(lines);
+
+  if (noteText) {
+    const note = document.createElement("span");
+    note.className = "ai-loading-note";
+    note.setAttribute("aria-hidden", "true");
+    note.textContent = noteText;
+    loading.append(note);
+  }
+  return loading;
+}
+
 export function createEmptyState({ title = "", body = "", variant = "panel", actionLabel = "", onAction } = {}) {
   const node = document.createElement("div");
   const normalizedVariant = variant || "panel";

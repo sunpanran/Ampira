@@ -260,16 +260,28 @@ function renderRefreshButtons(refreshState) {
 
 function renderRefreshButton(button, refreshState) {
   const isRunning = refreshState.reason === "running";
-  button.classList.toggle("is-loading", isRunning);
   button.disabled = !refreshState.available;
   if (refreshState.available) button.removeAttribute("data-disabled-reason");
   else button.dataset.disabledReason = isRunning ? "loading" : "prerequisite";
-  button.replaceChildren();
   if (isRunning) {
+    button.classList.remove?.("is-spinner-stopping");
+    if (button.classList.contains?.("is-loading") && button.querySelector?.(".btn-icon")) return;
+    button.classList.toggle("is-loading", true);
     setIconLabel(button, "synchronize", t("status.caching"));
-  } else {
-    setIconLabel(button, "refresh-cw-01", t("action.cache"));
+    return;
   }
+  const spinningIcon = button.classList.contains?.("is-loading") && button.querySelector?.(".btn-icon");
+  if (spinningIcon?.addEventListener) {
+    button.classList.add("is-spinner-stopping");
+    spinningIcon.addEventListener("animationiteration", () => {
+      if (!button.classList.contains("is-spinner-stopping")) return;
+      button.classList.remove("is-loading", "is-spinner-stopping");
+      setIconLabel(button, "refresh-cw-01", t("action.cache"));
+    }, { once: true });
+    return;
+  }
+  button.classList.toggle("is-loading", false);
+  setIconLabel(button, "refresh-cw-01", t("action.cache"));
 }
 
 function renderCacheStatus() {

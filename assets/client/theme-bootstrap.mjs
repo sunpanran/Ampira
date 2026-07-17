@@ -5,7 +5,7 @@
   const localCoverStorageKey = "ampira.header-cover.local.v1";
   const shortcutLayoutStorageKey = "ampira.websiteShortcutsLayout";
   const settingsStorageKey = "ampira.settings.v1";
-  const headerCoverBlurMax = 24;
+  const headerCoverBlurMax = 50;
   const headerCoverBlurBleedMultiplier = 1.5;
   const defaultHeaderImageAsset = "/assets/images/default-header.webp";
   const allowedModes = new Set(["system", "dark", "light"]);

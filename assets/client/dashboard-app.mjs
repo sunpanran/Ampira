@@ -24,6 +24,7 @@ import { cleanSummaryLines, cleanSummaryTitle, displaySummaryTitle, displayTitle
 import { apiStyleLabel, colorModeLabel, localizedCategory, localizedErrorMessage, localizedExclusionReason, localizedResponseMessage, localizedSourceLabel, localizedSourceReason, localizedStatusMessage, themeLabel } from "./localized-labels.mjs";
 import { createContextMenuController } from "./context-menu-controller.mjs";
 import { createAppearanceController } from "./appearance-controller.mjs";
+import { createAccentColorPicker } from "./accent-color-picker.mjs";
 import { createCoverBlurPreviewController } from "./cover-blur-preview-controller.mjs";
 import { createHeaderCoverController } from "./header-cover-controller.mjs";
 import { createSourceSettingsController } from "./source-settings-controller.mjs";
@@ -60,7 +61,7 @@ import { requestOrigins } from "./permission-client.mjs";
 import { createActionPort } from "./action-port.mjs";
 import { createCardTransition } from "./card-transition.mjs";
 import { setAllContentSyncControls, syncContentSyncMaster } from "./content-sync-settings.mjs";
-import { setDisclosureVisibility } from "./motion.mjs";
+import { prefersReducedMotion as prefersReducedMotionSetting, restartMotionClass, setDisclosureVisibility } from "./motion.mjs";
 import { createManualAiUsageNoticeController } from "./manual-ai-usage-notice.mjs";
 import { createConfirmationDialogController } from "./confirmation-dialog.mjs";
 import {
@@ -136,6 +137,7 @@ export async function createDashboardApp() {
   let sitePreviews;
   let readerController;
   let settingsController;
+  let accentColorPicker;
   let headerCoverController;
   let dashboardController;
   let websiteShortcutsController;
@@ -184,6 +186,8 @@ export async function createDashboardApp() {
     toggleReadingQueue: activityActions.toggleReadingQueue,
     refreshSummaryItem: summaryActions.refreshSummaryItem,
     allFilter: ALL_FILTER,
+    restartMotionClass,
+    prefersReducedMotion: prefersReducedMotionSetting,
   });
   const {
     initializeAiProviderUi,
@@ -451,6 +455,17 @@ export async function createDashboardApp() {
     syncAiSetupControls,
     syncHeaderCoverControls: () => headerCoverController?.syncControls(),
     syncSegmentedIndicator,
+    syncCustomAccentColor: (color) => accentColorPicker?.sync(color),
+  });
+  accentColorPicker = createAccentColorPicker({
+    trigger: els.customAccentTrigger,
+    picker: els.customAccentPicker,
+    plane: els.customAccentField,
+    hueInput: els.customAccentHue,
+    hexInput: els.customAccentInput,
+    inputError: els.customAccentInputError,
+    closeButton: els.closeCustomAccentPicker,
+    onChange: () => updateAppearancePreview({ accentTheme: "custom" }),
   });
   const coverBlurPreview = createCoverBlurPreviewController({
     modal: els.settingsModal,
@@ -617,6 +632,7 @@ export async function createDashboardApp() {
     settingsSaveCloseDelayMs: SETTINGS_SAVE_CLOSE_DELAY_MS,
     settingsCloseMotionMs: SETTINGS_CLOSE_MOTION_MS,
     inspirationPreviews: sitePreviews, syncHeaderImageFullscreenControl, syncHeaderImageBlurControl, syncHeaderImageHeightControl,
+    syncAccentColorPickerBusy: (busy) => accentColorPicker.setBusy(busy),
     headerCoverController, availableNewsFolders,
     syncSourceSuggestionActionState, syncSegmentedIndicator, isHttpUrl,
     websiteShortcutsPayload, setWebsiteShortcutControlsBusy,
@@ -904,9 +920,21 @@ export async function createDashboardApp() {
       syncSegmentedIndicator(els.categoryFilter, button);
     });
 
-    els.refresh.addEventListener("click", () => triggerRefresh(true));
+    els.refresh.addEventListener("click", () => {
+      triggerRefresh(true);
+      els.refresh.classList.remove("is-elastic");
+      void els.refresh.offsetWidth;
+      els.refresh.classList.add("is-elastic");
+      els.refresh.addEventListener("animationend", () => els.refresh.classList.remove("is-elastic"), { once: true });
+    });
     els.settingsRefresh.addEventListener("click", () => triggerRefresh(true));
-    els.summaryBatch.addEventListener("click", reshuffleSummaries);
+    els.summaryBatch.addEventListener("click", () => {
+      reshuffleSummaries();
+      els.summaryBatch.classList.remove("is-elastic");
+      void els.summaryBatch.offsetWidth;
+      els.summaryBatch.classList.add("is-elastic");
+      els.summaryBatch.addEventListener("animationend", () => els.summaryBatch.classList.remove("is-elastic"), { once: true });
+    });
     els.summaryOrder.addEventListener("click", (event) => {
       const button = event.target.closest("button[data-order]");
       if (!button) return;
@@ -960,14 +988,6 @@ export async function createDashboardApp() {
       if (!swatch) return;
       updateAppearancePreview({ accentTheme: swatch.dataset.accentTheme });
     });
-    els.accentThemeGroup.addEventListener("keydown", (event) => {
-      const swatch = event.target.closest("[data-accent-theme]");
-      if (!swatch || (event.key !== "Enter" && event.key !== " ")) return;
-      event.preventDefault();
-      updateAppearancePreview({ accentTheme: swatch.dataset.accentTheme });
-      if (swatch.dataset.accentTheme === "custom") els.customAccentInput.click();
-    });
-    els.customAccentInput.addEventListener("input", () => updateAppearancePreview({ accentTheme: "custom" }));
     els.pointerGlowEnabledInput.addEventListener("change", () => updateAppearancePreview());
     els.headerImageEnabledInput.addEventListener("change", () => updateAppearancePreview());
     els.headerImageBlurAmountInput.addEventListener("input", () => updateAppearancePreview());

@@ -1,6 +1,7 @@
 import { animatePanelEntrance } from "./dom.mjs";
 import { createUtilityCardView } from "./utility-card-view.mjs";
-import { animateKeyedLayout, captureKeyedLayout } from "./motion.mjs";
+import { animateKeyedLayout, captureKeyedLayout, createLoadingSurfaceController } from "./motion.mjs";
+import { createAiLoadingState } from "./ui-primitives.mjs";
 
 export function shouldShowQueueReadAll(items) {
   return Boolean(items?.length);
@@ -25,6 +26,7 @@ export function createEfficiencyView(options) {
   let eventTitleReveal = null;
   let activeEventTitle = null;
   let dailyDigestRevealPending = false;
+  let dailyDigestLoadingMotion = null;
   return { renderEfficiencyPanel, refreshDailyDigest, invalidateWeather: utilityCardView.invalidateWeather };
 function dailyDigestStatusLabel(digest, ai) {
   if (state.dailyDigestRefreshing) return t("action.organizing");
@@ -87,11 +89,15 @@ function hasGeneratedDailyDigestOverview(digest, lines) {
 
 function createDailyDigestPanelCard() {
   const digest = state.data?.dailyDigest;
-  const card = createEfficiencyCard(t("digest.cardTitle"), dailyDigestStatusLabel(digest, state.data?.ai), "sparkling");
+  const statusLabel = dailyDigestStatusLabel(digest, state.data?.ai);
+  const card = createEfficiencyCard(t("digest.cardTitle"), statusLabel, "sparkling");
   card.classList.add("digest-card");
   card.classList.toggle("is-refreshing", state.dailyDigestRefreshing);
   card.setAttribute("aria-busy", String(state.dailyDigestRefreshing));
-  if (state.dailyDigestRefreshing) card.querySelector(".efficiency-meta")?.setAttribute("aria-live", "polite");
+  if (state.dailyDigestRefreshing) {
+    const meta = card.querySelector(".efficiency-meta");
+    meta?.setAttribute("aria-live", "polite");
+  }
   const overview = document.createElement("div");
   overview.className = "ai-digest-overview";
   const overviewLines = Array.isArray(digest?.overview)
@@ -110,35 +116,12 @@ function createDailyDigestPanelCard() {
 }
 
 function createDailyDigestLoadingState() {
-  const loading = document.createElement("div");
-  loading.className = "ai-digest-loading";
-  loading.setAttribute("role", "status");
-  loading.setAttribute("aria-live", "polite");
-
-  const status = document.createElement("span");
-  status.className = "sr-only";
-  status.textContent = `${t("digest.refreshing.title")} ${t("digest.refreshing.body")}`;
-
-  const lines = document.createElement("div");
-  lines.className = "ai-digest-loading-lines";
-  lines.setAttribute("aria-hidden", "true");
-  for (let paragraphIndex = 0; paragraphIndex < 3; paragraphIndex += 1) {
-    const paragraph = document.createElement("span");
-    paragraph.className = "ai-digest-loading-paragraph";
-    for (let lineIndex = 0; lineIndex < 2; lineIndex += 1) {
-      const line = document.createElement("span");
-      line.className = "loading-line ai-digest-loading-line";
-      paragraph.append(line);
-    }
-    lines.append(paragraph);
-  }
-
-  const note = document.createElement("span");
-  note.className = "ai-digest-loading-note";
-  note.setAttribute("aria-hidden", "true");
-  note.textContent = t("digest.refreshing.body");
-  loading.append(status, lines, note);
-  return loading;
+  return createAiLoadingState({
+    statusText: `${t("digest.refreshing.title")} ${t("digest.refreshing.body")}`,
+    noteText: t("digest.refreshing.body"),
+    paragraphCount: 3,
+    variant: "brief",
+  });
 }
 
 function dailyDigestBriefNodes(digest) {
@@ -195,6 +178,7 @@ function renderEfficiencyPanel() {
   const isInitialEntrance = els.efficiencyPanel.dataset.loading === "true";
   els.efficiencyPanel.hidden = isSearching;
   if (isSearching) {
+    finishDailyDigestLoadingMotion();
     els.efficiencyPanel.replaceChildren();
     return;
   }
@@ -210,12 +194,33 @@ function renderEfficiencyPanel() {
     createQueuePanelCard(queueItems),
   ];
   const renderedCards = syncEfficiencyCards(els.efficiencyPanel, cards);
+  syncDailyDigestLoadingMotion(renderedCards[1]);
   if (isInitialEntrance) {
     delete els.efficiencyPanel.dataset.loading;
     if (state.data?.onboarding?.completed !== false) animatePanelEntrance(renderedCards);
   } else {
     animateKeyedLayout(els.efficiencyPanel, queueLayout, ".queue-row[data-key]");
   }
+}
+
+function syncDailyDigestLoadingMotion(card) {
+  if (!state.dailyDigestRefreshing || !card) {
+    finishDailyDigestLoadingMotion();
+    return;
+  }
+  if (dailyDigestLoadingMotion?.target === card) return;
+  finishDailyDigestLoadingMotion();
+  dailyDigestLoadingMotion = {
+    target: card,
+    controller: createLoadingSurfaceController(card),
+  };
+}
+
+function finishDailyDigestLoadingMotion() {
+  if (!dailyDigestLoadingMotion) return;
+  const active = dailyDigestLoadingMotion;
+  dailyDigestLoadingMotion = null;
+  active.controller.finish();
 }
 
 function syncEfficiencyCards(panel, nextCards) {

@@ -60,6 +60,23 @@ export async function runArchitectureTests(root) {
     && dashboardAppSource.includes("summaryActions.bind(summaryView)"), "cyclic dashboard actions must use explicit ports and binding points");
   assert(!/activityController\.(?:matchesQuery|openDailyItem|toggleSeen)|readerController\.(?:openExternal|openExternalWindow)|summaryView\.(?:newsSummaryItems|createNewsRanker)/.test(dashboardAppSource), "views must not capture mutable forward controller references for cyclic actions");
   assert(dailyViewSource.includes("cardTransition") && !dailyViewSource.includes("function animateCardsOut"), "daily and summary views must share the card transition primitive");
+  const dailyReshuffleSource = dailyViewSource.slice(
+    dailyViewSource.indexOf("function reshuffleDailyColumn"),
+    dailyViewSource.indexOf("function clearSeenArchive"),
+  );
+  assert(dailyReshuffleSource.includes("renderDailyColumn(columnId, { animateAction: true });")
+    && dailyReshuffleSource.indexOf("renderDailyColumn(columnId, { animateAction: true });") < dailyReshuffleSource.indexOf("preloadDailyInspiration")
+    && !dailyReshuffleSource.includes("await preloadDailyInspiration"), "daily reshuffle must paint the selected column before warming inspiration previews");
+  const renderDailyColumnSource = dailyViewSource.slice(
+    dailyViewSource.indexOf("function renderDailyColumn"),
+    dailyViewSource.indexOf("function renderDailyBoard"),
+  );
+  assert(renderDailyColumnSource.includes("syncDailyBoardColumn(currentColumn, createBoardColumn(column), token, { immediate: true })")
+    && renderDailyColumnSource.includes("cancelDailyColumnTransition(columnId)")
+    && !renderDailyColumnSource.includes("++dailyBoardRenderToken"), "daily reshuffle must replace only the selected batch without waiting for or invalidating other column transitions");
+  assert(dailyViewSource.includes("restoreActionFocus") && dailyViewSource.includes("focus({ preventScroll: true })"), "daily reshuffle must preserve keyboard focus when its column header is replaced");
+  assert(summaryViewSource.includes('els.summaryBatch.querySelector(".btn-label")')
+    && !summaryViewSource.includes("els.summaryBatch.textContent ="), "summary batch labels must update without removing the button icon");
   const refreshProgressHandler = dashboardAppSource.slice(
     dashboardAppSource.indexOf('detail?.type === "refresh.progress"'),
     dashboardAppSource.indexOf("function handleFaviconPermissionChanged"),
@@ -81,10 +98,19 @@ export async function runArchitectureTests(root) {
     "--motion-ease-ambient: cubic-bezier(.37, 0, .63, 1)",
     "--motion-ease-brand: cubic-bezier(.34, 1.16, .64, 1)",
   ]) assert(motionTokensSource.includes(token), `motion tokens must define ${token}`);
+  assert(motionTokensSource.includes('--font-mono: "Cascadia Mono"'), "technical labels must use a local monospace font stack");
   assert(motionSource.includes("export const MOTION_EASING")
     && motionSource.includes("createLoadingPhaseController")
     && motionSource.includes("animateKeyedLayout")
     && motionSource.includes("setDisclosureVisibility"), "client motion must centralize easing, loading phases, keyed layout, and disclosures");
+  assert(aiSearchUiSource.includes('setAiSearchMeta(t(isFollowup')
+    && aiSearchUiSource.includes("createAiLoadingState")
+    && !aiSearchUiSource.includes('els.aiAnswer.textContent = t("aiSearch.analyzing")'), "AI search processing states must share the accessible loading skeleton and live status treatment");
+  assert(efficiencyViewSource.includes('meta?.setAttribute("aria-live", "polite")')
+    && efficiencyViewSource.includes("createAiLoadingState"), "the daily brief must expose a live processing label and share the AI loading skeleton");
+  assert(summaryViewSource.includes('card.setAttribute("aria-busy", "true")')
+    && summaryViewSource.includes("createLoadingSurfaceController(card)")
+    && summaryViewSource.includes("finishManualSummaryLoadingMotion(item.key)"), "manual card summaries must expose and clean up the shared loading state");
   for (const file of clientFiles.filter((name) => path.basename(name) !== "motion.mjs")) {
     const source = await fs.readFile(file, "utf8");
     assert(!source.includes("cubic-bezier("), `${path.basename(file)} must use named motion curves instead of anonymous cubic-bezier values`);
@@ -194,6 +220,16 @@ export async function runArchitectureTests(root) {
   for (const file of runtimeFiles) {
     const source = await fs.readFile(file, "utf8");
     assert(!importSpecifiers(source).some((specifier) => specifier.includes("assets/client")), `${path.basename(file)} must not depend on dashboard modules`);
+  }
+  for (const [relativePath, maximumLines] of [
+    ["extension/core/feed.mjs", 900],
+    ["extension/core/feed-utils.mjs", 200],
+    ["extension/core/feed-digest.mjs", 100],
+    ["extension/runtime/refresh-policy.mjs", 100],
+  ]) {
+    const source = await fs.readFile(path.join(root, relativePath), "utf8");
+    const lines = source.split(/\r?\n/).length;
+    assert(lines <= maximumLines, `${relativePath} must remain focused (found ${lines} lines)`);
   }
 
   const cssEntry = await fs.readFile(path.join(root, "assets/dashboard.css"), "utf8");

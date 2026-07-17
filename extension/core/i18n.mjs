@@ -44,7 +44,8 @@ export function translate(locale, key, params = {}) {
 }
 
 export function translateAiPrompt(locale, key, params = {}) {
-  return `${translate(locale, key, params)}\n\n${translate(locale, "background.prompt.outputLanguage")}`;
+  const normalized = normalizeLocale(locale);
+  return `AMPIRA_OUTPUT_LOCALE=${normalized}\n\n${translate(normalized, key, params)}\n\n${translate(normalized, "background.prompt.outputLanguage")}`;
 }
 
 export function translateCount(locale, key, count, params = {}) {

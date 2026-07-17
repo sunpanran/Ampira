@@ -1,6 +1,8 @@
 import { cleanAiAnswerMarkup, extractDirectAnswer, parseAiAnswer } from "./ai-answer-format.mjs";
 import { copyText } from "./clipboard.mjs";
 import { createThemedIcon } from "./icons.mjs";
+import { createLoadingSurfaceController } from "./motion.mjs";
+import { createAiLoadingState } from "./ui-primitives.mjs";
 
 const AI_SEARCH_CLOSE_MOTION_MS = 180;
 const AI_COPY_FEEDBACK_MS = 1600;
@@ -11,7 +13,8 @@ export function createAiSearchController(options) {
   const { state, els, t, apiPost, confirmManualAiUsage } = options;
   let generation = 0;
   let closeTimer = 0;
-  let articleConversation = null;
+  let searchConversation = null;
+  let aiLoadingMotion = null;
 
   return { open, close, run };
 
@@ -38,6 +41,7 @@ export function createAiSearchController(options) {
     generation += 1;
     state.aiSearchBusy = false;
     els.aiSearchSubmit.disabled = false;
+    finishAiLoadingMotion();
     if (state.aiSearchTypeTimer) clearInterval(state.aiSearchTypeTimer);
     state.aiSearchTypeTimer = null;
     els.aiSearchOverlay.classList.add("closing");
@@ -55,79 +59,82 @@ export function createAiSearchController(options) {
     const rawText = String(rawQuery || "").trim();
     if (!rawText || state.aiSearchBusy) return;
     const startsNewArticle = looksLikeUrl(rawText);
-    if (startsNewArticle && articleConversation) {
+    if (startsNewArticle && searchConversation) {
       resetArticleConversation();
       resetAnswer();
       options.syncSearchCopy({ forceDialog: true });
     }
-    const isFollowup = Boolean(articleConversation && !startsNewArticle);
+    const isFollowup = Boolean(searchConversation && !startsNewArticle);
     const query = isFollowup ? limitText(rawText, ARTICLE_FOLLOWUP_MAX_CHARS) : rawText;
     if (!await confirmManualAiUsage({ aiEnabled: state.data?.ai?.enabled === true })) return;
     const requestGeneration = ++generation;
-    const articleContext = isFollowup ? conversationPayload() : null;
+    const followupContext = isFollowup ? conversationPayload() : null;
     let pendingAnswer = null;
     state.aiSearchBusy = true;
     els.aiSearchSubmit.disabled = true;
-    els.aiSearchMeta.textContent = t(isFollowup
+    setAiSearchMeta(t(isFollowup
       ? "aiSearch.answeringFollowup"
-      : (startsNewArticle ? "aiSearch.readingPage" : "aiSearch.organizingAnswer"));
+      : (startsNewArticle ? "aiSearch.readingPage" : "aiSearch.organizingAnswer")));
     if (isFollowup) {
       pendingAnswer = appendConversationRequest(query);
     } else {
       setGeneratedDisclaimerVisible(false);
-      els.aiAnswer.hidden = false;
-      els.aiAnswer.dataset.mode = "loading";
-      els.aiAnswer.textContent = t("aiSearch.analyzing");
+      renderInitialAnswerLoading();
     }
     try {
-      const permissionUrl = isFollowup ? articleConversation.url : (startsNewArticle ? query : "");
+      const permissionUrl = isFollowup ? searchConversation.url : (startsNewArticle ? query : "");
       if (permissionUrl && typeof options.requestWebsitePermission === "function") {
-        els.aiSearchMeta.textContent = t("aiSearch.requestingWebsitePermission");
+        setAiSearchMeta(t("aiSearch.requestingWebsitePermission"));
         const granted = await options.requestWebsitePermission(permissionUrl);
         if (!isCurrent(requestGeneration)) return;
         if (!granted) {
-          els.aiSearchMeta.textContent = t("aiSearch.permissionRequired");
+          setAiSearchMeta(t("aiSearch.permissionRequired"));
           if (isFollowup) finishConversationResponse(pendingAnswer, t("aiSearch.permissionDeclined"), "notice");
           else streamAnswer(t("aiSearch.permissionDeclined"), [], "notice");
           return;
         }
-        els.aiSearchMeta.textContent = t(isFollowup ? "aiSearch.answeringFollowup" : "aiSearch.readingPage");
+        setAiSearchMeta(t(isFollowup ? "aiSearch.answeringFollowup" : "aiSearch.readingPage"));
       }
       const result = await apiPost("/api/ai/search", {
         query,
-        ...(articleContext ? { articleContext } : {}),
+        ...(followupContext?.type === "article" ? { articleContext: followupContext } : {}),
+        ...(followupContext?.type === "question" ? { questionContext: followupContext } : {}),
       });
       if (!isCurrent(requestGeneration)) return;
       if (!result.ok) throw new Error(options.localizedResponseMessage(result, "error.requestFailed"));
       const label = result.mode === "article-followup"
         ? t("aiSearch.followupAnswer")
+        : (result.mode === "question-followup"
+          ? t("aiSearch.questionFollowupAnswer")
         : (result.type === "url"
           ? t(result.mode === "article" ? "aiSearch.articleSummary" : "aiSearch.websiteIntro")
-          : t("aiSearch.answer"));
-      els.aiSearchMeta.textContent = result.cached ? t("aiSearch.cached", { label }) : label;
+          : t("aiSearch.answer")));
+      setAiSearchMeta(result.cached ? t("aiSearch.cached", { label }) : label);
       const answer = result.error ? t("aiSearch.localFallback", { answer: result.answer, error: result.error }) : result.answer;
       if (isFollowup) {
         finishConversationResponse(pendingAnswer, answer, result.usedAi ? "assistant" : "notice");
         if (result.usedAi) {
           setGeneratedDisclaimerVisible(true);
-          articleConversation.turns.push({ question: query, answer: String(result.answer || "").trim() });
+          searchConversation.turns.push({ question: query, answer: String(result.answer || "").trim() });
           els.aiSearchInput.value = "";
         }
       } else {
         streamAnswer(answer, result.links || [], result.usedAi ? result.mode : "fallback");
         setGeneratedDisclaimerVisible(result.usedAi);
-        if (result.usedAi && result.mode === "article") startArticleConversation(result, answer);
+        if (result.usedAi && (result.mode === "article" || result.mode === "dashboard")) {
+          startSearchConversation(result, query);
+        }
       }
     } catch (error) {
       if (!isCurrent(requestGeneration)) return;
-      els.aiSearchMeta.textContent = t("error.requestFailed");
+      setAiSearchMeta(t("error.requestFailed"));
       if (isFollowup) finishConversationResponse(pendingAnswer, options.localizedErrorMessage(error), "error");
       else streamAnswer(options.localizedErrorMessage(error), [], "error");
     } finally {
       if (requestGeneration !== generation) return;
       state.aiSearchBusy = false;
       els.aiSearchSubmit.disabled = false;
-      if (articleConversation) els.aiSearchInput.focus();
+      if (searchConversation) els.aiSearchInput.focus();
     }
   }
 
@@ -135,45 +142,67 @@ export function createAiSearchController(options) {
     return requestGeneration === generation && els.aiSearchOverlay.classList.contains("open");
   }
 
-  function startArticleConversation(result, answer) {
+  function startSearchConversation(result, initialQuery) {
     const source = (result.links || []).find((link) => link?.url);
-    if (!source) return;
-    articleConversation = {
-      type: "article",
-      url: source.url,
-      title: source.title || source.url,
-      summary: String(result.answer || answer || "").trim(),
-      turns: [],
-    };
+    const isArticle = result.mode === "article";
+    if (isArticle && !source) return;
+    searchConversation = isArticle
+      ? {
+        type: "article",
+        url: source.url,
+        title: source.title || source.url,
+        summary: String(result.answer || "").trim(),
+        turns: [],
+      }
+      : {
+        type: "question",
+        initialQuery,
+        initialAnswer: String(result.answer || "").trim(),
+        turns: [],
+      };
     els.aiSearchInput.value = "";
     els.aiSearchInput.maxLength = ARTICLE_FOLLOWUP_MAX_CHARS;
-    els.aiSearchInput.placeholder = t("aiSearch.followupInput");
-    els.aiSearchInput.setAttribute("aria-label", t("aiSearch.followupInput"));
+    const inputKey = isArticle ? "aiSearch.followupInput" : "aiSearch.questionFollowupInput";
+    els.aiSearchInput.placeholder = t(inputKey);
+    els.aiSearchInput.setAttribute("aria-label", t(inputKey));
     els.aiSearchSubmit.textContent = t("aiSearch.followupSubmit");
-    els.aiSearchMeta.textContent = t("aiSearch.articleReady", { title: articleConversation.title });
+    setAiSearchMeta(isArticle
+      ? t("aiSearch.articleReady", { title: searchConversation.title })
+      : t("aiSearch.questionReady"));
     els.aiSearchInput.focus();
   }
 
   function resetArticleConversation() {
-    articleConversation = null;
+    searchConversation = null;
     els.aiSearchInput.removeAttribute("maxlength");
   }
 
   function conversationPayload() {
+    const turns = searchConversation.turns.slice(-ARTICLE_FOLLOWUP_MAX_TURNS);
+    if (searchConversation.type === "article") {
+      return {
+        type: "article",
+        url: searchConversation.url,
+        summary: searchConversation.summary,
+        turns,
+      };
+    }
     return {
-      type: "article",
-      url: articleConversation.url,
-      summary: articleConversation.summary,
-      turns: articleConversation.turns.slice(-ARTICLE_FOLLOWUP_MAX_TURNS),
+      type: "question",
+      initialQuery: searchConversation.initialQuery,
+      initialAnswer: searchConversation.initialAnswer,
+      turns,
     };
   }
 
   function resetAnswer() {
+    finishAiLoadingMotion();
     if (state.aiSearchTypeTimer) clearInterval(state.aiSearchTypeTimer);
     state.aiSearchTypeTimer = null;
     els.aiAnswer.hidden = true;
     els.aiAnswer.removeAttribute("data-mode");
-    els.aiAnswer.classList.remove("has-copy-action");
+    els.aiAnswer.classList.remove("has-copy-action", "ai-loading-surface");
+    els.aiAnswer.removeAttribute("aria-busy");
     els.aiAnswer.replaceChildren();
     setGeneratedDisclaimerVisible(false);
   }
@@ -183,6 +212,7 @@ export function createAiSearchController(options) {
   }
 
   function streamAnswer(text, links, mode = "answer") {
+    finishAiLoadingMotion();
     if (state.aiSearchTypeTimer) clearInterval(state.aiSearchTypeTimer);
     state.aiSearchTypeTimer = null;
     els.aiAnswer.replaceChildren();
@@ -218,15 +248,26 @@ export function createAiSearchController(options) {
     label.textContent = role === "user" ? `${questionNumber}.` : t("aiSearch.assistant");
     const body = document.createElement("div");
     body.className = "ai-conversation-body";
-    body.textContent = role === "assistant" ? cleanAiAnswerMarkup(text) : String(text || "");
+    if (pending) {
+      body.append(createAiLoadingState({
+        statusText: t("aiSearch.loadingHint"),
+        noteText: t("aiSearch.loadingHint"),
+        paragraphCount: 1,
+        variant: "compact",
+      }));
+    } else {
+      body.textContent = role === "assistant" ? cleanAiAnswerMarkup(text) : String(text || "");
+    }
     message.append(label, body);
     els.aiAnswer.append(message);
     els.aiAnswer.hidden = false;
+    if (pending) startAiLoadingMotion(message);
     return message;
   }
 
   function finishConversationResponse(message, text, mode) {
     if (!message?.isConnected) return;
+    finishAiLoadingMotion(message);
     message.className = `ai-conversation-message is-assistant${mode === "error" ? " is-error" : ""}${mode === "notice" ? " is-notice" : ""}`;
     message.removeAttribute("aria-busy");
     const body = message.querySelector(".ai-conversation-body");
@@ -282,6 +323,37 @@ export function createAiSearchController(options) {
     els.aiAnswer.addEventListener("animationend", () => {
       els.aiAnswer.classList.remove("is-resolving");
     }, { once: true });
+  }
+
+  function renderInitialAnswerLoading() {
+    els.aiAnswer.hidden = false;
+    els.aiAnswer.dataset.mode = "loading";
+    els.aiAnswer.replaceChildren(createAiLoadingState({
+      statusText: t("aiSearch.loadingHint"),
+      noteText: t("aiSearch.loadingHint"),
+      paragraphCount: 3,
+      variant: "answer",
+    }));
+    startAiLoadingMotion(els.aiAnswer);
+  }
+
+  function startAiLoadingMotion(target) {
+    finishAiLoadingMotion();
+    aiLoadingMotion = {
+      target,
+      controller: createLoadingSurfaceController(target),
+    };
+  }
+
+  function finishAiLoadingMotion(target = null) {
+    if (!aiLoadingMotion || (target && aiLoadingMotion.target !== target)) return;
+    const active = aiLoadingMotion;
+    aiLoadingMotion = null;
+    active.controller.finish();
+  }
+
+  function setAiSearchMeta(text) {
+    els.aiSearchMeta.textContent = String(text || "");
   }
 
   function renderStructuredAnswer(text, target) {

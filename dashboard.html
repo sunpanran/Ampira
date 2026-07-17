@@ -96,7 +96,7 @@
             </div>
             <div class="summary-tools">
               <div class="section-meta summary-batch-meta" id="summaryMeta"></div>
-              <button class="btn" id="summaryBatch" type="button"><img class="btn-icon" data-icon="shuffle-01" alt="" aria-hidden="true"><span class="btn-label" data-i18n="action.nextBatch">换一批</span></button>
+              <button class="btn" id="summaryBatch" type="button"><img class="btn-icon" data-icon="shuffle-01" alt="" aria-hidden="true"><span class="btn-label" data-i18n="action.nextBatch">换一换</span></button>
               <button class="btn primary" id="refresh" type="button" disabled data-disabled-reason="prerequisite" aria-describedby="refreshAvailability"><img class="btn-icon" data-icon="refresh-cw-01" alt="" aria-hidden="true"><span class="btn-label" data-i18n="action.cache">缓存</span></button>
               <div class="refresh-availability is-visible" id="refreshAvailability" role="status" aria-live="polite" data-i18n="status.refreshUnavailable.loading">正在读取资讯状态</div>
             </div>
@@ -395,16 +395,6 @@
             <details class="settings-disclosure" id="cacheAdvancedDetails">
               <summary class="settings-disclosure-summary"><span class="settings-disclosure-copy"><strong id="cacheAdvancedTitle" data-i18n="settings.section.advanced">高级设置</strong><small data-i18n="settings.section.advancedHelp">排序、批量操作与抓取上限</small></span><span class="settings-disclosure-chevron" aria-hidden="true"></span></summary>
               <div class="settings-disclosure-body">
-                <div class="settings-row-list">
-                  <label class="switch-field" for="readingQueueOpenOnReadAllInput">
-                    <span class="switch-copy"><span class="switch-title" data-i18n="settings.cache.readAllOpen">一键已读时打开网站</span><span class="switch-help" data-i18n="settings.cache.readAllOpenHelp">关闭后只清空阅读队列并标记已读，不新建标签页。</span></span>
-                    <span class="toggle"><input id="readingQueueOpenOnReadAllInput" type="checkbox"><span aria-hidden="true"></span></span>
-                  </label>
-                  <label class="switch-field" for="personalizedRankingEnabledInput">
-                    <span class="switch-copy"><span class="switch-title" data-i18n="settings.cache.personalized">个性化排序</span><span class="switch-help" data-i18n="settings.cache.personalizedHelp">仅使用本机阅读行为调整排序；关闭后恢复默认排序。</span></span>
-                    <span class="toggle"><input id="personalizedRankingEnabledInput" type="checkbox"><span aria-hidden="true"></span></span>
-                  </label>
-                </div>
                 <div class="settings-field-grid settings-field-grid-three">
                   <input id="todayNewsPerPublisherInput" type="hidden">
                   <div class="field">
@@ -422,6 +412,16 @@
                     <input id="newsPerCategoryInput" type="number" min="0" max="100" step="1" inputmode="numeric" placeholder="12">
                     <div class="help" data-i18n="settings.cache.perCategoryHelp">每个资讯分类一次最多读取的入口条数；设为 0 时不限制。</div>
                   </div>
+                </div>
+                <div class="settings-row-list">
+                  <label class="switch-field" for="readingQueueOpenOnReadAllInput">
+                    <span class="switch-copy"><span class="switch-title" data-i18n="settings.cache.readAllOpen">一键已读时打开网站</span><span class="switch-help" data-i18n="settings.cache.readAllOpenHelp">关闭后只清空阅读队列并标记已读，不新建标签页。</span></span>
+                    <span class="toggle"><input id="readingQueueOpenOnReadAllInput" type="checkbox"><span aria-hidden="true"></span></span>
+                  </label>
+                  <label class="switch-field" for="personalizedRankingEnabledInput">
+                    <span class="switch-copy"><span class="switch-title" data-i18n="settings.cache.personalized">个性化排序</span><span class="switch-help" data-i18n="settings.cache.personalizedHelp">仅使用本机阅读行为调整排序；关闭后恢复默认排序。</span></span>
+                    <span class="toggle"><input id="personalizedRankingEnabledInput" type="checkbox"><span aria-hidden="true"></span></span>
+                  </label>
                 </div>
               </div>
             </details>
@@ -457,13 +457,6 @@
           <div class="settings-panel-intro">
             <h3 data-i18n="settings.bookmarks.title">书签设置</h3>
           </div>
-          <section class="settings-section" aria-labelledby="bookmarkSectionTitle">
-            <div class="settings-section-head"><div><h4 id="bookmarkSectionTitle" data-i18n="settings.bookmarks.sectionTitle">首页书签</h4></div></div>
-            <label class="switch-field" for="bookmarkSectionEnabledInput">
-              <span class="switch-copy"><span class="switch-title" data-i18n="settings.bookmarks.sectionEnabled">在首页显示书签</span><span class="switch-help" data-i18n="settings.bookmarks.sectionEnabledHelp">关闭后隐藏书签导航入口和主书签板块；快捷书签、书签来源和已保存内容不受影响。</span></span>
-              <span class="toggle"><input id="bookmarkSectionEnabledInput" type="checkbox" checked><span aria-hidden="true"></span></span>
-            </label>
-          </section>
           <section class="settings-section" aria-labelledby="bookmarkPrimaryTitle">
             <div class="settings-section-head"><div><h4 id="bookmarkPrimaryTitle" data-i18n="settings.section.primarySources">主要来源</h4></div></div>
             <div class="settings-field-grid">
@@ -524,6 +517,13 @@
               </div>
               <div class="website-shortcut-settings-list settings-compact-list" id="websiteShortcutSettingsList"></div>
             </div>
+          </section>
+          <section class="settings-section" aria-labelledby="bookmarkSectionTitle">
+            <div class="settings-section-head"><div><h4 id="bookmarkSectionTitle" data-i18n="settings.bookmarks.sectionTitle">首页书签</h4></div></div>
+            <label class="switch-field" for="bookmarkSectionEnabledInput">
+              <span class="switch-copy"><span class="switch-title" data-i18n="settings.bookmarks.sectionEnabled">在首页显示书签</span><span class="switch-help" data-i18n="settings.bookmarks.sectionEnabledHelp">关闭后隐藏书签导航入口和主书签板块；快捷书签、书签来源和已保存内容不受影响。</span></span>
+              <span class="toggle"><input id="bookmarkSectionEnabledInput" type="checkbox" checked><span aria-hidden="true"></span></span>
+            </label>
           </section>
           <section class="settings-section" aria-labelledby="bookmarkHiddenTitle">
             <details class="settings-disclosure" id="bookmarkHiddenDetails">
@@ -590,11 +590,38 @@
                 <span class="theme-dot theme-rose" aria-hidden="true"></span>
                 <span data-i18n="settings.accent.rose">玫瑰</span>
               </button>
-              <label class="theme-swatch theme-custom-swatch" data-accent-theme="custom" role="button" tabindex="0" aria-pressed="false">
+              <button class="theme-swatch theme-custom-swatch" id="customAccentTrigger" type="button" data-accent-theme="custom" aria-pressed="false" aria-haspopup="dialog" aria-expanded="false" aria-controls="customAccentPicker">
                 <span class="theme-dot theme-custom-dot" id="customAccentDot" aria-hidden="true"></span>
                 <span data-i18n="settings.accent.custom">自定义</span>
-                <input class="theme-custom-input" id="customAccentInput" type="color" value="#9152FF" aria-label="自定义重点色" data-i18n-aria-label="settings.accent.customLabel">
-              </label>
+              </button>
+            </div>
+            <div class="color-picker-popover" id="customAccentPicker" popover="auto" role="dialog" aria-labelledby="customAccentPickerTitle">
+              <div class="color-picker-head">
+                <div class="color-picker-heading">
+                  <span class="color-picker-format" aria-hidden="true">HEX</span>
+                  <strong id="customAccentPickerTitle" data-i18n="settings.accent.pickerTitle">自定义重点色</strong>
+                </div>
+                <button class="btn ghost icon-btn color-picker-close" id="closeCustomAccentPicker" type="button" aria-label="关闭" title="关闭" data-i18n-aria-label="action.close" data-i18n-title="action.close">
+                  <img class="btn-icon" data-icon="x-close" alt="" aria-hidden="true">
+                </button>
+              </div>
+              <div class="color-picker-plane" id="customAccentField" role="slider" tabindex="0" aria-valuemin="0" aria-valuemax="100" aria-valuenow="75" aria-valuetext="#9152FF" aria-label="颜色区域：左右调整饱和度，上下调整亮度" data-i18n-aria-label="settings.accent.pickerField">
+                <span class="color-picker-marker" id="customAccentMarker" aria-hidden="true"></span>
+              </div>
+              <div class="color-picker-controls">
+                <label class="color-picker-control-row" for="customAccentHue">
+                  <span data-i18n="settings.accent.pickerHue">色相</span>
+                  <input class="color-picker-hue" id="customAccentHue" type="range" min="0" max="360" step="1" value="263" aria-label="色相" data-i18n-aria-label="settings.accent.pickerHue">
+                </label>
+                <label class="color-picker-control-row color-picker-hex-row" for="customAccentInput">
+                  <span>HEX</span>
+                  <span class="color-picker-hex-control">
+                    <span class="color-picker-value-dot" aria-hidden="true"></span>
+                    <input class="color-picker-hex-input" id="customAccentInput" type="text" value="#9152FF" maxlength="7" inputmode="text" autocomplete="off" autocapitalize="characters" spellcheck="false" aria-label="自定义重点色" aria-describedby="customAccentInputError" data-i18n-aria-label="settings.accent.customLabel">
+                  </span>
+                </label>
+                <span class="color-picker-error" id="customAccentInputError" role="status" aria-live="polite" hidden data-i18n="settings.accent.pickerInvalid">请输入 6 位 HEX 色值。</span>
+              </div>
             </div>
           </div>
           </section>
@@ -662,7 +689,7 @@
                 </div>
                 <div class="cover-adjustment-range cover-blur-range" id="headerImageBlurField" aria-disabled="false">
                   <div class="cover-blur-meter">
-                    <input id="headerImageBlurAmountInput" type="range" min="0" max="24" step="1" value="0">
+                    <input id="headerImageBlurAmountInput" type="range" min="0" max="50" step="1" value="0">
                   </div>
                 </div>
               </div>
@@ -840,7 +867,7 @@
             <img class="card-icon" data-icon="search" alt="" aria-hidden="true">
             <span id="aiSearchTitleText" data-i18n="aiSearch.local.title">搜索 Ampira</span>
           </div>
-          <div class="ai-search-meta" id="aiSearchMeta" data-i18n="aiSearch.local.meta">在 Ampira 已收录内容中查找相关信息</div>
+          <div class="ai-search-meta" id="aiSearchMeta" role="status" aria-live="polite" data-i18n="aiSearch.local.meta">在 Ampira 已收录内容中查找相关信息</div>
         </div>
         <button class="btn ghost" id="closeAiSearch" type="button"><img class="btn-icon" data-icon="x-close" alt="" aria-hidden="true"><span class="btn-label" data-i18n="aiSearch.close">关闭</span></button>
       </div>

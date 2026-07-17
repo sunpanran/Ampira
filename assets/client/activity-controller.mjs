@@ -1,5 +1,5 @@
 import { normalizeReadingQueueRecords } from "../../extension/core/reading-queue.mjs";
-import { MOTION_DURATION, prefersReducedMotion, restartMotionClass } from "./motion.mjs";
+import { fadeElementsOut, MOTION_DURATION, prefersReducedMotion, restartMotionClass } from "./motion.mjs";
 
 const READING_QUEUE_STORAGE_KEY = "dash.readingQueue";
 const OPENED_STORAGE_KEY = "dash.opened";
@@ -75,7 +75,7 @@ async function openAndMarkReadingQueue(items) {
     }
     persistSeen();
     persistReadingQueue();
-    renderAll();
+    if (!fadeElementsOut(globalThis.document?.querySelectorAll?.(".queue-row"), renderAll)) renderAll();
     if (preferencePatch) {
       try {
         state.settings = await apiPost("/api/settings", preferencePatch);
@@ -162,9 +162,20 @@ function animateQueueRemoval(key) {
   const row = Array.from(document.querySelectorAll(".queue-row[data-key]"))
     .find((item) => item.dataset.key === key);
   if (!row) return false;
-  row.classList.add("is-list-leaving");
+  row.classList.add("is-fading-out");
   row.inert = true;
-  window.setTimeout(renderEfficiencyPanel, MOTION_DURATION.press + 20);
+  window.setTimeout(renderEfficiencyPanel, MOTION_DURATION.state);
+  return true;
+}
+
+function animateArchiveRemoval(key) {
+  if (prefersReducedMotion()) return false;
+  const card = Array.from(document.querySelectorAll(".archive-card[data-key]"))
+    .find((item) => item.dataset.key === key);
+  if (!card) return false;
+  card.classList.add("is-fading-out");
+  card.inert = true;
+  window.setTimeout(renderAll, MOTION_DURATION.state);
   return true;
 }
 
@@ -234,6 +245,7 @@ function toggleSeen(item, checked, source = defaultSeenSource(item)) {
     state.seenMeta.delete(key);
   }
   persistSeen();
+  if (!checked && animateArchiveRemoval(key)) return;
   renderAll();
 }
 

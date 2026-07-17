@@ -48,11 +48,14 @@ assert.equal(normalizeSettings({}).headerImageHeightScale, DEFAULT_SETTINGS.head
 assert.equal(normalizeSettings({ headerImageHeightScale: 62 }).headerImageHeightScale, 70);
 assert.equal(normalizeSettings({ headerImageHeightScale: 147 }).headerImageHeightScale, 140);
 assert.equal(normalizeSettings({ headerImageHeightScale: 117 }).headerImageHeightScale, 115);
+assert.equal(normalizeSettings({ headerImageBlurAmount: 99 }).headerImageBlurAmount, 50);
 
 const transfer = createSettingsTransferDocument({ ...DEFAULT_SETTINGS, headerImageHeightScale: 125, headerCoverOperation: record });
 assert.equal(transfer.settings.headerImageHeightScale, 125);
 assert.equal(Object.hasOwn(transfer.settings, "headerCoverOperation"), false);
 assert.equal(parseSettingsTransferDocument(transfer, DEFAULT_SETTINGS).patch.headerImageHeightScale, 125);
+const blurTransfer = createSettingsTransferDocument({ ...DEFAULT_SETTINGS, headerImageBlurAmount: 50 });
+assert.equal(parseSettingsTransferDocument(blurTransfer, DEFAULT_SETTINGS).patch.headerImageBlurAmount, 50);
 
 const storage = memoryStorage({ [LOCAL_HEADER_COVER_KEY]: { corrupt: true } });
 const store = createHeaderCoverStore(storage, { now: () => "2026-07-15T00:00:00.000Z" });
@@ -89,9 +92,14 @@ const workflow = createSettingsWorkflow(workflowOptions({
 }));
 const saved = await workflow.saveSettings({
   headerImageHeightScale: 120,
+  headerImageBlurEnabled: true,
+  headerImageBlurAmount: 50,
   headerCoverOperation: { action: "replace", record },
 });
 assert.equal(saved.headerImageHeightScale, 120);
+assert.equal(saved.headerImageBlurEnabled, true);
+assert.equal(saved.headerImageBlurAmount, 50);
+assert.equal(workflowSettings.headerImageBlurAmount, 50, "50 px cover blur must survive the settings write transaction");
 assert.equal(saved.headerCoverChanged, true);
 assert.equal((await workflowStore.read()).record.name, record.name);
 assert.equal(broadcasts.at(-1).type, "settings.changed");
