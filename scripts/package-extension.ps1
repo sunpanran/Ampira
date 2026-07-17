@@ -18,8 +18,7 @@ $files = @(
   "favicon-dark.svg",
   "THIRD_PARTY_NOTICES.txt",
   "assets/dashboard.css",
-  "assets/extension.css",
-  "assets/logo-purple.svg"
+  "assets/extension.css"
 )
 $directories = @("assets/client", "assets/icons", "assets/images", "assets/presets", "assets/styles", "extension", "_locales")
 

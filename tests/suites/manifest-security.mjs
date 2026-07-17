@@ -17,7 +17,7 @@ import {
 export async function runManifestSecurityTests(root) {
 const manifest = JSON.parse(await fs.readFile(path.join(root, "manifest.json"), "utf8"));
 const dashboardHtml = await fs.readFile(path.join(root, "dashboard.html"), "utf8");
-const storeIconSource = await fs.readFile(path.join(root, "store", "assets", "ampira-store-icon.svg"), "utf8");
+const logoSource = await fs.readFile(path.join(root, "assets", "icons", "ampira-logo.svg"), "utf8");
 const toolbarIcon16Png = await fs.readFile(path.join(root, "extension", "icons", "icon-16.png"));
 const toolbarIcon32Png = await fs.readFile(path.join(root, "extension", "icons", "icon-32.png"));
 const storeIconPng = await fs.readFile(path.join(root, "extension", "icons", "icon-128.png"));
@@ -31,17 +31,20 @@ const dashboardContentRuntimeSource = await fs.readFile(path.join(root, "extensi
 
 assert.equal(manifest.manifest_version, 3);
 assert(dashboardHtml.includes('<span class="about-version" id="aboutVersion"></span>'), "the About panel must reserve a version output without hard-coding a release");
-assert(dashboardHtml.includes('<img class="about-logo" src="/extension/icons/icon-48.png?v=20260717-expanded"'), "the About panel must reuse the expanded extension-management logo");
+assert(dashboardHtml.includes('<img class="about-logo" src="/assets/icons/ampira-logo.svg?v=20260717-crisp"'), "the About panel must render the canonical vector logo");
 assert(!dashboardHtml.slice(dashboardHtml.indexOf('<div class="about-brand">'), dashboardHtml.indexOf('<div class="about-links">')).includes("logo-purple.svg"), "the About panel must not retain the legacy purple-only logo");
+await assert.rejects(fs.access(path.join(root, "assets", "logo-purple.svg")), /ENOENT/, "the legacy purple-only logo must be removed");
+await assert.rejects(fs.access(path.join(root, "store", "assets", "ampira-store-icon.svg")), /ENOENT/, "the blurred store-only vector must be removed");
 const versionDashboardAppSource = await fs.readFile(path.join(root, "assets", "client", "dashboard-app.mjs"), "utf8");
 assert(versionDashboardAppSource.includes("chrome?.runtime?.getManifest?.().version")
   && versionDashboardAppSource.includes('new URL("../../manifest.json", import.meta.url)')
   && versionDashboardAppSource.includes("els.aboutVersion.textContent = `v${appVersion}`"), "the About panel version must come from the runtime manifest with a local-preview manifest fallback");
 assert(!dashboardHtml.includes(manifest.version), "dashboard HTML must not hard-code the manifest version");
 assert.equal(manifest.chrome_url_overrides.newtab, "dashboard.html");
-assert(storeIconSource.includes('<rect x="16" y="16" width="96" height="96" rx="24"')
-  && storeIconSource.includes('fill="#9152FF"')
-  && storeIconSource.includes('fill="#F7F2FF"'), "the store icon source must preserve the reviewed 96px artwork box and Ampira palette");
+assert(logoSource.includes('<rect x="4.75" y="4.75" width="94.5" height="94.5" rx="23.25"')
+  && logoSource.includes('fill="#9152FF"')
+  && logoSource.includes('fill="#F7F2FF"')
+  && !/(?:linear|radial)Gradient|filter=/.test(logoSource), "the canonical logo must use the reviewed flat, crisp geometry and Ampira palette");
 assert.deepEqual([storeIconPng.readUInt32BE(16), storeIconPng.readUInt32BE(20)], [128, 128], "the Chrome Web Store icon must remain 128x128");
 assert.deepEqual([managerIconPng.readUInt32BE(16), managerIconPng.readUInt32BE(20)], [48, 48], "the extension-management icon must remain 48x48");
 assert.deepEqual([toolbarIcon16Png.readUInt32BE(16), toolbarIcon16Png.readUInt32BE(20)], [16, 16], "the compact toolbar icon must remain 16x16");
@@ -66,6 +69,7 @@ assert(cspDirectives.get("img-src")?.includes("'self'"), "the native favicon end
 const actionPopupHtml = await fs.readFile(path.join(root, "action-popup.html"), "utf8");
 const actionPopupSource = await fs.readFile(path.join(root, "assets/client/action-popup.mjs"), "utf8");
 const actionPopupCss = await fs.readFile(path.join(root, "assets/styles/action-popup.css"), "utf8");
+assert(actionPopupHtml.includes('src="assets/icons/ampira-logo.svg"') && !actionPopupHtml.includes("logo-purple.svg"), "the toolbar popup must reuse the canonical vector logo");
 assert(actionPopupHtml.includes('role="status"') && actionPopupHtml.includes('aria-live="polite"'), "the capture popup must announce its result accessibly");
 assert(actionPopupHtml.includes('src="assets/client/action-popup.mjs"'), "the capture popup must execute only its packaged module");
 assert(actionPopupSource.includes("chrome.tabs.query({ active: true, currentWindow: true })"), "the popup must read only the actively invoked tab");

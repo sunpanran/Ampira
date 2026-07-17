@@ -219,7 +219,7 @@ $env:REQUIRED_SUPPORT_URL = "https://github.com/sunpanran/Ampira/issues"
 ## 2026-07-17 — 26.2.10 商店图标
 
 - 商店图标使用 `128×128` 透明 PNG，实际品牌面板为居中的 `96×96` 圆角方形，四周保留 `16px` 透明留白；深色表面、Ampira `#9152FF` 书签和浅色星标兼容亮暗商店背景。
-- `store/assets/ampira-store-icon.svg` 作为可编辑矢量源；`icon-128.png` 用于 Chrome Web Store 与安装界面，`icon-48.png` 同步用于扩展管理页，工具栏 `16/32px` 继续使用现有简化符号。
+- `assets/icons/ampira-logo.svg` 是唯一可编辑矢量源；`icon-128.png` 用于 Chrome Web Store 与安装界面，其余 PNG 尺寸均从同一源生成。
 - `store/privacy-practices.md` 明确 Chrome Web Store 对 Manifest 中必需、可选及来源权限的理由字段均要求填写，并提供与当前界面路径一致的 `favicon`、`search` 可直接粘贴说明。
 
 ## 2026-07-17 — 26.2.11 关于页品牌统一
@@ -235,3 +235,10 @@ $env:REQUIRED_SUPPORT_URL = "https://github.com/sunpanran/Ampira/issues"
 
 - Chrome 工具栏使用的 `icon-16.png` 与高分屏 `icon-32.png` 改为新商店 Logo 的紧裁切版本；移除旧的纯紫色简化标记，使工具栏、扩展管理页、关于页与商店保持同一品牌图形。
 - GitHub README 标题上方展示仓库内的 `store/assets/ampira-store-icon-128.png`，不依赖外部图片地址。
+
+## 2026-07-17 — 26.2.14 Logo 清晰度收口
+
+- 新建唯一品牌源 `assets/icons/ampira-logo.svg`，移除径向光晕、背景渐变和旧的纯紫色 Logo；当前仓库不再保留模糊的商店专用 SVG 或并行旧版本。
+- “设置 → 关于”和 GitHub README 直接渲染矢量 Logo，避免 48/128px 位图缩放造成的发软；16/32/48/128px PNG 均从该矢量源一次生成。
+- 工具栏 16/32px 采用接近满幅的扁平圆角面板，128px 商店 PNG 仍单独增加透明安全区。
+- 工具栏“稍后读”弹窗同步引用唯一矢量 Logo，不再依赖已删除的旧紫色资源。
