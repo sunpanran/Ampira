@@ -220,3 +220,4 @@ $env:REQUIRED_SUPPORT_URL = "https://github.com/sunpanran/Ampira/issues"
 
 - 商店图标使用 `128×128` 透明 PNG，实际品牌面板为居中的 `96×96` 圆角方形，四周保留 `16px` 透明留白；深色表面、Ampira `#9152FF` 书签和浅色星标兼容亮暗商店背景。
 - `store/assets/ampira-store-icon.svg` 作为可编辑矢量源；`icon-128.png` 用于 Chrome Web Store 与安装界面，`icon-48.png` 同步用于扩展管理页，工具栏 `16/32px` 继续使用现有简化符号。
+- `store/privacy-practices.md` 明确 Chrome Web Store 对 Manifest 中必需、可选及来源权限的理由字段均要求填写，并提供与当前界面路径一致的 `favicon`、`search` 可直接粘贴说明。
