@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { buildBookmarkModel, inspirationPreviewSourceUrls, inspirationPreviewTargets, originsFromUrls } from "../../extension/core/bookmarks.mjs";
 import {
-  NEWS_RANKING_POLICY_VERSION,
   feedCacheOrEmpty, filterLikelyNewsItems, isDisplayableFeedItem, parseFeedDocument, rankAndDedupe,
 } from "../../extension/core/feed.mjs";
 import { bravePreviewCacheKeys, previewCacheKeysOutsideTargets } from "../../extension/core/preview-cache.mjs";
@@ -51,25 +50,25 @@ assert.equal(publicOnlyModel.bookmarks.filter((item) => item.cardType === "inspi
 assert.deepEqual(publicOnlyModel.availableNewsFolders, [], "public Feed mode must not expose bookmark folders as active news sources");
 assert.deepEqual(inspirationPreviewSourceUrls(model.bookmarks), ["https://design.example.com/"], "only inspiration bookmarks should require original-preview origins");
 assert.deepEqual(previewCacheKeysOutsideTargets([
-  { key: "preview-origin-v2-kept", value: { capability: "site-preview-origin", requestedUrl: "https://design.example.com/#work" } },
-  { key: "preview-brave-v2-kept", value: { capability: "site-preview-brave", requestedUrl: "https://design.example.com/", title: "Design" } },
-  { key: "preview-brave-v2-renamed", value: { capability: "site-preview-brave", requestedUrl: "https://design.example.com/", title: "Old name" } },
-  { key: "preview-brave-v2-removed", value: { capability: "site-preview-brave", requestedUrl: "https://removed.example.com/" } },
-  { key: "preview-origin-v2-insecure", value: { capability: "site-preview-origin", requestedUrl: "http://design.example.com/" } },
-  { key: "preview-origin-v2-invalid", value: { capability: "site-preview-origin", requestedUrl: "" } },
+  { key: "preview-origin-kept", value: { capability: "site-preview-origin", requestedUrl: "https://design.example.com/#work" } },
+  { key: "preview-brave-kept", value: { capability: "site-preview-brave", requestedUrl: "https://design.example.com/", title: "Design" } },
+  { key: "preview-brave-renamed", value: { capability: "site-preview-brave", requestedUrl: "https://design.example.com/", title: "Old name" } },
+  { key: "preview-brave-removed", value: { capability: "site-preview-brave", requestedUrl: "https://removed.example.com/" } },
+  { key: "preview-origin-insecure", value: { capability: "site-preview-origin", requestedUrl: "http://design.example.com/" } },
+  { key: "preview-origin-invalid", value: { capability: "site-preview-origin", requestedUrl: "" } },
   { key: "feed", value: { requestedUrl: "https://removed.example.com/" } },
 ], inspirationPreviewTargets(model.bookmarks)), [
-  "preview-brave-v2-renamed",
-  "preview-brave-v2-removed",
-  "preview-origin-v2-insecure",
-  "preview-origin-v2-invalid",
-], "bookmark changes must identify stale v2 preview records without touching unrelated cache entries");
+  "preview-brave-renamed",
+  "preview-brave-removed",
+  "preview-origin-insecure",
+  "preview-origin-invalid",
+], "bookmark changes must identify stale preview records without touching unrelated cache entries");
 assert.deepEqual(bravePreviewCacheKeys([
-  { key: "preview-origin-v2-kept", value: { capability: "site-preview-origin" } },
-  { key: "preview-brave-v2-current", value: { capability: "site-preview-brave" } },
+  { key: "preview-origin-kept", value: { capability: "site-preview-origin" } },
+  { key: "preview-brave-current", value: { capability: "site-preview-brave" } },
   { key: "preview-legacy", value: { capability: "image-preview" } },
-  { key: "preview-brave-v2-unknown", value: {} },
-]), ["preview-brave-v2-current", "preview-legacy", "preview-brave-v2-unknown"], "Brave setting or key changes must target only Brave preview cache records");
+  { key: "preview-brave-unknown", value: {} },
+]), ["preview-brave-current", "preview-legacy", "preview-brave-unknown"], "Brave setting or key changes must target only Brave preview cache records");
 assert.equal(model.availableNewsFolders[0].value, "资讯/科技");
 const urlExcludedModel = buildBookmarkModel(fixtureTree, {
   newsBookmarkFolder: "资讯",
@@ -137,9 +136,8 @@ const importanceRanked = rankAndDedupe(importanceFixture);
 assert.equal(importanceRanked[0].url, "https://example.com/news/storm", "impact signals must outrank a source-leading promotional guide");
 assert(importanceRanked[0].scoreBreakdown.impact > 0, "importance scores must expose their impact contribution");
 assert(importanceRanked[1].scoreBreakdown.penalties > 0, "soft or commercial content must expose its ranking penalty");
-const legacyImportanceRanked = rankAndDedupe([{ ...importanceFixture[0], score: 99, scorePolicyVersion: 1 }]);
-assert.equal(legacyImportanceRanked[0].scorePolicyVersion, NEWS_RANKING_POLICY_VERSION, "legacy cached scores must be recalculated under the current policy");
-assert.notEqual(legacyImportanceRanked[0].score, 99, "legacy feed-position scores must not survive policy migration");
+const rerankedImportance = rankAndDedupe([{ ...importanceFixture[0], score: 99 }]);
+assert.notEqual(rerankedImportance[0].score, 99, "ranking must always derive its score from the item content");
 const publisherFixture = parseFeedDocument(
   `<rss><channel><item><title>Publisher metadata remains inert</title><link>https://news.google.com/articles/one</link><source url="https://publisher.example/">Publisher Example</source><description>Readable reporting context for publisher identity.</description><pubDate>Sun, 12 Jul 2026 10:00:00 GMT</pubDate></item></channel></rss>`,
   "https://news.google.com/rss",
@@ -215,12 +213,10 @@ assert.equal(faviconUrl({ url: faviconPageUrl }, {
 
 const emptyFeedCache = feedCacheOrEmpty(null);
 assert.deepEqual(emptyFeedCache.items, [], "a missing feed cache must remain empty instead of falling back to bookmark cards");
-const legacyFeed = { schemaVersion: 2, items: [{ articleId: "legacy-article", title: "Legacy article" }] };
-assert.deepEqual(feedCacheOrEmpty(legacyFeed).items, [], "schema 2 Feed caches must be discarded instead of migrating raw content");
-const cachedEmptyFeed = { schemaVersion: 3, items: [] };
-assert.equal(feedCacheOrEmpty(cachedEmptyFeed), cachedEmptyFeed, "an empty schema 3 Feed cache must remain authoritative");
-const cachedFeed = { schemaVersion: 3, items: [{ articleId: "real-article", title: "Real article" }] };
-assert.equal(feedCacheOrEmpty(cachedFeed), cachedFeed, "current cached news must remain available");
+const cachedEmptyFeed = { items: [] };
+assert.equal(feedCacheOrEmpty(cachedEmptyFeed), cachedEmptyFeed, "an empty feed cache must remain authoritative");
+const cachedFeed = { items: [{ articleId: "real-article", title: "Real article" }] };
+assert.equal(feedCacheOrEmpty(cachedFeed), cachedFeed, "structured cached news must remain available");
 assert.equal(isReaderUrl("http://127.0.0.1:3000/article"), true);
 
 }

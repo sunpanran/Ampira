@@ -188,8 +188,6 @@ function testDailyEventSelectionAndDigest(now) {
   })], { now });
   const candidates = buildDailyCandidates(ranked, { now, limit: 12, recentLimit: 3 });
   const digest = buildFallbackDigest(candidates, "local", "zh-CN", { now, preselected: true });
-  assert.equal(digest.schemaVersion, 6);
-  assert.equal(digest.rankingPolicyVersion, 4);
   assert.equal(digest.items[0].eventConfidence, "high-confidence-single");
   assert.notEqual(
     dailyCandidateFingerprint(candidates),

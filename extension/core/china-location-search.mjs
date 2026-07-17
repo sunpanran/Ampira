@@ -37,10 +37,6 @@ export function searchChinaLocations(queryValue, localeValue, limit = RESULT_LIM
   }));
 }
 
-export function normalizeChinaLocationSearchKey(value) {
-  return normalizeSearchKey(value);
-}
-
 function locationMatchScore(record, query, strippedQuery) {
   const name = normalizeSearchKey(record.zh);
   const strippedName = stripAdminSuffix(name);

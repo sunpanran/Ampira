@@ -1,37 +1,14 @@
 export function buildPermissionRows(requiredOrigins = [], grantedOrigins = []) {
   const required = normalizedOriginSet(requiredOrigins);
   const granted = normalizedOriginSet(grantedOrigins);
-  const origins = [...new Set([...required, ...granted])];
-  return origins
-    .map((origin) => {
-      const directlyGranted = granted.has(origin);
-      const coveredByBroad = !directlyGranted && [...granted].some((pattern) => broadPatternCovers(pattern, origin));
-      const coversRequired = directlyGranted && [...required].some((requiredOrigin) => (
-        !granted.has(requiredOrigin) && broadPatternCovers(origin, requiredOrigin)
-      ));
-      return {
-        origin,
-        granted: directlyGranted || coveredByBroad,
-        directlyGranted,
-        coveredByBroad,
-        coversRequired,
-        required: required.has(origin),
-        legacy: directlyGranted && !required.has(origin) && !coversRequired,
-      };
-    })
-    .sort((left, right) => (
-      Number(right.required) - Number(left.required)
-      || Number(right.coversRequired) - Number(left.coversRequired)
-      || left.origin.localeCompare(right.origin)
-    ));
+  return [...required]
+    .sort((left, right) => left.localeCompare(right))
+    .map((origin) => ({ origin, granted: granted.has(origin) }));
 }
 
 export function normalizeOriginPattern(value) {
   const text = String(value || "").trim();
   if (!text) return "";
-  if (["https://*/*", "http://*/*", "*://*/*"].includes(text.toLowerCase())) {
-    return text.toLowerCase();
-  }
   if (text.includes("*")) {
     const exactWildcard = text.match(/^(https:\/\/[^/*]+|http:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?)\/\*$/i);
     if (!exactWildcard) return "";
@@ -85,7 +62,7 @@ export function filterFeedItemsBySources(items = [], sources = [], grantedOrigin
     const fetchPattern = originPattern(item?.fetchOrigin || item?.sourceOrigin || "");
     if (!fetchPattern) return false;
     if (fetchPattern === actual) return true;
-    return granted.has(fetchPattern) || [...granted].some((pattern) => broadPatternCovers(pattern, fetchPattern));
+    return granted.has(fetchPattern);
   });
 }
 
@@ -113,12 +90,5 @@ function normalizedOriginSet(values) {
 }
 
 function patternIsRemoved(pattern, removed) {
-  return Boolean(pattern && (removed.has(pattern) || [...removed].some((candidate) => broadPatternCovers(candidate, pattern))));
-}
-
-function broadPatternCovers(broad, exact) {
-  if (broad === "*://*/*") return exact.startsWith("https://") || exact.startsWith("http://");
-  if (broad === "https://*/*") return exact.startsWith("https://");
-  if (broad === "http://*/*") return exact.startsWith("http://");
-  return false;
+  return Boolean(pattern && removed.has(pattern));
 }

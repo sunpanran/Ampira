@@ -1068,8 +1068,7 @@
     flex-wrap: wrap;
   }
 
-  .settings-field-grid,
-  .about-grid {
+  .settings-field-grid {
     grid-template-columns: 1fr;
   }
 

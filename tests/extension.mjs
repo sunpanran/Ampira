@@ -75,6 +75,7 @@ import {
   translateCount,
 } from "../extension/core/i18n.mjs";
 import { runArchitectureTests } from "./suites/architecture.mjs";
+import { runCodeHygieneTests } from "./suites/code-hygiene.mjs";
 import { runManifestSecurityTests } from "./suites/manifest-security.mjs";
 import { runActivityStoreTests } from "./suites/activity-store.mjs";
 import { runActivityControllerTests } from "./suites/activity-controller.mjs";
@@ -197,43 +198,43 @@ const presentablePolicyItems = [
     articleId: "cross-wrong-output", externalDiscovery: true, contentLocale: "en",
     title: "Another raw headline", excerpt: "Another raw excerpt.",
     summaryTitle: "Still an English headline", summary: ["The provider returned an English summary instead of localized output."],
-    summaryStatus: "ai", summaryPolicyVersion: 6, summaryLocale: "zh-CN",
+    summaryStatus: "ai", summaryLocale: "zh-CN",
     summaryProviderOrigin: "https://api.example.com",
   },
   {
     articleId: "cross-wrong-title", externalDiscovery: true, contentLocale: "en",
     title: "Raw title for mixed output", excerpt: "Raw excerpt for mixed output.",
     summaryTitle: "English headline remains visible", summary: ["多国公布新的合作方案，相关部门将继续推进落实。"],
-    summaryStatus: "ai", summaryPolicyVersion: 6, summaryLocale: "zh-CN",
+    summaryStatus: "ai", summaryLocale: "zh-CN",
     summaryProviderOrigin: "https://api.example.com",
   },
   {
     articleId: "cross-localized", externalDiscovery: true, contentLocale: "en",
     title: "Raw localized source headline", excerpt: "Raw localized source excerpt.",
     summaryTitle: "重大国际政策更新", summary: ["多国公布新的合作方案，相关部门将继续推进落实。"],
-    summaryStatus: "ai", summaryPolicyVersion: 6, summaryLocale: "zh-CN",
+    summaryStatus: "ai", summaryLocale: "zh-CN",
     summaryProviderOrigin: "https://api.example.com",
   },
 ];
 assert.deepEqual(
   filterPresentableFeedItems(presentablePolicyItems, "zh-CN", {
-    aiConfigured: false, summaryPolicyVersion: 6, providerOrigin: "https://api.example.com/v1",
+    aiConfigured: false, providerOrigin: "https://api.example.com/v1",
   }).map((item) => item.articleId),
   ["personal-en", "native-zh"],
   "without complete AI configuration, raw cross-language public items must stay hidden while personal items remain unrestricted",
 );
 const presentableWithAi = filterPresentableFeedItems(presentablePolicyItems, "zh-CN", {
-  aiConfigured: true, summaryPolicyVersion: 6, providerOrigin: "https://api.example.com/v1",
+  aiConfigured: true, providerOrigin: "https://api.example.com/v1",
 });
 assert.deepEqual(presentableWithAi.map((item) => item.articleId), ["personal-en", "native-zh", "cross-localized"]);
 assert.equal(presentableWithAi.at(-1).title, "重大国际政策更新");
 assert.equal(presentableWithAi.at(-1).excerpt, "多国公布新的合作方案，相关部门将继续推进落实。");
 assert(!presentableWithAi.some((item) => item.title === "Raw localized source headline"), "presentable projections must not expose the raw cross-language title");
 assert.equal(filterPresentableFeedItems(presentablePolicyItems, "zh-Hant", {
-  aiConfigured: true, summaryPolicyVersion: 6, providerOrigin: "https://api.example.com/v1",
+  aiConfigured: true, providerOrigin: "https://api.example.com/v1",
 }).some((item) => item.articleId === "cross-localized"), false, "localized cache entries must be invalidated by an interface-language change");
 assert.equal(filterPresentableFeedItems(presentablePolicyItems, "zh-CN", {
-  aiConfigured: true, summaryPolicyVersion: 6, providerOrigin: "https://other.example.com/v1",
+  aiConfigured: true, providerOrigin: "https://other.example.com/v1",
 }).some((item) => item.articleId === "cross-localized"), false, "localized cache entries must be invalidated by a provider change");
 
 const languageFeedFixture = `<?xml version="1.0"?><rss><channel>
@@ -246,7 +247,7 @@ const parsedLanguageFixture = parseFeedDocument(languageFeedFixture, "https://fi
   contentLocale: "zh-CN", accessTier: "native", externalDiscovery: true,
 }, 5, "application/rss+xml");
 assert.deepEqual(parsedLanguageFixture.map((item) => item.contentLocale), ["en", "zh-CN", "zh-Hant"]);
-assert(parsedLanguageFixture.every((item) => item.schemaVersion === 2 && item.accessTier === "native"), "parsed article records must use schema 2 and retain the source tier");
+assert(parsedLanguageFixture.every((item) => item.accessTier === "native"), "parsed article records must retain the source tier");
 
 let aiFeedPermissionSettings = {
   bookmarkConsentGranted: true,
@@ -323,6 +324,7 @@ else delete globalThis.matchMedia;
 
 const root = path.dirname(path.dirname(new URL(import.meta.url).pathname.replace(/^\/(?:[A-Za-z]:)/, (match) => match.slice(1))));
 await runArchitectureTests(root);
+await runCodeHygieneTests(root);
 const { dashboardSource, localeKeys } = await runManifestSecurityTests(root);
 const servicePanelStart = dashboardSource.indexOf('data-settings-panel="service"');
 const browserPanelStart = dashboardSource.indexOf('data-settings-panel="browser"');
@@ -968,7 +970,7 @@ const previewTargetService = createReaderPreviewService({
     };
   },
   async getRecord(key, fallback) {
-    return key === "feed" ? { schemaVersion: 3, items: [newsPreviewFixture] } : fallback;
+    return key === "feed" ? { items: [newsPreviewFixture] } : fallback;
   },
   feedCacheOrEmpty,
   async currentFeedPermissionState() {
@@ -984,7 +986,6 @@ assert.equal(await previewTargetService.isSitePreviewTarget(newsPreviewFixture.u
 assert.equal(await previewTargetService.isSitePreviewTarget("https://inspiration.example/work"), true, "news fallback must preserve inspiration targets");
 assert.equal(await previewTargetService.isSitePreviewTarget("https://unrelated.example/"), false, "preview access must remain closed to unrelated URLs");
 assert.equal(await previewTargetService.previewCachePermitted({
-  strategyVersion: 2,
   capability: "site-preview-brave",
   requestedUrl: newsPreviewFixture.url,
   providerOrigin: "https://api.search.brave.com",
@@ -1015,7 +1016,7 @@ assert.equal((await getOriginalPreview({ url: "https://origin.example/design", t
 assert.equal(originalPreviewFetches, 1);
 assert.equal(originalPreviewSearches, 0, "Brave must not run when the original page supplies an image");
 assert.equal(previewCacheEpoch, 17, "preview writes must retain the permission/cache epoch captured before the request");
-assert([...originalPreviewRecords.keys()].some((key) => key.startsWith("preview-origin-v4-")), "the optimized extractor must bypass legacy preview misses with the current cache identity");
+assert([...originalPreviewRecords.keys()].some((key) => key.startsWith("preview-origin-")), "the optimized extractor must cache current origin previews by URL");
 
 let previewSearches = 0;
 const previewRecords = new Map();
@@ -1260,9 +1261,6 @@ assert(oldSettingChunkKeys.length > 0);
 await settingsStore.write(DEFAULT_SETTINGS);
 const afterCompactWrite = await settingsSyncStorage.get(null);
 assert(oldSettingChunkKeys.every((key) => !Object.hasOwn(afterCompactWrite, key)), "obsolete settings chunks must be removed after a compact write");
-await settingsSyncStorage.set({ [SETTINGS_KEY]: { ...DEFAULT_SETTINGS, openaiApiKey: "legacy-synced-secret" } });
-assert.equal(await settingsStore.sanitizeLocalOnlyFields(), true);
-assert.equal(Object.hasOwn((await settingsSyncStorage.get(SETTINGS_KEY))[SETTINGS_KEY], "openaiApiKey"), false, "legacy synced credentials must be scrubbed");
 const queuedSettingsWrite = settingsStore.write(DEFAULT_SETTINGS);
 const queuedSettingsReset = settingsStore.reset();
 await Promise.all([queuedSettingsWrite, queuedSettingsReset]);
@@ -1421,11 +1419,9 @@ const todayRankedFeed = rankNewsItems([
 const todayCandidates = buildDailyCandidates(todayRankedFeed, { now: rankingNow, limit: 20, recentLimit: 3, publisherLimit: 0 });
 assert.equal(todayCandidates.filter((item) => item.timeScope === "recent").length, 3, "daily candidate selection must cap cross-day news at three");
 assert(todayCandidates.every((item) => ["today", "recent"].includes(newsTimeScope(item, rankingNow))));
-const fallbackDigestV6 = buildFallbackDigest(todayCandidates, "local", "zh-CN", { now: rankingNow, preselected: true, publisherLimit: 2 });
-assert.equal(fallbackDigestV6.schemaVersion, 6);
-assert.equal(fallbackDigestV6.rankingPolicyVersion, 4);
-assert(fallbackDigestV6.candidateFingerprint);
-assert(fallbackDigestV6.items.every((item) => item.eventId && item.eventConfidence && item.sourceCount >= 1 && item.articleCount >= 1 && item.timeScope && Number.isFinite(item.localImportanceScore) && Number.isFinite(item.importanceScore)));
+const fallbackDigest = buildFallbackDigest(todayCandidates, "local", "zh-CN", { now: rankingNow, preselected: true, publisherLimit: 2 });
+assert(fallbackDigest.candidateFingerprint);
+assert(fallbackDigest.items.every((item) => item.eventId && item.eventConfidence && item.sourceCount >= 1 && item.articleCount >= 1 && item.timeScope && Number.isFinite(item.localImportanceScore) && Number.isFinite(item.importanceScore)));
 assert.notEqual(
   dailyCandidateFingerprint(todayCandidates, { publisherLimit: 2 }),
   dailyCandidateFingerprint(todayCandidates, { publisherLimit: 0 }),
@@ -1506,11 +1502,9 @@ for (const locale of ["zh-CN", "zh-Hant", "en"]) {
 const localizedSummaryService = createRefreshService({
   settingsLocale: (settings) => settings.uiLocale,
   originPattern: (value) => value,
-  cardSummaryPolicyVersion: 6,
 });
 const cachedEnglishSummary = {
   summaryStatus: "ai",
-  summaryPolicyVersion: 6,
   summaryLocale: "en",
   summaryTitle: "English title",
   summary: ["English facts.", "English impact."],
@@ -1776,7 +1770,7 @@ assert.equal(normalizeHexColor("9152ff"), "#9152FF");
 assert.deepEqual(paletteFromAccent("#06B6D4"), { accent: "#06B6D4", accentRgb: [6, 182, 212] });
 
 assert.equal(readerTextFromBlocks([{ type: "video", title: "" }]), "", "untitled video blocks must defer to localized UI copy");
-const cachedReader = { schemaVersion: 2, url: "https://example.com/article", blocks: [{ type: "paragraph", text: "Cached article" }] };
+const cachedReader = { url: "https://example.com/article", blocks: [{ type: "paragraph", text: "Cached article" }] };
 const upstreamError = new Error("upstream failure");
 upstreamError.code = "READER_HTTP_ERROR";
 upstreamError.details = { status: 503 };
@@ -1888,9 +1882,7 @@ assert(primitivesCssSource.includes(".select-combobox-listbox")
   && primitivesCssSource.includes(".select-combobox-listbox::backdrop"), "custom select panels must define shared active, selected, disabled, and top-layer surfaces");
 assert(dashboardSectionsCssSource.includes("grid-template-rows: 22px minmax(0, 1fr) auto;")
   && dashboardSectionsCssSource.includes("align-content: stretch;"), "fixed-height inspiration cards must reserve explicit rows so platform font metrics cannot clip their title and host");
-assert(serviceWorkerSource.includes("digest?.schemaVersion !== digestSchemaVersion")
-  && serviceWorkerSource.includes("digest?.rankingPolicyVersion !== rankingPolicyVersion")
-  && serviceWorkerSource.includes("digest?.date !== localDateKey()")
+assert(serviceWorkerSource.includes("digest?.date !== localDateKey()")
   && serviceWorkerSource.includes("digest?.candidateFingerprint !== expectedFingerprint"), "daily digest cache reuse must require the current schema, policy, local date, and candidate fingerprint");
 assert(serviceWorkerSource.includes('originPattern(digest.providerOrigin || "") === originPattern(settings.openaiBaseUrl)'), "AI digest cache reuse must remain bound to the configured Provider origin");
 assert(readerPolicySource.includes('READER_HTTP_ERROR: "reader.error.httpTitle"'));
@@ -2231,9 +2223,8 @@ assert(appSource.includes('feedItem.summaryStatus === "ai" && feedItem.summaryTi
 assert.deepEqual(cleanPresentedSummaryLines(["### 核心内容", "**核心内容**：有效摘要。"]), ["有效摘要。"], "cached card summaries must strip Markdown and structural AI headings before rendering");
 assert.equal(cleanPresentedSummaryTitle("### 核心内容"), "", "structural AI headings must never render as card titles");
 assert.equal([...cleanPresentedSummaryTitle("标题".repeat(80))].length, 64, "card titles must retain their explicit character cap");
-assert.equal(isCorrectlySummarized({ summary: { summaryStatus: "ai", summaryTitle: "旧摘要", summary: ["第一段。", "第二段。"] } }), false, "legacy short card summaries must be eligible for reorganization");
-assert.equal(isCorrectlySummarized({ summary: { summaryStatus: "ai", summaryPolicyVersion: 5, summaryTitle: "旧策略摘要", summary: ["第一段。", "第二段。", "第三段。"] } }), false, "policy-5 card summaries must be invalidated by the language guard migration");
-assert.equal(isCorrectlySummarized({ summary: { summaryStatus: "ai", summaryPolicyVersion: 6, summaryTitle: "新版摘要", summary: ["第一段。", "第二段。", "第三段。"] } }), true, "current compact card summaries must not be reorganized again");
+assert.equal(isCorrectlySummarized({ summary: { summaryStatus: "ai", summaryTitle: "有效摘要", summary: ["第一段。", "第二段。"] } }), true, "valid AI card summaries remain reusable without policy-version metadata");
+assert.equal(isCorrectlySummarized({ summary: { summaryStatus: "ai", summaryTitle: "完整摘要", summary: ["第一段。", "第二段。", "第三段。"] } }), true, "complete compact card summaries must not be reorganized again");
 assert(serviceWorkerSource.includes('const summaryText = await callProvider('), "manual card organization must invoke the configured AI provider");
 assert(serviceWorkerSource.includes(".map(cleanGeneratedSummaryLine)"), "new AI card summaries must discard Markdown and structural headings before caching");
 assert(serviceWorkerSource.includes('summaryStatus: "ai"'), "manual card organization must persist AI summary status in the feed cache");
@@ -2281,7 +2272,6 @@ assert(serviceWorkerSource.includes("AI_SEARCH_MAX_TOKENS = 1400"), "ordinary AI
 assert(serviceWorkerSource.includes("AI_ARTICLE_MAX_TOKENS = 900"), "article explanations and follow-ups must use the compact output budget");
 assert(aiSearchCoreSource.includes("AI_ARTICLE_CONTEXT_MAX_CHARS = 8000"), "article AI context must stay bounded for latency");
 assert(serviceWorkerSource.includes("preferVisibleOutput: true"), "article requests should disable avoidable hidden reasoning where supported");
-assert(serviceWorkerSource.includes("AI_SEARCH_CACHE_VERSION = 6"), "language-guarded prompts must invalidate stale cached answers");
 assert(serviceWorkerSource.includes("readCachedArticle(context.url)"), "article follow-ups must prefer the permission-bound Reader cache");
 assert(serviceWorkerSource.includes("const context = await automaticCardSummaryContext(candidate)"), "automatic summaries must build a bounded excerpt-only context");
 const automaticSummaryContextSource = serviceWorkerSource.slice(serviceWorkerSource.indexOf("function automaticCardSummaryContext"), serviceWorkerSource.indexOf("function preserveCardAiSummary"));

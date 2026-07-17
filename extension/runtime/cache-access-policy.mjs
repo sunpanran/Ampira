@@ -21,7 +21,7 @@ export function createCacheAccessPolicy(options) {
     if (record.key.startsWith("preview-") || /^(?:image-preview|site-preview-)/.test(record.value?.capability || "")) {
       return previewCachePermitted(record.value, { settings, model, secrets, previewTargets });
     }
-    if (record.key.startsWith("reader-content-v2-") || record.value?.capability === "reader") {
+    if (record.key.startsWith("reader-content-") || record.value?.capability === "reader") {
       return cacheUrlsPermitted([record.value?.requestedUrl, record.value?.url, record.value?.canonicalUrl]);
     }
     if (record.value?.capability === "weather") return weatherCachePermitted(record.value);

@@ -8,7 +8,7 @@ export function createDashboardContentService(options) {
     getAiAutoStatus, filterFeedItemsBySources, originsFromUrls, buildPermissionRows,
     originPattern, withFeedCacheMetadata, cacheSourceIdentitiesPermitted,
     sanitizeCardAiSummaries, buildFallbackDigest, summarizeQuality,
-    buildDailyCandidates, dailyCandidateFingerprint, digestSchemaVersion, rankingPolicyVersion, localDateKey,
+    buildDailyCandidates, dailyCandidateFingerprint, localDateKey,
     pipelineStages, publicFeedsForLocale, chrome, typedError,
     uniqueStrings, normalizeUserUrl, aiSearchResultPermitted,
     providerCredentialAvailable, aiConfigured, presentableFeedItems,
@@ -47,7 +47,7 @@ async function buildDashboardPayload(attempt = 0) {
   let aiPermissionGranted = buildPermissionRows(
     [originPattern(settings.openaiBaseUrl)],
     feedPermissions.grantedOrigins,
-  ).some((row) => row.required && row.granted);
+  ).some((row) => row.granted);
   const credentialReady = providerCredentialAvailable(settings.openaiBaseUrl, secrets.hasOpenAIKey);
   let configuredForAi = settings.aiDisclosureAccepted === true
     && credentialReady
@@ -108,7 +108,7 @@ async function buildDashboardPayload(attempt = 0) {
     total: model.bookmarks.length,
     sections: model.sections,
     bookmarks: model.bookmarks,
-    feed: { schemaVersion: 3, ...feed },
+    feed,
     dailyDigest: digest,
     ai: {
       enabled: configuredForAi,
@@ -185,7 +185,7 @@ async function currentFeedPermissionState(settings, model) {
     grantedOrigins = [];
   }
   const grantedPatterns = new Set(buildPermissionRows(requiredOrigins, grantedOrigins)
-    .filter((row) => row.required && row.granted)
+    .filter((row) => row.granted)
     .map((row) => row.origin));
   const permitted = [];
   const denied = [];
@@ -237,12 +237,9 @@ function digestCachePermitted(digest, visibleItems, permissionState, settings, c
     aiRankingEnabled: configuredForAi,
   });
   const expectedFingerprint = dailyCandidateFingerprint(candidates, {
-    policyVersion: rankingPolicyVersion,
     publisherLimit: settings.todayNewsPerPublisherLimit,
   });
-  if (digest?.schemaVersion !== digestSchemaVersion
-    || digest?.rankingPolicyVersion !== rankingPolicyVersion
-    || digest?.date !== localDateKey()
+  if (digest?.date !== localDateKey()
     || digest?.candidateFingerprint !== expectedFingerprint) return false;
   const visibleIds = new Set((visibleItems || []).flatMap((item) => [item?.articleId, item?.entryKey, item?.url]).filter(Boolean));
   const digestItemsVisible = (Array.isArray(digest?.items) ? digest.items : []).every((item) => (
@@ -267,7 +264,7 @@ function filterSourceQuality(sourceQuality, permissionState) {
   }).map(([key, record]) => {
     const fetchPattern = originPattern(record?.fetchOrigin || record?.sourceOrigin || "");
     const fetchGranted = !fetchPattern || buildPermissionRows([fetchPattern], permissionState.grantedOrigins)
-      .some((row) => row.required && row.granted);
+      .some((row) => row.granted);
     if (fetchGranted) return [key, record];
     return [key, {
       ...record,

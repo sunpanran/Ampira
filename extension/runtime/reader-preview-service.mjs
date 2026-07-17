@@ -5,7 +5,7 @@ export function createReaderPreviewService(options) {
     currentBookmarkModel, emptyBookmarkModel, getSettings, secretStatus,
     inspirationPreviewTargets, newsPreviewTargets, currentFeedPermissionState,
     filterFeedItemsBySources, presentableFeedItems = (items) => items, aiConfigured = async () => false,
-    feedCacheOrEmpty = (value) => value?.schemaVersion === 3 ? value : { schemaVersion: 3, items: [] },
+    feedCacheOrEmpty = (value) => Array.isArray(value?.items) ? value : { items: [] },
     hashText, uniqueStrings, hasOriginPermissions, setRecords, typedError,
   } = options;
   return {
@@ -130,12 +130,12 @@ async function readReaderCache(url) {
   const alias = await getRecord(readerAliasKey(url), null);
   if (!alias?.contentKey) return null;
   const value = await getRecord(alias.contentKey, null);
-  return value?.schemaVersion === 2 && value?.imageStrategyVersion === 2 && Array.isArray(value.blocks) ? value : null;
+  return value?.capability === "reader" && Array.isArray(value.blocks) ? value : null;
 }
 
 async function storeReaderCache(reader, cacheEpoch = cacheMutations.capture()) {
   const primaryUrl = reader.canonicalUrl || reader.url || reader.requestedUrl;
-  const contentKey = `reader-content-v2-${hashText(primaryUrl)}`;
+  const contentKey = `reader-content-${hashText(primaryUrl)}`;
   const stored = { ...reader, capability: "reader", source: "live", staleReason: "", staleCode: "" };
   const aliases = uniqueStrings([reader.requestedUrl, reader.url, reader.canonicalUrl]);
   await cacheMutations.run(async (isCurrent) => {
@@ -174,12 +174,10 @@ async function previewCachePermitted(value, context = {}) {
   const requestedUrl = previewIdentityUrl(value?.requestedUrl);
   if (!requestedUrl || !previewTargetInItems(requestedUrl, previewTargets)) return false;
   if (value.capability === "site-preview-origin") {
-    if (value.strategyVersion !== 4) return false;
     if (value.sourceOrigin !== new URL(requestedUrl).origin) return false;
     return hasOriginPermission(requestedUrl);
   }
   if (value.capability === "site-preview-brave") {
-    if (value.strategyVersion !== 2) return false;
     const secrets = context.secrets || await secretStatus();
     return value.providerOrigin === "https://api.search.brave.com"
       && settings.webImageSearchEnabled === true
@@ -193,7 +191,7 @@ async function currentPreviewTargets(settings, model) {
   const bookmarkTargets = inspirationPreviewTargets(model?.bookmarks);
   try {
     const [feed, feedPermissions] = await Promise.all([
-      getRecord("feed", { schemaVersion: 3, items: [] }),
+      getRecord("feed", { items: [] }),
       currentFeedPermissionState(settings, model),
     ]);
     const permittedFeedItems = filterFeedItemsBySources(
@@ -227,7 +225,7 @@ function previewIdentityUrl(value) {
 }
 
 function readerAliasKey(url) {
-  return `reader-alias-v2-${hashText(normalizeReaderCacheUrl(url))}`;
+  return `reader-alias-${hashText(normalizeReaderCacheUrl(url))}`;
 }
 
 function normalizeReaderCacheUrl(value) {

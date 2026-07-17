@@ -5,8 +5,6 @@ import { extractPageMetadata } from "./reader.mjs";
 import { normalizeImageCandidates } from "./image-candidates.mjs";
 import { isPrivateAddressLiteral } from "./network-policy.mjs";
 
-const ORIGIN_PREVIEW_STRATEGY_VERSION = 4;
-const BRAVE_PREVIEW_STRATEGY_VERSION = 2;
 const PREVIEW_HIT_CACHE_MS = 24 * 60 * 60 * 1000;
 const ORIGIN_MISS_CACHE_MS = 2 * 60 * 60 * 1000;
 const SOURCE_TIMEOUT_MS = 10000;
@@ -49,7 +47,7 @@ export function createPreviewService(adapters) {
 
   async function getOriginPreview({ url, cacheEpoch }) {
     if (!await hasPermission(url)) return { status: "unavailable", imageUrl: "" };
-    const cacheKey = `preview-origin-v4-${hashText(url)}`;
+    const cacheKey = `preview-origin-${hashText(url)}`;
     return withPending(`origin:${cacheKey}`, async () => {
       const cached = await adapters.getRecord(cacheKey, null);
       if (validOriginCache(cached, url, now()) && await hasPermission(url)) {
@@ -76,7 +74,6 @@ export function createPreviewService(adapters) {
       if (!await hasPermission(url) || !await targetAllowed(url)) return { status: "unavailable", imageUrl: "" };
 
       const record = {
-        strategyVersion: ORIGIN_PREVIEW_STRATEGY_VERSION,
         capability: "site-preview-origin",
         outcome: imageUrls.length ? "hit" : "miss",
         requestedUrl: url,
@@ -95,7 +92,7 @@ export function createPreviewService(adapters) {
     const [settings, secrets] = await Promise.all([adapters.getSettings(), adapters.readSecrets()]);
     if (settings.webImageSearchEnabled !== true || !secrets.braveSearchApiKey) return emptyPreview(url);
     if (!await hasPermission(BRAVE_SEARCH_URL)) return emptyPreview(url);
-    const cacheKey = `preview-brave-v2-${hashText(`${url}|${title}`)}`;
+    const cacheKey = `preview-brave-${hashText(`${url}|${title}`)}`;
     return withPending(`brave:${cacheKey}`, async () => {
       const cached = await adapters.getRecord(cacheKey, null);
       if (validBraveCache(cached, url, title, now()) && await hasPermission(BRAVE_SEARCH_URL)) {
@@ -120,7 +117,6 @@ export function createPreviewService(adapters) {
       if (!await hasPermission(BRAVE_SEARCH_URL) || !await targetAllowed(url)) return emptyPreview(url);
 
       const record = {
-        strategyVersion: BRAVE_PREVIEW_STRATEGY_VERSION,
         capability: "site-preview-brave",
         outcome: imageUrl ? "hit" : "miss",
         requestedUrl: url,
@@ -202,16 +198,14 @@ export async function fetchSourceImageCandidates(url, options = {}) {
 }
 
 function validOriginCache(value, url, timestamp) {
-  return value?.strategyVersion === ORIGIN_PREVIEW_STRATEGY_VERSION
-    && value?.capability === "site-preview-origin"
+  return value?.capability === "site-preview-origin"
     && value?.requestedUrl === url
     && ["hit", "miss"].includes(value?.outcome)
     && freshCache(value, timestamp, value.outcome === "miss" ? ORIGIN_MISS_CACHE_MS : PREVIEW_HIT_CACHE_MS);
 }
 
 function validBraveCache(value, url, title, timestamp) {
-  return value?.strategyVersion === BRAVE_PREVIEW_STRATEGY_VERSION
-    && value?.capability === "site-preview-brave"
+  return value?.capability === "site-preview-brave"
     && value?.requestedUrl === url
     && value?.title === title
     && ["hit", "miss"].includes(value?.outcome)

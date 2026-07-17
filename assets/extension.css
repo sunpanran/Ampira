@@ -12,57 +12,19 @@
   padding: 14px;
 }
 
-.settings-emphasis-surface {
-  border-color: color-mix(in srgb, var(--accent) 18%, var(--line-soft));
-  background:
-    linear-gradient(90deg, color-mix(in srgb, var(--accent) 5%, transparent), transparent 38%),
-    var(--surface-1);
-}
-
-.credential-copy,
 .source-permission-copy {
   display: grid;
   gap: 3px;
 }
 
-.feature-title {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.feature-title-icon {
-  width: 16px;
-  height: 16px;
-  flex: 0 0 auto;
-  object-fit: contain;
-  filter: var(--icon-filter);
-  opacity: .8;
-}
-
-.credential-copy strong,
 .browser-status-card strong,
 .source-permission-row strong {
   color: var(--text-strong);
 }
 
-.credential-copy span,
 .source-permission-row span {
   color: var(--muted);
   font-size: 12px;
-}
-
-.credential-consent {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  color: var(--text);
-  font-size: 13px;
-  line-height: 1.5;
-}
-
-.credential-consent .toggle {
-  margin-top: 0;
 }
 
 .credential-controls {
@@ -521,12 +483,6 @@
   border-color: var(--active-line);
   background: var(--active-bg);
   color: var(--text);
-}
-
-.browser-favicon-intro,
-.browser-permissions-intro,
-.browser-data-intro {
-  margin-top: 8px;
 }
 
 .onboarding-overlay {

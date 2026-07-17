@@ -1,6 +1,3 @@
-export const NEWS_RANKING_POLICY_VERSION = 4;
-export const DAILY_DIGEST_SCHEMA_VERSION = 6;
-
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
 const EVENT_WINDOW_MS = 36 * HOUR_MS;
@@ -33,7 +30,6 @@ export function rankNewsItems(items, options = {}) {
       neutralImportanceScore: neutral.score,
       baseImportanceScore: clampScore(neutral.score + (aiRankingEnabled ? 0 : personalization)),
       rankingEligible: neutral.rankingEligible,
-      scorePolicyVersion: NEWS_RANKING_POLICY_VERSION,
       scoreBreakdown: {
         ...neutral.breakdown,
         corroboration: 0,
@@ -128,7 +124,6 @@ export function newsTimeScope(item, nowValue = Date.now()) {
 }
 
 export function dailyCandidateFingerprint(items, options = {}) {
-  const policy = Number(options.policyVersion || NEWS_RANKING_POLICY_VERSION);
   const publisherLimit = Math.max(0, Math.floor(Number(options.publisherLimit) || 0));
   const content = (Array.isArray(items) ? items : []).map((item) => [
     item.eventId || item.articleId || item.entryKey || item.url || "",
@@ -137,7 +132,7 @@ export function dailyCandidateFingerprint(items, options = {}) {
     item.eventConfidence || "single-source",
     item.timeScope || "",
   ].join("|")).join("\n");
-  return `ranking-${policy}-${stableHash(`${publisherLimit}\n${content}`)}`;
+  return `ranking-${stableHash(`${publisherLimit}\n${content}`)}`;
 }
 
 export function publisherIdentity(item) {

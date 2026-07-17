@@ -983,19 +983,3 @@ input::placeholder {
   grid-template-columns: 1fr;
   column-count: auto;
 }
-
-.meter-track {
-  height: 6px;
-  overflow: hidden;
-  border-radius: var(--radius-pill);
-  background: var(--surface-3);
-}
-
-.meter-track span {
-  display: block;
-  width: 0;
-  height: 100%;
-  border-radius: inherit;
-  background: var(--accent);
-  transition: width var(--motion-move-duration) var(--motion-ease-move);
-}

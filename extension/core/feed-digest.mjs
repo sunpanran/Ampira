@@ -1,7 +1,5 @@
 import { normalizeLocale, translate } from "./i18n.mjs";
 import {
-  DAILY_DIGEST_SCHEMA_VERSION,
-  NEWS_RANKING_POLICY_VERSION,
   buildDailyCandidates,
   dailyCandidateFingerprint,
 } from "./news-ranking.mjs";
@@ -19,15 +17,10 @@ export function buildFallbackDigest(items, reason = "no-api-key", locale = "zh-C
         aiRankingEnabled: options.aiRankingEnabled,
       });
   return {
-    schemaVersion: DAILY_DIGEST_SCHEMA_VERSION,
-    rankingPolicyVersion: NEWS_RANKING_POLICY_VERSION,
     locale: normalizedLocale,
     date: localDateKey(now),
     generatedAt: new Date(now).toISOString(),
-    candidateFingerprint: dailyCandidateFingerprint(selected, {
-      policyVersion: NEWS_RANKING_POLICY_VERSION,
-      publisherLimit: options.publisherLimit,
-    }),
+    candidateFingerprint: dailyCandidateFingerprint(selected, { publisherLimit: options.publisherLimit }),
     status: reason,
     overview: selected.length
       ? [translate(normalizedLocale, "background.digest.organized"), translate(normalizedLocale, "background.digest.configureAiHint")]

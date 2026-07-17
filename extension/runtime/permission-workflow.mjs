@@ -9,7 +9,7 @@ export function createPermissionWorkflow(options) {
     revokedSourceKeys, getRefreshStatus, originPattern, aiConfigured, setAiAutoStatus,
     defaultAiAutoStatus, startRefresh, cacheMutations, setRefreshStatus,
     defaultRefreshStatus, setRecords, getRecord, deleteRecord, listRecords, filterFeedItemsBySources,
-    feedCacheOrEmpty = (value) => value?.schemaVersion === 3 ? value : { schemaVersion: 3, items: [] },
+    feedCacheOrEmpty = (value) => Array.isArray(value?.items) ? value : { items: [] },
     presentableFeedItems = (items) => items,
     previewCacheKeysOutsideTargets, bravePreviewCacheKeys, uniqueStrings,
     normalizeOriginPattern, filterSourceQuality, emptySourceQuality, originsFromUrls, secretStatus,
@@ -103,7 +103,7 @@ async function applyEffectivePermissionCachePolicy(removedOrigins, isCurrent) {
   if (!isCurrent()) return null;
 
   const [feed, sourceQuality, dailyDigest, cacheRecords] = await Promise.all([
-    getRecord("feed", { schemaVersion: 3, items: [] }),
+    getRecord("feed", { items: [] }),
     getRecord("source-quality", emptySourceQuality()),
     getRecord("daily-digest", null),
     listRecords("cache"),
@@ -119,8 +119,7 @@ async function applyEffectivePermissionCachePolicy(removedOrigins, isCurrent) {
   ];
   const feedContentChanged = JSON.stringify(items) !== JSON.stringify(normalizedFeed.items);
   const nextFeed = {
-    ...normalizedFeed,
-    schemaVersion: 3,
+      ...normalizedFeed,
     generatedAt: feedContentChanged ? new Date().toISOString() : normalizedFeed.generatedAt,
     items,
     localCount: visibleItems.filter((item) => !item.externalDiscovery).length,
@@ -190,7 +189,7 @@ async function pruneStalePreviewCaches(settings, expectedEpoch = cacheMutations.
     if (!isCurrent()) return null;
     const [cacheRecords, feed, feedPermissions] = await Promise.all([
       listRecords("cache"),
-      getRecord("feed", { schemaVersion: 3, items: [] }),
+      getRecord("feed", { items: [] }),
       currentFeedPermissionState(settings, model),
     ]);
     if (!isCurrent()) return null;

@@ -102,13 +102,6 @@ assert.deepEqual(await readDeviceConsent(provider.openaiBaseUrl), {
   aiDisclosureAccepted: false,
 }, "synced consent must not be inherited by this device");
 
-assert.equal(await settingsStore.sanitizeLocalOnlyFields(), true);
-const sanitizedSyncRoot = (await sync.get(SETTINGS_KEY))[SETTINGS_KEY];
-for (const field of LOCAL_ONLY_SETTINGS_FIELDS) {
-  assert.equal(Object.hasOwn(sanitizedSyncRoot, field), false, `${field} must be removed from Sync`);
-}
-assert(!JSON.stringify(await sync.get(null)).includes("must-not-migrate-from-sync"));
-
 local.clearSetLog();
 const updated = await updateProviderProfile({
   openaiApiKey: "new-openai-key",

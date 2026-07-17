@@ -54,8 +54,6 @@ export function extractReaderDocument(html, finalUrl, requestedUrl = finalUrl) {
   const wordCount = countWords(plainText);
   return {
     ok: true,
-    schemaVersion: 2,
-    imageStrategyVersion: 2,
     requestedUrl: safeHttpUrl(requestedUrl, finalUrl) || finalUrl,
     url: safeHttpUrl(finalUrl, finalUrl) || requestedUrl,
     canonicalUrl: sameOriginUrl(metadata.canonicalUrl, finalUrl) || safeHttpUrl(finalUrl, finalUrl) || requestedUrl,
@@ -518,16 +516,6 @@ function blockText(block) {
 
 function runsText(runs) {
   return (runs || []).map((run) => run.text || "").join("").trim();
-}
-
-function bestSrcset(value) {
-  const candidates = String(value || "").split(",").map((entry, index) => {
-    const parts = entry.trim().split(/\s+/);
-    const descriptor = parts[1] || "";
-    const score = Number.parseFloat(descriptor) || index + 1;
-    return { url: parts[0] || "", score };
-  }).filter((entry) => entry.url);
-  return candidates.sort((left, right) => right.score - left.score)[0]?.url || "";
 }
 
 function isExcludedNode(node) {

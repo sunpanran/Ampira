@@ -41,6 +41,7 @@
 - 设置归一化、Chrome Sync 边界、本机凭据隔离、IndexedDB 缓存配额、裁剪和失效策略。
 - Feed、Reader、图片、网络地址与权限策略的安全边界和失败回退。
 - `extension/service-worker.mjs` 的 composition-root 约束、core/runtime 依赖方向和本地 CSS import 完整性。
+- 生产模块入口可达性、已删除迁移/版本兼容标识符，以及 CSS 选择器的静态引用卫生；动态类名须在测试白名单中显式登记。
 - 文档、商店材料、支持 URL、打包允许列表及敏感内容检查。
 
 对策略、存储、权限、解析器、运行时或 UI 模型的行为改动，应在 `tests/suites/` 增加聚焦覆盖并从 `tests/extension.mjs` 注册。

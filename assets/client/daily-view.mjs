@@ -450,10 +450,6 @@ function isInspirationCard(item) {
   return item?.cardType === inspirationCardType;
 }
 
-function isBookmarkCard(item) {
-  return item?.cardType === bookmarkCardType;
-}
-
 function dailyPageForCardType(cardType, count) {
   if (cardType === newsCardType) {
     return fixedDailyPage(dailyNewsItems(), state.seen, count, dailyNewsBatchLimit, state.variants.news);

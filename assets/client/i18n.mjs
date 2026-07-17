@@ -4,7 +4,6 @@ import {
   SUPPORTED_LOCALES,
   detectSupportedLocale,
   formatDateTimeForLocale,
-  formatNumberForLocale,
   normalizeLocale,
   translate,
   translateCount,
@@ -54,10 +53,6 @@ export function translateDocument(root = document) {
 
 export function formatLocaleDateTime(value = new Date(), options = {}) {
   return formatDateTimeForLocale(currentLocale, value, options);
-}
-
-export function formatLocaleNumber(value, options = {}) {
-  return formatNumberForLocale(currentLocale, value, options);
 }
 
 function translateAttributes(root, dataAttribute, attribute) {

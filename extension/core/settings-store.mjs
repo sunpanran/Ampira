@@ -12,7 +12,6 @@ export function createSettingsStore(storage) {
     write,
     mutate,
     reset,
-    sanitizeLocalOnlyFields,
   };
 
   async function read() {
@@ -47,18 +46,6 @@ export function createSettingsStore(storage) {
 
   function reset() {
     return enqueue(() => storage.clear());
-  }
-
-  function sanitizeLocalOnlyFields() {
-    return mutate(async () => {
-      const stored = await storage.get(SETTINGS_KEY);
-      const root = stored[SETTINGS_KEY];
-      if (!root || typeof root !== "object" || !LOCAL_ONLY_SETTINGS_FIELDS.some((key) => Object.hasOwn(root, key))) return false;
-      const sanitized = { ...root };
-      for (const key of LOCAL_ONLY_SETTINGS_FIELDS) delete sanitized[key];
-      await storage.set({ [SETTINGS_KEY]: sanitized });
-      return true;
-    });
   }
 
   function enqueue(action) {

@@ -144,7 +144,6 @@
 .settings-status,
 .settings-cache-note,
 .about-panel,
-.about-grid > div,
 .settings-overview-item,
 .source-suggestion-row,
 .exclude-row {
@@ -252,8 +251,7 @@
   line-height: 1.6;
 }
 
-.settings-overview-grid,
-.about-grid {
+.settings-overview-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
@@ -388,21 +386,18 @@
   transform: translateY(0) scale(.98);
 }
 
-.settings-overview-item,
-.about-grid > div {
+.settings-overview-item {
   display: grid;
   gap: 6px;
   padding: 10px;
 }
 
-.settings-overview-item span,
-.about-grid span {
+.settings-overview-item span {
   color: var(--muted-2);
   font-size: 11px;
 }
 
-.settings-overview-item strong,
-.about-grid strong {
+.settings-overview-item strong {
   min-width: 0;
   overflow: hidden;
   color: var(--text);
@@ -857,11 +852,6 @@
   gap: 3px;
 }
 
-.header-cover-local-help {
-  margin: 8px 0 0;
-  text-wrap: pretty;
-}
-
 .header-cover-local-status {
   color: var(--text);
   font-size: 12px;
@@ -921,14 +911,6 @@
 
 .cover-adjustment-range[aria-disabled="true"] {
   opacity: .48;
-}
-
-.cover-adjustment-label {
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 800;
-  line-height: 1;
-  white-space: nowrap;
 }
 
 .cover-adjustment-meter,
@@ -1108,10 +1090,6 @@
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .header-cover-local-help {
-    grid-column: 2;
-    margin-top: 0;
-  }
 }
 
 @media (max-width: 820px) {
@@ -1147,8 +1125,7 @@
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .header-image-layout-field > .help,
-  .header-cover-local-help {
+  .header-image-layout-field > .help {
     grid-column: 1;
   }
 
@@ -1627,45 +1604,6 @@
 .toggle input:checked + span::after {
   background: var(--accent);
   transform: translateX(20px);
-}
-
-.toggle.toggle-checkbox {
-  width: 28px;
-  height: 28px;
-}
-
-.toggle-checkbox span {
-  inset: 2px;
-  border-color: color-mix(in srgb, var(--muted-2) 72%, transparent);
-  border-radius: 50%;
-  background: transparent;
-}
-
-.toggle-checkbox span::after {
-  content: none;
-}
-
-.toggle-checkbox-icon {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  width: 12px;
-  height: 12px;
-  filter: var(--icon-filter);
-  opacity: 0;
-  transform: translate(-50%, -50%) scale(.72);
-  transition: opacity var(--motion-state-duration) var(--motion-ease-standard), transform var(--motion-state-duration) var(--motion-ease-enter);
-}
-
-.toggle-checkbox input:checked + span {
-  border-color: var(--active-line);
-  background: color-mix(in srgb, var(--accent) 72%, transparent);
-  box-shadow: none;
-}
-
-.toggle-checkbox input:checked + span .toggle-checkbox-icon {
-  opacity: 1;
-  transform: translate(-50%, -50%) scale(1);
 }
 
 .toggle input:focus-visible + span {

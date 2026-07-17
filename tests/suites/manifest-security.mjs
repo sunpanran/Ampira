@@ -3,7 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { DEFAULT_SETTINGS } from "../../extension/core/constants.mjs";
 import { textLength, truncateText } from "../../assets/client/text.mjs";
-import { CARD_SUMMARY_POLICY_VERSION, cleanGeneratedSummaryLine, extractGeneratedSummaryTitle, hasStructuralSummaryPrefix, limitGeneratedSummaryLines, normalizeSummaryMarkup, parseGeneratedDailyDigest } from "../../extension/core/summary-text.mjs";
+import { cleanGeneratedSummaryLine, extractGeneratedSummaryTitle, hasStructuralSummaryPrefix, limitGeneratedSummaryLines, normalizeSummaryMarkup, parseGeneratedDailyDigest } from "../../extension/core/summary-text.mjs";
 import { cleanAiAnswerMarkup, extractDirectAnswer, parseAiAnswer } from "../../assets/client/ai-answer-format.mjs";
 import {
   exactPermissionOrigins, newlyRequiredUngrantedOrigins, permissionRowCounts, requiredUngrantedOrigins,
@@ -111,7 +111,6 @@ assert.equal(hasStructuralSummaryPrefix(normalizeSummaryMarkup("**核心内容**
 assert.equal(extractGeneratedSummaryTitle("**标题：AI 精炼标题**"), "AI 精炼标题");
 assert.equal(extractGeneratedSummaryTitle(`标题：${"长".repeat(80)}`).length, 64, "generated card titles must be capped before caching");
 assert.equal(cleanGeneratedSummaryLine("标题：AI 精炼标题"), "", "generated title rows must not leak into summary text");
-assert.equal(CARD_SUMMARY_POLICY_VERSION, 6);
 assert(aiSearchRuntimeSource.includes("for (let attempt = 0; attempt < 2; attempt += 1)")
   && aiSearchRuntimeSource.includes('typedError("AI_LOCALE_CHANGED"')
   && aiSearchRuntimeSource.includes("aiOutputMatchesLocale(cached.answer, locale)"), "AI search must retry language once, reject locale races, and distrust cached prose");
@@ -143,22 +142,18 @@ assert.equal(DEFAULT_SETTINGS.retainSeenArchive, true, "viewed items must remain
 assert.equal(DEFAULT_SETTINGS.personalizedRankingEnabled, false, "personalized ranking must be opt-in by default");
 
 const permissionUiRows = [
-  { origin: "https://allowed.example/*", required: true, granted: true },
-  { origin: "https://pending.example/*", required: true, granted: false },
-  { origin: "https://legacy.example/*", required: false, granted: true, legacy: true },
+  { origin: "https://allowed.example/*", granted: true },
+  { origin: "https://pending.example/*", granted: false },
 ];
 assert.deepEqual(permissionRowCounts(permissionUiRows), {
   required: 2,
   granted: 1,
   pending: 1,
-  legacy: 1,
-  broadRequired: 0,
 });
 assert.deepEqual(requiredUngrantedOrigins(permissionUiRows), ["https://pending.example/*"]);
 assert.deepEqual(newlyRequiredUngrantedOrigins(permissionUiRows, [permissionUiRows[0]]), ["https://pending.example/*"]);
 assert.deepEqual(exactPermissionOrigins(["https://pending.example/path", "http://unsafe.example/", "https://*/*"]), ["https://pending.example/*"]);
 assert.equal(permissionRowCounts(permissionUiRows.map((row) => ({ ...row, granted: true }))).pending, 0, "fully granted rows must not leave an active bulk action");
-assert.equal(permissionRowCounts(permissionUiRows.filter((row) => row.legacy)).pending, 0, "legacy-only rows must not enable bulk authorization");
 
 const localeKeys = Object.keys(localeMessages(DEFAULT_LOCALE)).sort();
 const defaultMessages = localeMessages(DEFAULT_LOCALE);

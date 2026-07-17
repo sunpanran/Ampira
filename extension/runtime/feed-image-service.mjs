@@ -25,7 +25,7 @@ export function selectFeedImageEnrichmentTargets(items, {
 }
 
 export function feedImageCacheFresh(record, item, now = Date.now()) {
-  if (record?.strategyVersion !== 1 || record?.capability !== "feed-image") return false;
+  if (record?.capability !== "feed-image") return false;
   if (record.requestedUrl !== item?.url || record.sourceKey !== item?.sourceKey) return false;
   if (record.sourceOrigin !== safeOrigin(item?.sourceOrigin || "")) return false;
   const checkedAt = Date.parse(record.checkedAt || "");
@@ -61,7 +61,7 @@ export function createFeedImageService(options) {
     const sourceOrigin = safeOrigin(item.sourceOrigin || "");
     if (!requestedUrl || !sourceOrigin || !sameOrigin(requestedUrl, sourceOrigin)) return null;
     if (!await hasOriginPermission(requestedUrl)) return null;
-    const cacheKey = `feed-image-v1-${hashText(requestedUrl)}`;
+    const cacheKey = `feed-image-${hashText(requestedUrl)}`;
     const cached = await getRecord(cacheKey, null);
     if (feedImageCacheFresh(cached, item, Date.now()) && await hasOriginPermission(requestedUrl)) return cached;
 
@@ -86,7 +86,6 @@ export function createFeedImageService(options) {
     if (!refreshStillCurrent(generation) || !cacheMutations.isCurrent(cacheEpoch)) return null;
     if (!await hasOriginPermission(requestedUrl) || !sameOrigin(requestedUrl, sourceOrigin)) return null;
     const record = {
-      strategyVersion: 1,
       capability: "feed-image",
       outcome,
       requestedUrl,

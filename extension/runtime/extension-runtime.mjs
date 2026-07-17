@@ -3,10 +3,8 @@ import {
   REFRESH_ALARM,
   REFRESH_PERIOD_MINUTES,
 } from "../core/constants.mjs";
-import { buildBookmarkModel, hashText, inspirationPreviewTargets, originsFromUrls } from "../core/bookmarks.mjs";
+import { hashText, inspirationPreviewTargets, originsFromUrls } from "../core/bookmarks.mjs";
 import {
-  DAILY_DIGEST_SCHEMA_VERSION,
-  NEWS_RANKING_POLICY_VERSION,
   buildDailyCandidates,
   buildFallbackDigest,
   dailyCandidateFingerprint,
@@ -36,7 +34,7 @@ import {
   restoreDeviceConsentState,
   setAiDisclosureConsent,
 } from "../core/device-consent.mjs";
-import { DEFAULT_LOCALE, defaultBookmarkFoldersForLocale, normalizeLocale, translate, translateAiPrompt } from "../core/i18n.mjs";
+import { defaultBookmarkFoldersForLocale, translate, translateAiPrompt } from "../core/i18n.mjs";
 import { readerTranslationMatchesLocale } from "../core/ai-output-language.mjs";
 import { requestAiCompletion, testImageSearchConnection } from "../core/ai.mjs";
 import { createClientStateStore } from "../core/client-state.mjs";
@@ -65,7 +63,7 @@ import { isValidServiceUrl, normalizeSettings, providerOrigin } from "../core/se
 import { publicFeedsForLocale } from "../core/public-feeds.mjs";
 import { createSettingsStore } from "../core/settings-store.mjs";
 import { createSettingsTransferDocument, parseSettingsTransferDocument } from "../core/settings-transfer.mjs";
-import { CARD_SUMMARY_POLICY_VERSION, dailyDigestEvidence, parseGeneratedDailyDigest } from "../core/summary-text.mjs";
+import { dailyDigestEvidence, parseGeneratedDailyDigest } from "../core/summary-text.mjs";
 import { normalizeUserUrl, searchFeed } from "../core/search.mjs";
 import { createMessageRouter } from "./message-router.mjs";
 import { errorResult, publicErrorDetails, resultMessage, settingsLocale, typedError } from "./runtime-result.mjs";
@@ -109,15 +107,14 @@ const quotaManager = createQuotaManager(chrome.storage.local, localDateKey);
 const headerCoverStore = createHeaderCoverStore(chrome.storage.local);
 const settingsStore = createSettingsStore(chrome.storage.sync);
 const settingsService = createRuntimeSettingsService({ store: settingsStore, readProviderProfile, readDeviceConsent });
-const { getSettings, sanitizeLocalOnlyFields } = settingsService;
-const cardSummaryPolicy = createCardSummaryPolicy({ settingsLocale, originPattern, policyVersion: CARD_SUMMARY_POLICY_VERSION });
+const { getSettings } = settingsService;
+const cardSummaryPolicy = createCardSummaryPolicy({ settingsLocale, originPattern });
 const browserSearchService = createBrowserSearchService({ chrome, typedError });
 const presentableFeedItems = (items, settings, configuredForAi) => filterPresentableFeedItems(
   items,
   settingsLocale(settings),
   {
     aiConfigured: configuredForAi === true,
-    summaryPolicyVersion: cardSummaryPolicy.policyVersion,
     providerOrigin: settings.openaiBaseUrl,
   },
 );
@@ -184,7 +181,6 @@ const {
   ...cacheMetadataPolicy,
   sanitizeCardAiSummaries: cardSummaryPolicy.sanitizeCardAiSummaries,
   buildFallbackDigest, buildDailyCandidates, dailyCandidateFingerprint,
-  digestSchemaVersion: DAILY_DIGEST_SCHEMA_VERSION, rankingPolicyVersion: NEWS_RANKING_POLICY_VERSION,
   localDateKey, summarizeQuality, pipelineStages, publicFeedsForLocale,
   chrome, typedError, uniqueStrings, normalizeUserUrl,
   aiSearchResultPermitted: aiAccessPolicy.aiSearchResultPermitted,
@@ -268,7 +264,7 @@ const refreshService = createRefreshService({
   setRefreshStatus, pipelineStages, broadcast, fetchSourceArticles, sourceFetchOptions,
   mapWithConcurrency, summarizeQuality, retainActiveUnrefreshedItems, rankAndDedupe,
   updateSourceQualityRecord,
-  buildDailyCandidates, dailyCandidateFingerprint, rankingPolicyVersion: NEWS_RANKING_POLICY_VERSION,
+  buildDailyCandidates, dailyCandidateFingerprint,
   assertFeedItemsStillPermitted, withFeedCacheMetadata, cacheMutations, aiConfigured,
   getAiAutoStatus, setAiAutoStatus, defaultAiAutoStatus, readQuota, runAiWithinQuota,
   callProvider, translate, translateAiPrompt, settingsLocale, parseGeneratedDailyDigest, dailyDigestEvidence,
@@ -514,7 +510,6 @@ async function ensureRuntime() {
   await chrome.alarms.create(REFRESH_ALARM, { periodInMinutes: REFRESH_PERIOD_MINUTES });
   await getSettings();
   await contentSyncService.initialize();
-  await sanitizeLocalOnlyFields();
   const status = await getRefreshStatus();
   if (status.running) await setRefreshStatus({
     ...status,

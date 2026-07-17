@@ -597,8 +597,7 @@ button,
   white-space: normal;
 }
 
-[data-locale="en"] .settings-overview-item strong,
-[data-locale="en"] .about-grid strong {
+[data-locale="en"] .settings-overview-item strong {
   overflow: visible;
   overflow-wrap: anywhere;
   text-overflow: clip;

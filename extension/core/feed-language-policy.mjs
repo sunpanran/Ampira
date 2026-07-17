@@ -96,7 +96,6 @@ export function filterPresentableFeedItems(items = [], locale, options = {}) {
 
 export function isPresentableFeedItem(item, locale, {
   aiConfigured = false,
-  summaryPolicyVersion = 0,
   providerOrigin = "",
 } = {}) {
   if (item?.externalDiscovery !== true) return true;
@@ -104,7 +103,6 @@ export function isPresentableFeedItem(item, locale, {
   const contentLocale = normalizeDeclaredLocale(item?.contentLocale);
   if (contentLocale === target) return true;
   if (!aiConfigured || item?.summaryStatus !== "ai" || item?.summaryLocale !== target) return false;
-  if (Number(item?.summaryPolicyVersion || 0) !== Number(summaryPolicyVersion || 0)) return false;
   if (!sameOrigin(item?.summaryProviderOrigin, providerOrigin)) return false;
   return localizedSummaryMatchesLocale(item?.summaryTitle, item?.summary, target);
 }

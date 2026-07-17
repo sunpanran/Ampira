@@ -1,6 +1,6 @@
 import { buildBookmarkModel, inspirationPreviewSourceUrls, originsFromUrls } from "../core/bookmarks.mjs";
 import { applyInspirationSource } from "../core/inspiration-preset.mjs";
-import { buildPermissionRows, originPattern } from "../core/permission-state.mjs";
+import { buildPermissionRows, normalizeOriginPattern, originPattern } from "../core/permission-state.mjs";
 import { publicFeedsForLocale } from "../core/public-feeds.mjs";
 import { WEATHER_ORIGINS } from "../core/weather.mjs";
 
@@ -69,7 +69,7 @@ export function createPermissionGateway({
   async function permissionStatus(origins) {
     const required = uniqueStrings(origins);
     const granted = await chrome.permissions.getAll();
-    return buildPermissionRows(required, granted.origins || []).filter((row) => row.required);
+    return buildPermissionRows(required, granted.origins || []);
   }
 
   function hasOriginPermission(value) {
@@ -80,7 +80,9 @@ export function createPermissionGateway({
     const patterns = uniqueStrings((Array.isArray(values) ? values : []).map(originPattern));
     if (!patterns.length || patterns.some((pattern) => !pattern)) return false;
     try {
-      return chrome.permissions.contains({ origins: patterns });
+      const granted = await chrome.permissions.getAll();
+      const grantedOrigins = new Set((granted.origins || []).map(normalizeOriginPattern).filter(Boolean));
+      return patterns.every((pattern) => grantedOrigins.has(pattern));
     } catch {
       return false;
     }

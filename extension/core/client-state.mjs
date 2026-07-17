@@ -64,10 +64,6 @@ function patchMatchesCurrent(current, patchEntries) {
     && patchEntries.every(([key, value]) => current[key] === value);
 }
 
-export function normalizeClientStatePatch(values) {
-  return normalizePatch(values);
-}
-
 function normalizePatch(values) {
   if (!values || typeof values !== "object" || Array.isArray(values)) {
     throw stateError("INVALID_CLIENT_STATE", "background.error.clientStateInvalid");

@@ -11,8 +11,6 @@ import {
   parseImageAttributes,
 } from "./image-candidates.mjs";
 import {
-  DAILY_DIGEST_SCHEMA_VERSION,
-  NEWS_RANKING_POLICY_VERSION,
   buildDailyCandidates,
   dailyCandidateFingerprint,
   newsTimeScope,
@@ -38,14 +36,11 @@ import {
   normalizeUrl,
   parseAttributes,
   safeSourceOrigin,
-  stripCdata,
   tagText,
 } from "./feed-utils.mjs";
 
 export { isDisplayableFeedItem } from "./feed-item-policy.mjs";
 export {
-  DAILY_DIGEST_SCHEMA_VERSION,
-  NEWS_RANKING_POLICY_VERSION,
   buildDailyCandidates,
   dailyCandidateFingerprint,
 } from "./news-ranking.mjs";
@@ -296,9 +291,8 @@ export function filterLikelyNewsItems(items) {
 }
 
 export function feedCacheOrEmpty(feed) {
-  if (feed?.schemaVersion === 3 && Array.isArray(feed.items)) return feed;
+  if (Array.isArray(feed?.items)) return feed;
   return {
-    schemaVersion: 3,
     generatedAt: "",
     items: [],
     localCount: 0,
@@ -419,9 +413,6 @@ function articleRecord({
     { limit: 3 },
   );
   const item = {
-    schemaVersion: 2,
-    extractorVersion: 1,
-    policyVersion: 3,
     articleId: `article-${hashText(normalizeUrl(url))}`,
     entryKey: `article-${hashText(normalizeUrl(url))}`,
     sourceKey: source.key || `source-${hashText(source.url || host)}`,
@@ -455,7 +446,6 @@ function articleRecord({
   return {
     ...item,
     score: initial.score,
-    scorePolicyVersion: NEWS_RANKING_POLICY_VERSION,
     rankingEligible: initial.rankingEligible,
     scoreBreakdown: { ...initial.breakdown, corroboration: 0, personalization: 0 },
   };
@@ -812,10 +802,6 @@ function hasArticlePath(value) {
   } catch {
     return false;
   }
-}
-
-function comparableText(value) {
-  return cleanText(value).toLowerCase().replace(/^www\./, "").replace(/[^a-z0-9\u3400-\u9fff]+/gu, "");
 }
 
 function isLikelyArticleDocument(html) {

@@ -8,10 +8,6 @@ export function getElementGroups() {
   };
 }
 
-export function getElements() {
-  return Object.assign({}, ...Object.values(getElementGroups()));
-}
-
 function queryElements() {
   return {
     todayMeta: document.querySelector("#todayMeta"),

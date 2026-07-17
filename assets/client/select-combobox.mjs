@@ -31,10 +31,6 @@ export function enhanceSelectComboboxes(root = document) {
   return selects.map(enhanceSelectCombobox).filter(Boolean);
 }
 
-export function syncSelectCombobox(select) {
-  enhancedSelects.get(select)?.scheduleSync();
-}
-
 function enhanceSelectCombobox(select) {
   if (!select || enhancedSelects.has(select) || select.multiple || select.size > 1) {
     return enhancedSelects.get(select)?.wrapper || null;

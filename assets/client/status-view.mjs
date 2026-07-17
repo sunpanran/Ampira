@@ -293,30 +293,6 @@ function renderCacheStatus() {
   });
 }
 
-function currentPipelineStage(stages = {}) {
-  const labels = {
-    discovering: t("pipeline.discovering"),
-    fetching: t("pipeline.fetching"),
-    extracting: t("pipeline.extracting"),
-    deduplicating: t("pipeline.deduplicating"),
-    enriching: "AI",
-    complete: t("pipeline.complete"),
-  };
-  for (const key of Object.keys(labels)) if (stages?.[key] === "running") return labels[key];
-  return t("pipeline.complete");
-}
-
-function setMeter(bar, label, value) {
-  const percent = Math.max(0, Math.min(100, Number(value) || 0));
-  bar.style.width = `${percent}%`;
-  label.textContent = `${percent}%`;
-}
-
-function percentage(used, total) {
-  if (!Number.isFinite(total) || total <= 0) return 0;
-  return Math.round(Math.max(0, Math.min(1, used / total)) * 100);
-}
-
 function renderConnectionError(error) {
   const detail = localizedErrorMessage(error);
   renderOverviewStatus(t("connection.unavailable"), t("connection.retryMeta", { detail }));

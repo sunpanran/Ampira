@@ -55,7 +55,6 @@ export function readerLocalFallback(item, url, fallbackTitle = "") {
   const siteName = firstFallbackText(item?.publisher, item?.summary?.sourceTitle, item?.host, safeReaderHost(url));
   return {
     ok: true,
-    schemaVersion: 2,
     requestedUrl: String(url || ""),
     url: String(url || ""),
     canonicalUrl: String(url || ""),

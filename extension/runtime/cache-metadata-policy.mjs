@@ -21,7 +21,7 @@ export function createCacheMetadataPolicy({ safeOrigin, originPattern, buildPerm
       const fetchPattern = originPattern(identity?.fetchOrigin || identity?.sourceOrigin || "");
       if (!fetchPattern) return false;
       return buildPermissionRows([fetchPattern], permissionState.grantedOrigins)
-        .some((row) => row.required && row.granted);
+        .some((row) => row.granted);
     });
   }
 

@@ -2,7 +2,6 @@ export function safeOrigin(value) {
   try { return new URL(value).origin; } catch { return ""; }
 }
 
-const SOURCE_QUALITY_SCHEMA_VERSION = 2;
 const SOURCE_OUTCOME_LIMIT = 20;
 
 export function summarizeQuality(quality, denied = [], sources = []) {
@@ -64,7 +63,6 @@ export function summarizeQuality(quality, denied = [], sources = []) {
   const imageItemCount = records.reduce((total, record) => total + record.itemCount, 0);
   const imageCount = records.reduce((total, record) => total + record.imageCount, 0);
   return {
-    schemaVersion: SOURCE_QUALITY_SCHEMA_VERSION,
     configured,
     authorized: Math.max(0, configured - permissionRequiredRecords.length),
     checked: checkedRecords.length,

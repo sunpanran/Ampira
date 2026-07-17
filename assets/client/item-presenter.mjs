@@ -1,6 +1,6 @@
 import { allTranslations } from "./i18n.mjs";
 import { cleanTitleText, normalizeComparableText, similarityScore, textLength, truncateText } from "./text.mjs";
-import { CARD_SUMMARY_POLICY_VERSION, cleanGeneratedSummaryLine, hasStructuralSummaryPrefix, isStructuralSummaryHeading, normalizeSummaryMarkup } from "../../extension/core/summary-text.mjs";
+import { cleanGeneratedSummaryLine, hasStructuralSummaryPrefix, isStructuralSummaryHeading, normalizeSummaryMarkup } from "../../extension/core/summary-text.mjs";
 
 const QUICK_REFERENCE_LINES = new Set(allTranslations("summary.quickReference"));
 const SUMMARY_TITLE_MAX_LENGTH = 64;
@@ -56,7 +56,7 @@ export function isCorrectlySummarized(item) {
   const summary = item.summary;
   if (!summary || summary.error || summary.hidden || summary.advertisement || summary.stale) return false;
   if (summary.newsStatus && summary.newsStatus !== "hot") return false;
-  if (summary.summaryStatus !== "ai" || summary.summaryPolicyVersion !== CARD_SUMMARY_POLICY_VERSION || !cleanSummaryTitle(summary.summaryTitle)) return false;
+  if (summary.summaryStatus !== "ai" || !cleanSummaryTitle(summary.summaryTitle)) return false;
   return cleanSummaryLines(Array.isArray(summary.summary) ? summary.summary : []).length >= 2;
 }
 

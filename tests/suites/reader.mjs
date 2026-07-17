@@ -38,7 +38,6 @@ const richHtml = `<!doctype html>
 </html>`;
 
 const article = extractReaderDocument(richHtml, "https://news.example.com/source?id=1", "https://news.example.com/feed-link");
-assert.equal(article.schemaVersion, 2);
 assert.equal(article.title, "A structured story");
 assert.equal(article.siteName, "Fixture News");
 assert.equal(article.byline, "Ada Reporter");
@@ -247,12 +246,12 @@ assert.equal((await permittedReaderService.readArticle(article.url)).accessMode,
 assert.equal(permissionCacheReads, 1);
 
 let cachedFollowupLiveReads = 0;
-const cachedFollowupReader = { ...publicReader, schemaVersion: 2, imageStrategyVersion: 2 };
+const cachedFollowupReader = { ...publicReader, capability: "reader" };
 const cachedFollowupService = createReaderPreviewService({
   normalizeUserUrl: normalizeTestUrl,
   hasOriginPermission: async () => true,
   hasOriginPermissions: async () => true,
-  getRecord: async (key) => key.startsWith("reader-alias-v2-")
+  getRecord: async (key) => key.startsWith("reader-alias-")
     ? { contentKey: "reader-content" }
     : (key === "reader-content" ? cachedFollowupReader : null),
   hashText: () => "fixture",

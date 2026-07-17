@@ -7,8 +7,6 @@ import { aiOutputMatchesLocale } from "../core/ai-output-language.mjs";
 const AI_CONNECTION_TEST_MAX_TOKENS = 900;
 const AI_SEARCH_MAX_TOKENS = 1400;
 const AI_ARTICLE_MAX_TOKENS = 900;
-const AI_SEARCH_CACHE_VERSION = 6;
-
 function articleHistoryText(turns) {
   return (turns || []).map((turn, index) => [
     `Turn ${index + 1} question: ${turn.question}`,
@@ -27,7 +25,7 @@ export function createAiSearchService(options) {
     isValidServiceUrl, typedError, resultMessage, errorResult, testImageSearchConnection,
     safeOrigin, withFeedCacheMetadata,
     filterFeedItemsBySources, presentableFeedItems = (items) => items,
-    feedCacheOrEmpty = (value) => value?.schemaVersion === 3 ? value : { schemaVersion: 3, items: [] },
+    feedCacheOrEmpty = (value) => Array.isArray(value?.items) ? value : { items: [] },
     cacheMutations, hasOriginPermissions, cacheUrlsPermitted,
     localDateKey, readerTextFromBlocks, assertFeedItemsStillPermitted, normalizeSettings,
     providerCredentialAvailable, providerRequiresApiKey,
@@ -139,7 +137,7 @@ async function answerAiSearch(body) {
     return latestLocale === result.locale ? result : localeChangedSearchResult(latestLocale, result);
   }
   const providerIdentity = `${settings.openaiBaseUrl}|${settings.openaiApiStyle}|${settings.openaiSummaryModel}|${settings.credentialGeneration}`;
-  const cacheKey = `search-${locale}-${hashText(`${AI_SEARCH_CACHE_VERSION}:${localDateKey()}:${providerIdentity}:${query}`)}`;
+  const cacheKey = `search-${locale}-${hashText(`${localDateKey()}:${providerIdentity}:${query}`)}`;
   let feedPermissions = null;
   let candidates = [];
   if (!asUrl) {

@@ -80,7 +80,6 @@ const reader = extractReaderDocument(`
   <picture><source data-srcset="/reader-small.webp 480w, /reader-large.webp 1400w"><img data-original-src="/reader-lazy.jpg" src="/placeholder.gif" alt="Reader body image"></picture>
   </article></body></html>
 `, pageUrl);
-assert.equal(reader.imageStrategyVersion, 2);
 assert(reader.blocks.some((block) => block.type === "image" && block.imageUrls?.includes("https://news.example.com/reader-large.webp")));
 
 const originalFetch = globalThis.fetch;
@@ -109,7 +108,6 @@ assert.deepEqual(targets.map((item) => item.url), ["https://a.example/one", "htt
 const now = Date.parse("2026-07-13T12:00:00Z");
 const cacheItem = { url: "https://a.example/one", sourceOrigin: "https://a.example", sourceKey: "a" };
 const hitRecord = {
-  strategyVersion: 1,
   capability: "feed-image",
   outcome: "hit",
   requestedUrl: cacheItem.url,

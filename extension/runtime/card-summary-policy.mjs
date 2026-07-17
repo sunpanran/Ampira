@@ -1,6 +1,5 @@
 import { originPattern } from "../core/permission-state.mjs";
 import {
-  CARD_SUMMARY_POLICY_VERSION,
   cleanGeneratedSummaryLine,
   extractGeneratedSummaryTitle,
   limitGeneratedSummaryLines,
@@ -13,10 +12,8 @@ const CARD_SUMMARY_MAX_CHARS = 200;
 export function createCardSummaryPolicy(options = {}) {
   const localeForSettings = options.settingsLocale || settingsLocale;
   const patternForOrigin = options.originPattern || originPattern;
-  const policyVersion = options.policyVersion || CARD_SUMMARY_POLICY_VERSION;
 
   return {
-    policyVersion,
     automaticCardSummaryContext,
     generatedCardSummary,
     isCurrentCardSummary,
@@ -25,9 +22,7 @@ export function createCardSummaryPolicy(options = {}) {
   };
 
   function isCurrentCardSummary(item, locale = "") {
-    return item?.summaryStatus === "ai"
-      && item?.summaryPolicyVersion === policyVersion
-      && (!locale || item?.summaryLocale === locale);
+    return item?.summaryStatus === "ai" && (!locale || item?.summaryLocale === locale);
   }
 
   function preserveCardAiSummary(item, previous, settings) {
@@ -39,7 +34,6 @@ export function createCardSummaryPolicy(options = {}) {
       summaryTitle: previous.summaryTitle,
       summary: previous.summary,
       summaryStatus: "ai",
-      summaryPolicyVersion: policyVersion,
       summaryLocale: locale,
       summarizedAt: previous.summarizedAt || "",
       summaryProviderOrigin: previous.summaryProviderOrigin,
@@ -51,7 +45,7 @@ export function createCardSummaryPolicy(options = {}) {
     return (items || []).map((item) => {
       if (item.summaryStatus !== "ai") return item;
       if (configuredForAi && isCurrentCardSummary(item, locale) && patternForOrigin(item.summaryProviderOrigin || "") === patternForOrigin(settings.openaiBaseUrl)) return item;
-      const { summarizedAt, summaryPolicyVersion, summaryLocale, summaryProviderOrigin, summaryTitle, ...rest } = item;
+      const { summarizedAt, summaryLocale, summaryProviderOrigin, summaryTitle, ...rest } = item;
       const excerpt = String(item.excerpt || "").trim();
       return { ...rest, summary: excerpt ? [excerpt] : [], summaryStatus: excerpt ? "excerpt" : "raw" };
     });

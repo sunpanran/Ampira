@@ -586,27 +586,17 @@ function renderPermissionRows(rows) {
     const origin = document.createElement("strong");
     origin.textContent = row.origin.replace(/\/\*$/, "");
     const state = document.createElement("span");
-    state.textContent = t(row.coversRequired
-      ? "permission.broadRequiredState"
-      : (row.coveredByBroad
-        ? "permission.broadCoverageState"
-        : (row.legacy
-        ? "permission.legacyState"
-        : (row.granted ? "permission.grantedState" : "permission.deniedState"))));
+    state.textContent = t(row.granted ? "permission.grantedState" : "permission.deniedState");
     copy.append(origin, state);
     const button = document.createElement("button");
-    const coveredByBroad = row.coveredByBroad === true;
-    const removable = !coveredByBroad && (row.granted || row.legacy);
+    const removable = row.granted === true;
     button.className = removable ? "btn danger" : "btn";
     button.type = "button";
     button.dataset.origin = row.origin;
     button.dataset.action = removable ? "remove" : "grant";
-    button.disabled = coveredByBroad;
     const buttonLabel = document.createElement("span");
     buttonLabel.className = "btn-label";
-    buttonLabel.textContent = t(row.coversRequired
-      ? "permission.revokeBroad"
-      : (coveredByBroad ? "permission.coveredByBroad" : (removable ? "permission.revoke" : "permission.grant")));
+    buttonLabel.textContent = t(removable ? "permission.revoke" : "permission.grant");
     button.append(createIcon(removable ? "trash-01" : "plus", "btn-icon"), buttonLabel);
     item.append(copy, button);
     return item;
@@ -629,8 +619,6 @@ function permissionSummaryText() {
       ? tc("permission.allGranted", counts.required)
       : tc("permission.summary", counts.required, { granted: counts.granted }));
   }
-  if (counts.legacy) parts.push(tc("permission.legacySummary", counts.legacy));
-  if (counts.broadRequired) parts.push(t("permission.broadSummary", { count: counts.broadRequired }));
   return parts.join(" ") || t("permission.noneNeeded");
 }
 

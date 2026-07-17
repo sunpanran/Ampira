@@ -34,15 +34,13 @@ export function createRefreshService(options) {
     emptySourceQuality, localDateKey, uniqueStrings, safeOrigin, originPattern,
     sanitizeDailyDigest, typedError, feedCacheOrEmpty, getRefreshStatus, hostOf,
     originsFromUrls, isPermissionEpochCurrent, buildDailyCandidates,
-    dailyCandidateFingerprint, rankingPolicyVersion, updateSourceQualityRecord,
+    dailyCandidateFingerprint, updateSourceQualityRecord,
   } = options;
   const cardSummaryPolicy = options.cardSummaryPolicy || createCardSummaryPolicy({
     settingsLocale,
     originPattern,
-    policyVersion: options.cardSummaryPolicyVersion,
   });
   const {
-    policyVersion: cardSummaryPolicyVersion,
     automaticCardSummaryContext,
     generatedCardSummary,
     isCurrentCardSummary,
@@ -155,7 +153,7 @@ async function performRefresh(generation) {
   await setRefreshStatus(status);
   broadcast("refresh.progress", status);
   const [rawPreviousFeedSnapshot, previousQualitySnapshot] = await Promise.all([
-    getRecord("feed", { schemaVersion: 3, items: [] }),
+    getRecord("feed", { items: [] }),
     getRecord("source-quality", emptySourceQuality()),
   ]);
   const previousFeedSnapshot = feedCacheOrEmpty(rawPreviousFeedSnapshot);
@@ -246,7 +244,7 @@ async function performRefresh(generation) {
   const committed = await cacheMutations.run(async (isCurrent) => {
     if (!isCurrent() || !refreshCoordinator.isCurrent(generation)) return null;
     const [previous, previousQuality, previousDigest, feedback] = await Promise.all([
-      getRecord("feed", { schemaVersion: 3, items: [] }),
+      getRecord("feed", { items: [] }),
       getRecord("source-quality", emptySourceQuality()),
       getRecord("daily-digest", null),
       getRecord("feedback", []),
@@ -268,7 +266,6 @@ async function performRefresh(generation) {
     });
     const visibleItems = presentableFeedItems(items, settings, aiReadyForRefresh);
     const feed = {
-      schemaVersion: 3,
       generatedAt: new Date().toISOString(),
       items,
       localCount: visibleItems.filter((item) => !item.externalDiscovery).length,
@@ -343,7 +340,7 @@ async function runAutomaticAiAfterFailedRefresh(generation) {
     const feedPermissions = await currentFeedPermissionState(settings, model);
     const cacheEpoch = cacheMutations.capture();
     const [feed, digest, aiReady] = await Promise.all([
-      getRecord("feed", { schemaVersion: 3, items: [] }),
+      getRecord("feed", { items: [] }),
       getRecord("daily-digest", null),
       aiConfigured(settings),
     ]);
@@ -381,7 +378,7 @@ async function refreshSource(body = {}) {
   const source = permissions.permitted.find((candidate) => String(candidate.key || "") === sourceKey);
   if (!source) throw typedError("SOURCE_PERMISSION_REQUIRED", "background.error.sourcePermission", {}, false);
   const [previousFeed, previousQuality, feedback] = await Promise.all([
-    getRecord("feed", { schemaVersion: 3, items: [] }),
+    getRecord("feed", { items: [] }),
     getRecord("source-quality", emptySourceQuality()),
     getRecord("feedback", []),
   ]);
@@ -501,7 +498,6 @@ async function refreshSource(body = {}) {
     });
     const feed = {
       ...normalizedLatestFeed,
-      schemaVersion: 3,
       generatedAt: checkedAt,
       items,
       localCount: visibleItems.filter((item) => !item.externalDiscovery).length,
@@ -767,14 +763,13 @@ async function automaticallySummarizeCards(
       const updatedItems = feed.items.map((item) => {
         if ((item.articleId || item.entryKey) !== (candidate.articleId || candidate.entryKey) || item.url !== candidate.url) return item;
         if (isCurrentCardSummary(item, locale)) return item;
-        updatedItem = { ...item, summaryTitle: organized.title, summary: organized.summary, summaryStatus: "ai", summaryPolicyVersion: cardSummaryPolicyVersion, summaryLocale: locale, summarizedAt, summaryProviderOrigin: providerOrigin };
+        updatedItem = { ...item, summaryTitle: organized.title, summary: organized.summary, summaryStatus: "ai", summaryLocale: locale, summarizedAt, summaryProviderOrigin: providerOrigin };
         return updatedItem;
       });
       if (!updatedItem || !isCurrent()) return null;
       const visibleItems = presentableFeedItems(updatedItems, latestSettings, true);
       await setRecord("feed", {
         ...feed,
-        schemaVersion: 3,
         items: updatedItems,
         localCount: visibleItems.filter((item) => !item.externalDiscovery).length,
         publicCount: visibleItems.filter((item) => item.externalDiscovery).length,
@@ -866,7 +861,6 @@ async function refreshDailyDigest({ automatic = false } = {}) {
           items: rankedItems,
           aiRankingApplied: organized.rankingValid,
           candidateFingerprint: dailyCandidateFingerprint(contextItems, {
-            policyVersion: rankingPolicyVersion,
             publisherLimit: settings.todayNewsPerPublisherLimit,
           }),
         }, contextItems, "daily-digest", settings.openaiBaseUrl);
@@ -957,7 +951,6 @@ async function refreshSingleSummary(body) {
           summaryTitle: organized.title,
           summary: organized.summary,
           summaryStatus: "ai",
-          summaryPolicyVersion: cardSummaryPolicyVersion,
           summaryLocale: locale,
           summarizedAt: new Date().toISOString(),
           summaryProviderOrigin: safeOrigin(settings.openaiBaseUrl),
@@ -968,7 +961,6 @@ async function refreshSingleSummary(body) {
     const visibleItems = presentableFeedItems(items, latestSettings, true);
     const feed = {
       ...previous,
-      schemaVersion: 3,
       generatedAt: new Date().toISOString(),
       items,
       localCount: visibleItems.filter((item) => !item.externalDiscovery).length,

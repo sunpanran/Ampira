@@ -412,11 +412,6 @@ function timestamp(value) {
   return Number.isFinite(result) ? result : 0;
 }
 
-function normalizedDate(value) {
-  const result = timestamp(value);
-  return result ? new Date(result).toISOString() : "";
-}
-
 function cleanText(value, limit) {
   return Array.from(String(value || "").replace(/\s+/g, " ").trim()).slice(0, limit).join("");
 }

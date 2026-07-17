@@ -250,7 +250,6 @@ export async function runArchitectureTests(root) {
     store: {
       async read() { return { uiLocale: "en" }; },
       mutate(action) { return action({ write: async (value) => value }); },
-      async sanitizeLocalOnlyFields() { return true; },
     },
     async readProviderProfile() {
       return { openaiBaseUrl: "https://api.openai.com/v1", openaiApiStyle: "responses", openaiSummaryModel: "model", credentialGeneration: 2 };

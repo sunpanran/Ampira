@@ -5,7 +5,6 @@ import { createIcon, createThemedIcon, hydrateIcons } from "./icons.mjs";
 import { allTranslations, getLocale, setLocale, t, tc } from "./i18n.mjs";
 import { applyExternalStoragePatch, hydrateStorage, readJson, readNumber, readValue, writeJson, writeValue } from "./storage.mjs";
 import { createInitialState } from "./state.mjs";
-import { cleanTitleText, textLength, truncateText } from "./text.mjs";
 import { formatDateTime, formatTodayMeta, getTodayKey } from "./time.mjs";
 import { faviconUrl, hostFromUrl, isHttpUrl, normalizeUrl } from "./urls.mjs";
 import { findNewsItemByReference as findNewsItemReference, pageForItems, seededShuffle as shuffle } from "./dashboard-model.mjs";
@@ -20,8 +19,8 @@ import { cloneSettingsDraft, diffSettingsDraft, snapshotSettingsDraft } from "./
 import { createSitePreviewController, sitePreviewFingerprint } from "./inspiration-preview-controller.mjs";
 import { AI_SETUP_STAGE, aiProviderOrigin, deriveAiSetupControlState } from "./ai-settings-policy.mjs";
 import { isDisplayableFeedItem } from "../../extension/core/feed-item-policy.mjs";
-import { cleanSummaryLines, cleanSummaryTitle, displaySummaryTitle, displayTitle, isCorrectlySummarized, itemUrl, summaryDetailLines, summaryLines, summaryText } from "./item-presenter.mjs";
-import { apiStyleLabel, colorModeLabel, localizedCategory, localizedErrorMessage, localizedExclusionReason, localizedResponseMessage, localizedSourceLabel, localizedSourceReason, localizedStatusMessage, themeLabel } from "./localized-labels.mjs";
+import { cleanSummaryLines, displaySummaryTitle, displayTitle, isCorrectlySummarized, itemUrl, summaryDetailLines, summaryText } from "./item-presenter.mjs";
+import { colorModeLabel, localizedCategory, localizedErrorMessage, localizedExclusionReason, localizedResponseMessage, localizedSourceLabel, localizedSourceReason, localizedStatusMessage, themeLabel } from "./localized-labels.mjs";
 import { createContextMenuController } from "./context-menu-controller.mjs";
 import { createAppearanceController } from "./appearance-controller.mjs";
 import { createAccentColorPicker } from "./accent-color-picker.mjs";

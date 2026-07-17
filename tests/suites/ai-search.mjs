@@ -44,7 +44,7 @@ assert.equal(harness.requests[0].maxTokens, 900, "article explanations must use 
 assert.equal(harness.requests[0].preferVisibleOutput, true, "article explanations should disable avoidable hidden reasoning where supported");
 const excerpt = harness.requests[0].input.split("网页摘录：")[1] || "";
 assert.equal([...excerpt].length, 8000, "article explanations must send at most 8,000 source characters");
-assert(harness.hashInputs.some((value) => value.includes("6:")), "the language-guarded prompt must invalidate older AI search cache entries");
+assert(harness.hashInputs.some((value) => value.includes("https://api.example/v1")), "AI search cache keys must remain scoped to the configured provider");
 assert.equal(harness.cacheWrites.length, 1, "the initial article explanation should remain cacheable");
 
 const followup = await harness.service.answerAiSearch({
