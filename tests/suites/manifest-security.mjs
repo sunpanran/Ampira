@@ -18,6 +18,8 @@ export async function runManifestSecurityTests(root) {
 const manifest = JSON.parse(await fs.readFile(path.join(root, "manifest.json"), "utf8"));
 const dashboardHtml = await fs.readFile(path.join(root, "dashboard.html"), "utf8");
 const storeIconSource = await fs.readFile(path.join(root, "store", "assets", "ampira-store-icon.svg"), "utf8");
+const toolbarIcon16Png = await fs.readFile(path.join(root, "extension", "icons", "icon-16.png"));
+const toolbarIcon32Png = await fs.readFile(path.join(root, "extension", "icons", "icon-32.png"));
 const storeIconPng = await fs.readFile(path.join(root, "extension", "icons", "icon-128.png"));
 const managerIconPng = await fs.readFile(path.join(root, "extension", "icons", "icon-48.png"));
 const shellControllerSource = await fs.readFile(path.join(root, "assets", "client", "shell-controller.mjs"), "utf8");
@@ -42,6 +44,8 @@ assert(storeIconSource.includes('<rect x="16" y="16" width="96" height="96" rx="
   && storeIconSource.includes('fill="#F7F2FF"'), "the store icon source must preserve the reviewed 96px artwork box and Ampira palette");
 assert.deepEqual([storeIconPng.readUInt32BE(16), storeIconPng.readUInt32BE(20)], [128, 128], "the Chrome Web Store icon must remain 128x128");
 assert.deepEqual([managerIconPng.readUInt32BE(16), managerIconPng.readUInt32BE(20)], [48, 48], "the extension-management icon must remain 48x48");
+assert.deepEqual([toolbarIcon16Png.readUInt32BE(16), toolbarIcon16Png.readUInt32BE(20)], [16, 16], "the compact toolbar icon must remain 16x16");
+assert.deepEqual([toolbarIcon32Png.readUInt32BE(16), toolbarIcon32Png.readUInt32BE(20)], [32, 32], "the high-density toolbar icon must remain 32x32");
 assert.equal(manifest.action.default_popup, "action-popup.html", "the toolbar action must open a visible capture confirmation popup");
 assert.deepEqual(manifest.permissions.sort(), ["activeTab", "alarms", "bookmarks", "storage"]);
 assert.deepEqual([...(manifest.optional_permissions || [])].sort(), ["favicon", "search"], "website icons and browser search must use optional named permissions so upgrades do not disable existing installs");

@@ -230,3 +230,7 @@ $env:REQUIRED_SUPPORT_URL = "https://github.com/sunpanran/Ampira/issues"
 
 - Chrome Web Store 使用的 `icon-128.png` 继续保留官方建议的 16px 四周透明安全区；`icon-48.png` 改为从品牌源的 104px 中心区域裁切，管理页显示时透明边缘约 2px、主体约 44px。
 - “设置 → 关于”改用同一张放大后的 `icon-48.png`，避免把商店安全区二次缩小后造成 Logo 视觉尺寸偏小。
+
+## 2026-07-17 — 26.2.13 工具栏图标统一
+
+- Chrome 工具栏使用的 `icon-16.png` 与高分屏 `icon-32.png` 改为新商店 Logo 的紧裁切版本；移除旧的纯紫色简化标记，使工具栏、扩展管理页、关于页与商店保持同一品牌图形。
