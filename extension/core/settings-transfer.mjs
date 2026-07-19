@@ -15,6 +15,7 @@ export const PORTABLE_SETTINGS_FIELDS = Object.freeze([
   "accentTheme",
   "customAccentColor",
   "pointerGlowEnabled",
+  "dashboardGlassBlurEnabled",
   "headerImageEnabled",
   "headerImageFixed",
   "headerImageFullscreen",
@@ -55,6 +56,7 @@ export const PORTABLE_SETTINGS_FIELDS = Object.freeze([
 
 const BOOLEAN_FIELDS = new Set([
   "pointerGlowEnabled",
+  "dashboardGlassBlurEnabled",
   "headerImageEnabled",
   "headerImageFixed",
   "headerImageFullscreen",

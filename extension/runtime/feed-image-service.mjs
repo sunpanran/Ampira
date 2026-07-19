@@ -1,3 +1,6 @@
+import { IMAGE_CANDIDATE_POLICY_VERSION, IMAGE_PROFILE_ARTICLE } from "../core/image-candidates.mjs";
+import { createArticleImageReuseFilter } from "../core/article-image-reuse.mjs";
+
 const FEED_IMAGE_ENRICH_LIMIT = 12;
 const FEED_IMAGE_PER_SOURCE_LIMIT = 2;
 const FEED_IMAGE_CONCURRENCY = 3;
@@ -26,8 +29,10 @@ export function selectFeedImageEnrichmentTargets(items, {
 
 export function feedImageCacheFresh(record, item, now = Date.now()) {
   if (record?.capability !== "feed-image") return false;
+  if (record.policyVersion !== IMAGE_CANDIDATE_POLICY_VERSION || record.profile !== IMAGE_PROFILE_ARTICLE) return false;
   if (record.requestedUrl !== item?.url || record.sourceKey !== item?.sourceKey) return false;
   if (record.sourceOrigin !== safeOrigin(item?.sourceOrigin || "")) return false;
+  if (!Array.isArray(record.rawImageCandidates)) return false;
   const checkedAt = Date.parse(record.checkedAt || "");
   const maxAge = record.outcome === "hit"
     ? FEED_IMAGE_HIT_CACHE_MS
@@ -43,6 +48,11 @@ export function createFeedImageService(options) {
     fetchSourceImageCandidates, hasOriginPermission, mapWithConcurrency, cacheMutations,
     getRecord, setRecord, hashText, refreshCoordinator,
   } = options;
+  const filterArticleImageReuse = createArticleImageReuseFilter({
+    getRecord,
+    setRecord,
+    hashText,
+  });
 
   return { enrichMissingFeedImages, updateImageQualityMetrics, imageQualityMetrics };
 
@@ -61,14 +71,24 @@ export function createFeedImageService(options) {
     const sourceOrigin = safeOrigin(item.sourceOrigin || "");
     if (!requestedUrl || !sourceOrigin || !sameOrigin(requestedUrl, sourceOrigin)) return null;
     if (!await hasOriginPermission(requestedUrl)) return null;
-    const cacheKey = `feed-image-${hashText(requestedUrl)}`;
+    const cacheKey = `feed-image-v${IMAGE_CANDIDATE_POLICY_VERSION}-${IMAGE_PROFILE_ARTICLE}-${hashText(requestedUrl)}`;
     const cached = await getRecord(cacheKey, null);
-    if (feedImageCacheFresh(cached, item, Date.now()) && await hasOriginPermission(requestedUrl)) return cached;
+    if (feedImageCacheFresh(cached, item, Date.now()) && await hasOriginPermission(requestedUrl)) {
+      const cachedCandidates = normalizeCandidateRecords(cached.rawImageCandidates);
+      const filtered = await filterArticleImageReuse(requestedUrl, cachedCandidates, {
+        cacheEpoch,
+        storeRecord: storeArticleReuseRecord,
+      });
+      return feedImageRecordWithCandidates(cached, filtered);
+    }
 
+    let imageCandidates = [];
+    let rawImageCandidates = [];
     let imageUrls = [];
     let outcome = "miss";
     try {
-      imageUrls = await fetchSourceImageCandidates(requestedUrl, {
+      const fetched = await fetchSourceImageCandidates(requestedUrl, {
+        profile: IMAGE_PROFILE_ARTICLE,
         validateResponse: async (response) => {
           const finalUrl = String(response?.url || requestedUrl);
           if (!sameOrigin(finalUrl, sourceOrigin) || !await hasOriginPermission(finalUrl)) {
@@ -78,6 +98,13 @@ export function createFeedImageService(options) {
           }
         },
       });
+      rawImageCandidates = normalizeCandidateRecords(fetched);
+      imageCandidates = rawImageCandidates;
+      imageCandidates = await filterArticleImageReuse(requestedUrl, imageCandidates, {
+        cacheEpoch,
+        storeRecord: storeArticleReuseRecord,
+      });
+      imageUrls = imageCandidates.map((candidate) => candidate.url);
       outcome = imageUrls.length ? "hit" : "miss";
     } catch {
       if (!await hasOriginPermission(requestedUrl)) return null;
@@ -87,12 +114,16 @@ export function createFeedImageService(options) {
     if (!await hasOriginPermission(requestedUrl) || !sameOrigin(requestedUrl, sourceOrigin)) return null;
     const record = {
       capability: "feed-image",
+      policyVersion: IMAGE_CANDIDATE_POLICY_VERSION,
+      profile: IMAGE_PROFILE_ARTICLE,
       outcome,
       requestedUrl,
       sourceKey: String(item.sourceKey || ""),
       sourceOrigin,
       imageUrl: imageUrls[0] || "",
       imageUrls: imageUrls.slice(0, 3),
+      imageCandidates: imageCandidates.slice(0, 3),
+      rawImageCandidates: rawImageCandidates.slice(0, 3),
       checkedAt: new Date().toISOString(),
       requiredOrigins: [sourceOrigin],
     };
@@ -101,11 +132,44 @@ export function createFeedImageService(options) {
       await setRecord(cacheKey, record, "cache");
       return record;
     }, cacheEpoch);
+
+    function storeArticleReuseRecord(key, value, kind) {
+      return cacheMutations.run(async (isCurrent) => {
+        if (!isCurrent() || !refreshStillCurrent(generation)) return;
+        if (!await hasOriginPermission(requestedUrl) || !sameOrigin(requestedUrl, sourceOrigin)) return;
+        await setRecord(key, value, kind);
+      }, cacheEpoch);
+    }
   }
 
   function refreshStillCurrent(generation) {
     return generation === null || generation === undefined || refreshCoordinator.isCurrent(generation);
   }
+}
+
+function feedImageRecordWithCandidates(record, candidates) {
+  const imageCandidates = normalizeCandidateRecords(candidates);
+  const imageUrls = imageCandidates.map((candidate) => candidate.url);
+  return {
+    ...record,
+    outcome: imageUrls.length ? "hit" : "miss",
+    imageUrl: imageUrls[0] || "",
+    imageUrls,
+    imageCandidates,
+  };
+}
+
+function normalizeCandidateRecords(values) {
+  return (Array.isArray(values) ? values : [values]).map((value) => (
+    value && typeof value === "object"
+      ? {
+          url: String(value.url || "").trim(),
+          provenance: String(value.provenance || "metadata"),
+          width: Number(value.width || 0),
+          height: Number(value.height || 0),
+        }
+      : { url: String(value || "").trim(), provenance: "metadata", width: 0, height: 0 }
+  )).filter((candidate) => candidate.url).slice(0, 3);
 }
 
 function applyFeedImageRecord(item, record) {

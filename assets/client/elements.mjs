@@ -29,6 +29,7 @@ function queryElements() {
     librarySection: document.querySelector("#library"),
     search: document.querySelector("#search"),
     topAiSearch: document.querySelector("#topAiSearch"),
+    settingsNav: document.querySelector("#settingsNav"),
     browserSearchPermissionStatus: document.querySelector("#browserSearchPermissionStatus"),
     toggleBrowserSearchPermission: document.querySelector("#toggleBrowserSearchPermission"),
     aiSearchNav: document.querySelector("#aiSearchNav"),
@@ -156,6 +157,7 @@ function queryElements() {
     customAccentInputError: document.querySelector("#customAccentInputError"),
     closeCustomAccentPicker: document.querySelector("#closeCustomAccentPicker"),
     pointerGlowEnabledInput: document.querySelector("#pointerGlowEnabledInput"),
+    dashboardGlassBlurEnabledInput: document.querySelector("#dashboardGlassBlurEnabledInput"),
     headerImageEnabledInput: document.querySelector("#headerImageEnabledInput"),
     headerImageBlurSetting: document.querySelector("#headerImageBlurSetting"),
     headerImageBlurField: document.querySelector("#headerImageBlurField"),
@@ -216,7 +218,7 @@ function queryElements() {
 }
 
 const SHELL_KEYS = [
-  "search", "topAiSearch", "aiSearchNav", "bookmarkNav", "librarySection",
+  "search", "topAiSearch", "aiSearchNav", "settingsNav", "bookmarkNav", "librarySection",
 ];
 
 const DASHBOARD_KEYS = [
@@ -256,7 +258,7 @@ const SETTINGS_KEYS = [
   "personalizedRankingEnabledInput", "publicFeedSupplementEnabledInput",
   "uiLocaleSelect", "currentUiLanguage", "colorModeGroup", "accentThemeGroup",
   "customAccentTrigger", "customAccentPicker", "customAccentField", "customAccentHue",
-  "customAccentInput", "customAccentInputError", "closeCustomAccentPicker", "pointerGlowEnabledInput", "headerImageEnabledInput",
+  "customAccentInput", "customAccentInputError", "closeCustomAccentPicker", "pointerGlowEnabledInput", "dashboardGlassBlurEnabledInput", "headerImageEnabledInput",
   "headerImageBlurField", "headerImageBlurAmountInput", "headerImageBlurAmountOutput",
   "headerImageHeightSetting", "headerImageHeightField", "headerImageHeightInput", "headerImageHeightOutput",
   "headerImageBlurSetting", "headerImageLayoutGroup", "headerImageFixedInput", "headerImageFullscreenField", "headerImageFullscreenInput",

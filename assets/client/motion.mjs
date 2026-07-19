@@ -37,6 +37,27 @@ export function animateElement(element, keyframes, options = {}) {
   return animation;
 }
 
+const actionFeedbackAnimations = new WeakMap();
+
+export function playActionFeedback(element) {
+  if (!element) return null;
+  actionFeedbackAnimations.get(element)?.cancel?.();
+  const animation = animateElement(element, [
+    { transform: "translate3d(0, 1px, 0) scale(.985)", offset: 0 },
+    { transform: "translate3d(0, 0, 0) scale(1.035)", offset: .44 },
+    { transform: "translate3d(0, 0, 0) scale(.995)", offset: .72 },
+    { transform: "translate3d(0, 0, 0) scale(1)", offset: 1 },
+  ], { duration: "move", easing: "move" });
+  if (!animation) return null;
+  actionFeedbackAnimations.set(element, animation);
+  const cleanup = () => {
+    if (actionFeedbackAnimations.get(element) === animation) actionFeedbackAnimations.delete(element);
+  };
+  animation.addEventListener("finish", cleanup, { once: true });
+  animation.addEventListener("cancel", cleanup, { once: true });
+  return animation;
+}
+
 export function animatePanelEntrance(elements, options = {}) {
   const targets = Array.from(elements || []).filter((element) => typeof element?.animate === "function");
   if (!targets.length || prefersReducedMotion()) return [];

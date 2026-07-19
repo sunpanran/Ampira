@@ -338,6 +338,7 @@ export function createUtilityCardView(options) {
       const result = await apiPost("/api/weather/forecast", {
         latitude: location.latitude,
         longitude: location.longitude,
+        countryCode: location.countryCode,
       });
       if (token !== weatherRequestToken || fingerprint !== locationFingerprint(state.weatherLocation)) return;
       weatherForecast = result;
@@ -373,7 +374,8 @@ export function createUtilityCardView(options) {
     wrapper.className = "weather-forecast";
     const list = document.createElement("div");
     list.className = "efficiency-list utility-scroll-list weather-forecast-list";
-    list.append(...forecast.daily.map((day, index) => createForecastRow(day, index, forecast)));
+    const forecastRows = [{ date: forecast.current.date }, ...forecast.daily];
+    list.append(...forecastRows.map((day, index) => createForecastRow(day, index, forecast)));
     const attribution = document.createElement("a");
     attribution.className = "weather-attribution";
     attribution.href = "https://open-meteo.com/";
@@ -407,22 +409,25 @@ export function createUtilityCardView(options) {
     main.className = "efficiency-row-main";
     const titleNode = document.createElement("span");
     titleNode.className = "efficiency-row-title";
-    titleNode.textContent = `${weatherDayLabel(day.date, index, forecast.timezone)} · ${t(`weather.condition.${weatherConditionKey(day.weatherCode)}`)}`;
+    const weatherCode = index === 0 ? forecast.current.weatherCode : day.weatherCode;
+    titleNode.textContent = `${weatherDayLabel(day.date, index, forecast.timezone)} · ${t(`weather.condition.${weatherConditionKey(weatherCode)}`)}`;
     const detail = document.createElement("span");
     detail.className = "efficiency-row-meta";
-    const precipitation = t("weather.precipitation", { value: day.precipitationProbability });
-    detail.textContent = index === 0
-      ? [
-          t("weather.current", { value: formatTemperature(forecast.current.temperatureC) }),
-          t("weather.feelsLike", { value: formatTemperature(forecast.current.apparentTemperatureC) }),
-          precipitation,
-          forecast.stale ? t("weather.stale") : "",
-        ].filter(Boolean).join(" · ")
-      : precipitation;
+    detail.textContent = [
+      index === 0 ? t("weather.current", { value: formatTemperature(forecast.current.temperatureC) }) : "",
+      index === 0 ? t("weather.feelsLike", { value: formatTemperature(forecast.current.apparentTemperatureC) }) : "",
+      t("weather.precipitation", {
+        value: index === 0 ? forecast.current.precipitationProbability : day.precipitationProbabilityPeak,
+      }),
+      forecast.stale ? t("weather.stale") : "",
+    ].filter(Boolean).join(" · ");
+    detail.title = detail.textContent;
     main.append(titleNode, detail);
     const badge = document.createElement("span");
     badge.className = "efficiency-score weather-temperature-range";
-    badge.textContent = `${formatTemperature(day.temperatureMaxC)} / ${formatTemperature(day.temperatureMinC)}`;
+    badge.textContent = index === 0
+      ? formatTemperature(forecast.current.temperatureC)
+      : `${formatTemperature(day.temperatureMaxC)} / ${formatTemperature(day.temperatureMinC)}`;
     row.append(main, badge);
     return row;
   }

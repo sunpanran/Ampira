@@ -34,13 +34,13 @@ import {
   restoreDeviceConsentState,
   setAiDisclosureConsent,
 } from "../core/device-consent.mjs";
-import { defaultBookmarkFoldersForLocale, translate, translateAiPrompt } from "../core/i18n.mjs";
+import { defaultBookmarkFoldersForLocale, translate, translateAiPrompt } from "../core/runtime-i18n.mjs";
 import { readerTranslationMatchesLocale } from "../core/ai-output-language.mjs";
 import { requestAiCompletion, testImageSearchConnection } from "../core/ai.mjs";
 import { createClientStateStore } from "../core/client-state.mjs";
 import { createContentSyncService } from "../core/content-sync.mjs";
 import { createQuotaManager, shouldReleaseAutomaticAiQuota } from "../core/quota.mjs";
-import { createPreviewService, fetchSourceImageCandidates } from "../core/preview.mjs";
+import { createPreviewService, fetchSourceImageCandidateRecords } from "../core/preview.mjs";
 import { bravePreviewCacheKeys, newsPreviewTargets, previewCacheKeysOutsideTargets } from "../core/preview-cache.mjs";
 import { retainActiveUnrefreshedItems, selectRefreshBatch } from "../core/refresh.mjs";
 import { createRefreshCoordinator } from "../core/refresh-coordinator.mjs";
@@ -272,7 +272,7 @@ const refreshService = createRefreshService({
   digestCachePermitted, filterFeedItemsBySources, presentableFeedItems, resultMessage, errorResult,
   emptySourceQuality, localDateKey, uniqueStrings, safeOrigin, originPattern,
   sanitizeDailyDigest, typedError, feedCacheOrEmpty, getRefreshStatus, hostOf,
-  originsFromUrls, fetchSourceImageCandidates, hasOriginPermission, hashText,
+  originsFromUrls, fetchSourceImageCandidates: fetchSourceImageCandidateRecords, hasOriginPermission, hashText,
   isPermissionEpochCurrent: permissionEpoch.isCurrent,
 });
 refreshCoordinator.setRun(refreshService.runRefresh);

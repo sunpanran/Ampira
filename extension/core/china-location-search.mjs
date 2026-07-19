@@ -1,16 +1,14 @@
-import { CHINA_LOCATION_RECORDS } from "./china-location-data.mjs";
-
 const RESULT_LIMIT = 5;
 const FEATURE_RANK = Object.freeze({ PPLC: 0, PPLA: 1, PPLA2: 2, PPLA3: 3 });
 const ADMIN_SUFFIX_PATTERN = /(?:特别行政区|自治州|自治县|自治区|地区|街道|省|市|区|县|盟|旗)$/u;
 
-export function searchChinaLocations(queryValue, localeValue, limit = RESULT_LIMIT) {
+export function searchChinaLocationRecords(records, queryValue, localeValue, limit = RESULT_LIMIT) {
   const query = normalizeSearchKey(queryValue);
-  if (!query) return [];
+  if (!query || !Array.isArray(records)) return [];
   const strippedQuery = stripAdminSuffix(query);
   const useChinese = String(localeValue || "").toLowerCase().startsWith("zh");
   const matches = [];
-  for (const record of CHINA_LOCATION_RECORDS) {
+  for (const record of records) {
     const score = locationMatchScore(record, query, strippedQuery);
     if (score === null) continue;
     matches.push({ record, score });
@@ -42,8 +40,9 @@ function locationMatchScore(record, query, strippedQuery) {
   const strippedName = stripAdminSuffix(name);
   if (name === query) return 0;
   if (strippedName && strippedName === strippedQuery) return query === strippedQuery ? 0 : 1;
-  if (record.keys.includes(query)) return 2;
-  if (strippedQuery && record.keys.some((key) => stripAdminSuffix(key) === strippedQuery)) return 3;
+  const keys = Array.isArray(record.keys) ? record.keys : [];
+  if (keys.includes(query)) return 2;
+  if (strippedQuery && keys.some((key) => stripAdminSuffix(key) === strippedQuery)) return 3;
   if (query.length >= 2 && name.startsWith(query)) return 4;
   return null;
 }

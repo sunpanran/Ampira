@@ -105,7 +105,7 @@ async function performSaveSettings(body, transaction) {
     "newsBookmarkFolder", "newsSourceMode", "inspirationBookmarkFolder", "inspirationSourceMode", "bookmarkOnlyFolders", "hiddenBookmarkCategories", "floatingWebOpenEnabled",
     "readingQueueOpenOnReadAll", "readingQueueReadAllPrompted", "retainSeenArchive", "personalizedRankingEnabled", "publicFeedSupplementEnabled",
     "syncReadingQueueEnabled", "syncTodosEnabled", "syncWeatherLocationEnabled",
-    "uiLocale", "colorMode", "accentTheme", "customAccentColor", "pointerGlowEnabled", "headerImageEnabled",
+    "uiLocale", "colorMode", "accentTheme", "customAccentColor", "pointerGlowEnabled", "dashboardGlassBlurEnabled", "headerImageEnabled",
     "headerImageFixed", "headerImageFullscreen", "headerImageBlurEnabled", "headerImageBlurAmount", "headerImageHeightScale", "headerImageUrl",
     "bookmarkSectionEnabled", "websiteShortcutsEnabled", "websiteShortcuts",
     "excludedNewsSources",

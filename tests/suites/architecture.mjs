@@ -14,6 +14,51 @@ export async function runArchitectureTests(root) {
   assert(workerEntry.split(/\r?\n/).length <= 20, "the worker entry must remain a composition root");
   assert.deepEqual(importSpecifiers(appEntry), ["./dashboard-app.mjs"], "the dashboard entry may only assemble the dashboard app");
   assert.deepEqual(importSpecifiers(workerEntry), ["./runtime/extension-runtime.mjs"], "the worker entry may only assemble the extension runtime");
+  const workerGraph = await localModuleGraph(path.join(root, "extension/service-worker.mjs"));
+  const workerGraphRelative = new Set([...workerGraph].map((file) => path.relative(root, file).replaceAll("\\", "/")));
+  const workerGraphBytes = (await Promise.all([...workerGraph].map(async (file) => (await fs.stat(file)).size)))
+    .reduce((total, size) => total + size, 0);
+  assert(workerGraphBytes <= 640 * 1024, `the service worker static graph must stay within its 640 KiB startup budget (found ${workerGraphBytes} bytes)`);
+  assert(!workerGraphRelative.has("extension/core/i18n.mjs"), "the service worker must not load the full client translation catalog");
+  assert(![...workerGraphRelative].some((file) => file.startsWith("assets/client/locales/")), "the service worker graph must exclude client locale modules");
+  assert(!workerGraphRelative.has("extension/core/china-location-data.mjs"), "the service worker graph must exclude the eager China location module");
+  assert(workerGraphRelative.has("extension/core/runtime-i18n.mjs")
+    && workerGraphRelative.has("extension/core/runtime-locales/en.mjs")
+    && workerGraphRelative.has("extension/core/runtime-locales/zh-CN.mjs")
+    && workerGraphRelative.has("extension/core/runtime-locales/zh-Hant.mjs"),
+  "the service worker must use the generated runtime locale catalogs");
+
+  const dashboardGraph = new Set([
+    ...await localModuleGraph(path.join(root, "assets/client/app.mjs")),
+    ...await localModuleGraph(path.join(root, "assets/client/extension-ui.mjs")),
+  ]);
+  const dashboardGraphRelative = new Set([...dashboardGraph].map((file) => path.relative(root, file).replaceAll("\\", "/")));
+  const dashboardGraphBytes = (await Promise.all([...dashboardGraph].map(async (file) => (await fs.stat(file)).size)))
+    .reduce((total, size) => total + size, 0);
+  assert(dashboardGraphBytes <= 760 * 1024, `the dashboard static graph must stay within its 760 KiB startup budget (found ${dashboardGraphBytes} bytes)`);
+  assert(dashboardGraphRelative.has("assets/client/locales/all-translations.mjs"), "the dashboard graph must include the generated cross-locale subset");
+  assert(!dashboardGraphRelative.has("extension/core/i18n.mjs"), "the dashboard must not eagerly load the full-catalog i18n adapter");
+  for (const locale of ["en", "zh-CN", "zh-Hant"]) {
+    assert(!dashboardGraphRelative.has(`assets/client/locales/${locale}.mjs`), `the dashboard must load ${locale} only on demand`);
+  }
+  const dashboardI18nSource = await fs.readFile(path.join(root, "assets/client/i18n.mjs"), "utf8");
+  for (const locale of ["en", "zh-CN", "zh-Hant"]) {
+    assert(dashboardI18nSource.includes(`() => import("./locales/${locale}.mjs")`), `the dashboard must use a literal dynamic import for ${locale}`);
+  }
+
+  const popupGraph = await localModuleGraph(path.join(root, "assets/client/action-popup.mjs"));
+  const popupGraphRelative = new Set([...popupGraph].map((file) => path.relative(root, file).replaceAll("\\", "/")));
+  const popupGraphBytes = (await Promise.all([...popupGraph].map(async (file) => (await fs.stat(file)).size)))
+    .reduce((total, size) => total + size, 0);
+  assert(popupGraphBytes <= 40 * 1024, `the action popup static graph must stay within its 40 KiB startup budget (found ${popupGraphBytes} bytes)`);
+  assert(popupGraphRelative.has("assets/client/locales/popup.mjs"), "the action popup must include its generated micro-catalog");
+  assert(!popupGraphRelative.has("assets/client/api.mjs")
+    && !popupGraphRelative.has("assets/client/i18n.mjs")
+    && !popupGraphRelative.has("extension/core/i18n.mjs"),
+  "the action popup must exclude the dashboard API and full-catalog i18n graph");
+  for (const locale of ["en", "zh-CN", "zh-Hant"]) {
+    assert(!popupGraphRelative.has(`assets/client/locales/${locale}.mjs`), `the action popup must exclude the full ${locale} catalog`);
+  }
 
   const coreFiles = await listFiles(path.join(root, "extension/core"), ".mjs");
   for (const file of coreFiles) {
@@ -45,6 +90,8 @@ export async function runArchitectureTests(root) {
   const motionSource = await fs.readFile(path.join(root, "assets/client/motion.mjs"), "utf8");
   const motionTokensSource = await fs.readFile(path.join(root, "assets/styles/tokens.css"), "utf8");
   const dashboardSectionsCssSource = await fs.readFile(path.join(root, "assets/styles/dashboard-sections.css"), "utf8");
+  const motionResponsiveCssSource = await fs.readFile(path.join(root, "assets/styles/motion-responsive.css"), "utf8");
+  const primitivesCssSource = await fs.readFile(path.join(root, "assets/styles/primitives.css"), "utf8");
   const permissionClientSource = await fs.readFile(path.join(root, "assets/client/permission-client.mjs"), "utf8");
   const runtimeClientSource = await fs.readFile(path.join(root, "assets/client/runtime-client.mjs"), "utf8");
   for (const group of ["shell", "dashboard", "settings", "overlay"]) {
@@ -77,6 +124,9 @@ export async function runArchitectureTests(root) {
   assert(dailyViewSource.includes("restoreActionFocus") && dailyViewSource.includes("focus({ preventScroll: true })"), "daily reshuffle must preserve keyboard focus when its column header is replaced");
   assert(summaryViewSource.includes('els.summaryBatch.querySelector(".btn-label")')
     && !summaryViewSource.includes("els.summaryBatch.textContent ="), "summary batch labels must update without removing the button icon");
+  assert(summaryViewSource.slice(0, 1800).includes("createThemedIcon, srOnly,")
+    && dashboardAppSource.includes("createThemedIcon, srOnly,\n    createReadingActions"),
+  "summary loading controls must receive the screen-reader label factory through explicit dependencies");
   const refreshProgressHandler = dashboardAppSource.slice(
     dashboardAppSource.indexOf('detail?.type === "refresh.progress"'),
     dashboardAppSource.indexOf("function handleFaviconPermissionChanged"),
@@ -90,6 +140,18 @@ export async function runArchitectureTests(root) {
   assert(dashboardSectionsCssSource.includes(".action-toggle.viewed-toggle.is-active,")
     && bookmarksViewSource.includes('className: "viewed-toggle"'),
   "viewed action toggles must use the accent color when active");
+  assert(bookmarksViewSource.includes("playActionFeedback(button);")
+    && !bookmarksViewSource.includes("window.setTimeout(onClick, 360);")
+    && !dashboardSectionsCssSource.includes("is-subtle-elastic"),
+  "summary actions must update immediately and use one non-conflicting feedback animation");
+  assert(primitivesCssSource.includes(".action-toggle-icon.is-loading-icon {")
+    && !primitivesCssSource.includes(".is-loading .action-toggle-icon {")
+    && bookmarksViewSource.includes('"is-loading-icon"'),
+  "only explicitly marked loading action icons may spin");
+  assert(!/\.summary-card-actions[^{\n]*\.action-toggle[^{\n]*:hover/.test(dashboardSectionsCssSource)
+    && dashboardSectionsCssSource.includes(".seen-toggle:hover,\n.action-toggle:hover {\n  background: transparent;\n  color: var(--text);\n}")
+    && !motionResponsiveCssSource.includes("@keyframes cardActionHoverSpring"),
+  "all summary card actions must use the same color-only hover without a manual-summary background or scale");
   for (const token of [
     "--motion-ease-standard: cubic-bezier(.2, 0, 0, 1)",
     "--motion-ease-enter: cubic-bezier(.16, 1, .3, 1)",
@@ -336,4 +398,20 @@ async function listFiles(directory, extension) {
     return entry.name.endsWith(extension) ? [absolute] : [];
   }));
   return files.flat();
+}
+
+async function localModuleGraph(entry) {
+  const visited = new Set();
+  const pending = [path.resolve(entry)];
+  while (pending.length) {
+    const file = pending.pop();
+    if (visited.has(file)) continue;
+    visited.add(file);
+    const source = await fs.readFile(file, "utf8");
+    for (const specifier of importSpecifiers(source)) {
+      if (!specifier.startsWith(".")) continue;
+      pending.push(path.resolve(path.dirname(file), specifier));
+    }
+  }
+  return visited;
 }

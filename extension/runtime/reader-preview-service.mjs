@@ -171,6 +171,12 @@ async function previewCachePermitted(value, context = {}) {
   if (settings.bookmarkConsentGranted !== true) return false;
   const model = context.model || await currentBookmarkModel(settings);
   const previewTargets = context.previewTargets || await currentPreviewTargets(settings, model);
+  if (value?.capability === "site-preview-image-reuse") {
+    const sourceOrigin = safePreviewOrigin(value.sourceOrigin);
+    return Boolean(sourceOrigin)
+      && previewOriginInItems(sourceOrigin, previewTargets)
+      && await hasOriginPermission(`${sourceOrigin}/`);
+  }
   const requestedUrl = previewIdentityUrl(value?.requestedUrl);
   if (!requestedUrl || !previewTargetInItems(requestedUrl, previewTargets)) return false;
   if (value.capability === "site-preview-origin") {
@@ -210,6 +216,14 @@ function previewTargetInItems(value, items) {
   const requestedUrl = previewIdentityUrl(value);
   if (!requestedUrl) return false;
   return (items || []).some((item) => previewIdentityUrl(item?.url || item) === requestedUrl);
+}
+
+function previewOriginInItems(origin, items) {
+  return (items || []).some((item) => safePreviewOrigin(item?.url || item) === origin);
+}
+
+function safePreviewOrigin(value) {
+  try { return new URL(previewIdentityUrl(value)).origin; } catch { return ""; }
 }
 
 function previewIdentityUrl(value) {

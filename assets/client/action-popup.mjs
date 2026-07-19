@@ -1,6 +1,6 @@
-import { sendExtensionRequest } from "./api.mjs";
 import { createThemedIcon } from "./icons.mjs";
-import { getLocale, setLocale, t } from "./i18n.mjs";
+import { getLocale, setLocale, t } from "./popup-i18n.mjs";
+import { sendRuntimeRequest } from "./runtime-client.mjs";
 
 const root = document.querySelector(".action-popup");
 const elements = {
@@ -38,7 +38,7 @@ async function captureCurrentPage() {
   renderStatus("loading");
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    const result = await sendExtensionRequest({
+    const result = await request({
       type: "reading-queue:capture-current",
       payload: {
         tab: {
@@ -107,10 +107,16 @@ function applyColorMode(value) {
 
 async function popupSettings() {
   try {
-    return await sendExtensionRequest({ type: "settings:get" }) || {};
+    return await request({ type: "settings:get" }) || {};
   } catch {
     return {};
   }
+}
+
+async function request(message) {
+  const response = await sendRuntimeRequest(message);
+  if (!response?.ok) throw new Error(response?.error?.code || "EXTENSION_ERROR");
+  return response.data;
 }
 
 function hostFromUrl(value) {

@@ -36,7 +36,6 @@ export function createInitialState() {
     aiSearchBusy: false,
     aiSearchTypeTimer: null,
     pollTimer: null,
-    navSyncFrame: 0,
     webFrameUrl: "",
     webFrameItem: null,
     webFrameResult: null,

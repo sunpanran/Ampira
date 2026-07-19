@@ -1,5 +1,5 @@
 {
   "appName": { "message": "Ampira 新标签页" },
-  "appDescription": { "message": "把书签、资讯和网页内容提纯成每日信号。" },
+  "appDescription": { "message": "从书签里的网站获取新资讯，再用 AI 整理和解读。" },
   "actionTitle": { "message": "将当前网页加入稍后读" }
 }

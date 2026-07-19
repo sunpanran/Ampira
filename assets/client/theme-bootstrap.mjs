@@ -1,6 +1,7 @@
 (() => {
   const maxWebsiteShortcuts = 16;
   const storageKey = "ampira.colorMode";
+  const dashboardGlassBlurStorageKey = "ampira.dashboardGlassBlur";
   const coverStorageKey = "ampira.headerCover";
   const localCoverStorageKey = "ampira.header-cover.local.v1";
   const shortcutLayoutStorageKey = "ampira.websiteShortcutsLayout";
@@ -19,6 +20,13 @@
   }
 
   document.documentElement.dataset.colorMode = colorMode;
+  try {
+    document.documentElement.dataset.dashboardGlassBlur = localStorage.getItem(dashboardGlassBlurStorageKey) === "off"
+      ? "off"
+      : "on";
+  } catch {
+    document.documentElement.dataset.dashboardGlassBlur = "on";
+  }
   const firstFrameMotionEnabled = document.hidden !== true
     && globalThis.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches !== true;
   if (firstFrameMotionEnabled) {

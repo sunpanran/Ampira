@@ -189,13 +189,6 @@
   to { opacity: 1; transform: translateY(0); }
 }
 
-@keyframes cardActionHoverSpring {
-  0% { transform: scale(1); }
-  56% { transform: scale(1.08); }
-  78% { transform: scale(1.035); }
-  100% { transform: scale(1.04); }
-}
-
 @keyframes shuffleControlClickSpring {
   0% { transform: translateY(1px) scale(.985); }
   44% { transform: translateY(0) scale(1.055); }
@@ -210,13 +203,6 @@
   68% { scale: .99; }
   84% { scale: 1.018; }
   100% { scale: 1; }
-}
-
-@keyframes cardActionClickSpring {
-  0% { transform: scale(.985); }
-  46% { transform: scale(1.025); }
-  72% { transform: scale(.995); }
-  100% { transform: scale(1); }
 }
 
 @keyframes todoComposerIn {

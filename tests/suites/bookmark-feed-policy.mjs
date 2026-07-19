@@ -54,12 +54,15 @@ assert.deepEqual(previewCacheKeysOutsideTargets([
   { key: "preview-brave-kept", value: { capability: "site-preview-brave", requestedUrl: "https://design.example.com/", title: "Design" } },
   { key: "preview-brave-renamed", value: { capability: "site-preview-brave", requestedUrl: "https://design.example.com/", title: "Old name" } },
   { key: "preview-brave-removed", value: { capability: "site-preview-brave", requestedUrl: "https://removed.example.com/" } },
+  { key: "preview-reuse-kept", value: { capability: "site-preview-image-reuse", sourceOrigin: "https://design.example.com" } },
+  { key: "preview-reuse-removed", value: { capability: "site-preview-image-reuse", sourceOrigin: "https://removed.example.com" } },
   { key: "preview-origin-insecure", value: { capability: "site-preview-origin", requestedUrl: "http://design.example.com/" } },
   { key: "preview-origin-invalid", value: { capability: "site-preview-origin", requestedUrl: "" } },
   { key: "feed", value: { requestedUrl: "https://removed.example.com/" } },
 ], inspirationPreviewTargets(model.bookmarks)), [
   "preview-brave-renamed",
   "preview-brave-removed",
+  "preview-reuse-removed",
   "preview-origin-insecure",
   "preview-origin-invalid",
 ], "bookmark changes must identify stale preview records without touching unrelated cache entries");

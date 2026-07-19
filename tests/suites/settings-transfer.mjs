@@ -14,6 +14,7 @@ export function runSettingsTransferTests() {
   const source = {
     ...DEFAULT_SETTINGS,
     colorMode: "light",
+    dashboardGlassBlurEnabled: false,
     bookmarkSectionEnabled: false,
     websiteShortcuts: [{ title: "Ampira", url: "https://example.com/" }],
     openaiApiKey: "sk-private",
@@ -44,6 +45,7 @@ export function runSettingsTransferTests() {
   const full = parseSettingsTransferDocument(exported, DEFAULT_SETTINGS);
   assert.equal(full.fieldCount, PORTABLE_SETTINGS_FIELDS.length);
   assert.equal(full.patch.colorMode, "light");
+  assert.equal(full.patch.dashboardGlassBlurEnabled, false);
   assert.equal(full.patch.bookmarkSectionEnabled, false);
   assert.equal(full.providerOriginChanged, false);
 
@@ -70,6 +72,7 @@ export function runSettingsTransferTests() {
   throwsCode(() => parseSettingsTransferDocument({}, DEFAULT_SETTINGS), "SETTINGS_IMPORT_INVALID_FORMAT");
   throwsCode(() => parseSettingsTransferDocument({ ...partial, formatVersion: 2 }, DEFAULT_SETTINGS), "SETTINGS_IMPORT_UNSUPPORTED_VERSION");
   throwsCode(() => parseSettingsTransferDocument(transferDocument({ futureOnly: true }), DEFAULT_SETTINGS), "SETTINGS_IMPORT_EMPTY");
+  throwsCode(() => parseSettingsTransferDocument(transferDocument({ dashboardGlassBlurEnabled: "no" }), DEFAULT_SETTINGS), "SETTINGS_IMPORT_INVALID_VALUE");
   throwsCode(() => parseSettingsTransferDocument(transferDocument({ cardSummaryEnabled: "yes" }), DEFAULT_SETTINGS), "SETTINGS_IMPORT_INVALID_VALUE");
   throwsCode(() => parseSettingsTransferDocument(transferDocument({ bookmarkSectionEnabled: "no" }), DEFAULT_SETTINGS), "SETTINGS_IMPORT_INVALID_VALUE");
   throwsCode(() => parseSettingsTransferDocument(transferDocument({ dailyAiLimit: 0 }), DEFAULT_SETTINGS), "SETTINGS_IMPORT_INVALID_VALUE");

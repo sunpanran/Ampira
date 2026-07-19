@@ -1,5 +1,6 @@
 import { decodeResponseBuffer, fetchBounded } from "../core/network.mjs";
-import { searchChinaLocations } from "../core/china-location-search.mjs";
+import { createChinaLocationLoader } from "../core/china-location-loader.mjs";
+import { searchChinaLocationRecords } from "../core/china-location-search.mjs";
 import {
   WEATHER_CACHE_FRESH_MS,
   WEATHER_CACHE_KEY,
@@ -27,6 +28,7 @@ export function createWeatherService(options) {
     now = () => Date.now(),
     fetchBoundedResponse = fetchBounded,
     decodeBuffer = decodeResponseBuffer,
+    loadChinaLocationRecords = createChinaLocationLoader(),
   } = options;
 
   return { searchLocations, getForecast, weatherCachePermitted };
@@ -34,7 +36,12 @@ export function createWeatherService(options) {
   async function searchLocations(payload = {}) {
     const query = normalizeWeatherQuery(payload.query);
     if (!query) throw typedError("INVALID_WEATHER_QUERY", "background.error.weatherQuery", {}, false);
-    const localLocations = searchChinaLocations(query, payload.locale);
+    let localLocations = [];
+    try {
+      localLocations = searchChinaLocationRecords(await loadChinaLocationRecords(), query, payload.locale);
+    } catch {
+      // A missing or corrupt packaged index must not block the permission-gated geocoder fallback.
+    }
     if (localLocations.length) return { locations: localLocations };
     await assertWeatherPermission();
     const url = new URL("/v1/search", WEATHER_GEOCODING_ORIGIN);
@@ -55,19 +62,8 @@ export function createWeatherService(options) {
     const age = cacheAge(cached, fingerprint, now());
     if (age <= WEATHER_CACHE_FRESH_MS) return publicForecast(cached, false);
 
-    const url = new URL("/v1/forecast", WEATHER_FORECAST_ORIGIN);
-    url.searchParams.set("latitude", String(coordinates.latitude));
-    url.searchParams.set("longitude", String(coordinates.longitude));
-    url.searchParams.set("current", "temperature_2m,apparent_temperature,weather_code,is_day");
-    url.searchParams.set("hourly", "weather_code");
-    url.searchParams.set("daily", "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max");
-    url.searchParams.set("temperature_unit", "celsius");
-    url.searchParams.set("timezone", "auto");
-    url.searchParams.set("forecast_days", "3");
     try {
-      const response = await fetchJson(url, WEATHER_FORECAST_ORIGIN);
-      const forecast = normalizeWeatherForecastResponse(response);
-      if (!forecast) throw typedError("INVALID_WEATHER_RESPONSE", "background.error.weatherData", {}, true);
+      const forecast = await fetchNormalizedForecast();
       const record = {
         capability: "weather",
         locationFingerprint: fingerprint,
@@ -80,6 +76,15 @@ export function createWeatherService(options) {
     } catch (error) {
       if (age <= WEATHER_CACHE_STALE_MS) return publicForecast(cached, true);
       throw error;
+    }
+
+    async function fetchNormalizedForecast() {
+      const response = await fetchJson(weatherForecastUrl(coordinates), WEATHER_FORECAST_ORIGIN);
+      const forecast = normalizeWeatherForecastResponse(response);
+      if (!forecast || forecast.current.date !== dateInTimezone(now(), forecast.timezone)) {
+        throw typedError("INVALID_WEATHER_RESPONSE", "background.error.weatherData", {}, true);
+      }
+      return forecast;
     }
   }
 
@@ -134,10 +139,29 @@ export function createWeatherService(options) {
   }
 }
 
+function weatherForecastUrl(coordinates) {
+  const url = new URL("/v1/forecast", WEATHER_FORECAST_ORIGIN);
+  url.searchParams.set("latitude", String(coordinates.latitude));
+  url.searchParams.set("longitude", String(coordinates.longitude));
+  url.searchParams.set("current", "temperature_2m,apparent_temperature,weather_code");
+  url.searchParams.set("hourly", "precipitation_probability");
+  url.searchParams.set("daily", "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max");
+  url.searchParams.set("temperature_unit", "celsius");
+  url.searchParams.set("timezone", "auto");
+  url.searchParams.set("forecast_days", "3");
+  return url;
+}
+
 function cacheAge(record, fingerprint, currentTime) {
-  if (!record || record.locationFingerprint !== fingerprint) return Number.POSITIVE_INFINITY;
+  if (!record || record.locationFingerprint !== fingerprint) {
+    return Number.POSITIVE_INFINITY;
+  }
   const fetchedAt = Date.parse(String(record.fetchedAt || ""));
   if (!Number.isFinite(fetchedAt)) return Number.POSITIVE_INFINITY;
+  const currentForecastDate = String(record.current?.date || "");
+  if (!currentForecastDate || currentForecastDate !== dateInTimezone(currentTime, record.timezone)) {
+    return Number.POSITIVE_INFINITY;
+  }
   return Math.max(0, currentTime - fetchedAt);
 }
 
@@ -145,10 +169,25 @@ function publicForecast(record, stale) {
   return {
     timezone: String(record.timezone || "UTC"),
     current: record.current,
-    daily: Array.isArray(record.daily) ? record.daily.slice(0, 3) : [],
+    daily: Array.isArray(record.daily) ? record.daily.slice(0, 2) : [],
     fetchedAt: String(record.fetchedAt || ""),
     stale: stale === true,
   };
+}
+
+function dateInTimezone(currentTime, timezone) {
+  try {
+    const parts = new Intl.DateTimeFormat("en", {
+      timeZone: String(timezone || "UTC"),
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).formatToParts(new Date(currentTime));
+    const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+    return `${values.year}-${values.month}-${values.day}`;
+  } catch {
+    return new Date(currentTime).toISOString().slice(0, 10);
+  }
 }
 
 function safeOrigin(value) {

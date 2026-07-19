@@ -12,7 +12,15 @@ import {
   DEFAULT_LOCALE, SUPPORTED_LOCALES, defaultBookmarkFoldersForLocale,
   detectSupportedLocale, formatListForLocale, localeMessages, normalizeLocale,
   translate, translateCount,
-} from "../../extension/core/i18n.mjs";
+} from "../helpers/full-i18n.mjs";
+import {
+  runtimeLocaleMessages,
+  translate as translateRuntime,
+} from "../../extension/core/runtime-i18n.mjs";
+import allTranslationMessages from "../../assets/client/locales/all-translations.mjs";
+import popupMessages from "../../assets/client/locales/popup.mjs";
+import { ALL_TRANSLATION_KEYS, POPUP_LOCALE_KEYS } from "../../scripts/client-locale-policy.mjs";
+import { isRuntimeLocaleKey } from "../../scripts/runtime-locale-policy.mjs";
 
 export async function runManifestSecurityTests(root) {
 const manifest = JSON.parse(await fs.readFile(path.join(root, "manifest.json"), "utf8"));
@@ -37,7 +45,9 @@ await assert.rejects(fs.access(path.join(root, "assets", "logo-purple.svg")), /E
 await assert.rejects(fs.access(path.join(root, "store", "assets", "ampira-store-icon.svg")), /ENOENT/, "the blurred store-only vector must be removed");
 await assert.rejects(fs.access(path.join(root, "store", "assets", "ampira-logo.svg")), /ENOENT/, "the store directory must not retain a duplicate editable logo source");
 const versionDashboardAppSource = await fs.readFile(path.join(root, "assets", "client", "dashboard-app.mjs"), "utf8");
-assert(versionDashboardAppSource.includes("chrome?.runtime?.getManifest?.().version")
+assert(versionDashboardAppSource.includes("globalThis.chrome?.runtime?.getManifest?.()")
+  && versionDashboardAppSource.includes('document.querySelector("#aboutVersion")')
+  && versionDashboardAppSource.includes("aboutVersion.textContent = `v${runtimeAppVersion}`")
   && versionDashboardAppSource.includes('new URL("../../manifest.json", import.meta.url)')
   && versionDashboardAppSource.includes("els.aboutVersion.textContent = `v${appVersion}`"), "the About panel version must come from the runtime manifest with a local-preview manifest fallback");
 assert(!dashboardHtml.includes(manifest.version), "dashboard HTML must not hard-code the manifest version");
@@ -74,8 +84,13 @@ assert(actionPopupHtml.includes('src="assets/icons/ampira-logo.svg"') && !action
 assert(actionPopupHtml.includes('role="status"') && actionPopupHtml.includes('aria-live="polite"'), "the capture popup must announce its result accessibly");
 assert(actionPopupHtml.includes('src="assets/client/action-popup.mjs"'), "the capture popup must execute only its packaged module");
 assert(actionPopupSource.includes("chrome.tabs.query({ active: true, currentWindow: true })"), "the popup must read only the actively invoked tab");
-assert(actionPopupSource.includes('sendExtensionRequest({ type: "settings:get" })'), "the popup must follow Ampira's saved locale and color mode");
+assert(actionPopupSource.includes('request({ type: "settings:get" })'), "the popup must follow Ampira's saved locale and color mode");
 assert(actionPopupSource.includes('type: "reading-queue:capture-current"'), "the popup must route captures through the service worker");
+assert(actionPopupSource.includes('from "./popup-i18n.mjs"')
+  && actionPopupSource.includes('from "./runtime-client.mjs"')
+  && !actionPopupSource.includes('from "./i18n.mjs"')
+  && !actionPopupSource.includes('from "./api.mjs"'),
+"the popup must use its generated micro-catalog and direct runtime port instead of the full dashboard dependency graph");
 assert(actionPopupSource.includes('import { createThemedIcon } from "./icons.mjs"') && actionPopupSource.includes('icon: "check"') && actionPopupSource.includes('icon: "info-circle"'), "popup controls and states must use the shared local icon library");
 assert(actionPopupSource.includes("textContent") && !actionPopupSource.includes("innerHTML"), "captured page metadata must remain inert text");
 assert(actionPopupCss.includes("--popup-warning: #F4C95D") && !actionPopupCss.includes("var(--red)"), "popup warnings must use the reviewed amber state instead of red");
@@ -97,7 +112,7 @@ assert(translate("en", "settings.service.consent").includes("article URLs used f
 assert(translate("zh-CN", "settings.service.consent").includes("文章网址"), "the Chinese AI disclosure must include context article URLs");
 assert.equal(translate("en", "onboarding.step4.searchTitle"), "Content insights", "English onboarding must describe the content interpretation capability concisely");
 assert.equal(translate("zh-CN", "onboarding.step4.searchTitle"), "内容解读", "Chinese onboarding must retain the concise content interpretation label");
-assert.equal(translate("zh-CN", "onboarding.step1.body"), "把资讯和灵感整理进一个新标签页。", "onboarding must use the reviewed concise product introduction");
+assert.equal(translate("zh-CN", "onboarding.step1.body"), "从书签里的网站获取新资讯，再用 AI 整理和解读。", "onboarding must use the reviewed concise product introduction");
 assert.equal(translateCount("en", "unit.entries", 1), "1 entry");
 assert.equal(translateCount("en", "unit.entries", 2), "2 entries");
 assert.equal(formatListForLocale("en", ["News", "Design"]), "News and Design");
@@ -107,6 +122,7 @@ assert.equal(translate("en", "settings.bookmarks.folderOption", { name: "Design"
 assert.equal(DEFAULT_SETTINGS.newsBookmarkFolder, "");
 assert.equal(DEFAULT_SETTINGS.inspirationBookmarkFolder, "");
 assert.equal(DEFAULT_SETTINGS.colorMode, "dark", "appearance must default to dark mode");
+assert.equal(DEFAULT_SETTINGS.dashboardGlassBlurEnabled, true, "dashboard glass blur must stay enabled unless the user turns it off");
 assert.equal(DEFAULT_SETTINGS.headerImageEnabled, true, "the header image must be enabled by default");
 assert.equal(DEFAULT_SETTINGS.headerImageBlurEnabled, false, "header-image blur must be opt-in");
 assert.equal(DEFAULT_SETTINGS.headerImageBlurAmount, 12, "header-image blur must remember a useful default amount");
@@ -176,13 +192,81 @@ assert.equal(permissionRowCounts(permissionUiRows.map((row) => ({ ...row, grante
 
 const localeKeys = Object.keys(localeMessages(DEFAULT_LOCALE)).sort();
 const defaultMessages = localeMessages(DEFAULT_LOCALE);
+const reviewedBrandTaglines = {
+  en: "Get news from bookmarked sites, then let AI organize and explain it.",
+  "zh-CN": "从书签里的网站获取新资讯，再用 AI 整理和解读。",
+  "zh-Hant": "從書籤裡的網站取得新資訊，再用 AI 整理與解讀。",
+};
+const reviewedAiServiceTitles = {
+  en: "AI summaries & analysis",
+  "zh-CN": "AI 整理与解读",
+  "zh-Hant": "AI 整理與解讀",
+};
+const reviewedOnboardingAiTitles = {
+  en: "Set up AI to organize and analyze content",
+  "zh-CN": "配置 AI，整理和解读内容",
+  "zh-Hant": "設定 AI，整理與解讀內容",
+};
+const reviewedPainOpenings = {
+  en: "Bookmarks are easy to save and easy to forget. The sites you follow are scattered across the web, and checking each one every day takes time. Ampira reads the bookmarks you choose, brings saved pages and new posts from those sites into one New Tab page, and sorts them by time or importance. Optional AI creates card summaries and a daily brief. It can also read an article and answer follow-up questions.",
+  "zh-CN": "收藏夹里有不少以后想看的网页，真正再打开的并不多。关注的网站也散在不同地方，很难每天逐个查看。Ampira 读取你选择的书签，把保存的网页和这些网站的新内容放进新标签页，并按时间或重要性整理。需要时，AI 会生成卡片摘要和今日简报，也能读取正文并继续回答问题。",
+  "zh-Hant": "收藏夾裡存了不少打算以後再看的網頁，真正回頭開啟的卻不多。關注的網站也散在不同地方，很難每天逐一查看。Ampira 讀取你選擇的書籤，把保存的網頁和這些網站的新內容放進新分頁，再依時間或重要性整理。需要時，AI 會產生卡片摘要與今日簡報，也能讀取內文並繼續回答問題。",
+};
+const reviewedProfessionalUseCases = {
+  en: "If you track an industry or research topic over time, put the sources you follow in one bookmark folder. Ampira keeps their updates together, sorts them by importance, and uses AI to create a daily brief. Open any article to ask follow-up questions.",
+  "zh-CN": "如果你需要长期跟踪一个行业或研究主题，可以把常看的来源放进同一个书签文件夹。Ampira 会集中更新，按重要性排序，再用 AI 整理成今日简报。遇到值得继续看的内容，也可以打开正文追问。",
+  "zh-Hant": "如果你需要長期追蹤一個產業或研究主題，可以把常看的來源放進同一個書籤資料夾。Ampira 會集中更新，依重要性排序，再用 AI 整理成今日簡報。遇到值得繼續看的內容，也可以開啟內文追問。",
+};
+const futureMarketingPattern = /\b(?:Pro|price|pricing|subscription|subscribe|coming soon)\b|付费|付費|订阅|訂閱|路线图|路線圖|未来功能|未來功能|专题雷达|專題雷達|简报工作室|簡報工作室|研究项目|研究項目/i;
 for (const locale of SUPPORTED_LOCALES) {
   const messages = localeMessages(locale);
+  const runtimeMessages = runtimeLocaleMessages(locale);
+  const expectedRuntimeKeys = localeKeys.filter(isRuntimeLocaleKey);
   assert.deepEqual(Object.keys(messages).sort(), localeKeys, `${locale} catalog keys must match ${DEFAULT_LOCALE}`);
+  assert.deepEqual(Object.keys(runtimeMessages).sort(), expectedRuntimeKeys, `${locale} runtime catalog must contain exactly the policy-selected keys`);
+  assert(Object.keys(runtimeMessages).length < localeKeys.length / 4, `${locale} runtime catalog must stay below one quarter of the client catalog`);
+  assert.equal(messages["settings.about.tagline"], reviewedBrandTaglines[locale], `${locale} must use the reviewed About tagline`);
+  assert.equal(messages["settings.service.title"], reviewedAiServiceTitles[locale], `${locale} must use the reviewed AI settings title`);
+  assert.equal(messages["onboarding.step4.title"], reviewedOnboardingAiTitles[locale], `${locale} must use the reviewed AI onboarding title`);
   for (const key of localeKeys) {
     const expected = [...String(defaultMessages[key]).matchAll(/\{([a-zA-Z0-9_]+)\}/g)].map((match) => match[1]).sort();
     const actual = [...String(messages[key]).matchAll(/\{([a-zA-Z0-9_]+)\}/g)].map((match) => match[1]).sort();
     assert.deepEqual(actual, expected, `${locale} placeholders must match ${DEFAULT_LOCALE} for ${key}`);
+  }
+  for (const key of expectedRuntimeKeys) {
+    assert.equal(runtimeMessages[key], messages[key], `${locale} runtime translation must match the client catalog for ${key}`);
+  }
+}
+assert.deepEqual(Object.keys(allTranslationMessages), [...ALL_TRANSLATION_KEYS], "the cross-locale client subset must contain exactly the reviewed keys");
+for (const [index, locale] of SUPPORTED_LOCALES.entries()) {
+  const messages = localeMessages(locale);
+  assert.deepEqual(Object.keys(popupMessages[locale] || {}), [...POPUP_LOCALE_KEYS], `${locale} popup catalog must contain exactly the reviewed keys`);
+  for (const key of ALL_TRANSLATION_KEYS) {
+    assert.equal(allTranslationMessages[key]?.[index], messages[key], `${locale} cross-locale message must match the full catalog for ${key}`);
+  }
+  for (const key of POPUP_LOCALE_KEYS) {
+    assert.equal(popupMessages[locale]?.[key], messages[key], `${locale} popup message must match the full catalog for ${key}`);
+  }
+}
+const clientModuleFiles = await listModuleFiles(path.join(root, "assets", "client"));
+const allTranslationCalls = [];
+for (const file of clientModuleFiles.filter((file) => !file.endsWith(`${path.sep}i18n.mjs`))) {
+  const source = await fs.readFile(file, "utf8");
+  const literalCalls = [...source.matchAll(/\ballTranslations\(\s*["']([^"']+)["']/g)];
+  assert.equal((source.match(/\ballTranslations\s*\(/g) || []).length, literalCalls.length, `${path.relative(root, file)} must call allTranslations with literal keys`);
+  allTranslationCalls.push(...literalCalls.map((match) => match[1]));
+}
+assert.deepEqual([...new Set(allTranslationCalls)].sort(), [...ALL_TRANSLATION_KEYS].sort(), "the cross-locale subset policy must cover every client call exactly");
+const popupTranslationCalls = [...actionPopupSource.matchAll(/\bt\(\s*["']([^"']+)["']/g)].map((match) => match[1]);
+assert.deepEqual([...new Set(popupTranslationCalls)].sort(), [...POPUP_LOCALE_KEYS].sort(), "the popup subset policy must cover every popup translation call exactly");
+assert.equal(translateRuntime("en", "background.error.weatherPermission"), translate("en", "background.error.weatherPermission"));
+assert.equal(translateRuntime("zh-Hant", "reader.error.genericBody"), translate("zh-Hant", "reader.error.genericBody"));
+assert.equal(translateRuntime("en", "settings.about.tagline"), "settings.about.tagline", "runtime i18n must not silently reintroduce client-only messages");
+const defaultRuntimeMessages = runtimeLocaleMessages(DEFAULT_LOCALE);
+for (const file of await listModuleFiles(path.join(root, "extension"))) {
+  const source = await fs.readFile(file, "utf8");
+  for (const match of source.matchAll(/["'`](background\.[A-Za-z0-9_.-]+|reader\.[A-Za-z0-9_.-]+|action\.capture[A-Za-z0-9_.-]*|bookmarkFolder\.default[A-Za-z0-9_.-]*|inspirationPreset\.[A-Za-z0-9_.-]+|summary\.status\.noContent|settings\.transfer\.error\.[A-Za-z0-9_.-]+)["'`]/g)) {
+    assert(Object.hasOwn(defaultRuntimeMessages, match[1]), `${path.relative(root, file)} runtime translation key must exist: ${match[1]}`);
   }
 }
 for (const file of ["en.mjs", "zh-CN.mjs", "zh-Hant.mjs"]) {
@@ -204,26 +288,38 @@ for (const locale of ["en", "zh_CN", "zh_TW"]) {
   manifestDescriptions.push(messages.appDescription?.message);
 }
 assert.deepEqual(manifestDescriptions, [
-  "Distill bookmarks, news, and web content into daily signals.",
-  "把书签、资讯和网页内容提纯成每日信号。",
-  "將書籤、資訊與網頁內容提煉成每日訊號。",
-], "all packaged locales must use the reviewed localized summary");
-for (const [file, summary] of [
-  ["en.md", "Distill bookmarks, news, and web content into daily signals."],
-  ["zh-CN.md", "把书签、资讯和网页内容提纯成每日信号。"],
-  ["zh-TW.md", "將書籤、資訊與網頁內容提煉成每日訊號。"],
+  reviewedBrandTaglines.en,
+  reviewedBrandTaglines["zh-CN"],
+  reviewedBrandTaglines["zh-Hant"],
+], "all packaged locales must use the reviewed brand tagline on the browser extensions page");
+const storeSummaries = [
+  "News from your bookmarks, sorted by time or importance. Optional AI summarizes and answers questions. Data stays local. No sign-up.",
+  "从书签里的网站获取新资讯，按时间或重要性查看。AI 功能可选，可生成摘要和今日简报，也能结合正文继续解读。数据默认保存在本地，不用注册账号。",
+  "從書籤裡的網站取得新資訊，依時間或重要性查看。AI 功能可選，可產生摘要與今日簡報，也能讀取內文並繼續解讀。資料預設留在本機，不用註冊帳號。",
+];
+for (const summary of storeSummaries) assert(summary.length <= 132, "store summaries must stay within the Chrome Web Store limit");
+for (const [file, locale, summary] of [
+  ["en.md", "en", storeSummaries[0]],
+  ["zh-CN.md", "zh-CN", storeSummaries[1]],
+  ["zh-TW.md", "zh-Hant", storeSummaries[2]],
 ]) {
   for (const directory of ["listing", "edge-listing"]) {
     const listing = await fs.readFile(path.join(root, "store", directory, file), "utf8");
     assert(listing.split(/\r?\n/).slice(0, 4).some((line) => line.endsWith(summary)), `${directory}/${file} must match the packaged localized summary`);
+    assert(listing.includes(reviewedPainOpenings[locale]), `${directory}/${file} must open with the reviewed user problem and solution`);
+    assert(listing.includes(reviewedProfessionalUseCases[locale]), `${directory}/${file} must include the reviewed current professional use case`);
+    assert(!futureMarketingPattern.test(listing), `${directory}/${file} must not promise paid or future features`);
   }
 }
 
 const dashboardSource = await fs.readFile(path.join(root, "dashboard.html"), "utf8");
+assert(dashboardSource.includes(`<div class="about-meta" data-i18n="settings.about.tagline">${reviewedBrandTaglines["zh-CN"]}</div>`), "the static About fallback must match the reviewed Simplified Chinese tagline");
+assert(dashboardSource.includes(`<h3 data-i18n="settings.service.title">${reviewedAiServiceTitles["zh-CN"]}</h3>`), "the static AI settings title must match the reviewed Simplified Chinese copy");
+assert(dashboardSource.includes(`<p data-i18n="onboarding.step1.body">${reviewedBrandTaglines["zh-CN"]}</p>`), "the static onboarding introduction must match the reviewed Simplified Chinese tagline");
+assert(dashboardSource.includes(`<span data-i18n="onboarding.step4.titleLead">配置 AI，</span><span class="onboarding-title-phrase" data-i18n="onboarding.step4.titleTail">整理和解读内容</span>`), "the static AI onboarding title must match the reviewed Simplified Chinese copy");
 const settingsCssSource = await fs.readFile(path.join(root, "assets", "styles", "settings.css"), "utf8");
 const tokensCssSource = await fs.readFile(path.join(root, "assets", "styles", "tokens.css"), "utf8");
 const settingsResponsiveCssSource = await fs.readFile(path.join(root, "assets", "styles", "motion-responsive.css"), "utf8");
-const dashboardSectionsCssSource = await fs.readFile(path.join(root, "assets", "styles", "dashboard-sections.css"), "utf8");
 const contentSyncSettingsSource = await fs.readFile(path.join(root, "assets", "client", "content-sync-settings.mjs"), "utf8");
 const settingsControllerSource = await fs.readFile(path.join(root, "assets", "client", "settings-controller.mjs"), "utf8");
 const dashboardAppSource = await fs.readFile(path.join(root, "assets", "client", "dashboard-app.mjs"), "utf8");
@@ -321,9 +417,14 @@ assert(navEntryMarkers.every((marker, index) => navMainSource.indexOf(marker) >=
 assert(shellControllerSource.includes("els.bookmarkNav.hidden = !visible")
   && shellControllerSource.includes("els.librarySection.hidden = !visible")
   && shellControllerSource.includes('.filter((button) => !button.hidden)')
-  && shellControllerSource.includes("document.getElementById(button.dataset.scroll)?.hidden !== true"), "hidden bookmark surfaces must be removed from navigation sizing and scroll selection");
+  && shellControllerSource.includes("entry.section.hidden !== true"), "hidden bookmark surfaces must be removed from navigation sizing and scroll selection");
 assert(shellControllerSource.includes("maxLabelWidth + 16"), "expanded navigation width must leave a language-safe label inset");
 assert(!shellControllerSource.includes('    ".nav-btn",'), "navigation must not remain registered for the removed pointer glow");
+assert(shellControllerSource.includes("new IntersectionObserver(syncNavToCurrentSection")
+  && shellControllerSource.includes("scrollObserver.observe(entry.section)")
+  && !shellControllerSource.includes('window.addEventListener("scroll"')
+  && shellControllerSource.includes("if (activeNavButton === nextActiveButton) return;"),
+  "navigation scroll selection must observe section crossings and avoid per-frame layout reads or unchanged active-state writes");
 assert(settingsWorkflowSource.includes('"bookmarkSectionEnabled", "websiteShortcutsEnabled"'), "the runtime settings workflow must accept bookmark-section visibility without treating it as a source change");
 assert(!cacheFetchSource.includes('id="personalizedRankingEnabledInput"'), "fetch settings must not expose the advanced personalization switch");
 assert(cacheAdvancedSource.includes('<input id="personalizedRankingEnabledInput" type="checkbox">'), "advanced settings must expose personalized ranking with an unchecked first-frame default");
@@ -423,15 +524,67 @@ for (const file of ["extension/service-worker.mjs", "extension/core/feed.mjs", "
   }
 }
 
-for (const [file, expectedLang] of [
-  ["docs/index.html", "zh-CN"],
-  ["docs/en/index.html", "en"],
-  ["docs/zh-TW/index.html", "zh-Hant"],
+const docsLogoSource = await fs.readFile(path.join(root, "docs", "assets", "ampira-logo.svg"), "utf8");
+const extensionLogoSource = await fs.readFile(path.join(root, "assets", "icons", "ampira-logo.svg"), "utf8");
+assert.equal(docsLogoSource, extensionLogoSource, "the website must reuse the packaged Ampira logo");
+const docsStylesSource = await fs.readFile(path.join(root, "docs", "styles.css"), "utf8");
+assert(
+  docsStylesSource.includes("min-height: 44px")
+    && docsStylesSource.includes(".store-link:focus-visible"),
+  "the website store link must retain its minimum target size and visible keyboard focus",
+);
+const chromeWebStoreUrl = "https://chromewebstore.google.com/detail/oifmohbnghkaadoeghlemkllegajdajc?utm_source=item-share-cb";
+for (const [file, expectedLang, locale, tagline, summary, logoPath, storeLabel] of [
+  ["docs/index.html", "zh-CN", "zh-CN", reviewedBrandTaglines["zh-CN"], storeSummaries[1], "assets/ampira-logo.svg", "从 Chrome 应用商店安装"],
+  ["docs/en/index.html", "en", "en", reviewedBrandTaglines.en, storeSummaries[0], "../assets/ampira-logo.svg", "Install from the Chrome Web Store"],
+  ["docs/zh-TW/index.html", "zh-Hant", "zh-Hant", reviewedBrandTaglines["zh-Hant"], storeSummaries[2], "../assets/ampira-logo.svg", "從 Chrome 線上應用程式商店安裝"],
 ]) {
   const text = await fs.readFile(path.join(root, file), "utf8");
   assert(text.includes(`<html lang="${expectedLang}">`), `${file} must declare ${expectedLang}`);
+  assert(text.includes(`<img class="mark-logo" src="${logoPath}" width="48" height="48" alt="Ampira">`), `${file} must show the packaged Ampira logo`);
+  assert(text.includes(`<a class="store-link" href="${chromeWebStoreUrl}" target="_blank" rel="noopener noreferrer">${storeLabel}`), `${file} must show the localized Chrome Web Store link`);
+  assert(text.includes(`<h1>${tagline}</h1>`), `${file} must use the reviewed brand tagline`);
+  assert(text.includes(`<meta name="description" content="${summary}">`), `${file} must use the reviewed localized summary`);
+  assert(text.includes(`<p>${reviewedProfessionalUseCases[locale]}</p>`), `${file} must include the reviewed current professional use case`);
+  assert(!futureMarketingPattern.test(text), `${file} must not promise paid or future features`);
   for (const hreflang of ["zh-CN", "zh-TW", "en"]) assert(text.includes(`hreflang="${hreflang}"`), `${file} must link ${hreflang}`);
 }
 
+const readmeSource = await fs.readFile(path.join(root, "README.md"), "utf8");
+for (const tagline of Object.values(reviewedBrandTaglines)) {
+  assert(readmeSource.includes(`> ${tagline}`), `README must include the reviewed localized tagline: ${tagline}`);
+}
+for (const useCase of Object.values(reviewedProfessionalUseCases)) {
+  assert(readmeSource.includes(useCase), `README must include the reviewed current professional use case: ${useCase}`);
+}
+for (const storeLabel of ["Chrome 应用商店", "Chrome 線上應用程式商店", "Chrome Web Store"]) {
+  assert(readmeSource.includes(`[${storeLabel}](${chromeWebStoreUrl})`), `README must include the localized Chrome Web Store link: ${storeLabel}`);
+}
+assert(!futureMarketingPattern.test(readmeSource), "README must not promise paid or future features");
+
+const copyGuidelinesSource = await fs.readFile(path.join(root, "copy-guidelines.md"), "utf8");
+for (const copy of [
+  ...Object.values(reviewedBrandTaglines),
+  ...Object.values(reviewedAiServiceTitles),
+  ...Object.values(reviewedOnboardingAiTitles),
+  ...Object.values(reviewedPainOpenings),
+  ...Object.values(reviewedProfessionalUseCases),
+  ...manifestDescriptions,
+  ...storeSummaries,
+]) {
+  assert(copyGuidelinesSource.includes(copy), `copy guidelines must include the reviewed copy: ${copy}`);
+}
+assert(copyGuidelinesSource.includes(chromeWebStoreUrl), "copy guidelines must include the current Chrome Web Store URL");
+
 return { dashboardSource, localeKeys };
+}
+
+async function listModuleFiles(directory) {
+  const entries = await fs.readdir(directory, { withFileTypes: true });
+  const nested = await Promise.all(entries.map((entry) => {
+    const absolute = path.join(directory, entry.name);
+    if (entry.isDirectory()) return listModuleFiles(absolute);
+    return entry.name.endsWith(".mjs") ? [absolute] : [];
+  }));
+  return nested.flat();
 }

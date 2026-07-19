@@ -1,4 +1,4 @@
-import { translate } from "./i18n.mjs";
+import { translate } from "./runtime-i18n.mjs";
 
 export const INSPIRATION_PRESET_CATEGORIES = Object.freeze([
   { key: "webInteraction", quota: 8 },

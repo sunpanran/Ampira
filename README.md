@@ -4,26 +4,30 @@
 
 # Ampira 资讯新标签页
 
-[English](#english) · [简体中文](#简体中文)
+[简体中文](#简体中文) · [繁體中文](#繁體中文) · [English](#english)
 
 ## 简体中文
 
-Ampira 是一个支持 Google Chrome 与 Microsoft Edge 的本地优先 Manifest V3 新标签页扩展。它将用户选择的浏览器书签、公开 Feed 和阅读状态整理为高密度资讯工作台，提供今日信号、事件主题、阅读队列、Signal Feed、Archive Index、安全阅读器，以及可选的 AI 搜索与摘要。
+> 从书签里的网站获取新资讯，再用 AI 整理和解读。
 
-Ampira 不设账号、广告、行为分析或开发者服务器，也不加载远程代码。
+Ampira 是一个支持 Google Chrome 与 Microsoft Edge 的 Manifest V3 新标签页扩展。它读取你选择的书签，把保存的网页和这些网站的新内容放进同一页。资讯可以按时间或重要性查看。AI 功能可选，可以生成卡片摘要和今日简报；打开正文后，还能继续提问。
 
-[最新版本](https://github.com/sunpanran/Ampira/releases/latest) · [隐私政策](https://sunpanran.github.io/Ampira/privacy.html) · [支持](https://sunpanran.github.io/Ampira/support.html)
+如果你需要长期跟踪一个行业或研究主题，可以把常看的来源放进同一个书签文件夹。Ampira 会集中更新，按重要性排序，再用 AI 整理成今日简报。遇到值得继续看的内容，也可以打开正文追问。
+
+内容默认保存在浏览器中，不用注册账号。Ampira 没有广告、行为分析、开发者服务器或远程代码。
+
+[Chrome 应用商店](https://chromewebstore.google.com/detail/oifmohbnghkaadoeghlemkllegajdajc?utm_source=item-share-cb) · [最新版本](https://github.com/sunpanran/Ampira/releases/latest) · [隐私政策](https://sunpanran.github.io/Ampira/privacy.html) · [支持](https://sunpanran.github.io/Ampira/support.html)
 
 ### 功能亮点
 
-- 将书签、RSS、Atom 和 JSON Feed 汇集到一个信息密度优先的新标签页。
-- 提供阅读队列、已读/忽略状态、日期切换、摘要和归档视图。
-- 点击 Ampira 工具栏图标即可把当前 HTTPS 网页加入稍后读，并在浮窗中确认结果。
-- 可将顶部搜索切换到当前浏览器的默认搜索服务，同时保持导航中的 Ampira 内容搜索独立可用。
-- 站内阅读优先使用网站公开允许的 CORS 访问；确需额外访问时才申请精确来源权限，不申请宽泛的必需主机权限。
-- API 密钥只保存在当前浏览器配置的本地存储中，不进入浏览器账号同步。
-- 远程内容始终作为不可信数据处理，通过 `textContent` 或结构化 DOM 渲染。
-- 支持简体中文、繁体中文和英文。
+- 以只读方式读取你选择的书签文件夹，并用 RSS、Atom、JSON Feed 和公共来源（Ampira）补充资讯。
+- 资讯支持按时间或重要性排序；同一事件的相关报道会放在一起，也可以按日期回看。
+- 配置自己的 API Key 后，可生成卡片摘要和今日简报，也能结合正文继续提问。
+- 每日灵感从 Ampira 预设或指定书签文件夹换一组卡片，也支持手动“换一换”。
+- 点击工具栏图标，或从资讯和书签卡片加入稍后读；站内阅读、搜索和归档用于继续处理或找回内容。
+- 快捷书签、待办、天气、顶部浏览器搜索和主题可按需使用。
+- 网站访问只申请精确来源；API 密钥留在当前浏览器配置中，不进入账号同步。
+- 远程内容始终作为不可信数据处理，并支持简体中文、繁体中文和英文。
 
 ### 本地加载
 
@@ -81,24 +85,44 @@ $env:REQUIRED_SUPPORT_URL = "https://github.com/sunpanran/Ampira/issues"
 
 ---
 
+## 繁體中文
+
+> 從書籤裡的網站取得新資訊，再用 AI 整理與解讀。
+
+Ampira 是支援 Google Chrome 與 Microsoft Edge 的 Manifest V3 新分頁擴充功能。它讀取你選擇的書籤，把保存的網頁和這些網站的新內容放進同一頁。資訊可以依時間或重要性查看。AI 功能可選，可以產生卡片摘要與今日簡報；開啟內文後，還能繼續提問。
+
+如果你需要長期追蹤一個產業或研究主題，可以把常看的來源放進同一個書籤資料夾。Ampira 會集中更新，依重要性排序，再用 AI 整理成今日簡報。遇到值得繼續看的內容，也可以開啟內文追問。
+
+每日靈感會從 Ampira 預設或指定書籤資料夾換一組卡片。稍後讀、站內閱讀、搜尋與封存則用來繼續處理或找回內容。
+
+內容預設保存在瀏覽器中，不用註冊帳號。Ampira 沒有廣告、行為分析、開發者伺服器或遠端程式碼。
+
+[Chrome 線上應用程式商店](https://chromewebstore.google.com/detail/oifmohbnghkaadoeghlemkllegajdajc?utm_source=item-share-cb) · [最新版本](https://github.com/sunpanran/Ampira/releases/latest) · [隱私權政策](https://sunpanran.github.io/Ampira/zh-TW/privacy.html) · [支援](https://sunpanran.github.io/Ampira/zh-TW/support.html)
+
+---
+
 ## English
 
-Ampira is a local-first Manifest V3 new-tab extension for Google Chrome and Microsoft Edge. It turns selected browser bookmarks, public feeds, and reading activity into a dense information workspace with daily signals, event topics, a reading queue, Signal Feed, Archive Index, a safe reader, and optional AI-powered search and summaries.
+> Get news from bookmarked sites, then let AI organize and explain it.
 
-Ampira has no accounts, ads, behavioral analytics, developer-operated backend, or remotely hosted code.
+Ampira is a Manifest V3 New Tab extension for Google Chrome and Microsoft Edge. It reads the bookmarks you choose and brings saved pages and new posts from those sites into one page. Sort the result by time or importance. AI is optional. It can create card summaries and a daily brief. When you open an article, it can use the text to answer follow-up questions.
 
-[Latest release](https://github.com/sunpanran/Ampira/releases/latest) · [Privacy](https://sunpanran.github.io/Ampira/en/privacy.html) · [Support](https://sunpanran.github.io/Ampira/en/support.html)
+If you track an industry or research topic over time, put the sources you follow in one bookmark folder. Ampira keeps their updates together, sorts them by importance, and uses AI to create a daily brief. Open any article to ask follow-up questions.
+
+Data stays in the browser by default, with no account needed. Ampira has no ads, behavioral analytics, developer-operated backend, or remotely hosted code.
+
+[Chrome Web Store](https://chromewebstore.google.com/detail/oifmohbnghkaadoeghlemkllegajdajc?utm_source=item-share-cb) · [Latest release](https://github.com/sunpanran/Ampira/releases/latest) · [Privacy](https://sunpanran.github.io/Ampira/en/privacy.html) · [Support](https://sunpanran.github.io/Ampira/en/support.html)
 
 ### Highlights
 
-- Combines bookmarks, RSS, Atom, and JSON Feed sources in an information-dense new tab.
-- Includes a reading queue, seen and dismissed states, date navigation, summaries, and archive views.
-- Adds the current HTTPS page to Read later and confirms the result in a toolbar popup.
-- Can switch the top field to the browser's current default search service while keeping Ampira content search separate in the navigation.
-- Requests access only to exact website origins selected by the user.
-- Keeps API keys in the current browser profile's local storage and out of browser account sync.
-- Treats remote content as untrusted data and renders it with `textContent` or structured DOM nodes.
-- Supports Simplified Chinese, Traditional Chinese, and English.
+- Reads the bookmark folders you choose in read-only mode, with RSS, Atom, JSON Feed, and Public sources (Ampira) as supplements.
+- Sorts news by time or importance, groups coverage of the same event, and keeps previous dates available.
+- Uses your own API key for card summaries, a daily brief, article analysis, and follow-up questions.
+- Shows a different set of Inspiration cards each day from the Ampira preset or a bookmark folder you choose.
+- Adds pages to Read later from the toolbar or a card; in-app reading, search, and archive help you continue or find content again.
+- Keeps quick bookmarks, to-dos, weather, browser search, and themes available when you need them.
+- Requests only exact website origins and keeps API keys out of browser account sync.
+- Treats remote content as untrusted data and supports Simplified Chinese, Traditional Chinese, and English.
 
 ### Load locally
 

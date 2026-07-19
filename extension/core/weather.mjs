@@ -4,7 +4,7 @@ export const WEATHER_ORIGINS = Object.freeze([
   WEATHER_GEOCODING_ORIGIN,
   WEATHER_FORECAST_ORIGIN,
 ]);
-export const WEATHER_CACHE_KEY = "weather-forecast-v2";
+export const WEATHER_CACHE_KEY = "weather-forecast-v3";
 export const WEATHER_CACHE_FRESH_MS = 30 * 60 * 1000;
 export const WEATHER_CACHE_STALE_MS = 6 * 60 * 60 * 1000;
 export const WEATHER_QUERY_MAX_LENGTH = 80;
@@ -47,31 +47,43 @@ export function normalizeWeatherSearchResponse(value) {
 export function normalizeWeatherForecastResponse(value) {
   const current = value?.current;
   const daily = value?.daily;
-  if (!current || !daily) return null;
+  const hourly = value?.hourly;
+  if (!current || !daily || !hourly) return null;
   const dates = Array.isArray(daily.time) ? daily.time.slice(0, 3) : [];
+  const times = Array.isArray(hourly.time) ? hourly.time : [];
   const weatherCodes = Array.isArray(daily.weather_code) ? daily.weather_code.slice(0, 3) : [];
   const maximums = Array.isArray(daily.temperature_2m_max) ? daily.temperature_2m_max.slice(0, 3) : [];
   const minimums = Array.isArray(daily.temperature_2m_min) ? daily.temperature_2m_min.slice(0, 3) : [];
-  const precipitation = Array.isArray(daily.precipitation_probability_max)
+  const precipitationPeaks = Array.isArray(daily.precipitation_probability_max)
     ? daily.precipitation_probability_max.slice(0, 3)
     : [];
-  if ([dates, weatherCodes, maximums, minimums, precipitation].some((items) => items.length !== 3)) return null;
+  if ([dates, weatherCodes, maximums, minimums, precipitationPeaks].some((items) => items.length !== 3) || !times.length) {
+    return null;
+  }
+  const currentTime = normalizeLocalDateTime(current.time) || { date: dates[0], hour: 0 };
+  const currentHourIndex = weatherHourIndices(times, currentTime.date, currentTime.hour, currentTime.hour)[0];
 
   const normalizedCurrent = {
+    date: currentTime.date,
     temperatureC: boundedNumber(current.temperature_2m, -150, 100),
     apparentTemperatureC: boundedNumber(current.apparent_temperature, -150, 100),
-    weatherCode: boundedInteger(current.weather_code, 0, 99),
-    isDay: current.is_day === 1,
+    weatherCode: conditionWeatherCode(weatherConditionKey(current.weather_code)),
+    precipitationProbability: currentHourIndex === undefined
+      ? null
+      : boundedInteger(hourly.precipitation_probability?.[currentHourIndex], 0, 100),
   };
-  if (Object.values(normalizedCurrent).slice(0, 3).some((item) => item === null)) return null;
+  if (Object.values(normalizedCurrent).some((item) => item === null || item === "")) {
+    return null;
+  }
 
-  const normalizedDaily = dates.map((date, index) => {
+  const normalizedDaily = dates.slice(1).map((date, index) => {
+    const sourceIndex = index + 1;
     const day = {
       date: normalizeIsoDate(date),
-      weatherCode: dominantDaytimeWeatherCode(value?.hourly, date) ?? boundedInteger(weatherCodes[index], 0, 99),
-      temperatureMaxC: boundedNumber(maximums[index], -150, 100),
-      temperatureMinC: boundedNumber(minimums[index], -150, 100),
-      precipitationProbability: boundedInteger(precipitation[index], 0, 100),
+      weatherCode: conditionWeatherCode(weatherConditionKey(weatherCodes[sourceIndex])),
+      temperatureMaxC: boundedNumber(maximums[sourceIndex], -150, 100),
+      temperatureMinC: boundedNumber(minimums[sourceIndex], -150, 100),
+      precipitationProbabilityPeak: boundedInteger(precipitationPeaks[sourceIndex], 0, 100),
     };
     return Object.values(day).some((item) => item === null || item === "") ? null : day;
   });
@@ -84,29 +96,36 @@ export function normalizeWeatherForecastResponse(value) {
   };
 }
 
-function dominantDaytimeWeatherCode(hourly, date) {
-  const times = Array.isArray(hourly?.time) ? hourly.time : [];
-  const codes = Array.isArray(hourly?.weather_code) ? hourly.weather_code : [];
-  if (!date || times.length !== codes.length) return null;
-
-  const counts = new Map();
+function weatherHourIndices(times, date, minimumHour, maximumHour) {
+  const indices = [];
   for (let index = 0; index < times.length; index += 1) {
-    const match = String(times[index] || "").match(/^(\d{4}-\d{2}-\d{2})T(\d{2}):/);
-    if (!match || match[1] !== date) continue;
-    const hour = Number(match[2]);
-    const code = boundedInteger(codes[index], 0, 99);
-    if (hour < 8 || hour > 18 || code === null) continue;
-    const condition = weatherConditionKey(code);
-    const entry = counts.get(condition) || { count: 0, codes: new Map() };
-    entry.count += 1;
-    entry.codes.set(code, (entry.codes.get(code) || 0) + 1);
-    counts.set(condition, entry);
+    const parsed = normalizeLocalDateTime(times[index]);
+    if (parsed?.date === date && parsed.hour >= minimumHour && parsed.hour <= maximumHour) indices.push(index);
   }
-  if (!counts.size) return null;
-
-  const condition = [...counts.values()].sort((left, right) => right.count - left.count)[0];
-  return [...condition.codes.entries()].sort((left, right) => right[1] - left[1])[0][0];
+  return indices;
 }
+
+function normalizeLocalDateTime(value) {
+  const match = String(value || "").match(/^(\d{4}-\d{2}-\d{2})T(\d{2}):/);
+  if (!match) return null;
+  const hour = Number(match[2]);
+  return hour >= 0 && hour <= 23 ? { date: match[1], hour } : null;
+}
+
+
+function conditionWeatherCode(condition) {
+  return {
+    clear: 0,
+    partlyCloudy: 2,
+    overcast: 3,
+    fog: 45,
+    drizzle: 51,
+    rain: 61,
+    snow: 71,
+    thunderstorm: 95,
+  }[condition] ?? null;
+}
+
 
 export function normalizeWeatherCoordinates(latitudeValue, longitudeValue) {
   const latitude = normalizedCoordinate(latitudeValue, -90, 90);
@@ -159,16 +178,22 @@ function normalizedCoordinate(value, minimum, maximum) {
 }
 
 function boundedNumber(value, minimum, maximum) {
+  if (!isNumericValue(value)) return null;
   const number = Number(value);
   if (!Number.isFinite(number) || number < minimum || number > maximum) return null;
   return Number(number.toFixed(1));
 }
 
 function boundedInteger(value, minimum, maximum) {
+  if (!isNumericValue(value)) return null;
   const number = Number(value);
   if (!Number.isFinite(number)) return null;
   const integer = Math.round(number);
   return integer >= minimum && integer <= maximum ? integer : null;
+}
+
+function isNumericValue(value) {
+  return value !== null && value !== undefined && value !== "" && Number.isFinite(Number(value));
 }
 
 function normalizedLocationId(value) {

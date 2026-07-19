@@ -1,6 +1,6 @@
 import { PREFERRED_FEEDS } from "./constants.mjs";
 import { hashText } from "./bookmarks.mjs";
-import { translate } from "./i18n.mjs";
+import { translate } from "./runtime-i18n.mjs";
 import { classifyFeedEntryLocale } from "./feed-language-policy.mjs";
 import { decodeResponseBuffer, fetchBounded } from "./network.mjs";
 import { isDisplayableFeedItem } from "./feed-item-policy.mjs";
@@ -363,7 +363,7 @@ function articleFromHtml(html, url, source) {
     metaContent(html, ["article:published_time", "datepublished"]),
     "",
   ));
-  const imageUrls = extractPageImageCandidates(html, url, { limit: 3 });
+  const imageUrls = extractPageImageCandidates(html, url, { limit: 3, profile: "article" });
   return articleRecord({
     title: cleanText(firstNonEmpty(
       metaContent(html, ["og:title"]),

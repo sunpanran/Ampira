@@ -169,6 +169,8 @@ $allowedPatterns = @(
   '^assets/styles/[a-z0-9-]+\.css$',
   '^extension/service-worker\.mjs$',
   '^extension/core/[a-z0-9-]+\.mjs$',
+  '^extension/core/runtime-locales/(?:en|zh-CN|zh-Hant)\.mjs$',
+  '^extension/data/china-locations\.json$',
   '^extension/runtime/(?:[a-z0-9-]+/)*[a-z0-9-]+\.mjs$',
   '^extension/icons/icon-(?:16|32|48|128)\.png$',
   '^_locales/(?:en|zh_CN|zh_TW)/messages\.json$'
@@ -210,6 +212,9 @@ try {
     $relative = [System.IO.Path]::GetRelativePath($stage, $item.FullName).Replace("\", "/")
     $allowed = $allowedFiles.Contains($relative) -or $allowedPatterns.Where({ $relative -match $_ }).Count -gt 0
     if (-not $allowed) { throw "Non-allowlisted package file: $relative" }
+    if ($relative -eq "extension/core/china-location-data.mjs") {
+      throw "Legacy eager China location module must not be packaged."
+    }
     if ($relative -match '(^|/)(dashboard-cache|tests?|output|dist)(/|$)|(^|/)\.(env|git)') {
       throw "Forbidden package path: $relative"
     }

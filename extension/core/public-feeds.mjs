@@ -1,4 +1,4 @@
-import { normalizeLocale } from "./i18n.mjs";
+import { normalizeLocale } from "./locale.mjs";
 
 const GOOGLE_NEWS_URLS = Object.freeze({
   "zh-CN": "https://news.google.com/rss?hl=zh-CN&gl=CN&ceid=CN:zh-Hans",

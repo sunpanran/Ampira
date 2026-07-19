@@ -1,5 +1,5 @@
 import { CACHE_LIMIT_BYTES, CACHE_RETENTION_MS, DB_NAME, DB_VERSION } from "./constants.mjs";
-import { DEFAULT_LOCALE, translate } from "./i18n.mjs";
+import { DEFAULT_LOCALE, translate } from "./runtime-i18n.mjs";
 
 let databasePromise;
 

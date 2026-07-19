@@ -12,7 +12,7 @@ export function createSettingsController(options) {
     getAiSetupState, clearAiSetupFeedback, focusAiSetupRequirement, currentExcludedNewsSources,
     bookmarkSourcePayload, appearancePayload, snapshotSettingsDraft, cloneSettingsDraft, diffSettingsDraft,
     syncSeenArchiveRetention, loadDashboard, triggerRefresh, renderStatus, renderEfficiencyPanel, renderAll,
-    resetToDailyView, syncNavToCurrentSection, getLocale, setLocale, settingsSaveCloseDelayMs, settingsCloseMotionMs,
+    resetToDailyView, syncNavToCurrentSection, setActiveNavButton, navButton, getLocale, prepareLocale, settingsSaveCloseDelayMs, settingsCloseMotionMs,
     inspirationPreviews, syncHeaderImageFullscreenControl, syncHeaderImageBlurControl, syncHeaderImageHeightControl, syncAccentColorPickerBusy, headerCoverController, availableNewsFolders,
     syncSourceSuggestionActionState, syncSegmentedIndicator, websiteShortcutsPayload,
     setWebsiteShortcutControlsBusy, aiSetupStage, requestSourcePermissions, revealActiveSettingsTab,
@@ -52,7 +52,7 @@ async function loadSettings() {
       || state.settings.hasImageSearchKey !== settings.hasImageSearchKey;
     state.settings = settings;
     if (imagePreviewChanged) inspirationPreviews.invalidate();
-    syncLanguageControls(state.settings, { render: false });
+    await syncLanguageControls(state.settings, { render: false }); if (token !== settingsLoadToken) return false;
     els.apiBaseUrlInput.value = state.settings.savedBaseUrl || state.settings.baseUrl || state.settings.defaultBaseUrl || "";
     els.apiStyleSelect.value = state.settings.savedApiStyle || state.settings.apiStyle || state.settings.defaultApiStyle || "responses";
     els.modelInput.value = state.settings.savedModel || state.settings.model || state.settings.defaultModel || "";
@@ -119,7 +119,7 @@ async function saveSettings() {
   savedSourcePermission.clear();
   setSettingsBusy(true);
   try {
-    const payload = diffSettingsDraft(draft, settingsSnapshot);
+    await prepareLocale(draft.uiLocale); const payload = diffSettingsDraft(draft, settingsSnapshot);
     Object.assign(payload, headerCoverController.savePayload());
     const sourcePermissionScope = personalSourcePermissionScope(draft, payload);
     const previousSourcePermissions = settingsSnapshot?.sourcePermissions || [];
@@ -318,7 +318,7 @@ async function openSettings() {
   settingsLocaleAtOpen = getLocale();
   settingsSnapshot = snapshotSettingsDraft(state.settings, selectedUiLocale());
   resetSecretDrafts();
-  document.querySelectorAll(".nav-btn").forEach((item) => item.classList.toggle("active", item.id === "settingsNav"));
+  setActiveNavButton(navButton);
   els.settingsModal.classList.add("open");
   window.requestAnimationFrame(revealActiveSettingsTab);
   els.closeSettings.focus({ preventScroll: true });
@@ -435,7 +435,7 @@ function setSettingsBusy(busy) {
   els.bookmarkOnlyFolderSelect.disabled = busy || !els.bookmarkOnlyFolderSelect.value;
   els.addBookmarkOnlyFolder.disabled = busy || !els.bookmarkOnlyFolderSelect.value;
   els.customAccentInput.disabled = busy; syncAccentColorPickerBusy(busy);
-  els.pointerGlowEnabledInput.disabled = busy;
+  els.pointerGlowEnabledInput.disabled = busy; els.dashboardGlassBlurEnabledInput.disabled = busy;
   els.headerImageEnabledInput.disabled = busy;
   syncHeaderImageBlurControl(busy); syncHeaderImageHeightControl(busy);
   els.headerImageFixedInput.disabled = busy; syncHeaderImageFullscreenControl(busy);

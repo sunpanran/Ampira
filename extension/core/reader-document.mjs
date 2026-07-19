@@ -1,11 +1,10 @@
 import { readerError } from "./reader-errors.mjs";
 import {
   extractPageImageCandidates,
-  imageDimension,
   imageAttributeCandidates,
   normalizeImageCandidates,
-  srcsetImageCandidates,
-  structuredImageCandidates,
+  normalizeImageProfile,
+  selectArticleCandidate,
 } from "./image-candidates.mjs";
 import { isPrivateAddressLiteral } from "./network-policy.mjs";
 import {
@@ -22,20 +21,16 @@ const MAX_BLOCKS = 400;
 const MAX_IMAGES = 30;
 
 const EXCLUDED_CONTENT_TAGS = new Set(["nav", "footer", "aside", "form", "button", "select", "textarea", "dialog"]);
-const CANDIDATE_TAGS = new Set(["article", "main", "section", "div", "body"]);
 const BLOCK_TAGS = new Set([
   "article", "main", "section", "div", "p", "h1", "h2", "h3", "h4", "h5", "h6", "ul", "ol", "blockquote", "pre", "figure", "table", "img", "video", "iframe",
 ]);
 const NEGATIVE_PATTERN = /(?:^|[\s_-])(?:ad|ads|advert|banner|breadcrumb|comment|cookie|consent|footer|header|login|menu|modal|nav|newsletter|promo|recommend|related|share|sidebar|social|sponsor|subscribe|toolbar)(?:$|[\s_-])/i;
-const POSITIVE_PATTERN = /(?:^|[\s_-])(?:article|body|content|entry|main|post|story|text)(?:$|[\s_-])/i;
 const IMAGE_NEGATIVE_PATTERN = /(?:^|[^a-z0-9])(?:avatar|badge|emoji|icon|logo|pixel|spinner|sprite|tracker)(?:$|[^a-z0-9])/i;
-const HERO_IMAGE_PATTERN = /(?:article|content|cover|featured|hero|lead|main|masthead|og-image|post|story)[-_\s]*(?:image|media|photo|visual)?/i;
-const PLACEHOLDER_IMAGE_PATTERN = /(?:^|[/_.-])(?:blank|loading|placeholder|spacer|transparent)(?:[/_.-]|$)/i;
 const VIDEO_HOST_PATTERN = /(?:youtube(?:-nocookie)?\.com|youtu\.be|vimeo\.com|bilibili\.com|player\.|video\.)/i;
 
 export function extractReaderDocument(html, finalUrl, requestedUrl = finalUrl) {
   const root = parseHtml(html);
-  const metadata = extractPageMetadata(html, finalUrl);
+  const metadata = extractPageMetadata(html, finalUrl, { profile: "article" });
   const selection = selectArticleCandidate(root);
   const title = firstNonEmpty(metadata.title, textOf(findFirst(selection.node, (node) => node.tag === "h1")), hostOf(finalUrl));
   const state = createExtractionState(finalUrl, title);
@@ -72,13 +67,11 @@ export function extractReaderDocument(html, finalUrl, requestedUrl = finalUrl) {
   };
 }
 
-export function extractPageMetadata(html, baseUrl) {
+export function extractPageMetadata(html, baseUrl, { profile = "visual" } = {}) {
   const source = String(html || "");
-  const metadata = extractMetadata(parseHtml(source), baseUrl, structuredImageCandidates(source));
-  const heroImageUrls = normalizeImageCandidates([
-    ...extractPageImageCandidates(source, baseUrl, { limit: 3 }).map((url, index) => ({ url, score: 100 - index })),
-    { url: metadata.heroImageUrl, score: 1 },
-  ], baseUrl, { limit: 3 });
+  const normalizedProfile = normalizeImageProfile(profile);
+  const metadata = extractMetadata(parseHtml(source), baseUrl);
+  const heroImageUrls = extractPageImageCandidates(source, baseUrl, { limit: 3, profile: normalizedProfile });
   return {
     ...metadata,
     heroImageUrl: heroImageUrls[0] || "",
@@ -97,48 +90,7 @@ export function readerTextFromBlocks(blocks) {
   }).filter(Boolean).join("\n\n");
 }
 
-function selectArticleCandidate(root) {
-  const candidates = [];
-  walkElements(root, (node) => {
-    if (!CANDIDATE_TAGS.has(node.tag) && node.attrs.role !== "main") return;
-    if (isExcludedNode(node)) return;
-    const metrics = contentMetrics(node);
-    if (metrics.textLength < 120) return;
-    const identity = nodeIdentity(node);
-    const semanticBoost = node.tag === "article" ? 1200 : node.tag === "main" || node.attrs.role === "main" ? 900 : 0;
-    const positiveBoost = POSITIVE_PATTERN.test(identity) ? 500 : 0;
-    const linkPenalty = metrics.textLength ? (metrics.linkLength / metrics.textLength) * metrics.textLength * 1.6 : 0;
-    const score = metrics.textLength + metrics.paragraphs * 140 + metrics.headings * 40 + semanticBoost + positiveBoost - linkPenalty;
-    candidates.push({ node, metrics, score });
-  });
-  candidates.sort((left, right) => right.score - left.score);
-  if (candidates.length) return { node: candidates[0].node, fallback: candidates[0].metrics.textLength < 500 };
-  const body = findFirst(root, (node) => node.tag === "body") || root;
-  return { node: body, fallback: true };
-}
-
-function contentMetrics(node) {
-  let textLength = 0;
-  let linkLength = 0;
-  let paragraphs = 0;
-  let headings = 0;
-  const visit = (current, inLink = false) => {
-    if (current.tag === "#text") {
-      const length = cleanText(current.text).length;
-      textLength += length;
-      if (inLink) linkLength += length;
-      return;
-    }
-    if (current !== node && isExcludedNode(current)) return;
-    if (current.tag === "p") paragraphs += 1;
-    if (/^h[1-6]$/.test(current.tag)) headings += 1;
-    for (const child of current.children) visit(child, inLink || current.tag === "a");
-  };
-  visit(node);
-  return { textLength, linkLength, paragraphs, headings };
-}
-
-function extractMetadata(root, baseUrl, structuredImages = []) {
+function extractMetadata(root, baseUrl) {
   const meta = new Map();
   walkElements(root, (node) => {
     if (node.tag !== "meta") return;
@@ -147,15 +99,6 @@ function extractMetadata(root, baseUrl, structuredImages = []) {
     if (key && value && !meta.has(key)) meta.set(key, value);
   });
   const canonicalNode = findFirst(root, (node) => node.tag === "link" && /(?:^|\s)canonical(?:\s|$)/i.test(node.attrs.rel || ""));
-  const imageSourceNode = findFirst(root, (node) => node.tag === "link" && /(?:^|\s)image_src(?:\s|$)/i.test(node.attrs.rel || ""));
-  const preloadImages = findAll(root, (node) => (
-    node.tag === "link"
-    && /(?:^|\s)preload(?:\s|$)/i.test(node.attrs.rel || "")
-    && String(node.attrs.as || "").toLowerCase() === "image"
-  )).flatMap((node) => [
-    ...srcsetImageCandidates(node.attrs.imagesrcset),
-    node.attrs.href,
-  ]);
   const titleNode = findFirst(root, (node) => node.tag === "title");
   const bylineNode = findFirst(root, (node) => /(?:author|byline)/i.test(nodeIdentity(node)) && cleanText(textOf(node)).length < 180);
   const timeNode = findFirst(root, (node) => node.tag === "time" && node.attrs.datetime);
@@ -171,91 +114,7 @@ function extractMetadata(root, baseUrl, structuredImages = []) {
       timeNode?.attrs?.datetime,
     )),
     canonicalUrl: safeHttpUrl(canonicalNode?.attrs?.href, baseUrl),
-    heroImageUrl: firstSafeImageUrl([
-      meta.get("og:image:secure_url"),
-      meta.get("og:image:url"),
-      meta.get("og:image"),
-      meta.get("twitter:image"),
-      meta.get("twitter:image:src"),
-      meta.get("thumbnailurl"),
-      meta.get("image"),
-      imageSourceNode?.attrs?.href,
-      ...structuredImages,
-      ...preloadImages,
-      ...semanticImageCandidates(root),
-    ], baseUrl),
   };
-}
-
-function semanticImageCandidates(root) {
-  return findAll(root, (node) => node.tag === "img")
-    .map((node, index) => scoreImageNode(node, index))
-    .filter(Boolean)
-    .sort((left, right) => right.score - left.score)
-    .flatMap((entry) => entry.sources);
-}
-
-function scoreImageNode(node, index) {
-  const sources = imageNodeCandidates(node);
-  if (!sources.length) return null;
-  const identity = `${nodeIdentity(node)} ${node.attrs.alt || ""} ${node.attrs.title || ""} ${sources.join(" ")}`;
-  if (IMAGE_NEGATIVE_PATTERN.test(identity) || hasDecorativeAncestor(node)) return null;
-  const width = imageDimension(node.attrs.width);
-  const height = imageDimension(node.attrs.height);
-  if ((width && width < 180) || (height && height < 100)) return null;
-  let score = Math.max(0, 20 - index * 0.01);
-  if (String(node.attrs.itemprop || "").toLowerCase() === "image") score += 140;
-  if (HERO_IMAGE_PATTERN.test(identity)) score += 120;
-  if (String(node.attrs.fetchpriority || "").toLowerCase() === "high") score += 100;
-  if (hasAncestor(node, (ancestor) => ancestor.tag === "article")) score += 90;
-  else if (hasAncestor(node, (ancestor) => ancestor.tag === "main" || ancestor.attrs.role === "main")) score += 70;
-  if (width >= 1000) score += 50;
-  else if (width >= 600) score += 35;
-  else if (width >= 320) score += 20;
-  if (height >= 300) score += 15;
-  if (cleanText(node.attrs.alt || "").length >= 8) score += 8;
-  return { score, sources };
-}
-
-function imageNodeCandidates(node) {
-  return [
-    node.attrs["data-original"],
-    node.attrs["data-original-src"],
-    node.attrs["data-src"],
-    node.attrs["data-lazy-src"],
-    node.attrs["data-lazy"],
-    node.attrs["data-image"],
-    node.attrs["data-zoom-image"],
-    node.attrs["data-flickity-lazyload"],
-    node.attrs["data-cfsrc"],
-    ...srcsetImageCandidates(node.attrs["data-srcset"]),
-    ...pictureSourceCandidates(node),
-    ...srcsetImageCandidates(node.attrs.srcset),
-    node.attrs.src,
-  ].map((value) => String(value || "").trim()).filter((value) => value && !PLACEHOLDER_IMAGE_PATTERN.test(value));
-}
-
-function pictureSourceCandidates(node) {
-  if (node?.parent?.tag !== "picture") return [];
-  return node.parent.children.filter((child) => child.tag === "source").flatMap((source) => [
-    ...srcsetImageCandidates(source.attrs["data-srcset"]),
-    ...srcsetImageCandidates(source.attrs.srcset),
-    source.attrs["data-src"],
-    source.attrs.src,
-  ]);
-}
-
-function hasAncestor(node, predicate) {
-  for (let current = node?.parent; current; current = current.parent) if (predicate(current)) return true;
-  return false;
-}
-
-function hasDecorativeAncestor(node) {
-  return hasAncestor(node, (ancestor) => (
-    ["nav", "footer", "aside"].includes(ancestor.tag)
-    || ancestor.tag === "header" && !HERO_IMAGE_PATTERN.test(nodeIdentity(ancestor))
-    || isExcludedNode(ancestor)
-  ));
 }
 
 function createExtractionState(baseUrl, title) {
@@ -564,14 +423,6 @@ function safeImageUrl(value, baseUrl) {
   } catch {
     return "";
   }
-}
-
-function firstSafeImageUrl(values, baseUrl) {
-  for (const value of values || []) {
-    const safe = safeImageUrl(value, baseUrl);
-    if (safe) return safe;
-  }
-  return "";
 }
 
 function cleanText(value) {

@@ -1,5 +1,5 @@
 {
   "appName": { "message": "Ampira 新分頁" },
-  "appDescription": { "message": "將書籤、資訊與網頁內容提煉成每日訊號。" },
+  "appDescription": { "message": "從書籤裡的網站取得新資訊，再用 AI 整理與解讀。" },
   "actionTitle": { "message": "將目前網頁加入稍後讀" }
 }

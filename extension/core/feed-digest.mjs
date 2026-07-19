@@ -1,4 +1,4 @@
-import { normalizeLocale, translate } from "./i18n.mjs";
+import { normalizeLocale, translate } from "./runtime-i18n.mjs";
 import {
   buildDailyCandidates,
   dailyCandidateFingerprint,

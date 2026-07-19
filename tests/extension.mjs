@@ -2,18 +2,18 @@ import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { webcrypto } from "node:crypto";
-import { buildBookmarkModel, inspirationPreviewSourceUrls, inspirationPreviewTargets, originsFromUrls } from "../extension/core/bookmarks.mjs";
+import { inspirationPreviewSourceUrls, inspirationPreviewTargets } from "../extension/core/bookmarks.mjs";
 import { providerEndpoint, requestAiCompletion, searchImagePreview, testImageSearchConnection } from "../extension/core/ai.mjs";
 import { DEFAULT_SETTINGS, SETTINGS_KEY } from "../extension/core/constants.mjs";
 import { recordsToPrune } from "../extension/core/db.mjs";
-import { buildFallbackDigest, feedCacheOrEmpty, fetchSourceArticles, filterLikelyNewsItems, isDisplayableFeedItem, parseFeedDocument, rankAndDedupe } from "../extension/core/feed.mjs";
+import { buildFallbackDigest, feedCacheOrEmpty, fetchSourceArticles, isDisplayableFeedItem, parseFeedDocument } from "../extension/core/feed.mjs";
 import {
   buildDailyCandidates, dailyCandidateFingerprint, newsTimeScope, rankNewsItems, scoreNewsArticle,
 } from "../extension/core/news-ranking.mjs";
 import { normalizeFeedback } from "../extension/core/feedback.mjs";
 import { createQuotaManager } from "../extension/core/quota.mjs";
 import { createPreviewService, fetchSourceImagePreview } from "../extension/core/preview.mjs";
-import { bravePreviewCacheKeys, newsPreviewTargets, previewCacheKeysOutsideTargets } from "../extension/core/preview-cache.mjs";
+import { newsPreviewTargets } from "../extension/core/preview-cache.mjs";
 import { retainActiveUnrefreshedItems, selectRefreshBatch, selectRefreshSources } from "../extension/core/refresh.mjs";
 import { fetchBounded } from "../extension/core/network.mjs";
 import { PUBLIC_FEED_AI_PACKS, PUBLIC_FEED_PACKS, publicFeedsForLocale } from "../extension/core/public-feeds.mjs";
@@ -27,7 +27,6 @@ import {
 } from "../extension/core/settings.mjs";
 import { decodeSettingsFromSync, encodeSettingsForSync, settingsChunkKeys } from "../extension/core/settings-storage.mjs";
 import { createSettingsStore } from "../extension/core/settings-store.mjs";
-import { faviconUrl, isReaderUrl, normalizeUrl as normalizeClientUrl } from "../assets/client/urls.mjs";
 import { findNewsItemByReference, pageForItems, seededShuffle } from "../assets/client/dashboard-model.mjs";
 import { shouldShowColumnAction } from "../assets/client/daily-view.mjs";
 import { shouldShowQueueReadAll } from "../assets/client/efficiency-view.mjs";
@@ -46,13 +45,11 @@ import {
 } from "../assets/client/bookmark-visibility.mjs";
 import { AI_SETUP_STAGE, aiProviderOrigin, aiProviderOriginPattern, deriveAiSetupControlState } from "../assets/client/ai-settings-policy.mjs";
 import {
-  exactPermissionOrigins, newlyRequiredUngrantedOrigins, permissionRowCounts, requiredUngrantedOrigins,
+  exactPermissionOrigins, newlyRequiredUngrantedOrigins,
 } from "../assets/client/permission-ui-model.mjs";
 import { personalSourcePermissionScope } from "../assets/client/saved-source-permission-controller.mjs";
-import { textLength, truncateText } from "../assets/client/text.mjs";
 import { formatTodayMeta } from "../assets/client/time.mjs";
-import { cleanDailyDigestOverviewLine, cleanGeneratedSummaryLine, dailyDigestEvidence, extractGeneratedSummaryTitle, hasStructuralSummaryPrefix, normalizeSummaryMarkup, parseGeneratedDailyDigest } from "../extension/core/summary-text.mjs";
-import { cleanAiAnswerMarkup, extractDirectAnswer, parseAiAnswer } from "../assets/client/ai-answer-format.mjs";
+import { cleanDailyDigestOverviewLine, cleanGeneratedSummaryLine, dailyDigestEvidence, parseGeneratedDailyDigest } from "../extension/core/summary-text.mjs";
 import { copyText } from "../assets/client/clipboard.mjs";
 import { searchCopyKeys } from "../assets/client/search-copy.mjs";
 import { bookmarkEmptyStateKind, summaryEmptyStateKind } from "../assets/client/empty-state-policy.mjs";
@@ -62,18 +59,7 @@ import {
   moveWebsiteShortcut, removeWebsiteShortcut, reorderWebsiteShortcuts, upsertWebsiteShortcut,
 } from "../assets/client/website-shortcuts-controller.mjs";
 import { normalizeUserUrl, searchQueryTerms } from "../extension/core/search.mjs";
-import {
-  DEFAULT_LOCALE,
-  SUPPORTED_LOCALES,
-  defaultBookmarkFoldersForLocale,
-  detectSupportedLocale,
-  formatListForLocale,
-  localeMessages,
-  normalizeLocale,
-  translate,
-  translateAiPrompt,
-  translateCount,
-} from "../extension/core/i18n.mjs";
+import { translate, translateAiPrompt } from "./helpers/full-i18n.mjs";
 import { runArchitectureTests } from "./suites/architecture.mjs";
 import { runCodeHygieneTests } from "./suites/code-hygiene.mjs";
 import { runManifestSecurityTests } from "./suites/manifest-security.mjs";
@@ -980,7 +966,10 @@ const previewTargetService = createReaderPreviewService({
   inspirationPreviewTargets,
   newsPreviewTargets,
   async secretStatus() { return { hasImageSearchKey: true }; },
-  async hasOriginPermission(value) { return String(value).startsWith("https://api.search.brave.com/"); },
+  async hasOriginPermission(value) {
+    return String(value).startsWith("https://api.search.brave.com/")
+      || String(value).startsWith("https://news.example/");
+  },
 });
 assert.equal(await previewTargetService.isSitePreviewTarget(newsPreviewFixture.url), true, "visible news cards must be exact preview targets");
 assert.equal(await previewTargetService.isSitePreviewTarget("https://inspiration.example/work"), true, "news fallback must preserve inspiration targets");
@@ -990,6 +979,14 @@ assert.equal(await previewTargetService.previewCachePermitted({
   requestedUrl: newsPreviewFixture.url,
   providerOrigin: "https://api.search.brave.com",
 }), true, "Brave preview caches must be allowed for current news cards");
+assert.equal(await previewTargetService.previewCachePermitted({
+  capability: "site-preview-image-reuse",
+  sourceOrigin: "https://news.example",
+}), true, "article reuse history must be retained only for an origin with a current card and permission");
+assert.equal(await previewTargetService.previewCachePermitted({
+  capability: "site-preview-image-reuse",
+  sourceOrigin: "https://removed.example",
+}), false);
 let originalPreviewFetches = 0;
 let originalPreviewSearches = 0;
 let previewCacheEpoch = -1;
@@ -1017,6 +1014,74 @@ assert.equal(originalPreviewFetches, 1);
 assert.equal(originalPreviewSearches, 0, "Brave must not run when the original page supplies an image");
 assert.equal(previewCacheEpoch, 17, "preview writes must retain the permission/cache epoch captured before the request");
 assert([...originalPreviewRecords.keys()].some((key) => key.startsWith("preview-origin-")), "the optimized extractor must cache current origin previews by URL");
+const articleOriginPreview = await getOriginalPreview({
+  url: "https://origin.example/design",
+  title: "Original",
+  profile: "article",
+});
+assert.equal(articleOriginPreview.imageUrl, "https://origin.example/hero.jpg");
+assert.equal(originalPreviewFetches, 2, "article and visual origin previews must never share one cache result");
+const visualOriginCacheKey = [...originalPreviewRecords.entries()]
+  .find(([, record]) => record?.profile === "visual")?.[0];
+originalPreviewRecords.set(visualOriginCacheKey, {
+  ...originalPreviewRecords.get(visualOriginCacheKey),
+  policyVersion: 1,
+});
+await getOriginalPreview({ url: "https://origin.example/design", title: "Original", profile: "visual" });
+assert.equal(originalPreviewFetches, 3, "a legacy policy record stored under a current-looking key must still miss");
+
+const reuseRecords = new Map();
+const getRepeatedArticlePreview = createPreviewService({
+  async getSettings() { return { webImageSearchEnabled: false }; },
+  async readSecrets() { return {}; },
+  async getRecord(key, fallback) { return reuseRecords.get(key) || fallback; },
+  async setRecord(key, value) { reuseRecords.set(key, value); },
+  async hasOriginPermission() { return true; },
+  async fetchSourceImages() {
+    return [{
+      url: "https://repeat.example/static/default-cover.jpg",
+      provenance: "metadata",
+      width: 1200,
+      height: 630,
+    }];
+  },
+  now: () => Date.parse("2026-07-11T00:00:00Z"),
+});
+for (let index = 0; index < 3; index += 1) {
+  const preview = await getRepeatedArticlePreview({
+    url: `https://repeat.example/story-${index}`,
+    title: `Story ${index}`,
+    profile: "article",
+  });
+  assert.equal(preview.imageUrl, "https://repeat.example/static/default-cover.jpg");
+}
+const suppressedArticlePreview = await getRepeatedArticlePreview({
+  url: "https://repeat.example/story-3",
+  title: "Story 3",
+  profile: "article",
+});
+assert.equal(suppressedArticlePreview.imageUrl, "", "the fourth repeated article metadata image must be suppressed");
+const cachedSuppressedArticlePreview = await getRepeatedArticlePreview({
+  url: "https://repeat.example/story-3",
+  title: "Story 3",
+  profile: "article",
+});
+assert.equal(cachedSuppressedArticlePreview.imageUrl, "",
+  "a cached suppressed record must retain its original reuse observation");
+const cachedEarlierArticlePreview = await getRepeatedArticlePreview({
+  url: "https://repeat.example/story-0",
+  title: "Story 0",
+  profile: "article",
+});
+assert.equal(cachedEarlierArticlePreview.imageUrl, "",
+  "reading a suppressed cache must not let the repeated metadata image resurface on earlier articles");
+const visualReuseBypass = await getRepeatedArticlePreview({
+  url: "https://repeat.example/story-4",
+  title: "Story 4",
+  profile: "visual",
+});
+assert.equal(visualReuseBypass.imageUrl, "https://repeat.example/static/default-cover.jpg",
+  "visual previews must not participate in article default-image suppression");
 
 let previewSearches = 0;
 const previewRecords = new Map();
@@ -1042,6 +1107,14 @@ assert.equal(braveFallbackPreview.source, "brave");
 assert.equal(braveFallbackPreview.originalStatus, "missing");
 assert.equal((await getPreview({ url: "https://example.com/design", title: "Example Design" })).cached, true);
 assert.equal(previewSearches, 1, "successful Brave fallbacks must be reused from their own cache");
+const articleWithoutImage = await getPreview({
+  url: "https://example.com/article-without-image",
+  title: "No image",
+  profile: "article",
+});
+assert.equal(articleWithoutImage.imageUrl, "");
+assert.equal(articleWithoutImage.originalStatus, "missing");
+assert.equal(previewSearches, 1, "article profile misses must fall back to favicon without Brave search");
 
 let disallowedTargetTouched = false;
 const getDisallowedPreview = createPreviewService({
@@ -1651,9 +1724,13 @@ assert.deepEqual(deriveAiSetupControlState({
 let currentPreviewItem = { key: "bookmark-1", url: "https://a.example/", title: "A" };
 let previewApiCalls = 0;
 let resolvePreviewRequest;
+let firstPreviewRequestUrl = "";
 const appliedPreviewImages = [];
 const preloadedPreviewImages = [];
-let previewApi = () => new Promise((resolve) => { resolvePreviewRequest = resolve; });
+let previewApi = (url) => new Promise((resolve) => {
+  firstPreviewRequestUrl = url;
+  resolvePreviewRequest = resolve;
+});
 let previewImageLoader = async (imageUrl) => { preloadedPreviewImages.push(imageUrl); return true; };
 const previewController = createInspirationPreviewController({
   apiGet: (...args) => { previewApiCalls += 1; return previewApi(...args); },
@@ -1669,6 +1746,8 @@ const oldPreviewRequest = previewController.request(currentPreviewItem);
 assert.equal(previewController.request(currentPreviewItem), oldPreviewRequest, "duplicate preview requests must share one in-flight promise");
 await Promise.resolve();
 assert.equal(previewApiCalls, 1);
+assert.equal(new URL(firstPreviewRequestUrl, "https://ampira.invalid").searchParams.get("profile"), "visual",
+  "site previews must default to the visual profile");
 currentPreviewItem = { key: "bookmark-1", url: "https://b.example/", title: "B" };
 resolvePreviewRequest({ imageUrl: "https://images.example/a.jpg" });
 await oldPreviewRequest;
@@ -1696,6 +1775,8 @@ await previewController.reject(currentPreviewItem, "https://imgs.search.brave.co
 assert.equal(previewApiCalls, previewCallsAfterBrave, "a failed Brave image must fall back to the favicon without looping");
 previewController.invalidate();
 assert.equal(previewController.get(currentPreviewItem), null);
+assert.equal(previewController.isRejected(currentPreviewItem, "https://images.example/b.jpg"), true,
+  "session rejection must survive controller invalidation and prevent repeated bad-image loads");
 currentPreviewItem = { key: "bookmark-2", url: "https://preload.example/", title: "Preload" };
 previewApi = async () => ({ imageUrl: "https://images.example/preloaded.jpg", source: "origin" });
 await previewController.preload([currentPreviewItem, currentPreviewItem], { timeoutMs: 50 });
@@ -1753,6 +1834,84 @@ const dailyPoolController = createInspirationPreviewController({
 });
 await dailyPoolController.preload(dailyPoolItems, { timeoutMs: 100 });
 assert.equal(dailyPoolRequests.length, 15, "the complete three-batch daily inspiration pool must be requested in one preload pass");
+const profileRequests = [];
+const profileController = createInspirationPreviewController({
+  apiGet: async (url) => {
+    const profile = new URL(url, "https://ampira.invalid").searchParams.get("profile");
+    profileRequests.push(profile);
+    return { imageUrl: `https://images.example/${profile}.jpg`, source: "origin" };
+  },
+  normalizeUrl: String,
+  isHttpUrl: (value) => /^https?:\/\//.test(value),
+  isEnabled: () => true,
+  isCurrent: (item, fingerprint) => inspirationPreviewFingerprint(item, String, item.profile) === fingerprint,
+  profileForItem: (item) => item.profile,
+  onImage() {},
+});
+const sharedProfileItem = { key: "shared", url: "https://shared.example/", title: "Shared" };
+const visualProfilePreview = await profileController.request({ ...sharedProfileItem, profile: "visual" });
+const articleProfilePreview = await profileController.request({ ...sharedProfileItem, profile: "article" });
+assert.deepEqual(profileRequests, ["visual", "article"], "one URL must resolve independently for visual and article profiles");
+assert.notEqual(visualProfilePreview.imageUrl, articleProfilePreview.imageUrl);
+await profileController.reject(
+  { ...sharedProfileItem, profile: "article" },
+  articleProfilePreview.imageUrl,
+);
+assert.deepEqual(profileRequests, ["visual", "article"],
+  "article candidates must fall back to favicon without issuing a Brave-only request");
+let cachedArticleCalls = 0;
+const cachedArticleController = createInspirationPreviewController({
+  apiGet: async () => {
+    cachedArticleCalls += 1;
+    return { imageUrl: "https://images.example/rejected-article.jpg", source: "origin" };
+  },
+  normalizeUrl: String,
+  isHttpUrl: (value) => /^https?:\/\//.test(value),
+  isEnabled: () => true,
+  isCurrent: () => true,
+  profileForItem: () => "article",
+  onImage() {},
+});
+const cachedArticleItem = { key: "cached-article", url: "https://article.example/", title: "Article" };
+await cachedArticleController.request(cachedArticleItem);
+cachedArticleController.rejectUrl(cachedArticleItem, "https://images.example/rejected-article.jpg");
+const rejectedCachedArticle = await cachedArticleController.request(cachedArticleItem);
+assert.equal(rejectedCachedArticle?.imageUrl, "",
+  "the request cache fast path must not return a session-rejected article image");
+assert.equal(cachedArticleCalls, 1,
+  "filtering a rejected cached article image must not issue an unnecessary origin request");
+const sharedRejectedRequests = [];
+const sharedRejectedController = createInspirationPreviewController({
+  apiGet: async (url) => {
+    const mode = new URL(url, "https://ampira.invalid").searchParams.get("mode");
+    sharedRejectedRequests.push(mode);
+    return mode === "brave-only"
+      ? { imageUrl: "https://imgs.search.brave.com/shared-fallback.jpg", source: "brave" }
+      : { imageUrl: "https://images.example/shared-rejected.jpg", source: "origin" };
+  },
+  normalizeUrl: String,
+  isHttpUrl: (value) => /^https?:\/\//.test(value),
+  isEnabled: () => true,
+  isCurrent: () => true,
+  canFallback: () => true,
+  onImage() {},
+});
+const firstSharedRejectedItem = {
+  key: "shared-rejected-a",
+  url: "https://shared-rejected-a.example/",
+  title: "Shared rejected A",
+};
+const secondSharedRejectedItem = {
+  key: "shared-rejected-b",
+  url: "https://shared-rejected-b.example/",
+  title: "Shared rejected B",
+};
+await sharedRejectedController.request(firstSharedRejectedItem);
+sharedRejectedController.rejectUrl(firstSharedRejectedItem, "https://images.example/shared-rejected.jpg");
+const sharedRejectedFallback = await sharedRejectedController.request(secondSharedRejectedItem);
+assert.deepEqual(sharedRejectedRequests, ["prefer-origin", "prefer-origin", "brave-only"],
+  "a visual origin response fully removed by the session rejection cache must continue to Brave fallback");
+assert.equal(sharedRejectedFallback?.imageUrl, "https://imgs.search.brave.com/shared-fallback.jpg");
 const referenceItems = [
   { key: "article-a", sourceKey: "source-shared", url: "https://example.com/a", summary: { title: "Article A" } },
   { key: "article-b", sourceKey: "source-shared", url: "https://example.com/b", summary: { title: "Article B" } },
@@ -1903,15 +2062,15 @@ assert(aiSearchUiSource.includes("appendAnswerCopyButton(content)")
   && overlaysCssSource.includes(".ai-conversation-message.is-assistant {\n  grid-template-columns: 30px minmax(0, 1fr) 30px;")
   && motionCssSource.includes(".ai-conversation-message.is-assistant {\n    grid-template-columns: 24px minmax(0, 1fr) 30px;"),
   "the initial AI answer and each assistant reply must expose a responsive icon-only copy action with visible feedback");
-assert(dashboardSource.includes('<small class="ai-search-meta" id="aiSearchGeneratedDisclaimer" data-i18n="aiSearch.generatedDisclaimer" hidden>内容由AI生成，请仔细甄别。</small>')
+assert(dashboardSource.includes('<small class="ai-search-meta" id="aiSearchGeneratedDisclaimer" data-i18n="aiSearch.generatedDisclaimer" hidden>内容由 AI 生成，请核对重要信息。</small>')
   && aiSearchUiSource.includes("setGeneratedDisclaimerVisible(result.usedAi)")
   && (aiSearchUiSource.match(/setGeneratedDisclaimerVisible\(false\)/g) || []).length >= 2
   && aiSearchUiSource.includes("if (result.usedAi) {\n          setGeneratedDisclaimerVisible(true);")
   && aiSearchUiSource.includes("els.aiSearchGeneratedDisclaimer.hidden = visible !== true"),
   "AI-generated search results must show a localized disclaimer below the answer while local and error results keep it hidden");
-assert.equal(translate("zh-CN", "aiSearch.generatedDisclaimer"), "内容由AI生成，请仔细甄别。");
-assert.equal(translate("zh-Hant", "aiSearch.generatedDisclaimer"), "內容由AI生成，請仔細甄別。");
-assert.equal(translate("en", "aiSearch.generatedDisclaimer"), "Content is generated by AI. Please review it carefully.");
+assert.equal(translate("zh-CN", "aiSearch.generatedDisclaimer"), "内容由 AI 生成，请核对重要信息。");
+assert.equal(translate("zh-Hant", "aiSearch.generatedDisclaimer"), "內容由 AI 生成，重要資訊請自行核對。");
+assert.equal(translate("en", "aiSearch.generatedDisclaimer"), "AI-generated content. Verify important information.");
 assert(dashboardSource.includes('role="log"') && dashboardSource.includes('aria-relevant="additions text"'), "the article conversation transcript must expose appended turns to assistive technology");
 assert(!overlaysCssSource.includes(".ai-search-form:focus-within"), "the always-focused search form must not keep an active outline");
 assert((tokensCssSource.match(/--search-overlay-bg: color-mix\(in srgb, var\(--bg\) 72%, transparent\);/g) || []).length === 2
@@ -2118,6 +2277,18 @@ assert(!dashboardSource.includes('id="headerImageBlurEnabledInput"')
 assert(appearanceControllerSource.includes("headerImageBlurAmount: syncBlurAmountLabel()")
   && appearanceControllerSource.includes('setProperty("--header-cover-blur"')
   && appSource.includes('els.headerImageBlurAmountInput.addEventListener("input", () => updateAppearancePreview())'), "cover blur changes must persist and preview live");
+assert(dashboardSource.includes('id="dashboardGlassBlurEnabledInput" type="checkbox"')
+  && dashboardSource.includes('data-i18n="settings.dashboardGlassBlur.help"')
+  && settingsWorkflowSource.includes('"pointerGlowEnabled", "dashboardGlassBlurEnabled", "headerImageEnabled"')
+  && appearanceControllerSource.includes("dashboardGlassBlurEnabled: els.dashboardGlassBlurEnabledInput.checked")
+  && appearanceControllerSource.includes('root.dataset.dashboardGlassBlur = settings.dashboardGlassBlurEnabled === false ? "off" : "on"')
+  && appearanceControllerSource.includes('cache(DASHBOARD_GLASS_BLUR_STORAGE_KEY, root.dataset.dashboardGlassBlur)')
+  && themeBootstrapSource.includes('dashboardGlassBlurStorageKey = "ampira.dashboardGlassBlur"')
+  && themeBootstrapSource.includes('dataset.dashboardGlassBlur = localStorage.getItem(dashboardGlassBlurStorageKey) === "off"')
+  && baseLayoutCssSource.includes(':root[data-dashboard-glass-blur="off"] .main *')
+  && baseLayoutCssSource.includes("-webkit-backdrop-filter: none !important;")
+  && baseLayoutCssSource.includes("backdrop-filter: none !important;"),
+  "the dashboard glass switch must default visually on, persist through settings, restore before the first frame, and disable only main-content backdrop filters");
 assert(appearanceControllerSource.includes("const enabled = els.headerImageEnabledInput.checked;")
   && !appearanceControllerSource.includes("&& !els.headerImageFullscreenInput.checked")
   && !appearanceControllerSource.includes("HEADER_IMAGE_FULLSCREEN_HEIGHT_MIN")
@@ -2191,8 +2362,9 @@ assert(appSource.includes('dailyInspirationCount * dailyInspirationBatchLimit'),
 assert(appSource.includes('img.loading = "eager"'), "preloaded daily inspiration images must not be deferred again by lazy loading");
 assert(appSource.includes("newsPreviews.request(item)")
   && appSource.includes("newsPreviews.reject(item, imageUrl)")
+  && appSource.includes("newsPreviews.rejectUrl(item, currentUrl)")
   && appSource.includes("updateVisibleNewsThumbs")
-  && appSource.includes("applyResolvedSummaryPreview(thumb, item, fallbackUrl, newsPreviews.request(item))"), "news cards must enter the shared image fallback and retain it across refresh races");
+  && appSource.includes("applyResolved(thumb, item, fallbackUrl, newsPreviews.request(item))"), "news cards must enter the shared image fallback and retain it across refresh races");
 assert(serviceWorkerSource.includes("...newsPreviewTargets(visibleFeedItems)")
   && serviceWorkerSource.includes("isAllowedTarget: isSitePreviewTarget"), "preview requests must admit current news URLs without becoming a general fetch endpoint");
 assert(serviceWorkerSource.includes("...newsPreviewTargets(items)"), "permission cleanup must retain only preview caches for currently permitted news cards");
@@ -2505,6 +2677,7 @@ for (const suite of [
   "content-sync-settings.mjs",
   "header-cover.mjs",
   "browser-search.mjs",
+  "client-i18n.mjs",
   "manual-ai-usage-notice.mjs",
   "select-combobox.mjs",
   "accent-color-picker.mjs",

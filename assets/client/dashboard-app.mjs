@@ -2,7 +2,7 @@ import { apiGet, apiPost } from "./api.mjs";
 import { srOnly } from "./dom.mjs";
 import { getElementGroups } from "./elements.mjs";
 import { createIcon, createThemedIcon, hydrateIcons } from "./icons.mjs";
-import { allTranslations, getLocale, setLocale, t, tc } from "./i18n.mjs";
+import { allTranslations, getLocale, prepareLocale, setLocale, t, tc } from "./i18n.mjs";
 import { applyExternalStoragePatch, hydrateStorage, readJson, readNumber, readValue, writeJson, writeValue } from "./storage.mjs";
 import { createInitialState } from "./state.mjs";
 import { formatDateTime, formatTodayMeta, getTodayKey } from "./time.mjs";
@@ -16,7 +16,7 @@ import { createReaderController } from "./reader-ui.mjs";
 import { createAiSearchController } from "./ai-search-ui.mjs";
 import { syncSearchCopy as syncSearchCopyView } from "./search-copy.mjs";
 import { cloneSettingsDraft, diffSettingsDraft, snapshotSettingsDraft } from "./settings-draft.mjs";
-import { createSitePreviewController, sitePreviewFingerprint } from "./inspiration-preview-controller.mjs";
+import { createSitePreviewController } from "./inspiration-preview-controller.mjs";
 import { AI_SETUP_STAGE, aiProviderOrigin, deriveAiSetupControlState } from "./ai-settings-policy.mjs";
 import { isDisplayableFeedItem } from "../../extension/core/feed-item-policy.mjs";
 import { cleanSummaryLines, displaySummaryTitle, displayTitle, isCorrectlySummarized, itemUrl, summaryDetailLines, summaryText } from "./item-presenter.mjs";
@@ -88,8 +88,17 @@ const BOOKMARK_CARD_TYPE = "bookmark";
 const ALL_FILTER = "all";
 const SUMMARY_DETAIL_MAX_LENGTH = 200;
 
+export function readRuntimeAppVersion() {
+  try {
+    const manifest = globalThis.chrome?.runtime?.getManifest?.();
+    return typeof manifest?.version === "string" ? manifest.version : "";
+  } catch {
+    return "";
+  }
+}
+
 async function resolveAppVersion() {
-  const runtimeVersion = globalThis.chrome?.runtime?.getManifest?.().version;
+  const runtimeVersion = readRuntimeAppVersion();
   if (runtimeVersion) return runtimeVersion;
 
   try {
@@ -103,6 +112,10 @@ async function resolveAppVersion() {
 }
 
 export async function createDashboardApp() {
+  const runtimeAppVersion = readRuntimeAppVersion();
+  const aboutVersion = document.querySelector("#aboutVersion");
+  if (aboutVersion && runtimeAppVersion) aboutVersion.textContent = `v${runtimeAppVersion}`;
+
   await hydrateStorage();
   const state = createInitialState();
 
@@ -114,7 +127,7 @@ export async function createDashboardApp() {
   const shellElements = { ...elementGroups.shell, ...elementGroups.overlay, ...elementGroups.settings };
   const statusElements = { ...elementGroups.dashboard, ...elementGroups.settings };
   const appearanceElements = { ...elementGroups.dashboard, ...elementGroups.settings };
-  const appVersion = await resolveAppVersion();
+  const appVersion = runtimeAppVersion || await resolveAppVersion();
   if (els.aboutVersion && appVersion) els.aboutVersion.textContent = `v${appVersion}`;
   const { confirmAction } = createConfirmationDialogController({
     dialog: overlayElements.confirmationDialog,
@@ -141,6 +154,7 @@ export async function createDashboardApp() {
   let dashboardController;
   let websiteShortcutsController;
   let libraryFeedbackTimer = 0;
+  let localeChangeToken = 0;
   const activityActions = createActionPort([
     "actionKey", "defaultSeenSource", "findNewsItemByReference", "isQueued", "markOpenedItem",
     "matchesQuery", "openAndMarkReadingQueue", "openDailyItem", "openSummaryItem", "readingQueueItems",
@@ -281,7 +295,7 @@ export async function createDashboardApp() {
     state, els: dashboardElements, t, tc, apiPost, confirmManualAiUsage, isDisplayableFeedItem, itemUrl, displaySummaryTitle,
     summaryDetailLines, cleanSummaryLines, isCorrectlySummarized, localizedCategory,
     localizedSourceLabel, localizedResponseMessage, localizedErrorMessage,
-    formatDateTime, faviconUrl, hostFromUrl, createIcon, createThemedIcon,
+    formatDateTime, faviconUrl, hostFromUrl, createIcon, createThemedIcon, srOnly,
     createReadingActions, createManualSummaryButton,
     attachLinkContextMenu: (...args) => contextMenu.attachLink(...args),
     activateCardFromKeyboard,
@@ -301,7 +315,9 @@ export async function createDashboardApp() {
     newsPreviews: {
       fingerprint: (item) => sitePreviews.fingerprint(newsPreviewItem(item)),
       get: (item) => sitePreviews.get(newsPreviewItem(item)),
+      isRejected: (item, imageUrl) => sitePreviews.isRejected(newsPreviewItem(item), imageUrl),
       reject: (item, imageUrl) => sitePreviews.reject(newsPreviewItem(item), imageUrl),
+      rejectUrl: (item, imageUrl) => sitePreviews.rejectUrl(newsPreviewItem(item), imageUrl),
       request: (item) => sitePreviews.request(newsPreviewItem(item)),
     },
   });
@@ -409,6 +425,8 @@ export async function createDashboardApp() {
     confirmManualAiUsage,
     clearTopSearchFilter,
     syncNavToCurrentSection,
+    setActiveNavButton,
+    navButton: els.aiSearchNav,
     localizedResponseMessage,
     localizedErrorMessage,
     openExternal,
@@ -580,12 +598,13 @@ export async function createDashboardApp() {
     isHttpUrl,
     isEnabled: () => state.settings?.bookmarkConsentGranted === true,
     canFallback: () => state.settings?.webImageSearchEnabled === true && state.settings?.hasImageSearchKey === true,
+    profileForItem: (item) => isNewsCard(item) ? "article" : "visual",
     preloadImage: preloadBrowserImage,
     isCurrent: (item, fingerprint) => {
       const current = isNewsCard(item)
         ? newsSummaryItems(false).find((candidate) => candidate.key === item.key)
         : (state.data?.bookmarks || []).find((candidate) => candidate.key === item.key);
-      return sitePreviewFingerprint(isNewsCard(item) ? newsPreviewItem(current) : current, normalizeUrl) === fingerprint;
+      return sitePreviews.fingerprint(isNewsCard(item) ? newsPreviewItem(current) : current) === fingerprint;
     },
     onImage: (item, imageUrl, fingerprint) => {
       if (isNewsCard(item)) updateVisibleNewsThumbs(item, imageUrl, fingerprint);
@@ -627,7 +646,7 @@ export async function createDashboardApp() {
     selectedAccentTheme, colorModeLabel, themeLabel, currentBookmarkOnlyFolders,
     syncSeenArchiveRetention, loadDashboard, triggerRefresh,
     renderStatus, renderEfficiencyPanel, renderAll, resetToDailyView,
-    syncNavToCurrentSection, getLocale, setLocale,
+    syncNavToCurrentSection, setActiveNavButton, navButton: els.settingsNav, getLocale, prepareLocale,
     settingsSaveCloseDelayMs: SETTINGS_SAVE_CLOSE_DELAY_MS,
     settingsCloseMotionMs: SETTINGS_CLOSE_MOTION_MS,
     inspirationPreviews: sitePreviews, syncHeaderImageFullscreenControl, syncHeaderImageBlurControl, syncHeaderImageHeightControl,
@@ -641,7 +660,7 @@ export async function createDashboardApp() {
   const { exportSettings, importSettingsFile, factoryReset } = createSettingsTransferController({
     els: settingsElements, state, t, apiGet, apiPost, confirmAction, localizedErrorMessage,
     runSettingsAction, renderSettingsStatus, loadSettings, captureSettingsSnapshot, resetSecretDrafts,
-    applyUiLocale, getLocale, inspirationPreviews: sitePreviews, loadDashboard, triggerRefresh,
+    applyUiLocale, getLocale, prepareLocale, inspirationPreviews: sitePreviews, loadDashboard, triggerRefresh,
     parseSettingsTransferText, settingsTransferFilename,
     maxSettingsTransferBytes: MAX_SETTINGS_TRANSFER_BYTES,
     resetExtensionPage,
@@ -811,7 +830,7 @@ export async function createDashboardApp() {
       });
     });
 
-    document.querySelector("#settingsNav").addEventListener("click", openSettings);
+    els.settingsNav.addEventListener("click", openSettings);
     els.aiSearchNav.addEventListener("click", () => openAiSearch());
     els.closeSettings.addEventListener("click", requestCloseSettings);
     els.settingsModal.addEventListener("click", (event) => {
@@ -953,9 +972,19 @@ export async function createDashboardApp() {
       selectSettingsTab("service");
       focusSettingsStart({ reveal: true });
     });
-    els.uiLocaleSelect.addEventListener("change", () => {
-      applyUiLocale(els.uiLocaleSelect.value, { persist: false });
-      renderSettingsStatus();
+    els.uiLocaleSelect.addEventListener("change", async () => {
+      const token = ++localeChangeToken;
+      const locale = els.uiLocaleSelect.value;
+      try {
+        await prepareLocale(locale);
+        if (token !== localeChangeToken) return;
+        applyUiLocale(locale, { persist: false });
+        renderSettingsStatus();
+      } catch (error) {
+        if (token !== localeChangeToken) return;
+        els.uiLocaleSelect.value = getLocale();
+        renderSettingsStatus(t("settings.status.loadFailed", { message: error.message || error }), "error");
+      }
     });
     els.newsBookmarkFolderSelect.addEventListener("change", () => {
       setNewsSourceSelection(els.newsBookmarkFolderSelect.value);
@@ -988,6 +1017,7 @@ export async function createDashboardApp() {
       updateAppearancePreview({ accentTheme: swatch.dataset.accentTheme });
     });
     els.pointerGlowEnabledInput.addEventListener("change", () => updateAppearancePreview());
+    els.dashboardGlassBlurEnabledInput.addEventListener("change", () => updateAppearancePreview());
     els.headerImageEnabledInput.addEventListener("change", () => updateAppearancePreview());
     els.headerImageBlurAmountInput.addEventListener("input", () => updateAppearancePreview());
     els.headerImageHeightInput.addEventListener("input", () => updateAppearancePreview());

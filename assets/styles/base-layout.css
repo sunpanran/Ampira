@@ -337,6 +337,14 @@ button,
   padding: 100px 24px 96px;
 }
 
+:root[data-dashboard-glass-blur="off"] .main,
+:root[data-dashboard-glass-blur="off"] .main *,
+:root[data-dashboard-glass-blur="off"] .main *::before,
+:root[data-dashboard-glass-blur="off"] .main *::after {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
 .main > section {
   scroll-margin-top: 32px;
 }

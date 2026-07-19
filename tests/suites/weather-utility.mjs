@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import fs from "node:fs/promises";
 import {
   WEATHER_CACHE_FRESH_MS,
   WEATHER_CACHE_KEY,
@@ -13,7 +14,11 @@ import {
   weatherLocationFingerprint,
 } from "../../extension/core/weather.mjs";
 import { createWeatherService } from "../../extension/runtime/weather-service.mjs";
-import { searchChinaLocations } from "../../extension/core/china-location-search.mjs";
+import {
+  CHINA_LOCATION_DATA_MAX_BYTES,
+  createChinaLocationLoader,
+} from "../../extension/core/china-location-loader.mjs";
+import { searchChinaLocationRecords } from "../../extension/core/china-location-search.mjs";
 import { createPermissionGateway } from "../../extension/runtime/permission-gateway.mjs";
 import {
   TODO_ITEM_LIMIT,
@@ -28,6 +33,10 @@ import {
 } from "../../assets/client/utility-card-model.mjs";
 
 export async function runWeatherUtilityTests() {
+  const chinaLocationRecords = JSON.parse(await fs.readFile(
+    new URL("../../extension/data/china-locations.json", import.meta.url),
+    "utf8",
+  ));
   assert.equal(normalizeUtilityMode("weather"), "weather");
   assert.equal(normalizeUtilityMode("invalid"), "events");
   assert.equal(nextUtilityMode("events"), "weather");
@@ -50,16 +59,17 @@ export async function runWeatherUtilityTests() {
     ["clear", "partlyCloudy", "overcast", "fog", "drizzle", "rain", "snow", "thunderstorm", "unknown"],
   );
 
-  const cixiLocations = searchChinaLocations("慈溪", "zh-CN");
+  const cixiLocations = searchChinaLocationRecords(chinaLocationRecords, "慈溪", "zh-CN");
   assert.deepEqual(cixiLocations.map((location) => [location.name, location.admin2, location.admin1]), [
     ["慈溪市", "宁波市", "浙江省"],
   ]);
   assert.equal(cixiLocations[0].source, "geonames");
   assert.equal(cixiLocations[0].confidence, "high");
-  assert.equal(searchChinaLocations("慈溪市", "zh-CN")[0].id, cixiLocations[0].id);
-  assert.equal(searchChinaLocations("Cixi", "en")[0].name, "Cixi");
-  assert.equal(searchChinaLocations("Paris", "en").length, 0);
-  assert.equal(searchChinaLocations("朝阳", "zh-CN")[0].name, "朝阳市", "prefecture cities must outrank same-name county seats");
+  assert.equal(searchChinaLocationRecords(chinaLocationRecords, "慈溪市", "zh-CN")[0].id, cixiLocations[0].id);
+  assert.equal(searchChinaLocationRecords(chinaLocationRecords, "Cixi", "en")[0].name, "Cixi");
+  assert.equal(searchChinaLocationRecords(chinaLocationRecords, "Paris", "en").length, 0);
+  assert.equal(searchChinaLocationRecords(chinaLocationRecords, "朝阳", "zh-CN")[0].name, "朝阳市", "prefecture cities must outrank same-name county seats");
+  await testChinaLocationLoader(chinaLocationRecords[0]);
 
   const locations = normalizeWeatherSearchResponse({ results: [
     {
@@ -92,15 +102,28 @@ export async function runWeatherUtilityTests() {
 
   const forecastPayload = weatherFixture();
   const normalizedForecast = normalizeWeatherForecastResponse(forecastPayload);
-  assert.equal(normalizedForecast.daily.length, 3);
+  assert.equal(normalizedForecast.daily.length, 2);
+  assert.equal(normalizedForecast.current.date, "2026-07-14");
   assert.equal(normalizedForecast.current.temperatureC, 27.3);
+  assert.equal(normalizedForecast.current.precipitationProbability, 10);
+  assert.equal(weatherConditionKey(normalizedForecast.current.weatherCode), "partlyCloudy");
+  assert.deepEqual(normalizedForecast.daily.map((day) => day.precipitationProbabilityPeak), [80, 0]);
+  const realtimeConditionPayload = weatherFixture();
+  realtimeConditionPayload.daily.weather_code[0] = 95;
+  const realtimeCondition = normalizeWeatherForecastResponse(realtimeConditionPayload);
+  assert.equal(
+    weatherConditionKey(realtimeCondition.current.weatherCode),
+    "partlyCloudy",
+    "today's realtime condition must come from current weather instead of the hourly forecast",
+  );
   assert.deepEqual(
     normalizedForecast.daily.map((day) => day.weatherCode),
-    [2, 2, 0],
-    "daily labels must use the predominant daytime condition instead of one severe hourly event",
+    [61, 0],
+    "future daily labels must use Open-Meteo's native best-match daily weather code",
   );
   assert.equal(normalizeWeatherForecastResponse({ ...forecastPayload, daily: { ...forecastPayload.daily, time: ["2026-07-14"] } }), null);
   assert.equal(normalizeWeatherForecastResponse({ ...forecastPayload, current: { ...forecastPayload.current, temperature_2m: "hot" } }), null);
+  assert.equal(normalizeWeatherForecastResponse({ ...forecastPayload, current: { ...forecastPayload.current, temperature_2m: null } }), null);
 
   const permissionGateway = createPermissionGateway({
     chrome: {
@@ -147,23 +170,32 @@ export async function runWeatherUtilityTests() {
     completedAt: "",
   }))).length, TODO_ITEM_LIMIT);
 
-  await testWeatherService(forecastPayload);
+  await testWeatherService(forecastPayload, chinaLocationRecords);
 }
 
-async function testWeatherService(forecastPayload) {
+async function testWeatherService(forecastPayload, chinaLocationRecords) {
   const deniedFetch = () => { throw new Error("network must not be touched without permission"); };
+  let lazyLoadCalls = 0;
   const denied = createWeatherService({
     hasOriginPermissions: async () => false,
     getRecord: async () => null,
     setRecord: async () => {},
     typedError,
     fetchBoundedResponse: deniedFetch,
+    loadChinaLocationRecords: async () => {
+      lazyLoadCalls += 1;
+      return chinaLocationRecords;
+    },
   });
+  await assert.rejects(() => denied.searchLocations({ query: "x", locale: "en" }), (error) => error.code === "INVALID_WEATHER_QUERY");
+  assert.equal(lazyLoadCalls, 0, "invalid searches must be rejected before loading the packaged China index");
   await assert.rejects(() => denied.searchLocations({ query: "Paris", locale: "en" }), (error) => (
     error.code === "WEATHER_PERMISSION_REQUIRED" && error.messageKey === "background.error.weatherPermission"
   ));
+  assert.equal(lazyLoadCalls, 1);
   const deniedLocal = await denied.searchLocations({ query: "慈溪", locale: "zh-CN" });
   assert.equal(deniedLocal.locations[0].admin2, "宁波市", "bundled China locations must not require or touch a remote origin");
+  assert.equal(lazyLoadCalls, 2, "weather service delegates caching to its packaged location loader");
 
   let currentTime = Date.parse("2026-07-14T08:00:00Z");
   const records = new Map();
@@ -175,6 +207,7 @@ async function testWeatherService(forecastPayload) {
     setRecord: async (key, value) => records.set(key, value),
     typedError,
     now: () => currentTime,
+    loadChinaLocationRecords: async () => chinaLocationRecords,
     fetchBoundedResponse: async (url, options, limits) => {
       requests.push({ url, options, limits });
       const parsed = new URL(url);
@@ -205,6 +238,29 @@ async function testWeatherService(forecastPayload) {
   assert.equal(requests[0].limits.timeoutMs, 8000);
   assert.equal(requests[0].limits.maxBytes, 128 * 1024);
 
+  const failedLocalIndexRequests = [];
+  const failedLocalIndexService = createWeatherService({
+    hasOriginPermissions: async () => true,
+    getRecord: async () => null,
+    setRecord: async () => {},
+    typedError,
+    loadChinaLocationRecords: async () => { throw new Error("missing packaged index"); },
+    fetchBoundedResponse: async (url, _options, limits) => {
+      failedLocalIndexRequests.push(url);
+      const response = responseDescriptor(url);
+      await limits.validateResponse(response);
+      return {
+        response,
+        buffer: new TextEncoder().encode(JSON.stringify({
+          results: [{ id: 42, name: "Paris", country: "France", latitude: 48.8566, longitude: 2.3522 }],
+        })).buffer,
+      };
+    },
+  });
+  const fallbackSearch = await failedLocalIndexService.searchLocations({ query: "Paris", locale: "en" });
+  assert.equal(fallbackSearch.locations[0].name, "Paris");
+  assert.equal(new URL(failedLocalIndexRequests[0]).origin, WEATHER_GEOCODING_ORIGIN, "a failed packaged index must fall back to the authorized geocoder");
+
   const location = { latitude: 48.8566, longitude: 2.3522 };
   const first = await service.getForecast(location);
   assert.equal(first.stale, false);
@@ -214,7 +270,10 @@ async function testWeatherService(forecastPayload) {
   assert.equal(forecastUrl.pathname, "/v1/forecast");
   assert.equal(forecastUrl.searchParams.get("forecast_days"), "3");
   assert.equal(forecastUrl.searchParams.get("temperature_unit"), "celsius");
-  assert.equal(forecastUrl.searchParams.get("hourly"), "weather_code");
+  assert.equal(forecastUrl.searchParams.get("current"), "temperature_2m,apparent_temperature,weather_code");
+  assert.equal(forecastUrl.searchParams.get("hourly"), "precipitation_probability");
+  assert.equal(forecastUrl.searchParams.get("daily"), "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max");
+  assert.equal(forecastUrl.searchParams.has("models"), false, "Open-Meteo must select its native best-match model");
   assert.equal(records.get(WEATHER_CACHE_KEY).capability, "weather");
 
   currentTime += WEATHER_CACHE_FRESH_MS;
@@ -228,6 +287,24 @@ async function testWeatherService(forecastPayload) {
   assert.equal(stale.stale, true);
   assert.equal(requests.length, 3);
 
+  const midnightCache = {
+    ...records.get(WEATHER_CACHE_KEY),
+    fetchedAt: "2026-07-14T21:50:00.000Z",
+  };
+  const midnightService = createWeatherService({
+    hasOriginPermissions: async () => true,
+    getRecord: async () => midnightCache,
+    setRecord: async () => {},
+    typedError,
+    now: () => Date.parse("2026-07-14T22:10:00.000Z"),
+    fetchBoundedResponse: async () => { throw new Error("offline"); },
+  });
+  await assert.rejects(
+    () => midnightService.getForecast(location),
+    (error) => error.code === "WEATHER_NETWORK_ERROR",
+    "a previous local date must not be served from an otherwise fresh cache",
+  );
+
   currentTime = Date.parse(records.get(WEATHER_CACHE_KEY).fetchedAt) + WEATHER_CACHE_STALE_MS + 1;
   await assert.rejects(() => service.getForecast(location), (error) => error.code === "WEATHER_NETWORK_ERROR");
   assert.equal(await service.weatherCachePermitted(records.get(WEATHER_CACHE_KEY)), true);
@@ -237,6 +314,7 @@ async function testWeatherService(forecastPayload) {
     getRecord: async () => null,
     setRecord: async () => {},
     typedError,
+    loadChinaLocationRecords: async () => chinaLocationRecords,
     fetchBoundedResponse: async (_url, _options, limits) => {
       const response = responseDescriptor("https://unexpected.example/v1/search");
       await limits.validateResponse(response);
@@ -244,6 +322,50 @@ async function testWeatherService(forecastPayload) {
     },
   });
   await assert.rejects(() => wrongOrigin.searchLocations({ query: "Paris" }), (error) => error.code === "WEATHER_ORIGIN_MISMATCH");
+}
+
+async function testChinaLocationLoader(sampleRecord) {
+  const payload = new TextEncoder().encode(JSON.stringify([sampleRecord])).buffer;
+  let requestCount = 0;
+  const load = createChinaLocationLoader({
+    dataUrl: "chrome-extension://test/extension/data/china-locations.json",
+    fetchImpl: async () => {
+      requestCount += 1;
+      return responseWithBuffer(payload);
+    },
+  });
+  const [first, second] = await Promise.all([load(), load()]);
+  assert.equal(requestCount, 1, "concurrent first searches must share one packaged data request");
+  assert.equal(first, second, "the validated location index must be memoized");
+  assert.equal((await load())[0].id, sampleRecord.id);
+  assert.equal(requestCount, 1, "later searches must reuse the parsed location index");
+
+  let failedRequests = 0;
+  const retryingLoad = createChinaLocationLoader({
+    fetchImpl: async () => {
+      failedRequests += 1;
+      return failedRequests === 1
+        ? responseWithBuffer(new Uint8Array(CHINA_LOCATION_DATA_MAX_BYTES + 1).buffer)
+        : responseWithBuffer(payload);
+    },
+  });
+  await assert.rejects(retryingLoad, /size limit/, "oversized packaged data must be rejected");
+  assert.equal((await retryingLoad())[0].id, sampleRecord.id);
+  assert.equal(failedRequests, 2, "a failed first load must be cleared so a later search can retry");
+
+  const malformedLoad = createChinaLocationLoader({
+    fetchImpl: async () => responseWithBuffer(new TextEncoder().encode("[{}]").buffer),
+  });
+  await assert.rejects(malformedLoad, /invalid record/, "malformed records must not enter the search index");
+}
+
+function responseWithBuffer(buffer) {
+  return {
+    ok: true,
+    status: 200,
+    headers: { get: () => "application/json" },
+    async arrayBuffer() { return buffer; },
+  };
 }
 
 function responseDescriptor(url) {
@@ -263,18 +385,13 @@ function typedError(code, messageKey, messageParams = {}, retryable = false, det
 
 function weatherFixture() {
   const dates = ["2026-07-14", "2026-07-15", "2026-07-16"];
-  const daytimeCodes = [
-    [2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2],
-    [2, 2, 2, 2, 2, 95, 2, 2, 2, 2, 2],
-    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-  ];
   return {
     timezone: "Europe/Paris",
     current: {
+      time: "2026-07-14T08:00",
       temperature_2m: 27.34,
       apparent_temperature: 28.7,
       weather_code: 2,
-      is_day: 1,
     },
     daily: {
       time: dates,
@@ -285,7 +402,11 @@ function weatherFixture() {
     },
     hourly: {
       time: dates.flatMap((date) => Array.from({ length: 11 }, (_, index) => `${date}T${String(index + 8).padStart(2, "0")}:00`)),
-      weather_code: daytimeCodes.flat(),
+      precipitation_probability: [
+        ...Array(11).fill(10),
+        ...Array(11).fill(80),
+        ...Array(11).fill(0),
+      ],
     },
   };
 }

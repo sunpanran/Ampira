@@ -1,9 +1,9 @@
 import { CONSENT_VERSION, DEFAULT_SETTINGS } from "./constants.mjs";
-import { normalizeLocale } from "./i18n.mjs";
+import { normalizeLocale } from "./locale.mjs";
 
 const BOOLEAN_FIELDS = [
   "bookmarkConsentGranted", "onboardingCompleted", "aiDisclosureAccepted", "pointerGlowEnabled",
-  "headerImageEnabled", "headerImageFixed", "headerImageFullscreen", "headerImageBlurEnabled", "cardSummaryEnabled",
+  "dashboardGlassBlurEnabled", "headerImageEnabled", "headerImageFixed", "headerImageFullscreen", "headerImageBlurEnabled", "cardSummaryEnabled",
   "floatingWebOpenEnabled", "readingQueueOpenOnReadAll", "readingQueueReadAllPrompted", "retainSeenArchive",
   "syncReadingQueueEnabled", "syncTodosEnabled", "syncWeatherLocationEnabled",
   "personalizedRankingEnabled", "publicFeedSupplementEnabled", "webImageSearchEnabled", "bookmarkSectionEnabled", "websiteShortcutsEnabled",

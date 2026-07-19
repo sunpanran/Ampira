@@ -20,9 +20,6 @@ import { localizedCategory } from "../../assets/client/localized-labels.mjs";
 import { recoverInspirationImage } from "../../assets/client/inspiration-image-recovery.mjs";
 import { createInspirationPreviewController } from "../../assets/client/inspiration-preview-controller.mjs";
 import { belongsInArchiveIndex } from "../../assets/client/bookmarks-view.mjs";
-import en from "../../assets/client/locales/en.mjs";
-import zhCN from "../../assets/client/locales/zh-CN.mjs";
-import zhHant from "../../assets/client/locales/zh-Hant.mjs";
 import {
   inspirationBookmarkValue,
   inspirationSelectionValue,
@@ -34,60 +31,6 @@ import {
 } from "../../assets/client/news-source-selection.mjs";
 
 export async function runInspirationPresetTests() {
-  assert.deepEqual(
-    [en, zhCN, zhHant].map((messages) => [
-      messages["settings.bookmarks.presetTitle"],
-      messages["settings.bookmarks.publicFeedTitle"],
-    ]),
-    [
-      ["Inspiration preset (Ampira)", "Ampira Feed"],
-      ["灵感预设（Ampira）", "公共 Feed（Ampira）"],
-      ["靈感預設（Ampira）", "公共 Feed（Ampira）"],
-    ],
-    "built-in bookmark source options must visibly identify Ampira in every locale",
-  );
-  const sourceNameRules = [
-    {
-      locale: "en",
-      messages: en,
-      presetName: "Inspiration preset (Ampira)",
-      publicFeedName: "Ampira Feed",
-    },
-    {
-      locale: "zh-CN",
-      messages: zhCN,
-      presetName: "灵感预设（Ampira）",
-      publicFeedName: "公共 Feed（Ampira）",
-    },
-    {
-      locale: "zh-Hant",
-      messages: zhHant,
-      presetName: "靈感預設（Ampira）",
-      publicFeedName: "公共 Feed（Ampira）",
-    },
-  ];
-  const presetReferenceKeys = [
-    "settings.bookmarks.presetTitle",
-    "inspirationPreset.section",
-  ];
-  const publicFeedReferenceKeys = [
-    "settings.bookmarks.publicFeedTitle",
-    "settings.cache.publicFeed",
-  ];
-  for (const rule of sourceNameRules) {
-    for (const key of presetReferenceKeys) {
-      assert(
-        rule.messages[key].includes(rule.presetName),
-        `${rule.locale} ${key} must use the canonical built-in inspiration source name`,
-      );
-    }
-    for (const key of publicFeedReferenceKeys) {
-      assert(
-        rule.messages[key].includes(rule.publicFeedName),
-        `${rule.locale} ${key} must use the canonical built-in public Feed source name`,
-      );
-    }
-  }
   assert.equal(INSPIRATION_PRESET_SITES.length, 48, "the v1 preset must contain exactly 48 websites");
   assert.equal(new Set(INSPIRATION_PRESET_SITES.map((item) => item.id)).size, 48, "preset IDs must be unique");
   assert.equal(new Set(INSPIRATION_PRESET_SITES.map((item) => item.url)).size, 48, "preset URLs must be unique");

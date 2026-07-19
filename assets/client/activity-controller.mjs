@@ -192,7 +192,6 @@ function syncReadingQueueButtons(key) {
       createThemedIcon(active ? "bookmark-filled" : "bookmark-ribbon", "action-toggle-icon"),
       srOnly(label),
     );
-    restartMotionClass(button, "is-confirming");
   });
 }
 

@@ -91,7 +91,7 @@
 }
 
 .btn.is-loading .btn-icon,
-.is-loading .action-toggle-icon {
+.action-toggle-icon.is-loading-icon {
   animation: spin .9s linear infinite;
 }
 

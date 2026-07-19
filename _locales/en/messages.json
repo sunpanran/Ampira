@@ -1,5 +1,5 @@
 {
   "appName": { "message": "Ampira New Tab" },
-  "appDescription": { "message": "Distill bookmarks, news, and web content into daily signals." },
+  "appDescription": { "message": "Get news from bookmarked sites, then let AI organize and explain it." },
   "actionTitle": { "message": "Add current page to Read later" }
 }

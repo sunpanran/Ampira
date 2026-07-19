@@ -36,6 +36,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   accentTheme: "violet",
   customAccentColor: "#9152FF",
   pointerGlowEnabled: true,
+  dashboardGlassBlurEnabled: true,
   headerImageEnabled: true,
   headerImageFixed: false,
   headerImageFullscreen: false,

@@ -152,10 +152,6 @@
   animation: cacheControlClickSpring 360ms both;
 }
 
-.summary-card-actions .action-toggle.is-subtle-elastic {
-  animation: cardActionClickSpring 180ms both;
-}
-
 #refresh {
   background:
     linear-gradient(var(--active-bg), var(--active-bg)),
@@ -1451,13 +1447,6 @@
   -webkit-line-clamp: 2;
 }
 
-.item-title:hover,
-.summary-title:hover,
-.link-title:hover,
-.news-list-title:hover {
-  color: var(--accent);
-}
-
 .item-host,
 .summary-meta,
 .link-host,
@@ -1675,7 +1664,7 @@
   box-shadow: var(--shadow-panel);
   -webkit-backdrop-filter: blur(14px);
   backdrop-filter: blur(14px);
-  color: var(--accent);
+  color: var(--text-strong);
   font-size: 13px;
   font-weight: 850;
   line-height: 1.35;
@@ -1744,10 +1733,6 @@
   min-height: var(--control-height-compact);
 }
 
-.summary-card-actions .action-toggle:hover {
-  background: var(--surface-2);
-}
-
 .seen-toggle,
 .action-toggle {
   border: 0;
@@ -1780,22 +1765,8 @@
 
 .action-toggle:hover .action-toggle-icon,
 .seen-toggle:hover .seen-mark {
-  width: 18px;
-  height: 18px;
   filter: var(--action-icon-hover-filter);
   opacity: 1;
-}
-
-.summary-card-actions .action-toggle:not(:disabled):hover .action-toggle-icon {
-  width: 1rem;
-  height: 1rem;
-  animation: cardActionHoverSpring 220ms both;
-}
-
-.category .link-row .seen-toggle:hover .seen-mark {
-  width: 1rem;
-  height: 1rem;
-  animation: cardActionHoverSpring 220ms both;
 }
 
 .action-toggle.is-active,

@@ -2,7 +2,7 @@ export function createSettingsTransferController(options) {
   const {
     els, state, t, apiGet, apiPost, confirmAction, localizedErrorMessage,
     runSettingsAction, renderSettingsStatus, loadSettings, captureSettingsSnapshot, resetSecretDrafts,
-    applyUiLocale, getLocale, inspirationPreviews, loadDashboard, triggerRefresh,
+    applyUiLocale, getLocale, prepareLocale, inspirationPreviews, loadDashboard, triggerRefresh,
     parseSettingsTransferText, settingsTransferFilename, maxSettingsTransferBytes, resetExtensionPage,
   } = options;
 
@@ -62,6 +62,8 @@ export function createSettingsTransferController(options) {
         const automaticAiStarted = savedSettings.automaticAiStarted === true;
         const sourceRefreshScheduled = savedSettings.sourceRefreshScheduled === true;
         if (bookmarkSourceChanged || savedSettings.imageSearchChanged === true) inspirationPreviews.invalidate();
+        await prepareLocale(savedSettings.uiLocale || getLocale());
+        if (!isCurrent()) return;
         applyUiLocale(savedSettings.uiLocale || getLocale(), { persist: true });
         resetSecretDrafts();
         if (!await loadSettings() || !isCurrent()) return;

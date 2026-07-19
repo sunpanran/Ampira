@@ -1,4 +1,4 @@
-import { DEFAULT_LOCALE, translate } from "./i18n.mjs";
+import { DEFAULT_LOCALE, translate } from "./runtime-i18n.mjs";
 import { decodeResponseBuffer, fetchBounded } from "./network.mjs";
 import { providerRequiresApiKey } from "./provider-policy.mjs";
 

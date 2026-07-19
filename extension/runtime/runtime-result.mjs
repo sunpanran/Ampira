@@ -1,4 +1,4 @@
-import { DEFAULT_LOCALE, normalizeLocale, translate } from "../core/i18n.mjs";
+import { DEFAULT_LOCALE, normalizeLocale, translate } from "../core/runtime-i18n.mjs";
 
 export function settingsLocale(settings = {}) {
   if (settings.uiLocale) return normalizeLocale(settings.uiLocale);

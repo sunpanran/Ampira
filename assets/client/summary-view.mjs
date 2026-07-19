@@ -3,13 +3,14 @@ import { normalizeUrl } from "./urls.mjs";
 import { isHotNewsItem as matchesHotNews, isSummaryFillItem as matchesSummaryFill } from "./card-policy.mjs";
 import { summaryEmptyStateKind } from "./empty-state-policy.mjs";
 import { createLoadingSurfaceController, restartMotionClass } from "./motion.mjs";
+import { createSummaryImageThumbs } from "./summary-image-thumb.mjs";
 
 export function createSummaryView(options) {
   const {
     state, els, t, tc, apiPost, confirmManualAiUsage, isDisplayableFeedItem, itemUrl, displaySummaryTitle,
     summaryDetailLines, cleanSummaryLines, isCorrectlySummarized, localizedCategory,
     localizedSourceLabel, localizedResponseMessage, localizedErrorMessage,
-    formatDateTime, faviconUrl, hostFromUrl, createIcon, createThemedIcon,
+    formatDateTime, faviconUrl, hostFromUrl, createIcon, createThemedIcon, srOnly,
     createReadingActions, createManualSummaryButton, attachLinkContextMenu,
     activateCardFromKeyboard, matchesQuery, findNewsItemByReference, createPriorityRanker,
     mergeRankedUnique, selectUnseenPool, shuffle, pageForItems, newsCardType,
@@ -22,6 +23,9 @@ export function createSummaryView(options) {
   } = options;
   let summaryRenderToken = 0;
   const manualSummaryLoadingMotions = new Map();
+  const { createSummaryThumb, updateVisibleNewsThumbs } = createSummaryImageThumbs({
+    els, faviconUrl, itemUrl, newsPreviews,
+  });
   return {
     renderSummaries, newsSummaryItems, updateSummaryCard, reshuffleSummaries,
     createNewsRanker, refreshSummaryItem, updateVisibleNewsThumbs,
@@ -321,105 +325,6 @@ function createSummaryCard(item) {
   return card;
 }
 
-function createSummaryThumb(item) {
-  const thumb = document.createElement("div");
-  const imageUrl = item.summary?.imageUrl || "";
-  const imageUrls = [...new Set([imageUrl, ...(Array.isArray(item.summary?.imageUrls) ? item.summary.imageUrls : [])]
-    .map((value) => String(value || "").trim()).filter(Boolean))];
-  const fallbackUrl = faviconUrl({ ...item, url: itemUrl(item) });
-  const preview = newsPreviews.get(item);
-
-  if (preview?.imageUrl) {
-    renderSummaryPreviewImageThumb(thumb, item, preview.imageUrl, fallbackUrl);
-  } else if (imageUrls.length) {
-    renderSummarySourceImageThumb(thumb, item, imageUrls, fallbackUrl);
-  } else {
-    renderSummaryFaviconThumb(thumb, fallbackUrl);
-    applyResolvedSummaryPreview(thumb, item, fallbackUrl, newsPreviews.request(item));
-  }
-
-  return thumb;
-}
-
-function renderSummarySourceImageThumb(thumb, item, imageUrls, fallbackUrl) {
-  let imageIndex = 0;
-  showImage();
-
-  function showImage() {
-    renderSummaryImageThumb(thumb, imageUrls[imageIndex], () => {
-      imageIndex += 1;
-      if (imageUrls[imageIndex]) {
-        showImage();
-        return;
-      }
-      renderSummaryFaviconThumb(thumb, fallbackUrl);
-      applyResolvedSummaryPreview(thumb, item, fallbackUrl, newsPreviews.request(item));
-    });
-  }
-}
-
-function renderSummaryPreviewImageThumb(thumb, item, imageUrl, fallbackUrl) {
-  renderSummaryImageThumb(thumb, imageUrl, () => {
-    renderSummaryFaviconThumb(thumb, fallbackUrl);
-    applyResolvedSummaryPreview(thumb, item, fallbackUrl, newsPreviews.reject(item, imageUrl));
-  });
-}
-
-function applyResolvedSummaryPreview(thumb, item, fallbackUrl, operation) {
-  Promise.resolve(operation).then((preview) => {
-    if (!preview?.imageUrl || !thumb.isConnected) return;
-    const card = thumb.closest(".summary-card");
-    if (card?.dataset.key !== item.key || card.dataset.previewFingerprint !== newsPreviews.fingerprint(item)) return;
-    const currentImage = thumb.querySelector("img");
-    if (!thumb.classList.contains("is-favicon-thumb") && currentImage?.src === preview.imageUrl) return;
-    renderSummaryPreviewImageThumb(thumb, item, preview.imageUrl, fallbackUrl);
-  });
-}
-
-function renderSummaryImageThumb(thumb, imageUrl, onError) {
-  thumb.className = "thumb";
-  thumb.closest(".summary-card")?.classList.remove("has-favicon-thumb");
-  const img = document.createElement("img");
-  img.src = imageUrl;
-  img.alt = "";
-  img.loading = "lazy";
-  img.decoding = "async";
-  img.referrerPolicy = "no-referrer";
-  img.addEventListener("error", onError, { once: true });
-  thumb.replaceChildren(img);
-}
-
-function updateVisibleNewsThumbs(item, imageUrl, fingerprint) {
-  for (const card of els.summaryGrid.querySelectorAll(".summary-card")) {
-    if (card.dataset.key !== item.key || card.dataset.previewFingerprint !== fingerprint) continue;
-    const thumb = card.querySelector(":scope > .thumb");
-    if (thumb) renderSummaryPreviewImageThumb(
-      thumb,
-      item,
-      imageUrl,
-      faviconUrl({ ...item, url: itemUrl(item) }),
-    );
-  }
-}
-
-function renderSummaryFaviconThumb(thumb, fallbackUrl) {
-  const favicon = fallbackUrl || "favicon.svg";
-  thumb.className = "thumb is-favicon-thumb";
-  thumb.closest(".summary-card")?.classList.add("has-favicon-thumb");
-  const glow = document.createElement("img");
-  glow.className = "thumb-favicon-glow";
-  glow.src = favicon;
-  glow.alt = "";
-  glow.loading = "lazy";
-  glow.referrerPolicy = "no-referrer";
-  glow.setAttribute("aria-hidden", "true");
-  glow.addEventListener("error", () => {
-    if (glow.src.endsWith("/favicon.svg")) return;
-    glow.src = "favicon.svg";
-  }, { once: true });
-  thumb.replaceChildren(glow);
-}
-
 async function refreshSummaryItem(item, event) {
   event.preventDefault();
   event.stopPropagation();
@@ -430,7 +335,9 @@ async function refreshSummaryItem(item, event) {
   let latestItem = item;
   let completed = false;
   state.manualRefreshKeys.add(item.key);
-  startManualSummaryLoadingMotion(item.key, updateSummaryCard(item));
+  const activeCard = event.currentTarget?.closest?.(".summary-card");
+  setManualSummaryLoadingState(event.currentTarget, activeCard);
+  startManualSummaryLoadingMotion(item.key, activeCard);
   try {
     const result = await apiPost("/api/summary/refresh", {
       articleId: item.feedItem?.articleId || item.key,
@@ -459,6 +366,20 @@ async function refreshSummaryItem(item, event) {
     const card = updateSummaryCard(latestItem);
     if (completed) restartMotionClass(card, "is-ai-resolving");
   }
+}
+
+function setManualSummaryLoadingState(button, card) {
+  if (card) {
+    card.classList.add("is-refreshing", "ai-loading-surface");
+    card.setAttribute("aria-busy", "true");
+  }
+  if (!button) return;
+  const label = t("action.organizing");
+  button.classList.add("is-active", "is-loading");
+  button.disabled = true;
+  button.title = label;
+  button.setAttribute("aria-label", label);
+  button.replaceChildren(createThemedIcon("synchronize", "action-toggle-icon is-loading-icon"), srOnly(label));
 }
 
 function updateSummaryCard(item) {

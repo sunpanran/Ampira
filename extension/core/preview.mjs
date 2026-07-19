@@ -1,8 +1,19 @@
 import { hashText } from "./bookmarks.mjs";
 import { searchImagePreview } from "./ai.mjs";
+import {
+  articleImageSignature,
+  createArticleImageReuseFilter,
+  repeatedArticleImageSignatures,
+} from "./article-image-reuse.mjs";
+import {
+  extractPageImageCandidateRecords,
+  IMAGE_CANDIDATE_POLICY_VERSION,
+  IMAGE_PROFILE_ARTICLE,
+  normalizeImageCandidateRecords,
+  normalizeImageCandidates,
+  normalizeImageProfile,
+} from "./image-candidates.mjs";
 import { decodeResponseBuffer, fetchBounded } from "./network.mjs";
-import { extractPageMetadata } from "./reader.mjs";
-import { normalizeImageCandidates } from "./image-candidates.mjs";
 import { isPrivateAddressLiteral } from "./network-policy.mjs";
 
 const PREVIEW_HIT_CACHE_MS = 24 * 60 * 60 * 1000;
@@ -11,25 +22,37 @@ const SOURCE_TIMEOUT_MS = 10000;
 const SOURCE_PREFIX_BYTES = 1024 * 1024;
 const BRAVE_SEARCH_URL = "https://api.search.brave.com/";
 
+export { articleImageSignature, repeatedArticleImageSignatures };
+
 export function createPreviewService(adapters) {
-  const fetchSourceImage = adapters.fetchSourceImage || fetchSourceImageCandidates;
+  const fetchSourceImages = adapters.fetchSourceImages
+    || adapters.fetchSourceImage
+    || fetchSourceImageCandidateRecords;
   const searchImage = adapters.searchImage || searchImagePreview;
   const now = adapters.now || Date.now;
   const pending = new Map();
+  const filterArticleImageReuse = createArticleImageReuseFilter({
+    getRecord: adapters.getRecord,
+    setRecord: adapters.setRecord,
+    hashText,
+    now,
+  });
 
   return async function getSitePreview(body = {}) {
     const url = normalizePreviewUrl(body.url);
+    const profile = normalizeImageProfile(body.profile);
     if (!url) return emptyPreview(body.url, "invalid");
     const title = cleanTitle(body.title);
     const mode = body.mode === "brave-only" ? "brave-only" : "prefer-origin";
     if (!await targetAllowed(url)) return emptyPreview(url, "unavailable");
-    const requestKey = `${mode}:${url}|${title}`;
+    const requestKey = `${profile}:${mode}:${url}|${title}`;
     return withPending(requestKey, async () => {
       const cacheEpoch = typeof adapters.captureCacheEpoch === "function" ? adapters.captureCacheEpoch() : undefined;
       if (mode === "brave-only") {
-        return { ...(await getBravePreview({ url, title, cacheEpoch })), originalStatus: "skipped" };
+        if (profile === IMAGE_PROFILE_ARTICLE) return { ...emptyPreview(url), originalStatus: "skipped" };
+        return { ...(await getBravePreview({ url, title, profile, cacheEpoch })), originalStatus: "skipped" };
       }
-      const original = await getOriginPreview({ url, cacheEpoch });
+      const original = await getOriginPreview({ url, profile, cacheEpoch });
       if (original.imageUrl) {
         return {
           ok: true,
@@ -41,45 +64,70 @@ export function createPreviewService(adapters) {
           ...(original.cached ? { cached: true } : {}),
         };
       }
-      return { ...(await getBravePreview({ url, title, cacheEpoch })), originalStatus: original.status };
+      if (profile === IMAGE_PROFILE_ARTICLE) return { ...emptyPreview(url), originalStatus: original.status };
+      return { ...(await getBravePreview({ url, title, profile, cacheEpoch })), originalStatus: original.status };
     });
   };
 
-  async function getOriginPreview({ url, cacheEpoch }) {
+  async function getOriginPreview({ url, profile, cacheEpoch }) {
     if (!await hasPermission(url)) return { status: "unavailable", imageUrl: "" };
-    const cacheKey = `preview-origin-${hashText(url)}`;
+    const cacheKey = `preview-origin-v${IMAGE_CANDIDATE_POLICY_VERSION}-${profile}-${hashText(url)}`;
     return withPending(`origin:${cacheKey}`, async () => {
       const cached = await adapters.getRecord(cacheKey, null);
-      if (validOriginCache(cached, url, now()) && await hasPermission(url)) {
+      if (validOriginCache(cached, url, profile, now()) && await hasPermission(url)) {
+        const cachedCandidates = normalizeFetchedCandidateRecords(
+          profile === IMAGE_PROFILE_ARTICLE
+            ? cached.rawImageCandidates
+            : cached.imageCandidates?.length ? cached.imageCandidates : cached.imageUrls,
+          url,
+          profile,
+        );
+        const candidates = profile === IMAGE_PROFILE_ARTICLE
+          ? await filterArticleImageReuse(url, cachedCandidates, { cacheEpoch })
+          : cachedCandidates;
+        const imageUrls = candidates.map((candidate) => candidate.url);
         return {
-          status: cached.outcome === "hit" ? "found" : "missing",
-          imageUrl: cached.imageUrl || "",
-          imageUrls: normalizePreviewImageUrls(cached.imageUrls?.length ? cached.imageUrls : [cached.imageUrl], url),
+          status: imageUrls.length ? "found" : "missing",
+          imageUrl: imageUrls[0] || "",
+          imageUrls,
           cached: true,
         };
       }
 
-      let imageUrls;
+      let candidates;
+      let rawCandidates = [];
       try {
-        const fetched = await fetchSourceImage(url, {
+        const fetched = await fetchSourceImages(url, {
+          profile,
           validateResponse: async (response) => {
             const finalUrl = normalizePreviewUrl(response?.url || url);
             if (!finalUrl || !await hasPermission(finalUrl)) throw previewSourceError("SOURCE_PERMISSION_CHANGED", false);
           },
         });
-        imageUrls = normalizePreviewImageUrls(Array.isArray(fetched) ? fetched : [fetched], url);
+        rawCandidates = normalizeFetchedCandidateRecords(fetched, url, profile);
+        candidates = rawCandidates;
+        if (profile === IMAGE_PROFILE_ARTICLE) {
+          candidates = await filterArticleImageReuse(url, candidates, { cacheEpoch });
+        }
       } catch {
         return { status: "error", imageUrl: "", imageUrls: [] };
       }
       if (!await hasPermission(url) || !await targetAllowed(url)) return { status: "unavailable", imageUrl: "" };
 
+      const imageUrls = candidates.map((candidate) => candidate.url);
       const record = {
         capability: "site-preview-origin",
+        policyVersion: IMAGE_CANDIDATE_POLICY_VERSION,
+        profile,
         outcome: imageUrls.length ? "hit" : "miss",
         requestedUrl: url,
         sourceOrigin: new URL(url).origin,
         imageUrl: imageUrls[0] || "",
         imageUrls,
+        imageCandidates: candidates.map(cacheCandidate),
+        ...(profile === IMAGE_PROFILE_ARTICLE
+          ? { rawImageCandidates: rawCandidates.map(cacheCandidate) }
+          : {}),
         checkedAt: new Date(now()).toISOString(),
         requiredOrigins: [new URL(url).origin],
       };
@@ -88,14 +136,14 @@ export function createPreviewService(adapters) {
     });
   }
 
-  async function getBravePreview({ url, title, cacheEpoch }) {
+  async function getBravePreview({ url, title, profile, cacheEpoch }) {
     const [settings, secrets] = await Promise.all([adapters.getSettings(), adapters.readSecrets()]);
     if (settings.webImageSearchEnabled !== true || !secrets.braveSearchApiKey) return emptyPreview(url);
     if (!await hasPermission(BRAVE_SEARCH_URL)) return emptyPreview(url);
-    const cacheKey = `preview-brave-${hashText(`${url}|${title}`)}`;
+    const cacheKey = `preview-brave-v${IMAGE_CANDIDATE_POLICY_VERSION}-${profile}-${hashText(`${url}|${title}`)}`;
     return withPending(`brave:${cacheKey}`, async () => {
       const cached = await adapters.getRecord(cacheKey, null);
-      if (validBraveCache(cached, url, title, now()) && await hasPermission(BRAVE_SEARCH_URL)) {
+      if (validBraveCache(cached, url, title, profile, now()) && await hasPermission(BRAVE_SEARCH_URL)) {
         return publicBravePreview(cached, url, true);
       }
 
@@ -118,6 +166,8 @@ export function createPreviewService(adapters) {
 
       const record = {
         capability: "site-preview-brave",
+        policyVersion: IMAGE_CANDIDATE_POLICY_VERSION,
+        profile,
         outcome: imageUrl ? "hit" : "miss",
         requestedUrl: url,
         title,
@@ -174,7 +224,12 @@ export async function fetchSourceImagePreview(url, options = {}) {
 }
 
 export async function fetchSourceImageCandidates(url, options = {}) {
+  return (await fetchSourceImageCandidateRecords(url, options)).map((candidate) => candidate.url);
+}
+
+export async function fetchSourceImageCandidateRecords(url, options = {}) {
   const target = normalizePreviewUrl(url);
+  const profile = normalizeImageProfile(options.profile);
   if (!target) throw previewSourceError("SOURCE_INVALID_URL", false);
   const { response, buffer } = await fetchBounded(target, {
     redirect: "error",
@@ -193,19 +248,41 @@ export async function fetchSourceImageCandidates(url, options = {}) {
   const contentType = response.headers.get("content-type") || "";
   const text = decodeResponseBuffer(buffer, contentType);
   if (!looksLikePreviewHtml(text, contentType)) throw previewSourceError("SOURCE_UNSUPPORTED_CONTENT", false);
-  const metadata = extractPageMetadata(text, response.url || target);
-  return normalizePreviewImageUrls(metadata.heroImageUrls?.length ? metadata.heroImageUrls : [metadata.heroImageUrl], response.url || target);
+  return extractPageImageCandidateRecords(text, response.url || target, { limit: 3, profile });
 }
 
-function validOriginCache(value, url, timestamp) {
+function normalizeFetchedCandidateRecords(input, pageUrl, profile) {
+  const values = Array.isArray(input) ? input : [input];
+  return normalizeImageCandidateRecords(values.map((value) => (
+    value && typeof value === "object" ? value : { url: value, provenance: "metadata" }
+  )), pageUrl, { limit: 3, profile });
+}
+
+function cacheCandidate(candidate) {
+  return {
+    url: candidate.url,
+    provenance: candidate.provenance,
+    width: candidate.width,
+    height: candidate.height,
+    score: candidate.score,
+    identity: candidate.identity,
+  };
+}
+
+function validOriginCache(value, url, profile, timestamp) {
   return value?.capability === "site-preview-origin"
+    && value?.policyVersion === IMAGE_CANDIDATE_POLICY_VERSION
+    && value?.profile === profile
     && value?.requestedUrl === url
     && ["hit", "miss"].includes(value?.outcome)
+    && (profile !== IMAGE_PROFILE_ARTICLE || Array.isArray(value?.rawImageCandidates))
     && freshCache(value, timestamp, value.outcome === "miss" ? ORIGIN_MISS_CACHE_MS : PREVIEW_HIT_CACHE_MS);
 }
 
-function validBraveCache(value, url, title, timestamp) {
+function validBraveCache(value, url, title, profile, timestamp) {
   return value?.capability === "site-preview-brave"
+    && value?.policyVersion === IMAGE_CANDIDATE_POLICY_VERSION
+    && value?.profile === profile
     && value?.requestedUrl === url
     && value?.title === title
     && ["hit", "miss"].includes(value?.outcome)

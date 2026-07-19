@@ -1,8 +1,13 @@
 import { isBookmarkSectionVisible } from "./bookmark-visibility.mjs";
 
 export function createShellController(options) {
-  const { state, els } = options;
+  const { els } = options;
   let viewportMetricWidth = 0;
+  let activeNavButton = null;
+  let cachedNavButtons = null;
+  let cachedScrollEntries = null;
+  let scrollObserver = null;
+  let scrollObserverResizeFrame = 0;
 
   return {
     syncViewportMetrics,
@@ -180,17 +185,30 @@ function initializePointerHighlights() {
 }
 
 function initializeScrollSpy() {
-  const scheduleSync = () => {
-    if (state.navSyncFrame) return;
-    state.navSyncFrame = requestAnimationFrame(() => {
-      state.navSyncFrame = 0;
+  const scheduleObserverRefresh = () => {
+    if (scrollObserverResizeFrame) return;
+    scrollObserverResizeFrame = requestAnimationFrame(() => {
+      scrollObserverResizeFrame = 0;
+      observeScrollSections();
       syncNavToCurrentSection();
     });
   };
 
-  window.addEventListener("scroll", scheduleSync, { passive: true });
-  window.addEventListener("resize", scheduleSync, { passive: true });
+  window.addEventListener("resize", scheduleObserverRefresh, { passive: true });
+  observeScrollSections();
   syncNavToCurrentSection();
+}
+
+function observeScrollSections() {
+  scrollObserver?.disconnect();
+  const activationY = sectionActivationY();
+  const bottomMargin = Math.max(0, window.innerHeight - activationY - 1);
+  scrollObserver = new IntersectionObserver(syncNavToCurrentSection, {
+    root: null,
+    rootMargin: `-${activationY}px 0px -${bottomMargin}px 0px`,
+    threshold: 0,
+  });
+  for (const entry of scrollEntries()) scrollObserver.observe(entry.section);
 }
 
 function syncNavToCurrentSection() {
@@ -198,30 +216,48 @@ function syncNavToCurrentSection() {
   setActiveNavButton(getCurrentSectionButton());
 }
 
-function setActiveNavButton(activeButton) {
-  document.querySelectorAll(".nav-btn").forEach((item) => item.classList.toggle("active", item === activeButton));
+function setActiveNavButton(nextActiveButton) {
+  const buttons = navButtons();
+  if (activeNavButton === null) activeNavButton = buttons.find((button) => button.classList.contains("active")) || null;
+  if (activeNavButton === nextActiveButton) return;
+  for (const button of buttons) button.classList.toggle("active", button === nextActiveButton);
+  activeNavButton = nextActiveButton;
 }
 
 function resetToDailyView() {
   window.scrollTo({ top: 0, left: 0, behavior: "auto" });
-  setActiveNavButton(document.querySelector("[data-scroll='daily']"));
+  setActiveNavButton(scrollEntries().find((entry) => entry.button.dataset.scroll === "daily")?.button || null);
 }
 
 function getCurrentSectionButton() {
-  const buttons = [...document.querySelectorAll("[data-scroll]")]
-    .filter((button) => !button.hidden && document.getElementById(button.dataset.scroll)?.hidden !== true);
-  const activationY = Math.min(220, Math.max(120, window.innerHeight * 0.32));
-  let currentButton = buttons[0] || null;
+  const entries = scrollEntries()
+    .filter((entry) => !entry.button.hidden && entry.section.hidden !== true);
+  const activationY = sectionActivationY();
+  let currentButton = entries[0]?.button || null;
 
-  for (const button of buttons) {
-    const section = document.getElementById(button.dataset.scroll);
-    if (!section) continue;
+  for (const { button, section } of entries) {
     const rect = section.getBoundingClientRect();
     if (rect.top <= activationY) currentButton = button;
     if (rect.top <= activationY && rect.bottom > activationY) return button;
   }
 
   return currentButton;
+}
+
+function sectionActivationY() {
+  return Math.min(220, Math.max(120, window.innerHeight * 0.32));
+}
+
+function navButtons() {
+  cachedNavButtons ||= [...document.querySelectorAll(".nav-btn")];
+  return cachedNavButtons;
+}
+
+function scrollEntries() {
+  cachedScrollEntries ||= [...document.querySelectorAll("[data-scroll]")]
+    .map((button) => ({ button, section: document.getElementById(button.dataset.scroll) }))
+    .filter((entry) => entry.section);
+  return cachedScrollEntries;
 }
 
 }

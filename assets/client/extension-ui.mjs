@@ -1,5 +1,5 @@
 import { sendExtensionRequest } from "./api.mjs";
-import { getLocale, setLocale, t, tc, translateDocument } from "./i18n.mjs";
+import { getLocale, prepareLocale, setLocale, t, tc, translateDocument } from "./i18n.mjs";
 import { createIcon, hydrateIcons } from "./icons.mjs";
 import { permissionRowCounts, requiredUngrantedOrigins } from "./permission-ui-model.mjs";
 import { INSPIRATION_PRESET_VALUE, inspirationBookmarkValue, inspirationSelectionValue, parseInspirationSelection } from "./inspiration-source-selection.mjs";
@@ -70,7 +70,8 @@ async function initializeExtensionUi() {
   try {
     await hydrateStorage();
     settings = await request("settings:get");
-    setLocale(settings.uiLocale || getLocale(), { persist: Boolean(settings.uiLocale) });
+    await prepareLocale(settings.uiLocale || getLocale());
+    setLocale(settings.uiLocale || getLocale(), { persist: Boolean(settings.uiLocale), translate: false });
     translateDocument(document);
     syncOnboardingPermissionLabel();
     renderPermissionRows(settings.sourcePermissions || []);

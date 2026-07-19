@@ -1,5 +1,6 @@
 import { isBookmarkCategoryHidden } from "./bookmark-visibility.mjs";
 import { bookmarkEmptyStateKind } from "./empty-state-policy.mjs";
+import { playActionFeedback } from "./motion.mjs";
 
 export function belongsInArchiveIndex(entry) {
   return entry?.sectionKey !== "inspirationPreset"
@@ -223,7 +224,7 @@ function createLinkRow(item) {
   host.className = "link-host";
   host.textContent = item.host || item.url;
   main.append(title, host);
-  row.append(createBookmarkFavicon(item), main, createSeenButton(item, t("action.markSeen"), t("action.unmarkSeen"), "bookmark"));
+  row.append(createBookmarkFavicon(item), main, createSeenButton(item, t("action.markRead"), t("action.unmarkRead"), "bookmark"));
   contextAttachLink(row, () => ({ url: bookmarkUrl, title: bookmarkTitle, item }));
   return row;
 }
@@ -299,9 +300,12 @@ function createManualSummaryButton(item, isRefreshing) {
   button.disabled = isRefreshing;
   button.title = label;
   button.setAttribute("aria-label", label);
-  button.append(createThemedIcon(isRefreshing ? "synchronize" : "sparkling", "action-toggle-icon"), srOnly(label));
+  button.append(
+    createThemedIcon(isRefreshing ? "synchronize" : "sparkling", `action-toggle-icon ${isRefreshing ? "is-loading-icon" : ""}`.trim()),
+    srOnly(label),
+  );
   button.addEventListener("click", (event) => {
-    playSummaryActionElastic(button);
+    playSummaryActionFeedback(button);
     refreshSummaryItem(item, event);
   });
   return button;
@@ -318,20 +322,16 @@ function createActionToggleButton({ active, icon, label, className, readingQueue
   button.addEventListener("click", (event) => {
     event.preventDefault();
     event.stopPropagation();
-    const isSummaryAction = playSummaryActionElastic(button);
-    if (isSummaryAction && button.classList.contains("viewed-toggle") && !prefersReducedMotion()) {
-      window.setTimeout(onClick, 180);
-      return;
-    }
+    playSummaryActionFeedback(button);
     onClick();
   });
   button.append(createThemedIcon(icon, "action-toggle-icon"), srOnly(label));
   return button;
 }
 
-function playSummaryActionElastic(button) {
+function playSummaryActionFeedback(button) {
   if (!button.closest(".summary-card-actions")) return false;
-  restartMotionClass(button, "is-subtle-elastic");
+  playActionFeedback(button);
   return true;
 }
 

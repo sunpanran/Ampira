@@ -225,6 +225,8 @@ function Assert-ReleaseMetadata([System.IO.FileInfo[]]$DocsHtmlFiles) {
 Push-Location $root
 try {
   Assert-Toolchain
+  Invoke-Node @((Join-Path $root "scripts\generate-client-locales.mjs"), "--check")
+  Invoke-Node @((Join-Path $root "scripts\generate-runtime-locales.mjs"), "--check")
   $testEntry = Join-Path $root "tests\extension.mjs"
   if (-not (Test-Path -LiteralPath $testEntry -PathType Leaf)) { throw "Missing unified extension test entry." }
   Invoke-Node @($testEntry)

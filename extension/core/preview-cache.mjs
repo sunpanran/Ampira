@@ -46,6 +46,9 @@ export function previewCacheKeysOutsideTargets(records, targetItems) {
     title: previewTitle(typeof item === "string" ? "" : item?.title),
   })).filter((item) => item.url);
   const originTargets = new Set(targets.map((item) => item.url));
+  const sourceOrigins = new Set(targets.map((item) => {
+    try { return new URL(item.url).origin; } catch { return ""; }
+  }).filter(Boolean));
   const braveTargets = new Set(targets.map((item) => `${item.url}\n${item.title}`));
   return [...new Set((records || [])
     .filter(isPreviewRecord)
@@ -53,6 +56,9 @@ export function previewCacheKeysOutsideTargets(records, targetItems) {
       const capability = String(record?.value?.capability || "");
       const url = previewIdentityUrl(record?.value?.requestedUrl);
       if (capability === "site-preview-origin") return !originTargets.has(url);
+      if (capability === "site-preview-image-reuse") {
+        return !sourceOrigins.has(String(record?.value?.sourceOrigin || ""));
+      }
       if (capability === "site-preview-brave") {
         return !braveTargets.has(`${url}\n${previewTitle(record?.value?.title)}`);
       }

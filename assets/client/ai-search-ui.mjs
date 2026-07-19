@@ -28,7 +28,7 @@ export function createAiSearchController(options) {
     els.aiSearchOverlay.classList.add("open");
     resetArticleConversation();
     options.syncSearchCopy({ forceDialog: true });
-    document.querySelectorAll(".nav-btn").forEach((item) => item.classList.toggle("active", item.id === "aiSearchNav"));
+    options.setActiveNavButton(options.navButton);
     resetAnswer();
     els.aiSearchInput.value = query || "";
     if (shouldRun) options.clearTopSearchFilter();

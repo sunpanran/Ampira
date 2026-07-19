@@ -1,4 +1,4 @@
-import { getLocale, normalizeLocale, setLocale, t, translateDocument } from "./i18n.mjs";
+import { getLocale, normalizeLocale, prepareLocale, setLocale, t, translateDocument } from "./i18n.mjs";
 import { isHttpUrl } from "./urls.mjs";
 import {
   ACCENT_THEMES,
@@ -10,6 +10,7 @@ import {
 } from "./appearance-model.mjs";
 
 const COLOR_MODE_STORAGE_KEY = "ampira.colorMode";
+const DASHBOARD_GLASS_BLUR_STORAGE_KEY = "ampira.dashboardGlassBlur";
 const HEADER_COVER_STORAGE_KEY = "ampira.headerCover";
 const HEADER_IMAGE_BLUR_MAX = 50;
 const HEADER_IMAGE_BLUR_DEFAULT = 12;
@@ -31,6 +32,7 @@ export function createAppearanceController(options) {
     options.syncCustomAccentColor?.(custom);
     applyCustomAccentPreview(custom);
     els.pointerGlowEnabledInput.checked = settings.pointerGlowEnabled !== false;
+    els.dashboardGlassBlurEnabledInput.checked = settings.dashboardGlassBlurEnabled !== false;
     els.headerImageEnabledInput.checked = settings.headerImageEnabled === true;
     els.headerImageBlurAmountInput.value = String(settings.headerImageBlurEnabled === true
       ? normalizeHeaderImageBlurAmount(settings.headerImageBlurAmount)
@@ -122,6 +124,7 @@ export function createAppearanceController(options) {
       accentTheme: selectedAccentTheme(),
       customAccentColor: normalizeHexColor(els.customAccentInput.value) || DEFAULT_CUSTOM_ACCENT_COLOR,
       pointerGlowEnabled: els.pointerGlowEnabledInput.checked,
+      dashboardGlassBlurEnabled: els.dashboardGlassBlurEnabledInput.checked,
       headerImageEnabled: els.headerImageEnabledInput.checked,
       headerImageBlurEnabled: syncBlurAmountLabel() > 0,
       headerImageBlurAmount: syncBlurAmountLabel(),
@@ -136,14 +139,15 @@ export function createAppearanceController(options) {
     return normalizeLocale(els.uiLocaleSelect.value || state.settings?.uiLocale || getLocale());
   }
 
-  function syncLanguageControls(settings = {}, { render = true } = {}) {
+  async function syncLanguageControls(settings = {}, { render = true } = {}) {
     const locale = normalizeLocale(settings.uiLocale || getLocale());
+    await prepareLocale(locale);
     els.uiLocaleSelect.value = locale;
-    applyLocale(locale, { persist: Boolean(settings.uiLocale), render });
+    return applyLocale(locale, { persist: Boolean(settings.uiLocale), render });
   }
 
   function applyLocale(value, { persist = false, render = true } = {}) {
-    const locale = setLocale(value, { persist });
+    const locale = setLocale(value, { persist, translate: false });
     els.uiLocaleSelect.value = locale;
     translateDocument(document);
     options.syncHeaderCoverControls?.();
@@ -195,6 +199,8 @@ export function createAppearanceController(options) {
     cache(COLOR_MODE_STORAGE_KEY, colorMode);
     root.dataset.accentTheme = accentTheme;
     root.dataset.pointerGlow = settings.pointerGlowEnabled === false ? "off" : "on";
+    root.dataset.dashboardGlassBlur = settings.dashboardGlassBlurEnabled === false ? "off" : "on";
+    cache(DASHBOARD_GLASS_BLUR_STORAGE_KEY, root.dataset.dashboardGlassBlur);
     root.style.setProperty("--accent", palette.accent);
     root.style.setProperty("--accent-rgb", palette.accentRgb.join(", "));
     applyCustomAccentPreview(custom);

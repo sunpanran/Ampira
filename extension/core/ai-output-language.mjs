@@ -1,5 +1,5 @@
 import { classifyContentLocale } from "./feed-language-policy.mjs";
-import { normalizeLocale } from "./i18n.mjs";
+import { normalizeLocale } from "./locale.mjs";
 
 const CODE_FENCE = /```[\s\S]*?```/g;
 const INLINE_CODE = /`[^`\r\n]*`/g;

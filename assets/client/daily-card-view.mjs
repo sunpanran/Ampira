@@ -1,4 +1,5 @@
 import { cardIconName, cardTone } from "./card-policy.mjs";
+import { browserImageMeetsProfileDimensions } from "./card-image-quality.mjs";
 import { inspirationFallbackCoverAsset, resolveInspirationCoverUrl } from "./inspiration-cover.mjs";
 import { recoverInspirationImage } from "./inspiration-image-recovery.mjs";
 
@@ -55,7 +56,7 @@ function createNewsListCard(item) {
   actions.className = "news-list-actions";
   actions.append(
     createReadingActions(item, { source: "news", compact: true, includeRead: false }),
-    createSeenButton(item, t("action.markSeen"), t("action.unmarkSeen"), "news"),
+    createSeenButton(item, t("action.markRead"), t("action.unmarkRead"), "news"),
   );
   main.append(title, meta);
   card.append(
@@ -210,12 +211,15 @@ function createInspirationThumb(item) {
 function renderInspirationImageThumb(thumb, item, imageUrl, { local = false, onError } = {}) {
   thumb.className = "inspiration-thumb";
   const img = document.createElement("img");
+  let rejected = false;
   img.alt = "";
   img.loading = "eager";
   img.decoding = "async";
   img.fetchPriority = "high";
   img.referrerPolicy = "no-referrer";
-  img.addEventListener("error", async () => {
+  const rejectImage = async () => {
+    if (rejected) return;
+    rejected = true;
     if (thumb.firstElementChild !== img) return;
     if (local) {
       if (typeof onError === "function") onError();
@@ -229,12 +233,16 @@ function renderInspirationImageThumb(thumb, item, imageUrl, { local = false, onE
       renderNext: (nextUrl) => renderInspirationImageThumb(thumb, item, nextUrl),
       renderFallback: () => renderInspirationFallbackThumb(thumb, item),
     });
+  };
+  img.addEventListener("load", () => {
+    if (!local && !browserImageMeetsProfileDimensions(img, "visual")) rejectImage();
   }, { once: true });
+  img.addEventListener("error", rejectImage, { once: true });
   thumb.replaceChildren(img);
   img.src = imageUrl;
 }
 
-function preloadBrowserImage(imageUrl) {
+function preloadBrowserImage(imageUrl, { profile = "visual" } = {}) {
   if (typeof Image !== "function" || !isHttpUrl(imageUrl)) return Promise.resolve(false);
   return new Promise((resolve) => {
     const image = new Image();
@@ -249,7 +257,7 @@ function preloadBrowserImage(imageUrl) {
     image.referrerPolicy = "no-referrer";
     image.addEventListener("load", async () => {
       try { await image.decode?.(); } catch { /* A loaded image remains cacheable if decode is deferred. */ }
-      finish(true);
+      finish(browserImageMeetsProfileDimensions(image, profile));
     }, { once: true });
     image.addEventListener("error", () => finish(false), { once: true });
     image.src = imageUrl;
@@ -321,7 +329,7 @@ function createArchiveCard(item) {
   meta.className = "link-host archive-host";
   meta.textContent = archiveMetaText(item, url);
   main.append(title, meta);
-  card.append(createBookmarkFavicon({ ...item, url }), main, createSeenButton(item, t("action.markSeen"), t("action.removeArchive"), archiveSource(item)));
+  card.append(createBookmarkFavicon({ ...item, url }), main, createSeenButton(item, t("action.markRead"), t("action.removeArchive"), archiveSource(item)));
   return card;
 }
 

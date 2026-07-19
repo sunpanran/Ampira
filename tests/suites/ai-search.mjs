@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { translate, translateAiPrompt } from "../../extension/core/i18n.mjs";
+import { translate, translateAiPrompt } from "../helpers/full-i18n.mjs";
 import { normalizeUserUrl } from "../../extension/core/search.mjs";
 import { readerTextFromBlocks } from "../../extension/core/reader.mjs";
 import { limitArticleSummary, normalizeArticleContext, normalizeQuestionContext } from "../../extension/core/ai-search.mjs";

@@ -35,5 +35,6 @@ export function messageRequestForHttp(method, rawUrl) {
   const payload = Object.fromEntries(url.searchParams);
   if (type === "refresh:start") payload.force = url.searchParams.get("force") === "1";
   if (type === "preview:get" || type === "reader:get") payload.url = url.searchParams.get("url") || "";
+  if (type === "preview:get") payload.profile = url.searchParams.get("profile") === "article" ? "article" : "visual";
   return { key, request: { type, payload } };
 }

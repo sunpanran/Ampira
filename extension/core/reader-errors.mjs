@@ -1,4 +1,4 @@
-import { DEFAULT_LOCALE, translate } from "./i18n.mjs";
+import { DEFAULT_LOCALE, translate } from "./runtime-i18n.mjs";
 
 export function readerError(code, retryable, details = {}) {
   const messageKey = readerMessageKey(code);
