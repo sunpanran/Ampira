@@ -716,3 +716,10 @@ $env:REQUIRED_SUPPORT_URL = "https://github.com/sunpanran/Ampira/issues"
 - 收藏夹列表刷新失败时不再把旧目录重新标记为读取成功。界面会清空无法确认的新列表并显示读取失败状态，重新打开组合框仍可重试。
 - 服务商原生联网检索开始执行真实的分阶段扩展：普通问题先查近 31 天，证据不足再解除日期限制；“最近/最新”先查近 7 天，再扩大到 31 天，仍缺少足够且可核对的证据时才解除限制。显式日期范围始终只执行该范围，不自动放宽。回答覆盖信息记录是否发生扩展。
 - 合成测试覆盖关闭绑定、研究操作原位替换、旧收藏夹错误状态、7 天到 31 天再到不限时间的三阶段请求，以及无可核对日期时继续扩大。没有读取真实书签、真实 AI 密钥或调用真实服务商，本轮未执行加载已解压扩展后的 Chrome/Edge 手动 QA。
+
+## 2026-08-14 — 26.2.11 发布包
+
+- `manifest.json` 版本由 `26.2.10` 递增到 `26.2.11`，README 与三语言 GitHub Pages 首页同步提供 Chrome Web Store 和 Microsoft Edge Add-ons 安装入口。
+- 使用公开支持地址 `https://github.com/sunpanran/Ampira/issues` 执行 `.\scripts\verify-extension.ps1 -Package`，统一测试、语法、资源、清单、本地化、文档、安全和打包检查全部通过。
+- `dist/ampira-26.2.11.zip` 包含 301 个文件、大小 2,325,390 B，SHA-256 为 `550988c1a7471aa76f47f765835dc09d533c3e9b260b851ec673ee225156c97a`；sidecar 与发布清单一致，ZIP 根目录包含唯一的 `manifest.json`。
+- 本轮完成自动验证与发布包审计，未执行加载已解压扩展后的 Chrome/Edge 手动 QA；Chrome Web Store 与 Microsoft Edge Add-ons 仍需在开发者后台上传并提交审核。
