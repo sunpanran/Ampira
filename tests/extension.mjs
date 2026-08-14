@@ -51,10 +51,12 @@ import { personalSourcePermissionScope } from "../assets/client/saved-source-per
 import { formatTodayMeta } from "../assets/client/time.mjs";
 import { cleanDailyDigestOverviewLine, cleanGeneratedSummaryLine, dailyDigestEvidence, parseGeneratedDailyDigest } from "../extension/core/summary-text.mjs";
 import { copyText } from "../assets/client/clipboard.mjs";
+import { conversationPayload, createAiSearchSession, shouldSubmitAiComposer } from "../assets/client/ai-search-ui.mjs";
 import { searchCopyKeys } from "../assets/client/search-copy.mjs";
 import { bookmarkEmptyStateKind, summaryEmptyStateKind } from "../assets/client/empty-state-policy.mjs";
 import { cleanSummaryLines as cleanPresentedSummaryLines, cleanSummaryTitle as cleanPresentedSummaryTitle, isCorrectlySummarized } from "../assets/client/item-presenter.mjs";
 import { animatePanelEntrance } from "../assets/client/dom.mjs";
+import { MOTION_DURATION, MOTION_EASING } from "../assets/client/motion.mjs";
 import {
   moveWebsiteShortcut, removeWebsiteShortcut, reorderWebsiteShortcuts, upsertWebsiteShortcut,
 } from "../assets/client/website-shortcuts-controller.mjs";
@@ -74,6 +76,9 @@ import { runInspirationPresetTests } from "./suites/inspiration-preset.mjs";
 import { runTodayEventTests } from "./suites/today-events.mjs";
 import { runClientStateStoreTests } from "./suites/client-state-store.mjs";
 import { runClientStorageTests } from "./suites/client-storage.mjs";
+import { runSummaryBatchTransitionTests } from "./suites/summary-batch-transition.mjs";
+import { runDailyCardReconciliationTests } from "./suites/daily-card-reconciliation.mjs";
+import { runAsyncImageRevealTests } from "./suites/async-image-reveal.mjs";
 import { createReaderPreviewService } from "../extension/runtime/reader-preview-service.mjs";
 import { createRefreshService } from "../extension/runtime/refresh-service.mjs";
 import { createPermissionGateway } from "../extension/runtime/permission-gateway.mjs";
@@ -105,21 +110,36 @@ const todayMetaFixture = new Date(2026, 6, 14, 19, 51, 42);
 assert.deepEqual(searchCopyKeys(false), {
   placeholder: "search.local.placeholder",
   action: "search.local.action",
-  dialogTitle: "aiSearch.local.title",
   dialogMeta: "aiSearch.local.meta",
   dialogInput: "aiSearch.local.input",
-  dialogSubmit: "aiSearch.local.submit",
 });
-assert.equal(searchCopyKeys(true).dialogTitle, "aiSearch.ai.title");
-assert.equal(searchCopyKeys(undefined).dialogTitle, "aiSearch.local.title", "partial AI setup must retain local-search copy");
+assert.equal(searchCopyKeys(true).dialogInput, "aiSearch.ai.input");
+assert.equal(searchCopyKeys(undefined).dialogInput, "aiSearch.local.input", "partial AI setup must retain local-search copy");
 assert.deepEqual(searchCopyKeys(true, true), {
   placeholder: "search.browser.placeholder",
   action: "search.browser.action",
-  dialogTitle: "aiSearch.ai.title",
   dialogMeta: "aiSearch.ai.meta",
   dialogInput: "aiSearch.ai.input",
-  dialogSubmit: "aiSearch.ai.submit",
 }, "browser mode must change only the top search copy while preserving the navigation search dialog");
+const emptyAiSearchSession = createAiSearchSession();
+assert.deepEqual(emptyAiSearchSession, {
+  kind: "empty", context: null, messages: [], nextMessageId: 1, meta: "",
+}, "AI search history must begin as page-memory-only state");
+const questionTurns = Array.from({ length: 8 }, (_, index) => ({ question: `q${index}`, answer: `a${index}` }));
+assert.deepEqual(conversationPayload({
+  type: "question", initialQuery: "first", initialAnswer: "answer", turns: questionTurns,
+}), {
+  type: "question", initialQuery: "first", initialAnswer: "answer", turns: questionTurns,
+}, "question follow-ups must retain only the bounded provider context");
+assert.deepEqual(conversationPayload({
+  type: "article", url: "https://example.com/story", summary: "summary", turns: questionTurns,
+}), {
+  type: "article", url: "https://example.com/story", summary: "summary", turns: questionTurns,
+}, "article follow-ups must retain their source and bounded provider context");
+assert.equal(shouldSubmitAiComposer({ key: "Enter" }), true);
+assert.equal(shouldSubmitAiComposer({ key: "Enter", shiftKey: true }), false, "Shift+Enter must insert a new line");
+assert.equal(shouldSubmitAiComposer({ key: "Enter", isComposing: true }), false, "IME composition must not submit the composer");
+assert.equal(shouldSubmitAiComposer({ key: "Enter", keyCode: 229 }), false, "IME keycode fallbacks must not submit the composer");
 const todayMetaValue = formatTodayMeta(todayMetaFixture);
 assert.equal(todayMetaValue.date, "2026.07.14");
 assert.equal(todayMetaValue.weekday, "周二");
@@ -290,11 +310,36 @@ animatePanelEntrance(Array.from({ length: 3 }, (_, index) => ({
     return { index };
   },
 })), { delay: 60 });
-assert.deepEqual(panelAnimationCalls.map(({ timing }) => timing.delay), [60, 92, 124], "dashboard panels must use the 32ms entrance stagger");
-assert.equal(panelAnimationCalls[0].keyframes[0].transform, "translate3d(0, 8px, 0)", "dashboard panels must begin gently below their resting position");
-assert.equal(panelAnimationCalls[0].keyframes[0].opacity, .2, "dashboard panel contents must remain partially visible at entrance start");
-assert.equal(panelAnimationCalls[0].timing.duration, 360, "dashboard panel entrance must use the first-frame duration");
-assert.equal(panelAnimationCalls[0].timing.easing, "cubic-bezier(.16, 1, .3, 1)", "dashboard panel entrance must settle with gentle deceleration");
+assert.deepEqual(panelAnimationCalls.map(({ timing }) => timing.delay), [60, 80, 100], "dashboard panels must use the compact 20ms entrance stagger");
+assert.equal(panelAnimationCalls[0].keyframes[0].transform, "translate3d(0, 4px, 0)", "dashboard panels must begin only slightly below their resting position");
+assert.equal(panelAnimationCalls[0].keyframes[0].opacity, 0, "dashboard panel contents must fade in from fully transparent");
+assert.equal(panelAnimationCalls[0].timing.duration, 420, "dashboard panel entrance must allow a smooth fade without delaying the group");
+assert.equal(panelAnimationCalls[0].timing.easing, "cubic-bezier(.2, 0, 0, 1)", "dashboard panel entrance must begin with gentle acceleration instead of an abrupt ease-out");
+assert.equal(MOTION_DURATION.firstFrame, 420, "the shared first-frame duration must define the unified 420ms entrance");
+assert.equal("panelEntrance" in MOTION_DURATION, false, "panel entrances must reuse the first-frame token instead of defining a duplicate duration");
+assert.deepEqual(Object.keys(MOTION_DURATION), ["press", "state", "emphasis", "move", "firstFrame"], "JavaScript must expose only duration tokens with active JavaScript consumers");
+assert.deepEqual(Object.keys(MOTION_EASING), ["standard", "enter", "exit", "move"], "JavaScript must expose only easing tokens with active JavaScript consumers");
+const panelCompositionEvents = [];
+animatePanelEntrance([{
+  style: {
+    setProperty(name, value) { panelCompositionEvents.push(`${name}:${value}`); },
+    removeProperty() {},
+  },
+  animate() {
+    panelCompositionEvents.push("animate");
+    return { addEventListener() {} };
+  },
+}]);
+assert.deepEqual(panelCompositionEvents.slice(0, 2), ["will-change:transform, opacity", "animate"], "panel entrances must prepare their compositor layer before starting opacity on glass surfaces");
+const synchronizedPanelCalls = [];
+animatePanelEntrance(Array.from({ length: 2 }, (_, index) => ({
+  hidden: false,
+  animate(keyframes, timing) {
+    synchronizedPanelCalls.push({ index, keyframes, timing });
+    return { addEventListener() {} };
+  },
+})), { delay: 0, stagger: 0, maxStagger: 0 });
+assert.deepEqual(synchronizedPanelCalls.map(({ timing }) => timing.delay), [0, 0], "a zero entrance stagger must keep grouped panel content visually synchronized");
 let panelShellAnimated = false;
 let panelContentAnimated = false;
 animatePanelEntrance([{
@@ -307,6 +352,8 @@ globalThis.matchMedia = () => ({ matches: true });
 assert.deepEqual(animatePanelEntrance([{ animate() { throw new Error("reduced motion must skip animation"); } }]), [], "dashboard panel entrance must respect reduced motion");
 if (originalMatchMedia) globalThis.matchMedia = originalMatchMedia;
 else delete globalThis.matchMedia;
+
+await runAsyncImageRevealTests();
 
 const root = path.dirname(path.dirname(new URL(import.meta.url).pathname.replace(/^\/(?:[A-Za-z]:)/, (match) => match.slice(1))));
 await runArchitectureTests(root);
@@ -387,6 +434,8 @@ runSettingsTransferTests();
 await runFactoryResetTests();
 await runInspirationPresetTests();
 await runTodayEventTests();
+await runSummaryBatchTransitionTests();
+runDailyCardReconciliationTests();
 const originalFetch = globalThis.fetch;
 try {
   const manyItems = Array.from({ length: 15 }, (_, index) => ({ id: String(index), url: `https://example.com/${index}`, title: `Item ${index}`, content_text: `Summary ${index}` }));
@@ -1344,6 +1393,8 @@ assert.deepEqual(pageForItems([1, 2, 3, 4, 5], 2, -1), {
 assert.deepEqual(seededShuffle([1, 2, 3, 4], "same-seed"), seededShuffle([1, 2, 3, 4], "same-seed"));
 assert.equal(shouldShowColumnAction({ action: "clearSeen", items: [] }), false, "an empty viewed archive must not show a clear action");
 assert.equal(shouldShowColumnAction({ action: "clearSeen", items: [{ key: "seen" }] }), true, "a viewed archive with content must show a clear action");
+const dailyColumnCssSource = await fs.readFile(path.join(root, "assets/styles/dashboard-sections.css"), "utf8");
+assert(/\.column-head\s*\{[^}]*min-height:\s*30px;/s.test(dailyColumnCssSource), "daily column headers must keep the action-height rhythm when an action is absent");
 assert.equal(shouldShowColumnAction({ action: "reshuffle", pageInfo: { pageCount: 1 } }), false, "a single-batch daily column must not show a reshuffle action");
 assert.equal(shouldShowColumnAction({ action: "reshuffle", pageInfo: { pageCount: 2 } }), true, "a multi-batch daily column must show a reshuffle action");
 assert.equal(shouldShowQueueReadAll([]), false, "an empty reading queue must not show the mark-all-read action");
@@ -1984,7 +2035,9 @@ const settingsTransferControllerSource = await fs.readFile(path.join(root, "asse
 const appearanceControllerSource = await fs.readFile(path.join(root, "assets/client/appearance-controller.mjs"), "utf8");
 const coverBlurPreviewSource = await fs.readFile(path.join(root, "assets/client/cover-blur-preview-controller.mjs"), "utf8");
 const contextMenuSource = await fs.readFile(path.join(root, "assets/client/context-menu-controller.mjs"), "utf8");
+const confirmationDialogSource = await fs.readFile(path.join(root, "assets/client/confirmation-dialog.mjs"), "utf8");
 const efficiencyViewSource = await fs.readFile(path.join(root, "assets/client/efficiency-view.mjs"), "utf8");
+const dailyViewSource = await fs.readFile(path.join(root, "assets/client/daily-view.mjs"), "utf8");
 const summaryViewSource = await fs.readFile(path.join(root, "assets/client/summary-view.mjs"), "utf8");
 const bookmarksViewSource = await fs.readFile(path.join(root, "assets/client/bookmarks-view.mjs"), "utf8");
 const bookmarkSettingsControllerSource = await fs.readFile(path.join(root, "assets/client/bookmark-settings-controller.mjs"), "utf8");
@@ -1997,11 +2050,38 @@ const motionCssSource = await fs.readFile(path.join(root, "assets/styles/motion-
 const baseLayoutCssSource = await fs.readFile(path.join(root, "assets/styles/base-layout.css"), "utf8");
 const primitivesCssSource = await fs.readFile(path.join(root, "assets/styles/primitives.css"), "utf8");
 const dashboardSectionsCssSource = await fs.readFile(path.join(root, "assets/styles/dashboard-sections.css"), "utf8");
+const extensionCssSource = await fs.readFile(path.join(root, "assets/extension.css"), "utf8");
+for (const [name, value] of Object.entries(MOTION_DURATION)) {
+  const cssName = name.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);
+  assert(tokensCssSource.includes(`--motion-${cssName}-duration: ${value}ms;`), `CSS and JavaScript must agree on the ${name} motion duration`);
+}
+for (const [name, value] of Object.entries(MOTION_EASING)) {
+  assert(tokensCssSource.includes(`--motion-ease-${name}: ${value};`), `CSS and JavaScript must agree on the ${name} motion easing`);
+}
 const selectComboboxSource = await fs.readFile(path.join(root, "assets/client/select-combobox.mjs"), "utf8");
 const extensionUiSource = await fs.readFile(path.join(root, "assets/client/extension-ui.mjs"), "utf8");
 assert(overlaysCssSource.includes(':root[data-color-mode="light"] .confirmation-copy,\n:root[data-color-mode="light"] .confirmation-actions {')
   && overlaysCssSource.includes(':root:not([data-color-mode]) .confirmation-actions,\n  :root[data-color-mode="system"] .confirmation-actions {')
   && !overlaysCssSource.includes(':root[data-color-mode="light"] .confirmation-actions {\n  background: transparent;'), "light confirmation dialogs must use one continuous surface across copy and actions");
+assert((tokensCssSource.match(/--settings-overlay-bg: color-mix\(in srgb, var\(--bg\) 72%, transparent\);/g) || []).length === 2
+  && settingsCssSource.includes("background: var(--settings-overlay-bg);")
+  && overlaysCssSource.includes(".confirmation-dialog::backdrop {\n  background: var(--settings-overlay-bg);")
+  && extensionCssSource.includes(".onboarding-overlay {\n")
+  && extensionCssSource.includes("background: var(--settings-overlay-bg);"),
+  "explicit and system light themes must use the shared light backdrop across settings, confirmations, and onboarding");
+assert(overlaysCssSource.includes(".confirmation-dialog[open]:not(.closing) {")
+  && overlaysCssSource.includes("animation: settingsModalOpen var(--motion-overlay-duration) var(--motion-ease-enter) both;")
+  && overlaysCssSource.includes(".confirmation-dialog[open]:not(.closing)::backdrop {")
+  && overlaysCssSource.includes("animation: settingsBackdropIn var(--motion-overlay-duration) var(--motion-ease-enter) both;")
+  && overlaysCssSource.includes(".confirmation-dialog[open].closing {")
+  && overlaysCssSource.includes("animation: settingsModalClose var(--motion-state-duration) var(--motion-ease-exit) both;")
+  && overlaysCssSource.includes("animation: settingsBackdropOut var(--motion-state-duration) var(--motion-ease-exit) both;"),
+  "the shared confirmation must animate both its surface and native backdrop with existing modal motion tokens");
+assert(confirmationDialogSource.includes('dialog.classList.add("closing")')
+  && confirmationDialogSource.includes("MOTION_DURATION.state")
+  && confirmationDialogSource.includes("isReducedMotion() ? 0 : closeMotionMs")
+  && confirmationDialogSource.includes('dialog.classList.remove("closing")'),
+  "the shared confirmation must remain open for its close motion and skip that delay for reduced motion");
 assert(primitivesCssSource.includes("select {\n  --select-arrow-color: var(--muted-2);")
   && primitivesCssSource.includes("min-height: 38px;")
   && primitivesCssSource.includes("linear-gradient(45deg, transparent 50%, var(--select-arrow-color) 50%)")
@@ -2014,7 +2094,9 @@ assert(primitivesCssSource.includes("select {\n  --select-arrow-color: var(--mut
   && primitivesCssSource.includes("appearance: auto;"), "native select fallbacks must retain the themed control and forced-colors behavior");
 assert(!primitivesCssSource.includes("select:not(:disabled):active"), "native selects must not shift when the system popup opens");
 assert(!settingsCssSource.includes(".field select"), "settings must not duplicate the shared native select primitive");
-assert((dashboardSource.match(/<select\b/g) || []).length === 9, "every shipped single-value select must remain accounted for by the shared enhancement");
+assert((dashboardSource.match(/<select\b/g) || []).length === 10
+  && dashboardSource.includes('id="aiResearchFolder"'),
+"every shipped single-value select, including the research folder scope, must remain accounted for by the shared enhancement");
 assert(selectComboboxSource.includes('trigger.setAttribute("role", "combobox")')
   && selectComboboxSource.includes('listbox.setAttribute("role", "listbox")')
   && selectComboboxSource.includes('option.setAttribute("role", "option")')
@@ -2049,49 +2131,115 @@ assert(readerUiSource.includes("markReadOnOpen(item);"), "opening a bookmark or 
 assert(serviceWorkerSource.includes('record.value?.capability === "feed-image"')
   && serviceWorkerSource.includes('expectedOrigin === originPattern(record.value?.sourceOrigin || "")'), "Feed image caches must be removed when their exact source permission no longer matches");
 assert(readerUiSource.includes("Array.isArray(block.imageUrls)") && readerUiSource.includes("imageIndex += 1"), "Reader images must exhaust safe original candidates before showing the source fallback");
-assert(aiSearchUiSource.includes('classList.add("closing")') && aiSearchUiSource.includes("AI_SEARCH_CLOSE_MOTION_MS = 180"), "AI search must retain the overlay while its close motion completes");
+assert(aiSearchUiSource.includes('classList.add("closing")')
+  && aiSearchUiSource.includes("MOTION_DURATION.state"), "AI search must retain the overlay for the shared state-duration close motion");
 assert(aiSearchUiSource.includes('classList.remove("open", "closing")') && aiSearchUiSource.includes("prefers-reduced-motion: reduce"), "AI search close cleanup must complete immediately for reduced motion");
-assert(aiSearchUiSource.includes("articleContext") && aiSearchUiSource.includes("questionContext") && aiSearchUiSource.includes("searchConversation.turns.push"), "AI search must append article and general-question follow-up turns to the current dialog session");
-assert(aiSearchUiSource.includes("resetArticleConversation();") && aiSearchUiSource.includes("turns.slice(-ARTICLE_FOLLOWUP_MAX_TURNS)"), "AI search conversations must clear on dialog reset and bound provider history");
-assert(aiSearchUiSource.includes('`${questionNumber}.`') && aiSearchUiSource.includes('querySelectorAll(".ai-conversation-message.is-user")'), "visible article follow-ups must use compact sequential numbering");
-assert(aiSearchUiSource.includes("appendAnswerCopyButton(content)")
-  && aiSearchUiSource.includes('message.append(createAiCopyButton(() => body.textContent))')
+const aiSearchCloseSource = aiSearchUiSource.slice(aiSearchUiSource.indexOf("function close()"), aiSearchUiSource.indexOf("function newConversation()"));
+assert(!aiSearchCloseSource.includes("generation += 1")
+  && !aiSearchCloseSource.includes("resetConversation")
+  && aiSearchUiSource.includes("if (session.meta) els.aiSearchMeta.textContent = session.meta"),
+"closing and reopening the LLM workbench must preserve its page-session history and pending request");
+assert(aiSearchUiSource.includes("articleContext")
+  && aiSearchUiSource.includes("questionContext")
+  && aiSearchUiSource.includes("session.context.turns.push"), "AI search must append article and general-question follow-up turns to the current page session");
+assert(aiSearchUiSource.includes("createAiSearchSession()")
+  && aiSearchUiSource.includes("turns.slice(-maxTurns)"), "AI search conversations must reset explicitly and bound provider history");
+assert(aiSearchUiSource.includes('session.messages.filter((message) => message.role === "user")')
+  && aiSearchUiSource.includes('message.setAttribute("aria-label", messageAriaLabel(model))')
+  && aiSearchUiSource.includes('t("aiSearch.userMessage", { number: model.questionNumber })')
+  && !aiSearchUiSource.includes("ai-conversation-label"), "question turns must remain internally numbered while visible role labels stay out of the bubble layout");
+assert(aiSearchUiSource.includes("tools.append(createAiCopyButton(copyTextValue))")
   && aiSearchUiSource.includes('createThemedIcon(stateName === "copied" ? "check" : "copy", "ai-copy-icon")')
   && aiSearchUiSource.includes('"aiSearch.copySuccess"')
   && overlaysCssSource.includes(".ai-copy-button {")
-  && overlaysCssSource.includes(".ai-conversation-message.is-assistant {\n  grid-template-columns: 30px minmax(0, 1fr) 30px;")
-  && motionCssSource.includes(".ai-conversation-message.is-assistant {\n    grid-template-columns: 24px minmax(0, 1fr) 30px;"),
-  "the initial AI answer and each assistant reply must expose a responsive icon-only copy action with visible feedback");
-assert(dashboardSource.includes('<small class="ai-search-meta" id="aiSearchGeneratedDisclaimer" data-i18n="aiSearch.generatedDisclaimer" hidden>内容由 AI 生成，请核对重要信息。</small>')
-  && aiSearchUiSource.includes("setGeneratedDisclaimerVisible(result.usedAi)")
-  && (aiSearchUiSource.match(/setGeneratedDisclaimerVisible\(false\)/g) || []).length >= 2
-  && aiSearchUiSource.includes("if (result.usedAi) {\n          setGeneratedDisclaimerVisible(true);")
-  && aiSearchUiSource.includes("els.aiSearchGeneratedDisclaimer.hidden = visible !== true"),
-  "AI-generated search results must show a localized disclaimer below the answer while local and error results keep it hidden");
-assert.equal(translate("zh-CN", "aiSearch.generatedDisclaimer"), "内容由 AI 生成，请核对重要信息。");
-assert.equal(translate("zh-Hant", "aiSearch.generatedDisclaimer"), "內容由 AI 生成，重要資訊請自行核對。");
-assert.equal(translate("en", "aiSearch.generatedDisclaimer"), "AI-generated content. Verify important information.");
-assert(dashboardSource.includes('role="log"') && dashboardSource.includes('aria-relevant="additions text"'), "the article conversation transcript must expose appended turns to assistive technology");
+  && overlaysCssSource.includes(".ai-message-tools > .ai-copy-button {"),
+  "each completed assistant or local reply must expose an icon-only copy action inside its low-emphasis footer");
+assert(!dashboardSource.includes("aiSearchGeneratedDisclaimer")
+  && !aiSearchUiSource.includes("ai-message-disclaimer")
+  && aiSearchUiSource.includes('model.usedAi ? "aiSearch.message.ai" : "aiSearch.message.local"'),
+  "AI disclosure, cache, local fallback, and error provenance must be condensed into the corresponding answer action row");
+assert(dashboardSource.includes('id="aiAnswer" role="log"')
+  && dashboardSource.includes('aria-relevant="additions text"')
+  && dashboardSource.includes('id="aiSearchInput" rows="1" maxlength="8000"')
+  && dashboardSource.includes('id="newAiSearch"')
+  && !dashboardSource.includes('id="aiSearchMode"')
+  && !dashboardSource.includes('id="aiSearchEmpty"')
+  && !dashboardSource.includes('aiSearch.emptyTitle'), "the search dialog must expose a live transcript and one multiline composer without a redundant visible empty state");
+assert(aiSearchUiSource.includes("shouldSubmitAiComposer(event)")
+  && aiSearchUiSource.includes("event.shiftKey !== true")
+  && aiSearchUiSource.includes("event.isComposing !== true")
+  && aiSearchUiSource.includes("COMPOSER_MAX_HEIGHT = 144"), "the composer must support multiline input, IME safety, and bounded auto-resize");
+assert(aiSearchUiSource.includes("FOCUSABLE_SELECTOR")
+  && aiSearchUiSource.includes("lastFocusedElement")
+  && aiSearchUiSource.includes("restoreFocus()")
+  && aiSearchUiSource.includes("element.getClientRects().length > 0")
+  && appSource.includes('els.aiSearchOverlay.addEventListener("keydown", trapAiSearchFocus)'), "the modal workbench must trap keyboard focus and restore the opener on close");
+assert(appSource.includes("if (event.target === els.aiSearchOverlay) closeAiSearch();"), "only a click on the real search backdrop may close the workbench");
 assert(!overlaysCssSource.includes(".ai-search-form:focus-within"), "the always-focused search form must not keep an active outline");
+assert(overlaysCssSource.includes(":root:has(.search-overlay.open) {\n  overflow: hidden !important;"), "the open search surface must lock root scrolling so mobile fullscreen has no exposed scrollbar strip");
+assert(baseLayoutCssSource.includes("html {\n  overflow-x: hidden;\n  scrollbar-gutter: stable;"),
+  "the dashboard must reserve its root scrollbar gutter so opening search cannot shift centered content");
+assert(overlaysCssSource.includes(".ai-conversation-message.ai-loading-surface::after {\n  display: none;"),
+  "AI search loading rows must keep their skeleton without the accent scan overlay");
+assert(overlaysCssSource.includes("scrollbar-gutter: stable;")
+  && !overlaysCssSource.includes("scrollbar-gutter: stable both-edges;"),
+  "the AI transcript must reserve only the scrollbar edge so overflow does not introduce a left-side offset");
+assert(!/\.ai-answer\s*\{[^}]*scrollbar-width:/s.test(overlaysCssSource),
+  "the AI transcript must inherit the shared custom scrollbar instead of restoring the platform scrollbar");
+assert(dashboardSource.includes('<span class="btn-icon themed-icon ai-search-scope-toggle-icon" aria-hidden="true"></span>')
+  && overlaysCssSource.includes('--themed-icon-mask: url("/assets/icons/search-lg.svg");')
+  && overlaysCssSource.includes(".ai-search-scope-toggle.is-active .btn-icon {\n  opacity: 1;"),
+  "the active web-search scope icon must inherit the same accent color as its label");
 assert((tokensCssSource.match(/--search-overlay-bg: color-mix\(in srgb, var\(--bg\) 72%, transparent\);/g) || []).length === 2
   && (tokensCssSource.match(/--search-overlay-backdrop: var\(--card-backdrop-blur\);/g) || []).length === 2,
   "explicit and system light themes must retain a neutral translucent search backdrop with the shared card blur");
-assert(overlaysCssSource.includes("border: 1px solid var(--card-line);\n  border-radius: var(--radius-card);\n  background: var(--blur-panel-bg);\n  -webkit-backdrop-filter: var(--card-backdrop-blur);\n  backdrop-filter: var(--card-backdrop-blur);")
-  && overlaysCssSource.includes(".ai-answer {\n  max-height: 52vh;\n  overflow: auto;\n  padding: 0;\n  border: 1px solid var(--card-line);\n  border-radius: var(--radius-card);\n  background: var(--blur-panel-bg);")
-  && !overlaysCssSource.includes("linear-gradient(90deg, color-mix(in srgb, var(--accent) 7%, transparent), transparent 36%)")
-  && !overlaysCssSource.includes(".ai-conversation-message.is-user {")
-  && overlaysCssSource.includes('.ai-answer:not(:has(.ai-answer-report)):not([data-mode="conversation"])')
-  && overlaysCssSource.includes("grid-template-columns: 30px minmax(0, 1fr);\n  column-gap: 14px;")
-  && overlaysCssSource.includes("max-width: 72ch;")
-  && motionCssSource.includes(".ai-answer-section,\n  .ai-conversation-message {\n    grid-template-columns: 24px minmax(0, 1fr);")
-  && (overlaysCssSource.match(/-webkit-backdrop-filter: var\(--card-backdrop-blur\);/g) || []).length >= 3,
-  "AI answers and conversations must use the neutral glass surface with aligned readable desktop and mobile content grids");
-assert(overlaysCssSource.includes(".search-overlay.open.closing") && motionCssSource.includes("@keyframes aiSearchPanelClose"), "AI search must define a visible closing state");
+assert(overlaysCssSource.includes("width: min(720px, 100%);")
+  && overlaysCssSource.includes(".ai-search-panel.has-conversation {")
+  && overlaysCssSource.includes("width: min(960px, 100%);")
+  && overlaysCssSource.includes("height: calc(100dvh - 32px);")
+  && overlaysCssSource.includes("border-radius: var(--radius-panel);")
+  && overlaysCssSource.includes("background: var(--settings-panel-bg);")
+  && overlaysCssSource.includes("backdrop-filter: var(--settings-panel-backdrop);")
+  && overlaysCssSource.includes("box-shadow: var(--settings-panel-shadow), inset 0 1px 0 var(--line-faint);")
+  && overlaysCssSource.includes("grid-template-rows: minmax(0, 1fr) auto;")
+  && overlaysCssSource.includes(".ai-search-panel:not(.has-conversation) .ai-search-head")
+  && overlaysCssSource.includes(".ai-search-panel:not(.has-conversation) .ai-search-form")
+  && overlaysCssSource.includes(".ai-search-scope-controls,")
+  && overlaysCssSource.includes(".ai-search-scope-toggle.is-active")
+  && overlaysCssSource.includes(".ai-search-next-turn {")
+  && overlaysCssSource.includes(".ai-search-panel.has-conversation .ai-search-form")
+  && overlaysCssSource.includes(".ai-conversation-message.is-user {")
+  && overlaysCssSource.includes("max-width: 72%;")
+  && overlaysCssSource.includes(".ai-conversation-bubble {")
+  && overlaysCssSource.includes("background: transparent;")
+  && overlaysCssSource.includes(".ai-message-footer {")
+  && overlaysCssSource.includes(".ai-research-sources[hidden] {")
+  && overlaysCssSource.includes("@supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px)))")
+  && overlaysCssSource.includes("@media (forced-colors: active)")
+  && motionCssSource.includes(".ai-search-panel.has-conversation {")
+  && motionCssSource.includes("height: 100dvh;")
+  && motionCssSource.includes(".search-overlay {\n    width: 100vw;\n    height: 100dvh;")
+  && motionCssSource.includes("max-width: 86%;"),
+  "AI search must collapse to one glass composer, expand to a near-fullscreen settings glass surface, and render a user bubble beside unframed assistant prose");
+assert(aiSearchUiSource.includes("function animatePanelFrom(previousRect)")
+  && aiSearchUiSource.includes("const scaleX = previousRect.width / nextRect.width;")
+  && aiSearchUiSource.includes("const scaleY = previousRect.height / nextRect.height;")
+  && !aiSearchUiSource.includes("animateComposerFrom"), "compact and conversation states must use a transform-only panel FLIP without duplicating the composer");
+assert(overlaysCssSource.includes("animation: aiSearchOverlayOut var(--motion-state-duration) var(--motion-ease-exit) both;")
+  && overlaysCssSource.includes("animation: aiSearchPanelClose var(--motion-state-duration) var(--motion-ease-exit) both;")
+  && motionCssSource.includes("@keyframes aiSearchPanelClose"), "AI search must use the shared state duration for its visible closing state");
 const aiSearchMotionSource = motionCssSource.slice(motionCssSource.indexOf("@keyframes aiSearchPanelOpen"), motionCssSource.indexOf("@keyframes aiSearchControlIn"));
 assert(!aiSearchMotionSource.includes("clip-path") && aiSearchMotionSource.includes("scale(.985)"), "AI search must enter as one continuous surface without clipping its controls");
-assert(readerUiSource.includes('classList.add("closing")') && readerUiSource.includes("READER_CLOSE_MOTION_MS = 180"), "the floating reader must retain its overlay while closing");
+assert(readerUiSource.includes('classList.add("closing")')
+  && readerUiSource.includes("MOTION_DURATION.state"), "the floating reader must retain its overlay for the shared state-duration close motion");
 assert(readerUiSource.includes("finalizeFloatingWebClose();") && readerUiSource.includes("clearTimeout(readerCloseTimer)"), "the floating reader must clean up after close and cancel stale close timers on reopen");
-assert(overlaysCssSource.includes(".web-frame-overlay.open.closing") && motionCssSource.includes("@keyframes webFrameDialogIn") && motionCssSource.includes("@keyframes webFrameDialogOut"), "the floating reader must animate both entrance and exit");
+assert(overlaysCssSource.includes("animation: webFrameBackdropOut var(--motion-state-duration) var(--motion-ease-exit) both;")
+  && overlaysCssSource.includes("animation: webFrameDialogOut var(--motion-state-duration) var(--motion-ease-exit) both;")
+  && motionCssSource.includes("@keyframes webFrameDialogIn")
+  && motionCssSource.includes("@keyframes webFrameDialogOut"), "the floating reader must use the shared state duration for both exit surfaces");
+assert(settingsCssSource.includes("animation: settingsBackdropOut var(--motion-state-duration) var(--motion-ease-exit) both;")
+  && settingsCssSource.includes("animation: settingsModalClose var(--motion-state-duration) var(--motion-ease-exit) both;"),
+  "settings close surfaces must use the shared state duration");
 assert(overlaysCssSource.includes("animation: webFrameDialogIn var(--motion-reader-duration) var(--motion-ease-enter) both;")
   && overlaysCssSource.includes("animation: webFrameReaderIn var(--motion-reader-duration) var(--motion-ease-enter) both;")
   && overlaysCssSource.includes("animation: webFrameToolbarIn var(--motion-reader-duration) var(--motion-ease-enter) both;")
@@ -2120,11 +2268,15 @@ assert(settingsCssSource.includes(".source-health-list.settings-compact-list:not
   && settingsCssSource.includes("outline: 1px solid var(--active-line);")
   && settingsCssSource.includes("overscroll-behavior: contain;")
   && dashboardSource.includes('id="sourceCoverageList" tabindex="0" aria-labelledby="sourceCoverageTitle"'), "source coverage diagnostics must require focus before taking over scrolling and retain a visible keyboard-accessible focus state");
-assert(appSource.includes("const CARD_EXIT_MS = 120") && appSource.includes("const CARD_ENTER_MS = 240"), "card replacement must use the semantic exit and settle durations");
+assert(appSource.includes("const CARD_EXIT_MS = 120")
+  && appSource.includes("enterMs: MOTION_DURATION.emphasis"), "card replacement must use its dedicated exit and the shared emphasis settle duration");
 assert(appSource.includes("Math.min(index * 32, 96)"), "card replacement stagger must use 32ms steps capped at 96ms");
+assert(baseLayoutCssSource.includes(".today-meta {\n  min-height: 1.75em;\n}"), "the empty dashboard date row must reserve the final 14px date line height before clock text is written");
 const navLabelSource = baseLayoutCssSource.slice(baseLayoutCssSource.indexOf(".nav-label {"), baseLayoutCssSource.indexOf(".main {"));
 assert(navLabelSource.includes("visibility: hidden") && navLabelSource.includes("visibility: visible") && navLabelSource.includes("opacity: 1"), "desktop navigation labels must fade and slide instead of popping between display states");
-assert(navLabelSource.includes(".sidebar:focus-within .nav-label"), "desktop navigation labels must remain available to keyboard focus");
+assert(navLabelSource.includes(".sidebar:has(:focus-visible) .nav-label")
+  && !baseLayoutCssSource.includes(".sidebar:focus-within")
+  && !motionCssSource.includes(".sidebar:focus-within"), "desktop navigation must expand for visible keyboard focus without remaining open after a pointer click leaves focus behind");
 const navStaticActiveSource = baseLayoutCssSource.slice(baseLayoutCssSource.indexOf(".nav-btn.active {"), baseLayoutCssSource.indexOf(".nav-btn.active:hover"));
 assert(navStaticActiveSource.includes("border-color: var(--active-line);")
   && navStaticActiveSource.includes("border-radius: var(--radius-button);")
@@ -2183,6 +2335,22 @@ assert(dashboardSource.includes('id="libraryFeedback" role="status" aria-live="p
   && appSource.includes('apiPost("/api/settings", { hiddenBookmarkCategories })'), "immediate visibility saves must report accessible success or failure feedback");
 assert(contextMenuSource.includes("getLeadingActions") && contextMenuSource.includes("actions.push("), "link context menus must accept shortcut-specific leading actions without replacing standard link actions");
 assert(overlaysCssSource.includes("animation: contextMenuIn var(--motion-state-duration) var(--motion-ease-enter)") && motionCssSource.includes("@keyframes contextMenuIn"), "context menus must use the semantic state entrance");
+assert(tokensCssSource.includes("--motion-first-frame-duration: 420ms;")
+  && motionCssSource.includes("from { opacity: 0; transform: translate3d(-4px, -50%, 0); }")
+  && motionCssSource.includes("animation: firstFrameNavIn var(--motion-first-frame-duration) 24ms var(--motion-ease-standard) backwards;")
+  && motionCssSource.includes("animation: firstFrameMobileNavIn 300ms 24ms var(--motion-ease-enter) backwards;"),
+  "the desktop sidebar must use the panel-speed left fade while the mobile bottom navigation keeps its original entrance");
+const dashboardHeaderMotionSource = motionCssSource.slice(
+  motionCssSource.indexOf("@keyframes firstFrameDashboardHeaderIn"),
+  motionCssSource.indexOf(".website-shortcuts.is-first-frame-entering"),
+);
+assert(dashboardHeaderMotionSource.includes("from { opacity: 0; transform: translate3d(0, 4px, 0); }")
+  && dashboardHeaderMotionSource.includes("to { opacity: 1; transform: translate3d(0, 0, 0); }")
+  && dashboardHeaderMotionSource.includes("animation: firstFrameDashboardHeaderIn var(--motion-first-frame-duration) 40ms var(--motion-ease-standard) backwards;")
+  && dashboardHeaderMotionSource.includes(".has-first-frame-motion #daily .search-ai")
+  && dashboardHeaderMotionSource.includes("animation: firstFrameSearchActionIn var(--motion-first-frame-duration) 88ms var(--motion-ease-standard) backwards;")
+  && !dashboardHeaderMotionSource.includes(".has-first-frame-motion #daily .dashboard-actions"),
+  "the dashboard heading may enter as a panel, while the search glass stays live and only its non-glass action fades in");
 assert(motionCssSource.includes("@media (prefers-reduced-motion: reduce)")
   && motionCssSource.includes("animation-duration: .01ms !important")
   && motionCssSource.includes("animation-delay: 0ms !important")
@@ -2263,7 +2431,18 @@ assert(settingsControllerSource.includes("!automaticAiStarted && !sourceRefreshS
   && settingsTransferControllerSource.includes("!automaticAiStarted && !sourceRefreshScheduled"), "clients must not duplicate a primary-source refresh already scheduled by the settings workflow");
 assert(/renderAll\(\);\n\s+preloadDailyInspiration\(UPDATE_INSPIRATION_PRELOAD_TIMEOUT_MS\);/.test(appSource), "the initial dashboard must render before inspiration previews preload");
 assert(/els\.headerImage\.addEventListener\("error", handleHeaderImageError\);\n\s+syncHeaderImageLoadState\(\);/.test(appSource), "the header cover must reconcile an image that completed before its runtime listeners were bound");
-assert(appSource.includes('if (els.headerImage.complete && els.headerImage.naturalWidth > 0)'), "a cached header cover must become visible without waiting for another load event");
+assert(appearanceControllerSource.includes('if (!els.headerImage.complete || els.headerImage.naturalWidth <= 0) return;')
+  && appearanceControllerSource.includes("reveal(els.headerImageHero, els.headerImage)"),
+  "a cached header cover must become visible through the shared reveal path without waiting for another load event");
+assert(dashboardSource.includes('id="headerImage" alt="" loading="eager" fetchpriority="high" referrerpolicy="no-referrer"')
+  && themeBootstrapSource.includes('preload.rel = "preload"')
+  && themeBootstrapSource.includes('preload.setAttribute("fetchpriority", "high")')
+  && themeBootstrapSource.includes('image.addEventListener("load", reveal, { once: true })')
+  && themeBootstrapSource.includes("dashboardStylesReady().then")
+  && themeBootstrapSource.includes("nextAnimationFrame(() =>")
+  && appearanceControllerSource.includes("globalThis.ampiraLayoutBootstrap?.revealHeaderCover")
+  && themeBootstrapSource.includes('hero.classList.add("is-loaded")'),
+  "a cached header cover must start at high priority in the head, then reveal through the shared first-painted transition path");
 assert(!dashboardSource.includes('id="headerImageBlurEnabledInput"')
   && dashboardSource.includes('id="headerImageBlurAmountInput" type="range" min="0" max="50" step="1" value="0"')
   && dashboardSource.includes('id="headerImageBlurField" aria-disabled="false"')
@@ -2289,27 +2468,38 @@ assert(dashboardSource.includes('id="dashboardGlassBlurEnabledInput" type="check
   && baseLayoutCssSource.includes("-webkit-backdrop-filter: none !important;")
   && baseLayoutCssSource.includes("backdrop-filter: none !important;"),
   "the dashboard glass switch must default visually on, persist through settings, restore before the first frame, and disable only main-content backdrop filters");
+assert(appearanceControllerSource.includes('const ACCENT_PALETTE_STORAGE_KEY = "ampira.accentPalette"')
+  && appearanceControllerSource.includes("cache(ACCENT_PALETTE_STORAGE_KEY, JSON.stringify({ theme: accentTheme, color: palette.accent }))")
+  && themeBootstrapSource.includes('accentPaletteStorageKey = "ampira.accentPalette"')
+  && themeBootstrapSource.includes("JSON.parse(localStorage.getItem(accentPaletteStorageKey)")
+  && themeBootstrapSource.includes("allowedAccentThemes.has(cachedAccentTheme)")
+  && themeBootstrapSource.includes('root.style.setProperty("--accent", cachedAccentColor)')
+  && themeBootstrapSource.includes('root.style.setProperty("--accent-rgb", accentRgb.join(", "))'),
+  "the normalized accent palette must persist locally and restore before stylesheet loading to prevent a default-color first frame");
 assert(appearanceControllerSource.includes("const enabled = els.headerImageEnabledInput.checked;")
   && !appearanceControllerSource.includes("&& !els.headerImageFullscreenInput.checked")
   && !appearanceControllerSource.includes("HEADER_IMAGE_FULLSCREEN_HEIGHT_MIN")
   && appearanceControllerSource.includes('els.headerImageHeightInput.min = String(HEADER_IMAGE_HEIGHT_MIN)')
+  && appearanceControllerSource.includes('els.headerImageHeightInput.max = String(HEADER_IMAGE_HEIGHT_MAX)')
+  && dashboardSource.includes('id="headerImageHeightInput" type="range" min="70" max="200" step="5" value="100"')
+  && appearanceControllerSource.includes("const HEADER_IMAGE_HEIGHT_MAX = 200;")
+  && themeBootstrapSource.includes("const headerImageHeightMax = 200;")
   && appearanceControllerSource.includes("const value = Math.max(min, normalizeHeaderImageHeightScale")
   && appearanceControllerSource.includes('setProperty("--header-cover-fullscreen-height", `${scale}dvh`)')
   && themeBootstrapSource.includes('setProperty("--header-cover-fullscreen-height", `${scale}dvh`)')
   && dashboardSectionsCssSource.includes("height: var(--header-cover-fullscreen-height);")
   && dashboardSectionsCssSource.includes("calc(100dvh + var(--header-cover-size-adjustment, 0px))")
-  && dashboardSectionsCssSource.includes("object-position: center top;"), "cover height must remain adjustable down to 70% in fullscreen mode while its image stays viewport-sized, top-anchored, and restored before the first frame");
+  && dashboardSectionsCssSource.includes("object-position: center top;"), "cover height must remain adjustable from 70% to 200% in fullscreen mode while its image stays viewport-sized, top-anchored, and restored before the first frame");
 assert(!dashboardSectionsCssSource.includes(".has-fullscreen-header-cover .today-meta")
   && !dashboardSectionsCssSource.includes(".has-fullscreen-header-cover .summary-batch-meta")
   && !dashboardSectionsCssSource.includes(".has-fullscreen-header-cover #library .controls .segmented button:not(.active)"),
   "fullscreen covers must inherit non-heading text and control styling from non-fullscreen covers in every color mode");
 assert(dashboardSectionsCssSource.includes("text-shadow: 0 14px 32px rgba(0, 0, 0, .26);")
-  && (dashboardSectionsCssSource.match(/text-shadow: 0 14px 32px rgba\(255, 255, 255, \.52\);/g) || []).length === 2
+  && (dashboardSectionsCssSource.match(/text-shadow: 0 14px 32px rgba\(255, 255, 255, \.30\);/g) || []).length === 2
   && (dashboardSectionsCssSource.match(/color: var\(--text-strong\);/g) || []).length >= 2,
   "fullscreen headings must use separate low-opacity downward shadows for dark and light color modes");
-assert((dashboardSectionsCssSource.match(/linear-gradient\(180deg, color-mix\(in srgb, var\(--bg\) 10%, transparent\)/g) || []).length === 2
-  && (dashboardSectionsCssSource.match(/color-mix\(in srgb, var\(--bg\) 40%, transparent\) 100%/g) || []).length === 2,
-  "explicit and system light fullscreen covers must retain the reduced readability overlay");
+assert((dashboardSectionsCssSource.match(/\.has-fullscreen-header-cover \.cover-fade\s*\{\s*background: none;\s*\}/g) || []).length === 2,
+  "explicit and system light fullscreen covers must disable the readability overlay");
 assert(dashboardSectionsCssSource.includes(':root[data-color-mode="light"].has-fullscreen-header-cover .cover-fade')
   && dashboardSectionsCssSource.includes(':root[data-color-mode="light"].has-fullscreen-header-cover .section-head h2')
   && dashboardSectionsCssSource.includes(':root[data-color-mode="system"].has-fullscreen-header-cover .cover-fade')
@@ -2317,9 +2507,10 @@ assert(dashboardSectionsCssSource.includes(':root[data-color-mode="light"].has-f
   "light fullscreen overrides must match the color mode and fullscreen state on the same root element");
 assert(dashboardSectionsCssSource.includes(".has-fullscreen-header-cover .dashboard-cover.is-loaded img {\n  opacity: 1;"),
   "loaded fullscreen cover images must render at full opacity");
-assert(dashboardSectionsCssSource.includes("transform: scale(1.012);")
-  && dashboardSectionsCssSource.includes("transform 900ms var(--motion-ease-standard)"),
-  "header cover loading must use a restrained, slow zoom with smooth acceleration");
+assert(dashboardSectionsCssSource.includes("transition: opacity 720ms var(--motion-ease-enter), filter var(--motion-state-duration) var(--motion-ease-standard), transform 900ms var(--motion-ease-standard);")
+  && dashboardSectionsCssSource.includes("transform: scale(1.012);")
+  && dashboardSectionsCssSource.includes(".dashboard-cover.is-loaded img {\n  opacity: .9;\n  transform: scale(1);"),
+  "header cover loading must keep the original entrance timing while preload and first-frame work make the image available sooner");
 assert(appSource.includes("createCoverBlurPreviewController")
   && dashboardSource.includes('class="settings-section header-image-settings"')
   && dashboardSource.includes('class="settings-field-grid header-image-primary-settings"')
@@ -2350,14 +2541,24 @@ assert(appearanceControllerSource.includes('headerImageBlurEnabled: syncBlurAmou
 assert(themeBootstrapSource.includes("applyHeaderCoverBlur(cover?.enabled === true && cover?.blurEnabled === true")
   && dashboardSectionsCssSource.includes("filter: blur(var(--header-cover-blur, 0px))")
   && dashboardSectionsCssSource.includes("--header-cover-size-adjustment"), "cover blur must restore on the first frame and overscan the image to protect its edges");
-assert(appSource.includes('if (board.dataset.loading === "true")'), "loading placeholders must be replaced through the dedicated initial render path");
-assert(appSource.includes("animateDailyBoardColumns(board);")
-  && appSource.includes("Array.from(board.children).forEach((column) => animateCardsIn(dailyBoardCards(column)))"), "later empty-to-content updates must retain per-column card motion");
-assert(appSource.includes('els.efficiencyPanel.dataset.loading = "true"'), "efficiency cards must retain the initial-loading entrance boundary");
-assert(appSource.includes("animatePanelEntrance(renderedCards);"), "efficiency cards must animate when initial loading completes");
-assert(appSource.includes("function syncEfficiencyCards(panel, nextCards)"), "unchanged efficiency cards must retain their animated DOM roots during the first refresh");
-assert(appSource.includes("animatePanelEntrance(nodes.flatMap((column) => Array.from(column.children)), { delay: 0 });"), "daily workbench entrance must target direct column content without repeating nested card motion");
-assert(appSource.includes("currentHead && nextHead && !currentHead.isEqualNode(nextHead)"), "unchanged daily column headers must keep their entrance animation targets");
+assert(dailyViewSource.includes('if (board.dataset.loading === "true")')
+  && dailyViewSource.includes("board.replaceChildren(...nodes);")
+  && dailyViewSource.includes("animatePanelEntrance(nodes);")
+  && dailyViewSource.includes("currentColumn.className = nextColumn.className;")
+  && dailyViewSource.includes("syncDailyBoardColumns(board, nodes, token, prefersReducedMotion() ? { immediate: true } : {});"), "initial daily column shells must use the same entrance primitive as efficiency cards while later updates preserve existing roots");
+assert(dailyViewSource.includes("animateDailyBoardColumns(board);")
+  && dailyViewSource.includes("Array.from(board.children).forEach((column) => animateCardsIn(dailyBoardCards(column)))"), "later empty-to-content updates must retain per-column card motion");
+assert(appSource.includes('els.efficiencyPanel.dataset.loading = "true"')
+  && appSource.includes('createLoadingPlaceholder("efficiency-skeleton")')
+  && appSource.includes('createLoadingPlaceholder("board-column-skeleton")'), "both workbench regions must use lightweight card skeletons before their final panels enter");
+assert(efficiencyViewSource.includes("function syncEfficiencyCards(panel, nextCards)")
+  && efficiencyViewSource.includes("animatePanelEntrance(renderedCards);"), "efficiency cards must restore the original first-render entrance without skeleton-root hydration");
+assert(!appSource.includes("animateInitialWorkbenchEntrance")
+  && !motionCssSource.includes("firstFrameWorkbench")
+  && !motionCssSource.includes("workbench-entrance")
+  && !motionCssSource.includes('.efficiency-panel[data-loading-phase="pending"] .efficiency-skeleton'), "the rolled-back unified workbench entrance and its loading override must stay removed");
+assert(dashboardSectionsCssSource.includes('.inspiration-thumb {\n  position: absolute;\n  inset: 0;'), "inspiration media must restore its original card-edge geometry");
+assert(appSource.includes("currentHead && nextHead && !nodesEqualIgnoringIconLoadState(currentHead, nextHead)"), "unchanged daily column headers must keep their loaded icon nodes and entrance animation targets");
 assert(appSource.includes('dailyInspirationCount * dailyInspirationBatchLimit'), "daily preload must include all configured cards across reshuffle batches");
 assert(appSource.includes('img.loading = "eager"'), "preloaded daily inspiration images must not be deferred again by lazy loading");
 assert(appSource.includes("newsPreviews.request(item)")
@@ -2440,11 +2641,11 @@ assert(serviceWorkerSource.includes("preserveCardAiSummary(item"), "fresh feed r
 assert(serviceWorkerSource.includes("sanitizeCardAiSummaries(permittedFeedItems, settings, configuredForAi)"), "card AI summaries must be hidden after provider consent, key, or permission becomes invalid");
 assert(serviceWorkerSource.includes("await refreshDailyDigest({ automatic: true })"), "a missing daily AI brief must be generated automatically after feed refresh");
 assert(serviceWorkerSource.includes("? await runAiWithinQuota(settings, operation)"), "only automatic daily briefs may consume the automatic AI quota");
-assert(serviceWorkerSource.includes("AI_SEARCH_MAX_TOKENS = 1400"), "ordinary AI search must retain its existing answer budget");
-assert(serviceWorkerSource.includes("AI_ARTICLE_MAX_TOKENS = 900"), "article explanations and follow-ups must use the compact output budget");
+assert(serviceWorkerSource.includes("AI_SEARCH_MAX_TOKENS = 4096"), "ordinary AI search must use the general text answer budget");
+assert(serviceWorkerSource.includes("AI_ARTICLE_MAX_TOKENS = 4096"), "article explanations and follow-ups must use the general text answer budget");
 assert(aiSearchCoreSource.includes("AI_ARTICLE_CONTEXT_MAX_CHARS = 8000"), "article AI context must stay bounded for latency");
 assert(serviceWorkerSource.includes("preferVisibleOutput: true"), "article requests should disable avoidable hidden reasoning where supported");
-assert(serviceWorkerSource.includes("readCachedArticle(context.url)"), "article follow-ups must prefer the permission-bound Reader cache");
+assert(serviceWorkerSource.includes("readCachedArticle(context.url, { signal: runtimeOptions.signal })"), "article follow-ups must prefer the permission-bound Reader cache and remain cancellable");
 assert(serviceWorkerSource.includes("const context = await automaticCardSummaryContext(candidate)"), "automatic summaries must build a bounded excerpt-only context");
 const automaticSummaryContextSource = serviceWorkerSource.slice(serviceWorkerSource.indexOf("function automaticCardSummaryContext"), serviceWorkerSource.indexOf("function preserveCardAiSummary"));
 assert(!automaticSummaryContextSource.includes("readArticle") && !automaticSummaryContextSource.includes("hasOriginPermission"), "automatic card summaries must never fetch article bodies");
@@ -2469,10 +2670,10 @@ assert(dashboardSectionsCssSource.includes(".ai-loading-paragraph:nth-child(3)")
   && motionCssSource.includes("@keyframes digestContentIn")
   && dashboardSectionsCssSource.includes(".efficiency-card.digest-card {\n  grid-template-rows: auto minmax(0, 1fr);\n  overflow: hidden;")
   && motionCssSource.includes('.ai-loading-surface[data-loading-phase="ambient"]::after'), "AI loading must preserve final geometry and use a continuous shared surface scan clipped to each boundary");
-assert(aiSearchUiSource.includes("renderInitialAnswerLoading()")
-  && aiSearchUiSource.includes('variant: "answer"')
+assert(aiSearchUiSource.includes("appendConversationRequest(query, researchScope, runOptions)")
+  && aiSearchUiSource.includes('status: "pending"')
   && aiSearchUiSource.includes('variant: "compact"')
-  && dashboardSource.includes('id="aiSearchMeta" role="status" aria-live="polite"'), "initial AI answers and follow-ups must expose shared skeletons with a live processing label");
+  && dashboardSource.includes('id="aiSearchMeta" role="status" aria-live="polite"'), "the first answer and every follow-up must append the shared skeleton beside a live processing label");
 assert(summaryViewSource.includes('isRefreshing ? "is-refreshing ai-loading-surface"')
   && summaryViewSource.includes("createLoadingSurfaceController(card)")
   && motionCssSource.includes(".summary-card.is-ai-resolving .summary-body"), "manual card summaries must retain their content, share the card scan, and reveal the completed result in place");
@@ -2667,6 +2868,11 @@ for (const suite of [
   "ai-provider-presets.mjs",
   "ai-output-language.mjs",
   "ai-search.mjs",
+  "ai-markdown.mjs",
+  "ai-stream.mjs",
+  "ai-stream-port.mjs",
+  "ai-workbench-ui.mjs",
+  "research-search.mjs",
   "reader.mjs",
   "feed-coverage.mjs",
   "image-candidates.mjs",

@@ -5,9 +5,8 @@ import {
   safeReaderOrigin, sameOrigin, shouldUseInAppReader,
 } from "./reader-policy.mjs";
 import { requestOrigins } from "./permission-client.mjs";
-import { createLoadingPhaseController } from "./motion.mjs";
+import { createLoadingPhaseController, MOTION_DURATION } from "./motion.mjs";
 
-const READER_CLOSE_MOTION_MS = 180;
 const READER_RECOVERY_RETRY_MS = 450;
 
 export function createReaderController(context) {
@@ -554,7 +553,7 @@ export function createReaderController(context) {
     readerRecoveryTimer = 0;
     clearFloatingReadTracking();
     els.webFrameOverlay.classList.add("closing");
-    const closeDelay = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : READER_CLOSE_MOTION_MS;
+    const closeDelay = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : MOTION_DURATION.state;
     readerCloseTimer = window.setTimeout(() => {
       readerCloseTimer = 0;
       finalizeFloatingWebClose();

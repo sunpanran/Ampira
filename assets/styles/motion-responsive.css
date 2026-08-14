@@ -98,12 +98,6 @@
   animation: skeletonSweep var(--motion-ambient-duration) linear infinite;
 }
 
-.loading-line-heading {
-  width: 42%;
-  height: 13px;
-  margin-bottom: 2px;
-}
-
 .loading-line-short { width: 28%; }
 .loading-line-medium { width: 64%; }
 .loading-line-wide { width: 88%; }
@@ -152,10 +146,96 @@
   animation: digestContentIn var(--motion-state-duration) var(--motion-ease-enter) both;
 }
 
+:root.is-summary-batch-transitioning {
+  view-transition-name: none;
+}
+
+:root.is-summary-batch-transitioning::view-transition-group(*) {
+  overflow: hidden;
+  border-radius: var(--radius-card);
+  pointer-events: none;
+  animation-duration: 0s;
+}
+
+:root.is-summary-batch-transitioning::view-transition-old(*) {
+  animation: signalFeedBatchOut var(--motion-state-duration) var(--motion-ease-exit) both;
+  mix-blend-mode: normal;
+}
+
+:root.is-summary-batch-transitioning::view-transition-new(*) {
+  opacity: 0;
+  animation: signalFeedBatchIn var(--motion-emphasis-duration) var(--motion-ease-enter) var(--motion-state-duration) both;
+  mix-blend-mode: normal;
+}
+
+.summary-card > .thumb[data-summary-thumb-phase="leaving"] {
+  animation: signalFeedThumbOut var(--motion-state-duration) var(--motion-ease-exit) both;
+  will-change: opacity;
+}
+
+.summary-card > .thumb[data-summary-thumb-phase="entering"] {
+  opacity: 0;
+  animation: signalFeedThumbIn var(--motion-emphasis-duration) var(--motion-ease-enter) var(--motion-state-duration) both;
+  will-change: opacity;
+}
+
+:root.is-daily-batch-transitioning {
+  view-transition-name: none;
+}
+
+:root.is-daily-batch-transitioning::view-transition-group(*) {
+  overflow: hidden;
+  border-radius: var(--radius-row);
+  pointer-events: none;
+  animation-duration: 0s;
+}
+
+:root.is-daily-batch-transitioning::view-transition-old(*) {
+  animation: dailyBatchOut var(--motion-state-duration) var(--motion-ease-exit) both;
+  mix-blend-mode: normal;
+}
+
+:root.is-daily-batch-transitioning::view-transition-new(*) {
+  opacity: 0;
+  animation: dailyBatchIn var(--motion-emphasis-duration) var(--motion-ease-enter) var(--motion-state-duration) both;
+  mix-blend-mode: normal;
+}
+
+.daily-card > .inspiration-thumb[data-daily-thumb-phase="leaving"] {
+  animation: dailyThumbOut var(--motion-state-duration) var(--motion-ease-exit) both;
+  will-change: opacity;
+}
+
+.daily-card > .inspiration-thumb[data-daily-thumb-phase="entering"] {
+  opacity: 0;
+  animation: dailyThumbIn var(--motion-emphasis-duration) var(--motion-ease-enter) var(--motion-state-duration) both;
+  will-change: opacity;
+}
+
+.inspiration-thumb:not(.is-fallback) > img.is-preview-image-pending,
+.thumb:not(.is-favicon-thumb) > img.is-preview-image-pending {
+  opacity: 0;
+}
+
+.inspiration-thumb:not(.is-fallback) > img.is-preview-image-revealing {
+  --preview-image-opacity: var(--inspiration-media-opacity);
+  opacity: var(--preview-image-opacity);
+  transition: opacity var(--motion-first-frame-duration) var(--motion-ease-ambient);
+}
+
+.inspiration-thumb[data-daily-thumb-phase="entering"] > img.is-preview-image-revealing {
+  transition-duration: var(--motion-press-duration);
+  transition-timing-function: var(--motion-ease-standard);
+}
+
+.thumb:not(.is-favicon-thumb) > img.is-preview-image-revealing {
+  animation: previewImageIn var(--motion-state-duration) var(--motion-ease-enter) both;
+}
+
 .daily-card.is-entering,
 .news-list-card.is-entering,
 .summary-card.is-entering {
-  animation: cardIn var(--card-motion-duration, 240ms) var(--motion-ease-enter) both;
+  animation: cardIn var(--card-motion-duration, var(--motion-emphasis-duration)) var(--motion-ease-enter) both;
   animation-delay: var(--card-motion-delay, 0ms);
 }
 
@@ -187,6 +267,51 @@
 @keyframes cardIn {
   from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes signalFeedBatchOut {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+@keyframes signalFeedBatchIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes signalFeedThumbOut {
+  from { opacity: var(--summary-thumb-opacity); }
+  to { opacity: 0; }
+}
+
+@keyframes signalFeedThumbIn {
+  from { opacity: 0; }
+  to { opacity: var(--summary-thumb-opacity); }
+}
+
+@keyframes dailyBatchOut {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+@keyframes dailyBatchIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes dailyThumbOut {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+@keyframes dailyThumbIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes previewImageIn {
+  from { opacity: 0; }
+  to { opacity: var(--preview-image-opacity, 1); }
 }
 
 @keyframes shuffleControlClickSpring {
@@ -380,7 +505,7 @@
 }
 
 @keyframes firstFrameNavIn {
-  from { opacity: .2; transform: translate3d(-6px, -50%, 0); }
+  from { opacity: 0; transform: translate3d(-4px, -50%, 0); }
   to { opacity: 1; transform: translate3d(0, -50%, 0); }
 }
 
@@ -394,16 +519,26 @@
   to { opacity: 1; transform: translate3d(0, 0, 0); }
 }
 
+@keyframes firstFrameDashboardHeaderIn {
+  from { opacity: 0; transform: translate3d(0, 4px, 0); }
+  to { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+
+@keyframes firstFrameSearchActionIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
 .has-first-frame-motion .sidebar {
-  animation: firstFrameNavIn 300ms 24ms var(--motion-ease-enter) backwards;
+  animation: firstFrameNavIn var(--motion-first-frame-duration) 24ms var(--motion-ease-standard) backwards;
 }
 
 .has-first-frame-motion #daily > .section-head > :first-child {
-  animation: firstFrameContentIn var(--motion-first-frame-duration) 40ms var(--motion-ease-enter) backwards;
+  animation: firstFrameDashboardHeaderIn var(--motion-first-frame-duration) 40ms var(--motion-ease-standard) backwards;
 }
 
-.has-first-frame-motion #daily .dashboard-actions {
-  animation: firstFrameContentIn var(--motion-overlay-duration) 88ms var(--motion-ease-enter) backwards;
+.has-first-frame-motion #daily .search-ai {
+  animation: firstFrameSearchActionIn var(--motion-first-frame-duration) 88ms var(--motion-ease-standard) backwards;
 }
 
 .website-shortcuts.is-first-frame-entering {
@@ -475,7 +610,7 @@
   }
 
   .sidebar:hover,
-  .sidebar:focus-within {
+  .sidebar:has(:focus-visible) {
     width: min(var(--nav-expanded-width), calc(100vw - 48px));
   }
 
@@ -490,7 +625,7 @@
   .nav-logo,
   .nav-btn,
   .sidebar:hover .nav-btn,
-  .sidebar:focus-within .nav-btn {
+  .sidebar:has(:focus-visible) .nav-btn {
     width: 48px;
   }
 
@@ -506,7 +641,7 @@
   }
 
   .sidebar:hover .nav-btn,
-  .sidebar:focus-within .nav-btn {
+  .sidebar:has(:focus-visible) .nav-btn {
     width: min(var(--nav-expanded-button-width), calc(100vw - 64px));
     justify-content: start;
   }
@@ -517,7 +652,7 @@
   }
 
   .sidebar:hover .nav-label,
-  .sidebar:focus-within .nav-label {
+  .sidebar:has(:focus-visible) .nav-label {
     opacity: 1;
     transform: translateY(-50%);
   }
@@ -807,11 +942,11 @@
   }
 
   .has-first-frame-motion .sidebar {
-    animation-name: firstFrameMobileNavIn;
+    animation: firstFrameMobileNavIn 300ms 24ms var(--motion-ease-enter) backwards;
   }
 
   .sidebar:hover,
-  .sidebar:focus-within {
+  .sidebar:has(:focus-visible) {
     width: auto;
   }
 
@@ -830,7 +965,7 @@
 
   .nav-btn,
   .sidebar:hover .nav-btn,
-  .sidebar:focus-within .nav-btn {
+  .sidebar:has(:focus-visible) .nav-btn {
     width: 42px;
     height: 42px;
     justify-content: center;
@@ -844,7 +979,7 @@
   }
 
   .sidebar:hover .nav-label,
-  .sidebar:focus-within .nav-label {
+  .sidebar:has(:focus-visible) .nav-label {
     display: none;
     opacity: 0;
     transform: translateY(-50%) translateX(-4px);
@@ -980,6 +1115,11 @@
   .search-overlay,
   .web-frame-overlay {
     padding: 10px;
+  }
+
+  .ai-search-panel.has-conversation {
+    height: calc(100dvh - 20px);
+    min-height: 0;
   }
 
   .modal {
@@ -1133,19 +1273,105 @@
     padding: 20px 16px 28px;
   }
 
-  .ai-answer-section,
-  .ai-conversation-message {
+  .search-overlay {
+    width: 100vw;
+    height: 100dvh;
+    padding: 0;
+  }
+
+  .ai-search-panel:not(.has-conversation) {
+    width: calc(100% - 24px);
+  }
+
+  .ai-search-panel.has-conversation {
+    width: 100%;
+    height: 100dvh;
+    border: 0;
+    border-radius: 0;
+  }
+
+  .ai-search-head {
+    min-height: 56px;
+    gap: 10px;
+    padding: 10px 10px 10px 14px;
+  }
+
+  .ai-search-title {
+    gap: 7px;
+  }
+
+  .ai-search-new {
+    width: var(--control-height-button);
+    min-width: var(--control-height-button);
+    padding: 0;
+    border-radius: var(--radius-icon-button);
+  }
+
+  .ai-search-new .btn-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+  }
+
+  .ai-search-panel.has-conversation .ai-search-form {
+    width: calc(100% - 20px);
+    margin: 10px auto max(10px, env(safe-area-inset-bottom));
+    padding-left: 12px;
+  }
+
+  .ai-search-composer-foot {
+    width: 100%;
+  }
+
+  .ai-search-scope-controls {
+    flex-wrap: nowrap;
+  }
+
+  .ai-search-scope-controls .select-combobox {
+    width: auto;
+    flex: 1 1 auto;
+  }
+
+  .ai-search-scope-toggle {
+    flex: 0 0 auto;
+  }
+
+  .ai-search-submit-group {
+    width: auto;
+    margin-left: auto;
+  }
+
+  .ai-answer {
+    gap: 20px;
+    padding: 20px 12px 10px;
+  }
+
+  .ai-conversation-bubble {
+    max-width: 100%;
+    padding: 0;
+  }
+
+  .ai-conversation-message.is-user .ai-conversation-bubble {
+    max-width: 86%;
+    padding: 10px 12px;
+  }
+
+  .ai-answer-section {
     grid-template-columns: 24px minmax(0, 1fr);
     column-gap: 10px;
-    padding: 16px 14px 18px;
+    padding-block: 12px 14px;
   }
 
-  .ai-conversation-message.is-assistant {
-    grid-template-columns: 24px minmax(0, 1fr) 30px;
+  .ai-message-footer {
+    align-items: center;
   }
 
-  .ai-link-list {
-    padding-inline: 48px 14px;
+  .ai-research-source-meta,
+  .ai-research-sources p {
+    padding-left: 0;
   }
 
   .reader-title {
@@ -1294,6 +1520,14 @@
     width: 32px;
     min-width: 32px;
     min-height: 32px;
+  }
+
+  .summary-card[data-summary-action-count="2"] .summary-top {
+    padding-right: 78px;
+  }
+
+  .summary-card[data-summary-action-count="3"] .summary-top {
+    padding-right: 110px;
   }
 
   .settings-overview .settings-overview-grid {

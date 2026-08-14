@@ -19,6 +19,14 @@ class FakeClassList {
   contains(value) {
     return this.values.has(value);
   }
+
+  add(...values) {
+    values.forEach((value) => this.values.add(value));
+  }
+
+  remove(...values) {
+    values.forEach((value) => this.values.delete(value));
+  }
 }
 
 class FakeControl extends EventTarget {
@@ -55,7 +63,7 @@ class FakeDialog extends FakeControl {
   }
 }
 
-function createHarness(initialValue = null) {
+function createHarness(initialValue = null, options = {}) {
   const dialog = new FakeDialog();
   const kicker = new FakeControl();
   const title = new FakeControl();
@@ -64,6 +72,8 @@ function createHarness(initialValue = null) {
   const confirmButton = new FakeControl();
   const previousFocus = new FakeControl();
   const writes = [];
+  let scheduledClose = null;
+  let scheduledCloseDelay = null;
   let value = initialValue;
   const { confirmAction } = createConfirmationDialogController({
     dialog,
@@ -73,6 +83,16 @@ function createHarness(initialValue = null) {
     cancelButton,
     confirmButton,
     activeElement: () => previousFocus,
+    isReducedMotion: () => options.reducedMotion === true,
+    scheduleClose: (callback, delay) => {
+      scheduledCloseDelay = delay;
+      if (options.deferClose) {
+        scheduledClose = callback;
+        return 1;
+      }
+      callback();
+      return 0;
+    },
   });
   const manual = createManualAiUsageNoticeController({
     confirmAction,
@@ -86,6 +106,12 @@ function createHarness(initialValue = null) {
   return {
     manual, confirmAction, dialog, kicker, title, body, cancelButton, confirmButton,
     previousFocus, writes, value: () => value,
+    scheduledCloseDelay: () => scheduledCloseDelay,
+    flushClose: () => {
+      const callback = scheduledClose;
+      scheduledClose = null;
+      callback?.();
+    },
   };
 }
 
@@ -128,6 +154,27 @@ const backdrop = createHarness();
 const backdropDecision = backdrop.manual.confirmManualAiUsage();
 backdrop.dialog.dispatchEvent(new Event("click"));
 assert.equal(await backdropDecision, false, "clicking the native dialog backdrop must cancel the action");
+
+const animatedClose = createHarness(null, { deferClose: true });
+const animatedDecision = animatedClose.confirmAction({ title: "Animated close" });
+animatedClose.cancelButton.dispatchEvent(new Event("click"));
+assert.equal(animatedClose.dialog.open, true, "the native dialog must stay in the top layer while its close animation runs");
+assert.equal(animatedClose.dialog.classList.contains("closing"), true);
+assert.equal(animatedClose.dialog.closeCount, 0);
+assert.equal(animatedClose.previousFocus.focusCount, 0, "focus must not move behind a still-visible modal");
+assert.equal(animatedClose.scheduledCloseDelay(), 180, "the confirmation close must use the shared state duration");
+animatedClose.flushClose();
+assert.equal(await animatedDecision, false);
+assert.equal(animatedClose.dialog.open, false);
+assert.equal(animatedClose.dialog.classList.contains("closing"), false);
+assert.equal(animatedClose.previousFocus.focusCount, 1);
+
+const reducedMotion = createHarness(null, { reducedMotion: true, deferClose: true });
+const reducedDecision = reducedMotion.confirmAction({ title: "Reduced motion" });
+reducedMotion.cancelButton.dispatchEvent(new Event("click"));
+assert.equal(await reducedDecision, false);
+assert.equal(reducedMotion.dialog.open, false, "reduced motion must close the confirmation without a visual delay");
+assert.equal(reducedMotion.scheduledCloseDelay(), null);
 
 const standard = createHarness();
 const dangerousDecision = standard.confirmAction({

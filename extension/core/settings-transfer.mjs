@@ -4,6 +4,11 @@ import {
   normalizeSettings,
   providerOrigin,
 } from "./settings.mjs";
+import {
+  HEADER_IMAGE_HEIGHT_MAX,
+  HEADER_IMAGE_HEIGHT_MIN,
+  HEADER_IMAGE_HEIGHT_STEP,
+} from "./constants.mjs";
 
 export const SETTINGS_TRANSFER_FORMAT = "ampira-settings";
 export const SETTINGS_TRANSFER_VERSION = 1;
@@ -78,7 +83,7 @@ const BOOLEAN_FIELDS = new Set([
 const ARRAY_FIELDS = new Set(["websiteShortcuts", "bookmarkOnlyFolders", "hiddenBookmarkCategories", "excludedNewsSources"]);
 const NUMBER_RANGES = Object.freeze({
   headerImageBlurAmount: [0, 50],
-  headerImageHeightScale: [70, 140],
+  headerImageHeightScale: [HEADER_IMAGE_HEIGHT_MIN, HEADER_IMAGE_HEIGHT_MAX],
   dailyAiLimit: [1, 500],
   hotNewsCacheSize: [16, 500],
   hotNewsEntriesPerSource: [0, 12],
@@ -197,7 +202,7 @@ function validatePortableValue(field, value) {
   if (Object.hasOwn(NUMBER_RANGES, field)) {
     const [min, max] = NUMBER_RANGES[field];
     if (!Number.isInteger(value) || value < min || value > max
-      || field === "headerImageHeightScale" && value % 5 !== 0) throw invalidValue(field);
+      || field === "headerImageHeightScale" && (value - HEADER_IMAGE_HEIGHT_MIN) % HEADER_IMAGE_HEIGHT_STEP !== 0) throw invalidValue(field);
     return;
   }
   if (!Object.hasOwn(STRING_LIMITS, field) || typeof value !== "string" || value.length > STRING_LIMITS[field]) {

@@ -542,6 +542,7 @@ async function fetchText(url, options = {}) {
       credentials: "omit",
       referrerPolicy: "no-referrer",
       headers,
+      signal: options.signal,
     }, {
       timeoutMs: options.timeoutMs || REQUEST_TIMEOUT_MS,
       maxBytes: MAX_RESPONSE_BYTES,

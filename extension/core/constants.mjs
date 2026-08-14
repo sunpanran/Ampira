@@ -10,6 +10,9 @@ export const CACHE_LIMIT_BYTES = 25 * 1024 * 1024;
 export const REFRESH_ALARM = "ampira-refresh";
 export const REFRESH_PERIOD_MINUTES = 15;
 export const CONSENT_VERSION = 1;
+export const HEADER_IMAGE_HEIGHT_MIN = 70;
+export const HEADER_IMAGE_HEIGHT_MAX = 200;
+export const HEADER_IMAGE_HEIGHT_STEP = 5;
 
 export const LOCAL_ONLY_SETTINGS_FIELDS = Object.freeze([
   "consentVersion",

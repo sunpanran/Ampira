@@ -56,7 +56,10 @@ export function createPermissionGateway({
       && settings.aiDisclosureAccepted
       && providerCredentialAvailable(settings.openaiBaseUrl, secrets.hasOpenAIKey)
     ) urls.push(settings.openaiBaseUrl);
-    if (settings.webImageSearchEnabled && secrets.hasImageSearchKey) urls.push("https://api.search.brave.com/");
+    if (secrets.hasImageSearchKey
+      || grantedOrigins.includes(originPattern("https://api.search.brave.com/"))) {
+      urls.push("https://api.search.brave.com/");
+    }
     const clientState = typeof getRecord === "function" ? await getRecord("client-state", {}) : {};
     const weatherOptedIn = clientState?.["dash.utility.weather.optedIn"] === "true"
       || Boolean(clientState?.["dash.utility.weather.location.v1"]);

@@ -298,17 +298,22 @@ const storeSummaries = [
   "從書籤裡的網站取得新資訊，依時間或重要性查看。AI 功能可選，可產生摘要與今日簡報，也能讀取內文並繼續解讀。資料預設留在本機，不用註冊帳號。",
 ];
 for (const summary of storeSummaries) assert(summary.length <= 132, "store summaries must stay within the Chrome Web Store limit");
-for (const [file, locale, summary] of [
-  ["en.md", "en", storeSummaries[0]],
-  ["zh-CN.md", "zh-CN", storeSummaries[1]],
-  ["zh-TW.md", "zh-Hant", storeSummaries[2]],
+for (const [language, locale, summary] of [
+  ["en", "en", storeSummaries[0]],
+  ["zh-CN", "zh-CN", storeSummaries[1]],
+  ["zh-TW", "zh-Hant", storeSummaries[2]],
 ]) {
   for (const directory of ["listing", "edge-listing"]) {
-    const listing = await fs.readFile(path.join(root, "store", directory, file), "utf8");
-    assert(listing.split(/\r?\n/).slice(0, 4).some((line) => line.endsWith(summary)), `${directory}/${file} must match the packaged localized summary`);
-    assert(listing.includes(reviewedPainOpenings[locale]), `${directory}/${file} must open with the reviewed user problem and solution`);
-    assert(listing.includes(reviewedProfessionalUseCases[locale]), `${directory}/${file} must include the reviewed current professional use case`);
-    assert(!futureMarketingPattern.test(listing), `${directory}/${file} must not promise paid or future features`);
+    const shortFile = `${language}-short.txt`;
+    const descriptionFile = `${language}-description.txt`;
+    const shortDescription = await fs.readFile(path.join(root, "store", directory, shortFile), "utf8");
+    const listing = await fs.readFile(path.join(root, "store", directory, descriptionFile), "utf8");
+    assert.equal(shortDescription.trim(), summary, `${directory}/${shortFile} must match the reviewed localized summary`);
+    assert(listing.startsWith(reviewedPainOpenings[locale]), `${directory}/${descriptionFile} must open with the reviewed user problem and solution`);
+    assert(listing.includes(reviewedProfessionalUseCases[locale]), `${directory}/${descriptionFile} must include the reviewed current professional use case`);
+    assert(!/^(?:#{1,6}\s|- )/m.test(listing), `${directory}/${descriptionFile} must be directly pasteable plain text without Markdown headings or list markers`);
+    assert(!/\[[^\]]+\]\([^)]+\)/.test(listing), `${directory}/${descriptionFile} must not contain Markdown links`);
+    assert(!futureMarketingPattern.test(listing), `${directory}/${descriptionFile} must not promise paid or future features`);
   }
 }
 
@@ -425,6 +430,8 @@ assert(shellControllerSource.includes("new IntersectionObserver(syncNavToCurrent
   && !shellControllerSource.includes('window.addEventListener("scroll"')
   && shellControllerSource.includes("if (activeNavButton === nextActiveButton) return;"),
   "navigation scroll selection must observe section crossings and avoid per-frame layout reads or unchanged active-state writes");
+const navClickBindingSource = dashboardAppSource.slice(dashboardAppSource.indexOf('document.querySelector("#navLogo")'), dashboardAppSource.indexOf("els.settingsNav.addEventListener"));
+assert(!navClickBindingSource.includes("setActiveNavButton("), "smooth section navigation must let the scroll observer select once instead of flashing back to the previous section");
 assert(settingsWorkflowSource.includes('"bookmarkSectionEnabled", "websiteShortcutsEnabled"'), "the runtime settings workflow must accept bookmark-section visibility without treating it as a source change");
 assert(!cacheFetchSource.includes('id="personalizedRankingEnabledInput"'), "fetch settings must not expose the advanced personalization switch");
 assert(cacheAdvancedSource.includes('<input id="personalizedRankingEnabledInput" type="checkbox">'), "advanced settings must expose personalized ranking with an unchecked first-frame default");
@@ -511,6 +518,9 @@ assert(dashboardSource.indexOf('id="clearKey"') < aiFieldsetStart, "credential r
 assert(dashboardSource.indexOf('id="testKey"') < dashboardSource.indexOf('id="clearKey"'), "connection testing must sit immediately before credential removal in the visible provider actions");
 assert(aiPermissionControllerSource.includes("els.testKey.disabled = busy || !readyToTest"), "connection testing outside the gated fieldset must require an authorized provider, credential policy, and model");
 assert(dashboardSource.indexOf('id="grantBraveOrigin"') > aiFieldsetEnd, "Brave authorization must remain independent of the AI provider gate");
+assert(dashboardSource.includes('id="imageSearchStrategy" hidden')
+  && settingsControllerSource.includes("els.imageSearchStrategy.hidden = !els.webImageSearchEnabledInput.checked"),
+"fallback image-search credentials must collapse when image search is disabled and stay independent from conversational web search");
 
 for (const file of ["assets/client/api.mjs", "assets/client/extension-ui.mjs"]) {
   const text = await fs.readFile(path.join(root, file), "utf8");

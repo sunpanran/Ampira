@@ -4,6 +4,7 @@ import { normalizeUserUrl } from "../../extension/core/search.mjs";
 import { readerTextFromBlocks } from "../../extension/core/reader.mjs";
 import { limitArticleSummary, normalizeArticleContext, normalizeQuestionContext } from "../../extension/core/ai-search.mjs";
 import { createAiSearchService } from "../../extension/runtime/ai-search-service.mjs";
+import { createImageSearchSettingsService } from "../../extension/runtime/image-search-settings-service.mjs";
 
 assert.equal([...limitArticleSummary("甲".repeat(600), "zh-CN")].length, 500, "Chinese article explanations must enforce the 500-character boundary");
 assert(limitArticleSummary("甲".repeat(600), "zh-CN").endsWith("…"), "truncated Chinese explanations must disclose truncation");
@@ -18,8 +19,9 @@ const boundedContext = normalizeArticleContext({
     answer: `answer-${index}-${"答".repeat(1300)}`,
   })),
 }, "zh-CN", normalizeUserUrl);
-assert.equal(boundedContext.turns.length <= 6, true, "article follow-up context must retain at most six completed turns");
-assert.equal(boundedContext.turns.reduce((total, turn) => total + [...turn.question, ...turn.answer].length, 0) <= 4000, true, "article follow-up history must stay within 4,000 Unicode characters");
+assert.equal(boundedContext.turns.length <= 12, true, "article follow-up context must retain at most twelve completed turns");
+assert.equal(boundedContext.turns.reduce((total, turn) => total + [...turn.question, ...turn.answer].length, 0) <= 12000, true, "article follow-up history must stay within 12,000 Unicode characters");
+assert.equal([...boundedContext.summary].length + boundedContext.turns.reduce((total, turn) => total + [...turn.question, ...turn.answer].length, 0) <= 12000, true, "article summary and completed turns must share the 12,000-character context budget");
 assert(boundedContext.turns.at(-1).question.startsWith("question-8-"), "history trimming must preserve the newest completed turn");
 
 const boundedQuestionContext = normalizeQuestionContext({
@@ -31,8 +33,33 @@ const boundedQuestionContext = normalizeQuestionContext({
     answer: `answer-${index}-${"答".repeat(1300)}`,
   })),
 });
-assert.equal(boundedQuestionContext.turns.length <= 6, true, "question follow-up context must retain at most six completed turns");
-assert.equal(boundedQuestionContext.turns.reduce((total, turn) => total + [...turn.question, ...turn.answer].length, 0) <= 4000, true, "question follow-up history must stay within 4,000 Unicode characters");
+assert.equal(boundedQuestionContext.turns.length <= 12, true, "question follow-up context must retain at most twelve completed turns");
+
+let testedImageKey = "";
+const imageSettingsService = createImageSearchSettingsService({
+  getSettings: async () => ({ locale: "zh-CN" }),
+  readSecrets: async () => ({ braveSearchApiKey: "stored-image-key" }),
+  testImageSearchConnection: async (key) => {
+    testedImageKey = key;
+    return { count: 3 };
+  },
+  hasOriginPermission: async () => true,
+  resultMessage: (_settings, ok, messageKey, messageParams) => ({ ok, messageKey, messageParams }),
+  errorResult: (_settings, error) => ({ ok: false, error }),
+});
+const imageConnection = await imageSettingsService.testImageSearchSettings({});
+assert.equal(testedImageKey, "stored-image-key");
+assert.deepEqual(imageConnection, {
+  ok: true,
+  messageKey: "background.imageConnectionAvailable",
+  messageParams: { count: 3 },
+}, "replacement-image credentials must remain owned by the isolated image-search settings service");
+assert.equal(boundedQuestionContext.turns.reduce((total, turn) => total + [...turn.question, ...turn.answer].length, 0) <= 12000, true, "question follow-up history must stay within 12,000 Unicode characters");
+assert.equal([
+  ...boundedQuestionContext.initialQuery,
+  ...boundedQuestionContext.initialAnswer,
+  ...boundedQuestionContext.turns.flatMap((turn) => [...turn.question, ...turn.answer]),
+].length <= 12000, true, "initial exchange and completed turns must share the 12,000-character context budget");
 assert.equal(normalizeQuestionContext({ type: "question", initialQuery: "", initialAnswer: "answer" }), null, "question follow-up context must require its initial question");
 
 const harness = createHarness();
@@ -40,7 +67,7 @@ const initial = await harness.service.answerAiSearch({ query: "https://news.exam
 assert.equal(initial.usedAi, true);
 assert.equal(initial.mode, "article");
 assert.equal([...initial.answer].length <= 500, true, "provider output must be bounded before it is cached or rendered");
-assert.equal(harness.requests[0].maxTokens, 900, "article explanations must use their compact output budget");
+assert.equal(harness.requests[0].maxTokens, 4096, "article explanations must use the general text output budget");
 assert.equal(harness.requests[0].preferVisibleOutput, true, "article explanations should disable avoidable hidden reasoning where supported");
 const excerpt = harness.requests[0].input.split("网页摘录：")[1] || "";
 assert.equal([...excerpt].length, 8000, "article explanations must send at most 8,000 source characters");
@@ -61,13 +88,17 @@ assert.equal(followup.mode, "article-followup");
 assert.equal(harness.cachedArticleReads, 1, "follow-up questions must prefer the permission-bound Reader cache");
 assert.equal(harness.liveArticleReads, 1, "follow-up questions must not repeat the initial live article read when cache is available");
 assert.equal(harness.cacheWrites.length, 1, "follow-up answers must not create persistent AI search cache entries");
-assert.equal(harness.requests.at(-1).maxTokens, 900);
+assert.equal(harness.requests.at(-1).maxTokens, 4096);
 assert(harness.requests.at(-1).input.includes("当前问题：其中最关键的限制是什么？"));
 
 const questionHarness = createHarness();
 const question = await questionHarness.service.answerAiSearch({ query: "Ampira 如何整理内容？" });
 assert.equal(question.usedAi, true);
 assert.equal(question.mode, "dashboard");
+assert.equal(questionHarness.requests[0].maxTokens, 4096);
+assert.deepEqual(questionHarness.requests[0].messages.map(({ role }) => role), ["user"], "general questions must use a native user message instead of flattening the conversation into one prompt");
+assert.match(questionHarness.requests[0].system, /explicit user request to answer.*another language/i, "manual chat must allow an explicit requested output language");
+assert.doesNotMatch(questionHarness.requests[0].system, /AMPIRA_OUTPUT_LOCALE=/, "manual chat must not inherit the automatic-job language lock");
 const questionFollowup = await questionHarness.service.answerAiSearch({
   query: "能具体一点吗？",
   questionContext: {
@@ -81,6 +112,7 @@ assert.equal(questionFollowup.usedAi, true);
 assert.equal(questionFollowup.mode, "question-followup");
 assert(questionHarness.requests.at(-1).input.includes("首轮问题：Ampira 如何整理内容？"));
 assert(questionHarness.requests.at(-1).input.includes("当前问题：能具体一点吗？"));
+assert.deepEqual(questionHarness.requests.at(-1).messages.map(({ role }) => role), ["user", "assistant", "user", "assistant", "user"], "follow-ups must preserve native user and assistant role order");
 assert.equal(questionHarness.cacheWrites.length, 1, "question follow-up answers must not create persistent AI search cache entries");
 
 const permissionFailure = createHarness({ cachedArticleError: typedError("ORIGIN_PERMISSION_REQUIRED", "background.error.websitePermission", { origin: "https://news.example" }) });
@@ -232,7 +264,6 @@ function createHarness({
         : provider;
     },
     readDeviceConsent: async () => ({ aiDisclosureAccepted: true }),
-    readSecrets: async () => ({}),
     providerTestApiKey: () => "test-key",
     providerTestConsentAllowed: () => true,
     providerCredentialAvailable: () => true,
@@ -241,7 +272,6 @@ function createHarness({
     typedError,
     resultMessage: (_settings, ok, key) => ({ ok, message: translate("zh-CN", key) }),
     errorResult: (_settings, error) => ({ ok: false, error }),
-    testImageSearchConnection: async () => ({ count: 0 }),
     safeOrigin: (value) => { try { return new URL(value).origin; } catch { return ""; } },
     uniqueStrings: (values) => [...new Set(values)],
     withFeedCacheMetadata: (value, _items, capability, providerUrl = "") => ({

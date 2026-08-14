@@ -336,6 +336,14 @@ select optgroup {
   white-space: nowrap;
 }
 
+.select-combobox-option-meta {
+  min-width: 0;
+  color: var(--muted-2);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
 .select-combobox-option:hover {
   background: var(--row-hover-fill);
   color: var(--text);
@@ -423,10 +431,6 @@ input::placeholder {
 .search:focus {
   border-color: var(--active-line);
   box-shadow: var(--focus-ring);
-}
-
-.search-wrap:focus-within .search {
-  background: var(--blur-panel-hover-bg);
 }
 
 .search-ai {

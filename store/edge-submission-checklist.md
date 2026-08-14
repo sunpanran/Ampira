@@ -14,7 +14,8 @@
 
 ## Listing and review
 
-- [ ] 使用 `store/edge-listing/` 与 `store/edge-reviewer-notes.md` 的 Microsoft Edge 文案，不提交 Chrome 品牌版本。
+- [ ] 短描述从 `store/edge-listing/*-short.txt` 全选复制，详细描述从对应的 `*-description.txt` 全选复制；不要添加 Markdown 标记。
+- [ ] 使用 `store/edge-reviewer-notes.md` 的 Microsoft Edge 文案，不提交 Chrome 品牌版本。
 - [ ] 披露新标签页覆盖、可选精确来源、浏览器账号同步和 Edge 网站图标回退。
 - [ ] 确认公开隐私、支持和删除页面同时说明 `chrome://extensions` 与 `edge://extensions`。
 - [ ] 仅在 Edge 专项 QA 通过后上传同一个已验证 ZIP。

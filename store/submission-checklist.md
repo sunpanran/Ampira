@@ -28,7 +28,8 @@
 - [x] 在 PowerShell 7 与 Node.js 20+ 环境设置真实 `REQUIRED_SUPPORT_URL`，运行 `.\scripts\verify-extension.ps1 -Package`。
 - [ ] 上传脚本生成的 Manifest 版本化 ZIP，并保留 `.zip.sha256` 与 `.manifest.json`；CI 构建时确认记录预期 `GITHUB_SHA`。
 - [x] 审计 ZIP：根目录直接包含 `manifest.json`，不含测试、`output/`、`dashboard-cache/`、隐藏配置、密钥、本机路径、私人数据或允许列表外文件。
-- [ ] 使用 `store/listing/`、`store/privacy-practices.md` 和 `store/reviewer-notes.md` 的当前内容。
+- [ ] 短描述从 `store/listing/*-short.txt` 全选复制，详细描述从对应的 `*-description.txt` 全选复制；不要添加 Markdown 标记。
+- [ ] 使用 `store/privacy-practices.md` 和 `store/reviewer-notes.md` 的当前内容。
 - [ ] 上传 `store/assets/` 中当前列出的商店素材；若可见界面或权限状态变化，重新捕获对应截图。
 - [ ] 确认无应用内购买、成熟内容、分析、广告、远程代码或开发者后端需要额外披露。
 - [ ] 确认 Open-Meteo 与 GeoNames 的可见归属和许可仍满足当前发布方式。

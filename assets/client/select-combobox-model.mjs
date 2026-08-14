@@ -40,6 +40,10 @@ export function optionLabel(option) {
   return String(option?.label || option?.textContent || "").trim();
 }
 
+export function optionTriggerLabel(option) {
+  return String(option?.dataset?.comboboxTriggerLabel || optionLabel(option)).trim();
+}
+
 function optionSearchText(option) {
   return normalizeSearchText(optionLabel(option));
 }

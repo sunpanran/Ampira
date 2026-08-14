@@ -34,7 +34,6 @@ export function createInitialState() {
     manualRefreshKeys: new Set(),
     dailyDigestRefreshing: false,
     aiSearchBusy: false,
-    aiSearchTypeTimer: null,
     pollTimer: null,
     webFrameUrl: "",
     webFrameItem: null,

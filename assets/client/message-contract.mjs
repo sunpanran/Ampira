@@ -6,6 +6,7 @@ const HTTP_MESSAGE_ROUTES = Object.freeze({
   "GET /api/refresh": "refresh:status",
   "GET /api/site-preview": "preview:get",
   "GET /api/reader": "reader:get",
+  "GET /api/research/folders": "research:folders",
   "POST /api/settings": "settings:save",
   "POST /api/settings/import": "settings:import",
   "POST /api/settings/factory-reset": "settings:factory-reset",

@@ -8,7 +8,7 @@
   display: none;
   place-items: center;
   padding: 24px;
-  background: rgba(0, 0, 0, .62);
+  background: var(--settings-overlay-bg);
 }
 
 .modal-backdrop.open,
@@ -28,11 +28,11 @@
 
 .modal-backdrop.open.closing {
   pointer-events: none;
-  animation: settingsBackdropOut 180ms var(--motion-ease-exit) both;
+  animation: settingsBackdropOut var(--motion-state-duration) var(--motion-ease-exit) both;
 }
 
 .modal-backdrop.open.closing .modal {
-  animation: settingsModalClose 180ms var(--motion-ease-exit) both;
+  animation: settingsModalClose var(--motion-state-duration) var(--motion-ease-exit) both;
 }
 
 .modal-backdrop {
@@ -498,7 +498,7 @@
 
 .saved-source-permission-origins {
   color: var(--muted-2);
-  font-family: var(--font-mono);
+  font-family: var(--font-ui);
   font-size: 10px;
   line-height: 1.5;
   overflow-wrap: anywhere;

@@ -30,6 +30,8 @@ try {
   const i18n = await import(`../../assets/client/i18n.mjs?client-i18n-test=${Date.now()}`);
   assert.equal(i18n.getLocale(), "zh-CN", "the initial browser locale must be prepared before the module resolves");
   assert.equal(i18n.t("language.name"), "简体中文");
+  assert.equal(i18n.t("aiSearch.userMessage", { number: 2 }), "你的第 2 条消息");
+  assert.equal(i18n.t("aiSearch.assistantMessage"), "Ampira 回答");
   assert.throws(
     () => i18n.setLocale("en", { persist: false }),
     /Locale catalog has not been prepared: en/,
@@ -38,6 +40,8 @@ try {
   assert.deepEqual(await Promise.all([i18n.prepareLocale("en"), i18n.prepareLocale("en-US")]), ["en", "en"], "concurrent requests for one locale must share a safe result");
   assert.equal(i18n.setLocale("en", { persist: false }), "en");
   assert.equal(i18n.t("language.name"), "English");
+  assert.equal(i18n.t("aiSearch.userMessage", { number: 2 }), "Your message 2");
+  assert.equal(i18n.t("aiSearch.assistantMessage"), "Ampira response");
   assert.equal(i18n.tc("unit.entries", 1), "1 entry");
   assert.equal(i18n.tc("unit.entries", 3), "3 entries");
   assert.deepEqual(i18n.allTranslations("action.openSettings"), ["Open settings", "打开设置", "開啟設定"]);
@@ -46,6 +50,8 @@ try {
   await i18n.prepareLocale("zh-Hant");
   assert.equal(i18n.setLocale("zh-TW", { persist: false }), "zh-Hant");
   assert.equal(i18n.t("language.name"), "繁體中文");
+  assert.equal(i18n.t("aiSearch.userMessage", { number: 2 }), "你的第 2 則訊息");
+  assert.equal(i18n.t("aiSearch.assistantMessage"), "Ampira 回答");
   assert.equal(documentStub.documentElement.lang, "zh-Hant");
   assert.equal(localeEvents.at(-1)?.type, "ampira:locale-changed");
   assert.equal(localeEvents.at(-1)?.detail?.locale, "zh-Hant");

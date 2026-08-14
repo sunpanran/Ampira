@@ -86,6 +86,15 @@ export async function runCodeHygieneTests(root) {
   const markup = (await Promise.all(htmlFiles.map((file) => fs.readFile(file, "utf8")))).join("\n");
   const referencedText = `${combinedSource}\n${markup}`;
   const cssSource = (await Promise.all(cssFiles.map((file) => fs.readFile(file, "utf8")))).join("\n");
+  const iconsSource = sources.get("assets/client/icons.mjs");
+  assert(iconsSource.includes('icon.classList.add("is-icon-pending")')
+    && iconsSource.includes('icon.addEventListener("load", reveal, { once: true })')
+    && iconsSource.includes('icon.addEventListener("error", hide, { once: true })')
+    && iconsSource.includes("icon.hidden = true"),
+  "local icons must stay hidden until loaded and suppress the browser broken-image placeholder on failure");
+  assert(cssSource.includes("img[data-icon]:not([src]),")
+    && cssSource.includes(".industrial-icon.is-icon-pending"),
+  "static icon slots must remain invisible before hydration and while image decoding is pending");
   const unusedClasses = [...cssSource.matchAll(/\.([A-Za-z][A-Za-z0-9_-]*)/g)]
     .map((match) => match[1])
     .filter((name, index, all) => all.indexOf(name) === index)

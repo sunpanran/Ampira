@@ -48,15 +48,8 @@ function renderInitialLoadingState() {
   els.efficiencyPanel.dataset.loading = "true";
   els.efficiencyPanel.replaceChildren(...Array.from({ length: 3 }, () => createLoadingPlaceholder("efficiency-skeleton")));
   els.dailyBoard.replaceChildren(...["news", "inspiration", "archive"].map((columnId) => {
-    const column = document.createElement("section");
-    column.className = "board-column loading-column";
+    const column = createLoadingPlaceholder("board-column-skeleton");
     column.dataset.columnId = columnId;
-    const head = document.createElement("div");
-    head.className = "column-head loading-line loading-line-heading";
-    const list = document.createElement("div");
-    list.className = "card-list";
-    list.append(createLoadingPlaceholder());
-    column.append(head, list);
     return column;
   }));
   els.summaryGrid.replaceChildren(...Array.from({ length: 8 }, () => createLoadingPlaceholder("summary-skeleton")));

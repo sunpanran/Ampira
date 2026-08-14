@@ -4,6 +4,8 @@ import { isHotNewsItem as matchesHotNews, isSummaryFillItem as matchesSummaryFil
 import { summaryEmptyStateKind } from "./empty-state-policy.mjs";
 import { createLoadingSurfaceController, restartMotionClass } from "./motion.mjs";
 import { createSummaryImageThumbs } from "./summary-image-thumb.mjs";
+import { createSummaryBatchTransition } from "./summary-batch-transition.mjs";
+import { cleanupSummaryThumbTransitions, crossfadeSummaryThumb, syncSummaryThumb } from "./summary-thumb-transition.mjs";
 
 export function createSummaryView(options) {
   const {
@@ -26,11 +28,22 @@ export function createSummaryView(options) {
   const { createSummaryThumb, updateVisibleNewsThumbs } = createSummaryImageThumbs({
     els, faviconUrl, itemUrl, newsPreviews,
   });
+  const summaryBatchTransition = createSummaryBatchTransition({
+    cleanup: cleanupSummaryBatchTransition,
+    prefersReducedMotion,
+    prepare: prepareSummaryBatchTransition,
+    update: (batchTransition) => renderSummaries({
+      batchTransition,
+      immediate: !batchTransition,
+      preserveBatchTransition: true,
+    }),
+  });
   return {
     renderSummaries, newsSummaryItems, updateSummaryCard, reshuffleSummaries,
     createNewsRanker, refreshSummaryItem, updateVisibleNewsThumbs,
   };
-function renderSummaries() {
+function renderSummaries({ batchTransition = null, immediate = false, preserveBatchTransition = false } = {}) {
+  if (!preserveBatchTransition) summaryBatchTransition.cancel();
   const token = ++summaryRenderToken;
   const news = newsSummaryItems(true);
   const pool = summaryPoolItems(news);
@@ -50,16 +63,24 @@ function renderSummaries() {
       variant: "plain",
       actionLabel: emptyKind === "noMatches" ? "" : t("action.cache"),
       onAction: emptyKind === "noMatches" ? undefined : () => triggerRefresh(true),
-    })], token);
+    })], token, { batchTransition, immediate });
     return;
   }
-  renderSummaryGrid(visible.map(createSummaryCard), token);
+  renderSummaryGrid(visible.map(createSummaryCard), token, { batchTransition, immediate });
 }
 
-function renderSummaryGrid(nodes, token) {
+function renderSummaryGrid(nodes, token, { batchTransition = null, immediate = false } = {}) {
   const grid = els.summaryGrid;
   const currentCards = directSummaryCards(grid);
   const nextCards = nodes.filter((node) => node.matches?.(summaryCardSelector));
+  if (batchTransition) {
+    renderSummaryBatchGrid(grid, nodes, currentCards, nextCards, batchTransition);
+    return;
+  }
+  if (immediate) {
+    grid.replaceChildren(...nodes);
+    return;
+  }
   if (!currentCards.length || prefersReducedMotion()) {
     grid.replaceChildren(...nodes);
     animateCardsIn(directSummaryCards(grid));
@@ -115,6 +136,63 @@ function applySummaryGridDiff(grid, nodes) {
 
 function directSummaryCards(root) {
   return Array.from(root.children).filter((node) => node.matches?.(summaryCardSelector));
+}
+
+function prepareSummaryBatchTransition() {
+  const pool = summaryPoolItems(newsSummaryItems(true));
+  const page = pageForItems(pool, hotSummaryPageSize, state.variants.summary);
+  const nextCardCount = page.items.length;
+  directSummaryCards(els.summaryGrid).forEach((card, index) => {
+    const transitionNode = index < nextCardCount
+      ? summaryBatchContent(card) || card
+      : card;
+    setSummaryBatchTransitionName(transitionNode, index);
+  });
+  return { nextCardCount };
+}
+
+function renderSummaryBatchGrid(grid, nodes, currentCards, nextCards, transitionState) {
+  if (nodes.length !== nextCards.length || nextCards.length !== transitionState.nextCardCount) {
+    grid.replaceChildren(...nodes);
+    return;
+  }
+
+  for (const child of Array.from(grid.children)) {
+    if (!child.matches?.(summaryCardSelector)) child.remove();
+  }
+
+  const sharedCount = Math.min(currentCards.length, nextCards.length);
+  for (let index = 0; index < sharedCount; index += 1) {
+    const nextContent = summaryBatchContent(nextCards[index]) || nextCards[index];
+    setSummaryBatchTransitionName(nextContent, index);
+    syncSummaryCard(currentCards[index], nextCards[index], { crossfadeThumb: true });
+  }
+
+  for (let index = sharedCount; index < nextCards.length; index += 1) {
+    setSummaryBatchTransitionName(nextCards[index], index);
+    grid.append(nextCards[index]);
+  }
+
+  for (let index = currentCards.length - 1; index >= nextCards.length; index -= 1) {
+    currentCards[index].remove();
+  }
+}
+
+function summaryBatchContent(card) {
+  return card?.querySelector?.(":scope > .summary-card-content") || null;
+}
+
+function setSummaryBatchTransitionName(node, index) {
+  node?.style?.setProperty("view-transition-name", `signal-feed-card-${index + 1}`);
+}
+
+function cleanupSummaryBatchTransition() {
+  const cards = directSummaryCards(els.summaryGrid);
+  for (const card of cards) {
+    card.style.removeProperty("view-transition-name");
+    summaryBatchContent(card)?.style.removeProperty("view-transition-name");
+  }
+  cleanupSummaryThumbTransitions(cards);
 }
 
 function newsSummaryItems(respectQuery) {
@@ -225,7 +303,7 @@ function reshuffleSummaries() {
   const page = pageForItems(pool, hotSummaryPageSize, state.variants.summary);
   state.variants.summary = (page.variant + 1) % page.pageCount;
   writeValue(`dash.variant.${state.day}.summary`, String(state.variants.summary));
-  renderSummaries();
+  summaryBatchTransition.run();
 }
 
 function summaryTime(item) {
@@ -273,8 +351,9 @@ function createSummaryCard(item) {
     return { url: itemUrl(currentItem), title: displaySummaryTitle(currentItem), item: currentItem };
   });
   const thumb = createSummaryThumb(item);
-  card.append(thumb);
   if (thumb.classList.contains("is-favicon-thumb")) card.classList.add("has-favicon-thumb");
+  const content = document.createElement("div");
+  content.className = "summary-card-content";
   const body = document.createElement("div");
   body.className = "summary-body";
   const top = document.createElement("div");
@@ -296,8 +375,9 @@ function createSummaryCard(item) {
   cardActions.className = "summary-card-actions";
   cardActions.append(createReadingActions(item, { source: "news", compact: true }));
   if (cardSummaryEnabled() && !isCorrectlySummarized(item)) cardActions.append(createManualSummaryButton(item, isRefreshing));
+  card.dataset.summaryActionCount = String(cardActions.querySelectorAll("button").length);
   headMain.append(pill);
-  top.append(headMain, cardActions);
+  top.append(headMain);
   const title = document.createElement("span");
   title.className = "summary-title";
   title.textContent = cardTitle;
@@ -321,7 +401,8 @@ function createSummaryCard(item) {
     lines.append(node);
   }
   body.append(top, title, sourceRow, lines);
-  card.append(body);
+  content.append(body);
+  card.append(thumb, content, cardActions);
   return card;
 }
 
@@ -396,36 +477,35 @@ function updateSummaryCard(item) {
     .find((node) => node.dataset.key === item.key) || null;
 }
 
-function syncSummaryCard(currentCard, nextCard) {
+function syncSummaryCard(currentCard, nextCard, { crossfadeThumb = false } = {}) {
   currentCard.className = nextCard.className;
-  currentCard.dataset.itemVersion = nextCard.dataset.itemVersion || "";
-  currentCard.dataset.previewFingerprint = nextCard.dataset.previewFingerprint || "";
+  for (const key of Object.keys(currentCard.dataset)) delete currentCard.dataset[key];
+  for (const [key, value] of Object.entries(nextCard.dataset)) currentCard.dataset[key] = value;
   currentCard.ampiraItem = nextCard.ampiraItem;
+  currentCard.tabIndex = nextCard.tabIndex;
+  currentCard.setAttribute("role", nextCard.getAttribute("role") || "link");
   currentCard.title = nextCard.title;
   currentCard.setAttribute("aria-label", nextCard.getAttribute("aria-label") || "");
   if (nextCard.getAttribute("aria-busy") === "true") currentCard.setAttribute("aria-busy", "true");
   else currentCard.removeAttribute("aria-busy");
-
-  const currentThumb = currentCard.querySelector(":scope > .thumb");
-  const nextThumb = nextCard.querySelector(":scope > .thumb");
-  if (currentThumb && nextThumb && currentThumb.isEqualNode(nextThumb)) {
-    nextThumb.remove();
-  } else if (currentThumb && nextThumb) {
-    currentThumb.replaceWith(nextThumb);
-  } else if (nextThumb) {
-    currentCard.prepend(nextThumb);
-  } else {
-    currentThumb?.remove();
-  }
-
-  const currentBody = currentCard.querySelector(":scope > .summary-body");
-  const nextBody = nextCard.querySelector(":scope > .summary-body");
-  if (currentBody && nextBody) currentBody.replaceWith(nextBody);
-  else if (nextBody) currentCard.append(nextBody);
-  else currentBody?.remove();
+  if (crossfadeThumb) crossfadeSummaryThumb(currentCard, nextCard);
+  else syncSummaryThumb(currentCard, nextCard);
+  syncSummaryActions(currentCard, nextCard);
+  const currentContent = summaryBatchContent(currentCard);
+  const nextContent = summaryBatchContent(nextCard);
+  if (currentContent && nextContent) currentContent.replaceWith(nextContent);
+  else if (nextContent) currentCard.append(nextContent);
+  else currentContent?.remove();
   return currentCard;
 }
-
+function syncSummaryActions(currentCard, nextCard) {
+  const currentActions = currentCard.querySelector(":scope > .summary-card-actions");
+  const nextActions = nextCard.querySelector(":scope > .summary-card-actions");
+  if (!currentActions) { if (nextActions) currentCard.append(nextActions); return; }
+  if (!nextActions) { currentActions.remove(); return; }
+  currentActions.className = nextActions.className;
+  currentActions.replaceChildren(...nextActions.childNodes);
+}
 function startManualSummaryLoadingMotion(key, card) {
   finishManualSummaryLoadingMotion(key);
   if (card) manualSummaryLoadingMotions.set(key, createLoadingSurfaceController(card));

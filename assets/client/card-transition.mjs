@@ -1,4 +1,14 @@
 import { prefersReducedMotion } from "./motion.mjs";
+import { cloneWithoutIconLoadState } from "./dom.mjs";
+
+const TRANSIENT_CARD_STYLE_PROPERTIES = Object.freeze([
+  "--mx",
+  "--my",
+  "--card-motion-delay",
+  "--card-motion-duration",
+  "view-transition-name",
+  "will-change",
+]);
 
 export function createCardTransition({ exitMs, enterMs }) {
   function animateCardsOut(cards) {
@@ -42,9 +52,9 @@ export function createCardTransition({ exitMs, enterMs }) {
   }
 
   function canReuseCard(currentCard, nextCard) {
-    return Boolean(nextCard.dataset.itemVersion)
-      && currentCard.dataset.itemVersion === nextCard.dataset.itemVersion
-      && currentCard.isEqualNode(nextCard);
+    if (!nextCard.dataset.itemVersion
+      || currentCard.dataset.itemVersion !== nextCard.dataset.itemVersion) return false;
+    return comparableCardNode(currentCard).isEqualNode(comparableCardNode(nextCard));
   }
 
   return {
@@ -55,6 +65,13 @@ export function createCardTransition({ exitMs, enterMs }) {
     prefersReducedMotion,
     setCardItemIdentity,
   };
+}
+
+function comparableCardNode(card) {
+  const clone = cloneWithoutIconLoadState(card);
+  for (const property of TRANSIENT_CARD_STYLE_PROPERTIES) clone.style.removeProperty(property);
+  if (!clone.style.length) clone.removeAttribute("style");
+  return clone;
 }
 
 function cardItemVersion(item) {

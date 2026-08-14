@@ -6,6 +6,7 @@ import { refreshAvailability } from "../../assets/client/status-view.mjs";
 export async function runDashboardControllerTests() {
   testHiddenDocumentDisablesDeferredCardTransitions();
   testRefreshAvailability();
+  testDashboardRenderSyncsAiCapability();
   await testRefreshRequestShowsImmediateFeedback();
   await testUnavailableAutomaticRefreshIsSkipped();
   await testRefreshStatusRendersDaily();
@@ -55,6 +56,48 @@ export async function runDashboardControllerTests() {
   pending[0]({ marker: "stale" });
   await first;
   assert.equal(state.data.marker, "newer", "a stale dashboard response must not replace a newer generation");
+}
+
+function testDashboardRenderSyncsAiCapability() {
+  const noop = () => {};
+  let syncCount = 0;
+  const controller = createDashboardController({
+    state: { data: {}, settings: null, variants: {}, seen: new Set(), pollTimer: null },
+    els: {
+      refresh: { disabled: false },
+      settingsRefresh: { disabled: false },
+      dailyBoard: { removeAttribute: noop },
+      summaryGrid: { removeAttribute: noop },
+    },
+    t: (key) => key,
+    apiGet: async () => ({}),
+    apiPost: async () => ({}),
+    preloadDailyInspiration: noop,
+    renderConnectionError: noop,
+    renderStatus: noop,
+    renderOverviewStatus: noop,
+    localizedErrorMessage: String,
+    renderExclusionList: noop,
+    renderExcludeFolderOptions: noop,
+    renderTodayMetaValue: noop,
+    renderWebsiteShortcuts: noop,
+    renderEfficiencyPanel: noop,
+    renderDaily: noop,
+    renderSummaries: noop,
+    renderSectionFilters: noop,
+    renderCategoryFilters: noop,
+    renderCategories: noop,
+    formatTodayMeta: () => ({}),
+    getTodayKey: () => "2026-08-13",
+    readNumber: (_key, fallback) => fallback,
+    writeJson: noop,
+    retainSeenArchiveEnabled: () => false,
+    readSeenRecords: () => [],
+    replaceSeenRecords: noop,
+    syncAiSearchCapability: () => { syncCount += 1; },
+  });
+  controller.renderAll();
+  assert.equal(syncCount, 1, "dashboard rendering must refresh AI search capability visibility");
 }
 
 async function testRefreshRequestShowsImmediateFeedback() {

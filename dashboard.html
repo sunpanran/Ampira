@@ -45,7 +45,7 @@
 
     <main class="main">
       <div class="dashboard-cover" id="headerImageHero" hidden aria-hidden="true">
-        <img id="headerImage" alt="" referrerpolicy="no-referrer">
+        <img id="headerImage" alt="" loading="eager" fetchpriority="high" referrerpolicy="no-referrer">
         <span class="cover-fade" aria-hidden="true"></span>
       </div>
 
@@ -318,9 +318,9 @@
             </label>
             <div class="credential-panel ai-image-layout" id="imageSearchStrategy" hidden>
               <div class="field">
-                <label for="imageSearchApiKeyInput" data-i18n="settings.service.imageKey">Brave 图片搜索密钥</label>
+                <label for="imageSearchApiKeyInput" data-i18n="settings.service.imageKey">Brave 图片搜索 API 密钥</label>
                 <input id="imageSearchApiKeyInput" type="password" placeholder="BSA..." autocomplete="new-password" autocapitalize="off" spellcheck="false">
-                <div class="help"><span data-i18n="settings.service.imageKeyHelp">仅在原图缺失时用于全网搜图；补取原站图片需先授权对应网站。</span> <a href="https://brave.com/search/api/" target="_blank" rel="noreferrer" data-i18n="settings.service.getImageKey">获取密钥</a></div>
+                <div class="help"><span data-i18n="settings.service.imageKeyHelp">仅用于原图不可用时搜索替代图片。</span> <a href="https://brave.com/search/api/" target="_blank" rel="noreferrer" data-i18n="settings.service.getImageKey">获取密钥</a></div>
               </div>
               <div class="ai-image-actions">
                 <div class="credential-controls">
@@ -676,7 +676,7 @@
                 </div>
                 <div class="cover-adjustment-range cover-height-range" id="headerImageHeightField" aria-disabled="false">
                   <div class="cover-adjustment-meter">
-                    <input id="headerImageHeightInput" type="range" min="70" max="140" step="5" value="100">
+                    <input id="headerImageHeightInput" type="range" min="70" max="200" step="5" value="100">
                   </div>
                 </div>
               </div>
@@ -869,25 +869,56 @@
     </div>
   </div>
 
-  <div class="search-overlay" id="aiSearchOverlay" role="dialog" aria-modal="true" aria-label="搜索 Ampira" data-i18n-aria-label="aiSearch.local.title">
-    <div class="ai-search-panel">
-      <div class="ai-search-head" hidden>
-        <div>
-          <div class="ai-search-title" id="aiSearchTitle">
-            <img class="card-icon" data-icon="search" alt="" aria-hidden="true">
-            <span id="aiSearchTitleText" data-i18n="aiSearch.local.title">搜索 Ampira</span>
-          </div>
-          <div class="ai-search-meta" id="aiSearchMeta" role="status" aria-live="polite" data-i18n="aiSearch.local.meta">在 Ampira 已收录内容中查找相关信息</div>
+  <div class="search-overlay" id="aiSearchOverlay" role="dialog" aria-modal="true" aria-labelledby="aiSearchTitleText">
+    <section class="ai-search-panel" id="aiSearchPanel">
+      <header class="ai-search-head">
+        <div class="ai-search-title" id="aiSearchTitle">
+          <img class="card-icon" data-icon="search" alt="" aria-hidden="true">
+          <span id="aiSearchTitleText" data-i18n="aiSearch.workspaceTitle">搜索 Ampira</span>
         </div>
-        <button class="btn ghost" id="closeAiSearch" type="button"><img class="btn-icon" data-icon="x-close" alt="" aria-hidden="true"><span class="btn-label" data-i18n="aiSearch.close">关闭</span></button>
+        <div class="ai-search-head-actions">
+          <button class="btn ghost ai-search-new" id="newAiSearch" type="button">
+            <img class="btn-icon" data-icon="plus" alt="" aria-hidden="true">
+            <span class="btn-label" data-i18n="aiSearch.newConversation">新对话</span>
+          </button>
+          <button class="btn ghost icon-btn" id="closeAiSearch" type="button" aria-label="关闭" title="关闭" data-i18n-aria-label="aiSearch.close" data-i18n-title="aiSearch.close">
+            <img class="btn-icon" data-icon="x-close" alt="" aria-hidden="true">
+          </button>
+        </div>
+      </header>
+      <div class="ai-search-status sr-only" id="aiSearchMeta" role="status" aria-live="polite" data-i18n="aiSearch.local.meta">在 Ampira 已收录内容中查找相关信息</div>
+      <div class="ai-search-workspace">
+        <div class="ai-answer" id="aiAnswer" role="log" aria-live="polite" aria-relevant="additions text" aria-label="对话记录" data-i18n-aria-label="aiSearch.transcript" hidden></div>
+        <form class="ai-search-form is-plain-composer" id="aiSearchForm" autocomplete="off">
+          <textarea id="aiSearchInput" rows="1" maxlength="8000" autocomplete="off" enterkeyhint="send" aria-label="输入关键词" aria-describedby="aiSearchComposerHint" placeholder="输入关键词" data-i18n-aria-label="aiSearch.local.input" data-i18n-placeholder="aiSearch.local.input"></textarea>
+          <div class="ai-search-composer-foot">
+            <div class="ai-search-scope-controls" hidden>
+              <label class="sr-only" for="aiResearchFolder" data-i18n="aiSearch.research.folderLabel" hidden>收藏夹研究范围</label>
+              <select id="aiResearchFolder" aria-label="收藏夹研究范围" data-i18n-aria-label="aiSearch.research.folderLabel" data-combobox-listbox-width="240" hidden>
+                <option value="" data-i18n="aiSearch.research.folderNone">收藏夹</option>
+              </select>
+              <button class="ai-search-scope-toggle" id="aiWebSearchToggle" type="button" aria-pressed="false" aria-label="联网搜索" title="联网搜索" data-i18n-aria-label="aiSearch.research.webSearch" data-i18n-title="aiSearch.research.webSearch" hidden>
+                <span class="btn-icon themed-icon ai-search-scope-toggle-icon" aria-hidden="true"></span>
+                <span data-i18n="aiSearch.research.webSearch">联网搜索</span>
+              </button>
+              <span class="ai-search-next-turn" id="aiSearchNextTurn" role="status" aria-live="polite" hidden data-i18n="aiSearch.research.nextTurn">下一轮</span>
+              <span class="ai-search-edit-state" id="aiSearchEditState" role="status" hidden>
+                <span id="aiSearchEditText" data-i18n="aiSearch.editing">正在编辑问题</span>
+                <button id="cancelAiSearchEdit" type="button" aria-label="取消编辑" title="取消编辑" data-i18n-aria-label="aiSearch.cancelEdit" data-i18n-title="aiSearch.cancelEdit">
+                  <img class="btn-icon" data-icon="x-close" alt="" aria-hidden="true">
+                </button>
+              </span>
+            </div>
+            <div class="ai-search-submit-group">
+              <small class="sr-only" id="aiSearchComposerHint" data-i18n="aiSearch.composerHint">Enter 发送 · Shift+Enter 换行</small>
+              <button class="btn primary icon-btn ai-search-send" id="aiSearchSubmit" type="submit" aria-label="发送" title="发送" data-i18n-aria-label="aiSearch.send" data-i18n-title="aiSearch.send" disabled>
+                <img class="btn-icon" data-icon="send-up" alt="" aria-hidden="true">
+              </button>
+            </div>
+          </div>
+        </form>
       </div>
-      <form class="ai-search-form" id="aiSearchForm" autocomplete="off">
-        <input id="aiSearchInput" type="search" autocomplete="off" aria-label="输入关键词" placeholder="输入关键词" data-i18n-aria-label="aiSearch.local.input" data-i18n-placeholder="aiSearch.local.input">
-        <button class="btn primary" id="aiSearchSubmit" type="submit" data-i18n="aiSearch.local.submit">搜索</button>
-      </form>
-      <div class="ai-answer" id="aiAnswer" role="log" aria-live="polite" aria-relevant="additions text" hidden></div>
-      <small class="ai-search-meta" id="aiSearchGeneratedDisclaimer" data-i18n="aiSearch.generatedDisclaimer" hidden>内容由 AI 生成，请核对重要信息。</small>
-    </div>
+    </section>
   </div>
 
   <div class="web-frame-overlay" id="webFrameOverlay" role="dialog" aria-modal="true" aria-labelledby="webFrameTitle">

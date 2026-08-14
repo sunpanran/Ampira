@@ -9,7 +9,12 @@ import {
   normalizeHeaderCoverRecord,
   webpDataUrlByteLength,
 } from "../../extension/core/header-cover.mjs";
-import { DEFAULT_SETTINGS, LOCAL_HEADER_COVER_KEY } from "../../extension/core/constants.mjs";
+import {
+  DEFAULT_SETTINGS,
+  HEADER_IMAGE_HEIGHT_MAX,
+  HEADER_IMAGE_HEIGHT_MIN,
+  LOCAL_HEADER_COVER_KEY,
+} from "../../extension/core/constants.mjs";
 import { normalizeSettings } from "../../extension/core/settings.mjs";
 import { createSettingsTransferDocument, parseSettingsTransferDocument } from "../../extension/core/settings-transfer.mjs";
 import { createSettingsWorkflow } from "../../extension/runtime/settings-workflow.mjs";
@@ -45,15 +50,21 @@ assert.deepEqual(nextHeaderCoverDimensions(2560, 1440), { width: 2176, height: 1
 assert.deepEqual(nextHeaderCoverDimensions(HEADER_COVER_MIN_LONG_EDGE, 720), { width: 1280, height: 720 });
 
 assert.equal(normalizeSettings({}).headerImageHeightScale, DEFAULT_SETTINGS.headerImageHeightScale);
-assert.equal(normalizeSettings({ headerImageHeightScale: 62 }).headerImageHeightScale, 70);
-assert.equal(normalizeSettings({ headerImageHeightScale: 147 }).headerImageHeightScale, 140);
+assert.equal(normalizeSettings({ headerImageHeightScale: 62 }).headerImageHeightScale, HEADER_IMAGE_HEIGHT_MIN);
+assert.equal(normalizeSettings({ headerImageHeightScale: 147 }).headerImageHeightScale, 145);
 assert.equal(normalizeSettings({ headerImageHeightScale: 117 }).headerImageHeightScale, 115);
+assert.equal(normalizeSettings({ headerImageHeightScale: 200 }).headerImageHeightScale, HEADER_IMAGE_HEIGHT_MAX);
+assert.equal(normalizeSettings({ headerImageHeightScale: 207 }).headerImageHeightScale, HEADER_IMAGE_HEIGHT_MAX);
 assert.equal(normalizeSettings({ headerImageBlurAmount: 99 }).headerImageBlurAmount, 50);
 
-const transfer = createSettingsTransferDocument({ ...DEFAULT_SETTINGS, headerImageHeightScale: 125, headerCoverOperation: record });
-assert.equal(transfer.settings.headerImageHeightScale, 125);
+const transfer = createSettingsTransferDocument({ ...DEFAULT_SETTINGS, headerImageHeightScale: 200, headerCoverOperation: record });
+assert.equal(transfer.settings.headerImageHeightScale, HEADER_IMAGE_HEIGHT_MAX);
 assert.equal(Object.hasOwn(transfer.settings, "headerCoverOperation"), false);
-assert.equal(parseSettingsTransferDocument(transfer, DEFAULT_SETTINGS).patch.headerImageHeightScale, 125);
+assert.equal(parseSettingsTransferDocument(transfer, DEFAULT_SETTINGS).patch.headerImageHeightScale, HEADER_IMAGE_HEIGHT_MAX);
+assert.throws(() => parseSettingsTransferDocument({
+  ...transfer,
+  settings: { ...transfer.settings, headerImageHeightScale: 205 },
+}, DEFAULT_SETTINGS), (error) => error?.code === "SETTINGS_IMPORT_INVALID_VALUE");
 const blurTransfer = createSettingsTransferDocument({ ...DEFAULT_SETTINGS, headerImageBlurAmount: 50 });
 assert.equal(parseSettingsTransferDocument(blurTransfer, DEFAULT_SETTINGS).patch.headerImageBlurAmount, 50);
 
@@ -91,14 +102,15 @@ const workflow = createSettingsWorkflow(workflowOptions({
   writeSettings: async (value) => { workflowSettings = normalizeSettings(value); },
 }));
 const saved = await workflow.saveSettings({
-  headerImageHeightScale: 120,
+  headerImageHeightScale: 200,
   headerImageBlurEnabled: true,
   headerImageBlurAmount: 50,
   headerCoverOperation: { action: "replace", record },
 });
-assert.equal(saved.headerImageHeightScale, 120);
+assert.equal(saved.headerImageHeightScale, HEADER_IMAGE_HEIGHT_MAX);
 assert.equal(saved.headerImageBlurEnabled, true);
 assert.equal(saved.headerImageBlurAmount, 50);
+assert.equal(workflowSettings.headerImageHeightScale, HEADER_IMAGE_HEIGHT_MAX, "200% cover height must survive the settings write transaction");
 assert.equal(workflowSettings.headerImageBlurAmount, 50, "50 px cover blur must survive the settings write transaction");
 assert.equal(saved.headerCoverChanged, true);
 assert.equal((await workflowStore.read()).record.name, record.name);
@@ -129,7 +141,7 @@ await assert.rejects(rollbackWorkflow.saveSettings({
   braveSearchApiKey: "new-brave",
   aiDisclosureAccepted: true,
 }), /content sync failed/);
-assert.equal(workflowSettings.headerImageHeightScale, 120);
+assert.equal(workflowSettings.headerImageHeightScale, HEADER_IMAGE_HEIGHT_MAX);
 assert.equal((await workflowStore.read()).record.name, record.name);
 assert.deepEqual(localState, previousLocalState, "a failed settings transaction must restore credentials and device consent");
 
@@ -146,6 +158,8 @@ assert(settingsControllerSource.includes("else closeSettings();"), "discarding t
 const dashboardAppSource = await fs.readFile(new URL("../../assets/client/dashboard-app.mjs", import.meta.url), "utf8");
 assert(dashboardAppSource.includes("headerCoverController.markExternalChange()"), "an external cover change must be retained while another tab has a local draft open");
 assert(dashboardAppSource.includes("headerCoverController.load().then"), "an external cover change must refresh an idle open settings page");
+assert(dashboardAppSource.includes("void Promise.resolve(globalThis.ampiraLayoutBootstrap?.headerCoverReady).catch(() => {});"), "header cover hydration must remain an explicitly non-blocking visual task");
+assert(!dashboardAppSource.includes("globalThis.ampiraLayoutBootstrap?.headerCoverReady,"), "local cover storage and image decoding must not delay the initial dashboard render group");
 const packagedHeaderImage = await fs.readFile(new URL("../../assets/images/default-header.webp", import.meta.url));
 assert(packagedHeaderImage.length > 0, "the default header image must be packaged locally");
 assert.equal(packagedHeaderImage.subarray(0, 4).toString("ascii"), "RIFF", "the packaged default header image must have a WebP container");
@@ -153,11 +167,21 @@ assert.equal(packagedHeaderImage.subarray(8, 12).toString("ascii"), "WEBP", "the
 assert(packagedHeaderImage.length < 750 * 1024, "the packaged default header image must stay below 750 KiB");
 const appearanceControllerSource = await fs.readFile(new URL("../../assets/client/appearance-controller.mjs", import.meta.url), "utf8");
 const themeBootstrapSource = await fs.readFile(new URL("../../assets/client/theme-bootstrap.mjs", import.meta.url), "utf8");
+const shellControllerSource = await fs.readFile(new URL("../../assets/client/shell-controller.mjs", import.meta.url), "utf8");
+const dashboardSectionsCssSource = await fs.readFile(new URL("../../assets/styles/dashboard-sections.css", import.meta.url), "utf8");
+const coverImageRule = dashboardSectionsCssSource.match(/\.dashboard-cover img\s*\{([\s\S]*?)\n\}/)?.[1] || "";
+const loadedCoverRule = dashboardSectionsCssSource.match(/\.dashboard-cover\.is-loaded img\s*\{([\s\S]*?)\n\}/)?.[1] || "";
+const fixedCoverRule = dashboardSectionsCssSource.match(/\.has-fixed-header-cover \.dashboard-cover\s*\{([\s\S]*?)\n\}/)?.[1] || "";
 assert(appearanceControllerSource.includes('DEFAULT_HEADER_IMAGE_ASSET = "/assets/images/default-header.webp"'), "normal rendering must resolve the default cover to the packaged asset");
 assert(themeBootstrapSource.includes('defaultHeaderImageAsset = "/assets/images/default-header.webp"'), "first-frame rendering must resolve the default cover to the packaged asset");
 assert(themeBootstrapSource.includes('url: ""'), "a new profile must keep the cover URL field empty on its first frame");
 assert(themeBootstrapSource.includes("return source || defaultHeaderImageAsset"), "an empty cover URL must resolve to the packaged default cover on the first frame");
 assert(appearanceControllerSource.includes("if (!url) return DEFAULT_HEADER_IMAGE_ASSET"), "normal rendering must resolve an empty URL to the packaged cover");
+assert(coverImageRule.includes("opacity 720ms var(--motion-ease-enter)"), "fast loading must retain the original cover fade duration");
+assert(coverImageRule.includes("transform: scale(1.012);") && coverImageRule.includes("transform 900ms var(--motion-ease-standard)"), "fast loading must retain the original subtle cover settle motion");
+assert(loadedCoverRule.includes("transform: scale(1);"), "the loaded cover state must finish the original settle motion");
+assert(shellControllerSource.includes("window.innerWidth || document.documentElement.clientWidth"), "cover metrics must match CSS viewport units before falling back to client width");
+assert(fixedCoverRule.includes("width: 100vw;"), "fixed and fullscreen covers must not be recropped when page scrollbar metrics settle");
 
 console.log("header cover tests passed");
 

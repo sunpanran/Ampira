@@ -338,6 +338,13 @@ AI 是可选的核心能力，当前覆盖：
 
 Chrome 与 Edge 使用相同信息顺序。涉及浏览器名称、同步方式和配置文件时，按对应平台改写。
 
+商店后台按纯文本处理，不使用 Markdown。每种语言拆成两个可以全选复制的文件：
+
+- `*-short.txt`：只放短描述，不加“短描述”标签。
+- `*-description.txt`：只放详细描述，栏目使用普通文本，列表使用 `•`。
+
+文件中不要出现 `#`、`##`、`- `、Markdown 链接或代码标记。
+
 ### 官网
 
 三语首页顺序固定为：
@@ -381,8 +388,8 @@ Chrome 与 Edge 使用相同信息顺序。涉及浏览器名称、同步方式�
 | Manifest 三语简介 | `_locales/en/messages.json`、`_locales/zh_CN/messages.json`、`_locales/zh_TW/messages.json` |
 | 扩展三语文案 | `assets/client/locales/en.mjs`、`assets/client/locales/zh-CN.mjs`、`assets/client/locales/zh-Hant.mjs` |
 | 静态 HTML 回退 | `dashboard.html` |
-| Chrome 商店正文 | `store/listing/` |
-| Edge 商店正文 | `store/edge-listing/` |
+| Chrome 商店纯文本 | `store/listing/*-short.txt`、`store/listing/*-description.txt` |
+| Edge 商店纯文本 | `store/edge-listing/*-short.txt`、`store/edge-listing/*-description.txt` |
 | 官网首页 | `docs/index.html`、`docs/zh-TW/index.html`、`docs/en/index.html` |
 | 官网样式与 Logo | `docs/styles.css`、`docs/assets/ampira-logo.svg` |
 | GitHub 首屏 | `README.md` |

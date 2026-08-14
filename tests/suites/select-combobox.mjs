@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {
   edgeEnabledOptionIndex,
   nextEnabledOptionIndex,
+  optionTriggerLabel,
   typeaheadOptionIndex,
 } from "../../assets/client/select-combobox.mjs";
 
@@ -24,5 +25,9 @@ assert.equal(typeaheadOptionIndex(searchable, "简", -1), 1, "typeahead must sup
 assert.equal(typeaheadOptionIndex(searchable, "繁", 1), 3, "typeahead must skip disabled matches");
 assert.equal(typeaheadOptionIndex(searchable, "en", 3), 0, "typeahead must match case-insensitively and wrap");
 assert.equal(typeaheadOptionIndex(searchable, "missing", 0), -1);
+assert.equal(optionTriggerLabel({
+  label: "Bookmarks bar / AI video · 24 items / 7 sites",
+  dataset: { comboboxTriggerLabel: "Bookmarks bar / AI video" },
+}), "Bookmarks bar / AI video", "the trigger may use a compact label without changing list text or typeahead");
 
 console.log("select combobox tests passed");

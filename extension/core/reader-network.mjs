@@ -14,6 +14,7 @@ export async function fetchReaderHtml(url, timeoutMs = READER_REQUEST_TIMEOUT_MS
       credentials: "omit",
       referrerPolicy: "no-referrer",
       headers: { accept: "text/html, application/xhtml+xml;q=0.9, text/plain;q=0.5, */*;q=0.1" },
+      signal: options.signal,
     }, {
       timeoutMs,
       maxBytes: MAX_RESPONSE_BYTES,

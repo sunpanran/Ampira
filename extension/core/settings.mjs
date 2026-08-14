@@ -1,4 +1,10 @@
-import { CONSENT_VERSION, DEFAULT_SETTINGS } from "./constants.mjs";
+import {
+  CONSENT_VERSION,
+  DEFAULT_SETTINGS,
+  HEADER_IMAGE_HEIGHT_MAX,
+  HEADER_IMAGE_HEIGHT_MIN,
+  HEADER_IMAGE_HEIGHT_STEP,
+} from "./constants.mjs";
 import { normalizeLocale } from "./locale.mjs";
 
 const BOOLEAN_FIELDS = [
@@ -57,7 +63,13 @@ export function normalizeSettings(value = {}) {
     Object.hasOwn(input, "headerImageUrl") ? input.headerImageUrl : DEFAULT_SETTINGS.headerImageUrl,
   );
   settings.headerImageBlurAmount = boundedInteger(input.headerImageBlurAmount, 0, 50, DEFAULT_SETTINGS.headerImageBlurAmount);
-  settings.headerImageHeightScale = boundedStepInteger(input.headerImageHeightScale, 70, 140, 5, DEFAULT_SETTINGS.headerImageHeightScale);
+  settings.headerImageHeightScale = boundedStepInteger(
+    input.headerImageHeightScale,
+    HEADER_IMAGE_HEIGHT_MIN,
+    HEADER_IMAGE_HEIGHT_MAX,
+    HEADER_IMAGE_HEIGHT_STEP,
+    DEFAULT_SETTINGS.headerImageHeightScale,
+  );
   settings.headerImageFullscreen = settings.headerImageFixed && settings.headerImageFullscreen;
   settings.websiteShortcuts = normalizeWebsiteShortcuts(input.websiteShortcuts);
   settings.newsBookmarkFolder = cleanString(input.newsBookmarkFolder, 200, DEFAULT_SETTINGS.newsBookmarkFolder);

@@ -10,13 +10,15 @@ import {
 } from "./appearance-model.mjs";
 
 const COLOR_MODE_STORAGE_KEY = "ampira.colorMode";
+const ACCENT_PALETTE_STORAGE_KEY = "ampira.accentPalette";
 const DASHBOARD_GLASS_BLUR_STORAGE_KEY = "ampira.dashboardGlassBlur";
 const HEADER_COVER_STORAGE_KEY = "ampira.headerCover";
 const HEADER_IMAGE_BLUR_MAX = 50;
 const HEADER_IMAGE_BLUR_DEFAULT = 12;
 const HEADER_IMAGE_BLUR_BLEED_MULTIPLIER = 1.5;
 const HEADER_IMAGE_HEIGHT_MIN = 70;
-const HEADER_IMAGE_HEIGHT_MAX = 140;
+const HEADER_IMAGE_HEIGHT_MAX = 200;
+const HEADER_IMAGE_HEIGHT_STEP = 5;
 const HEADER_IMAGE_HEIGHT_DEFAULT = 100;
 const DEFAULT_HEADER_IMAGE_ASSET = "/assets/images/default-header.webp";
 
@@ -61,6 +63,8 @@ export function createAppearanceController(options) {
   function syncHeightControl(busy = els.saveSettings.disabled) {
     const enabled = els.headerImageEnabledInput.checked;
     els.headerImageHeightInput.min = String(HEADER_IMAGE_HEIGHT_MIN);
+    els.headerImageHeightInput.max = String(HEADER_IMAGE_HEIGHT_MAX);
+    els.headerImageHeightInput.step = String(HEADER_IMAGE_HEIGHT_STEP);
     els.headerImageHeightInput.disabled = !enabled || busy;
     els.headerImageHeightField.setAttribute("aria-disabled", String(!enabled || busy));
     syncHeightLabel();
@@ -150,6 +154,7 @@ export function createAppearanceController(options) {
     const locale = setLocale(value, { persist, translate: false });
     els.uiLocaleSelect.value = locale;
     translateDocument(document);
+    options.syncAiSearchLocale?.();
     options.syncHeaderCoverControls?.();
     if (els.currentUiLanguage) els.currentUiLanguage.textContent = t("language.name");
     options.renderTodayMeta();
@@ -198,6 +203,7 @@ export function createAppearanceController(options) {
     root.dataset.colorMode = colorMode;
     cache(COLOR_MODE_STORAGE_KEY, colorMode);
     root.dataset.accentTheme = accentTheme;
+    cache(ACCENT_PALETTE_STORAGE_KEY, JSON.stringify({ theme: accentTheme, color: palette.accent }));
     root.dataset.pointerGlow = settings.pointerGlowEnabled === false ? "off" : "on";
     root.dataset.dashboardGlassBlur = settings.dashboardGlassBlurEnabled === false ? "off" : "on";
     cache(DASHBOARD_GLASS_BLUR_STORAGE_KEY, root.dataset.dashboardGlassBlur);
@@ -256,7 +262,10 @@ export function createAppearanceController(options) {
   }
 
   function handleHeaderImageLoad() {
-    if (els.headerImage.complete && els.headerImage.naturalWidth > 0) els.headerImageHero.classList.add("is-loaded");
+    if (!els.headerImage.complete || els.headerImage.naturalWidth <= 0) return;
+    const reveal = globalThis.ampiraLayoutBootstrap?.revealHeaderCover;
+    if (typeof reveal === "function") reveal(els.headerImageHero, els.headerImage);
+    else els.headerImageHero.classList.add("is-loaded");
   }
 
   function handleHeaderImageError() {
@@ -315,5 +324,8 @@ function normalizeHeaderImageBlurAmount(value, fallback = HEADER_IMAGE_BLUR_DEFA
 function normalizeHeaderImageHeightScale(value, fallback = HEADER_IMAGE_HEIGHT_DEFAULT) {
   const amount = Number(value);
   if (!Number.isFinite(amount)) return fallback;
-  return Math.min(HEADER_IMAGE_HEIGHT_MAX, Math.max(HEADER_IMAGE_HEIGHT_MIN, Math.round(amount / 5) * 5));
+  return Math.min(
+    HEADER_IMAGE_HEIGHT_MAX,
+    Math.max(HEADER_IMAGE_HEIGHT_MIN, Math.round(amount / HEADER_IMAGE_HEIGHT_STEP) * HEADER_IMAGE_HEIGHT_STEP),
+  );
 }

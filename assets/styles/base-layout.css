@@ -49,6 +49,7 @@ input[type="number"]::-webkit-outer-spin-button {
 
 html {
   overflow-x: hidden;
+  scrollbar-gutter: stable;
   scroll-behavior: smooth;
 }
 
@@ -151,7 +152,7 @@ button,
 }
 
 .sidebar:hover,
-.sidebar:focus-within {
+.sidebar:has(:focus-visible) {
   width: min(var(--nav-expanded-width), calc(100vw - 32px));
   border-color: var(--line-soft);
   background: var(--nav-panel-bg-expanded);
@@ -251,7 +252,7 @@ button,
 }
 
 .sidebar:hover .nav-btn,
-.sidebar:focus-within .nav-btn {
+.sidebar:has(:focus-visible) .nav-btn {
   width: min(var(--nav-expanded-button-width), calc(100vw - 44px));
   padding: 0 var(--nav-expanded-button-pad-right) 0 0;
 }
@@ -292,6 +293,11 @@ button,
   opacity: .72;
 }
 
+img[data-icon]:not([src]),
+.industrial-icon.is-icon-pending {
+  visibility: hidden;
+}
+
 .nav-btn.active .nav-icon,
 .btn.primary .btn-icon,
 .settings-tabs button.active .tab-icon,
@@ -322,7 +328,7 @@ button,
 }
 
 .sidebar:hover .nav-label,
-.sidebar:focus-within .nav-label {
+.sidebar:has(:focus-visible) .nav-label {
   visibility: visible;
   opacity: 1;
   transform: translateY(-50%);
@@ -369,7 +375,7 @@ button,
 }
 
 .today-meta {
-  min-height: 1.5em;
+  min-height: 1.75em;
 }
 
 .controls {

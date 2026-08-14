@@ -1,4 +1,4 @@
-import { animatePanelEntrance } from "./dom.mjs";
+import { animatePanelEntrance, nodesEqualIgnoringIconLoadState } from "./dom.mjs";
 import { createUtilityCardView } from "./utility-card-view.mjs";
 import { animateKeyedLayout, captureKeyedLayout, createLoadingSurfaceController } from "./motion.mjs";
 import { createAiLoadingState } from "./ui-primitives.mjs";
@@ -227,9 +227,12 @@ function syncEfficiencyCards(panel, nextCards) {
   const currentCards = Array.from(panel.children);
   const renderedCards = nextCards.map((nextCard, index) => {
     const currentCard = currentCards[index];
-    return currentCard?.matches?.(".efficiency-card") && currentCard.isEqualNode(nextCard)
-      ? currentCard
-      : nextCard;
+    if (!currentCard?.matches?.(".efficiency-card")) return nextCard;
+    if (nodesEqualIgnoringIconLoadState(currentCard, nextCard)) return currentCard;
+    if (currentCard.classList.contains("queue-card") && nextCard.classList.contains("queue-card")) {
+      return syncQueuePanelCard(currentCard, nextCard);
+    }
+    return nextCard;
   });
   const retainedCards = new Set(renderedCards);
   renderedCards.forEach((card, index) => {
@@ -239,6 +242,62 @@ function syncEfficiencyCards(panel, nextCards) {
     if (!retainedCards.has(card)) card.remove();
   });
   return renderedCards;
+}
+
+function syncQueuePanelCard(currentCard, nextCard) {
+  currentCard.className = nextCard.className;
+  const currentHead = currentCard.querySelector(":scope > .efficiency-head");
+  const nextHead = nextCard.querySelector(":scope > .efficiency-head");
+  if (currentHead && nextHead) syncQueuePanelHead(currentHead, nextHead);
+  else if (nextHead) currentCard.prepend(nextHead);
+  else currentHead?.remove();
+
+  const currentList = currentCard.querySelector(":scope > .efficiency-list");
+  const nextList = nextCard.querySelector(":scope > .efficiency-list");
+  if (currentList && nextList) syncQueuePanelList(currentList, nextList);
+  else if (nextList) currentCard.append(nextList);
+  else currentList?.remove();
+  return currentCard;
+}
+
+function syncQueuePanelHead(currentHead, nextHead) {
+  const currentTitle = currentHead.querySelector(":scope > .efficiency-title");
+  const nextTitle = nextHead.querySelector(":scope > .efficiency-title");
+  if (currentTitle && nextTitle && !nodesEqualIgnoringIconLoadState(currentTitle, nextTitle)) {
+    currentTitle.replaceWith(nextTitle);
+  } else if (!currentTitle && nextTitle) {
+    currentHead.prepend(nextTitle);
+  } else if (currentTitle && !nextTitle) {
+    currentTitle.remove();
+  }
+  const currentTools = currentHead.querySelector(":scope > .efficiency-head-tools");
+  const nextTools = nextHead.querySelector(":scope > .efficiency-head-tools");
+  if (currentTools && nextTools) currentTools.replaceWith(nextTools);
+  else if (nextTools) currentHead.append(nextTools);
+  else currentTools?.remove();
+}
+
+function syncQueuePanelList(currentList, nextList) {
+  currentList.className = nextList.className;
+  const currentRows = directQueueRows(currentList);
+  const nextRows = directQueueRows(nextList);
+  if (currentRows.length !== currentList.children.length || nextRows.length !== nextList.children.length) {
+    currentList.replaceChildren(...nextList.childNodes);
+    return;
+  }
+  const currentByKey = new Map(currentRows.map((row) => [row.dataset.key || "", row]));
+  const resolvedRows = nextRows.map((nextRow) => {
+    const currentRow = currentByKey.get(nextRow.dataset.key || "");
+    return currentRow && nodesEqualIgnoringIconLoadState(currentRow, nextRow) ? currentRow : nextRow;
+  });
+  resolvedRows.forEach((row, index) => {
+    if (currentList.children[index] !== row) currentList.insertBefore(row, currentList.children[index] || null);
+  });
+  while (currentList.children.length > resolvedRows.length) currentList.lastElementChild?.remove();
+}
+
+function directQueueRows(list) {
+  return Array.from(list.children).filter((node) => node.matches?.(".queue-row[data-key]"));
 }
 
 function createQueuePanelCard(items) {

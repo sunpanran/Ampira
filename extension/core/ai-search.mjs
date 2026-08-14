@@ -1,7 +1,8 @@
 export const AI_ARTICLE_CONTEXT_MAX_CHARS = 8000;
-export const AI_FOLLOWUP_QUERY_MAX_CHARS = 500;
-export const AI_FOLLOWUP_HISTORY_MAX_CHARS = 4000;
-export const AI_FOLLOWUP_HISTORY_MAX_TURNS = 6;
+export const AI_FOLLOWUP_QUERY_MAX_CHARS = 8000;
+const AI_FOLLOWUP_HISTORY_MAX_CHARS = 12000;
+const AI_FOLLOWUP_HISTORY_MAX_TURNS = 12;
+const AI_ANSWER_CONTEXT_MAX_CHARS = 4096;
 
 export function limitArticleSummary(value, locale = "zh-CN") {
   const text = String(value || "").trim();
@@ -17,10 +18,10 @@ export function normalizeArticleContext(value, locale = "zh-CN", normalizeUrl = 
   const summary = limitArticleSummary(value.summary, locale);
   const sourceTurns = Array.isArray(value.turns) ? value.turns.slice(-AI_FOLLOWUP_HISTORY_MAX_TURNS) : [];
   const turns = [];
-  let remaining = AI_FOLLOWUP_HISTORY_MAX_CHARS;
+  let remaining = Math.max(0, AI_FOLLOWUP_HISTORY_MAX_CHARS - codePointLength(summary));
   for (let index = sourceTurns.length - 1; index >= 0 && remaining > 0; index -= 1) {
     const question = limitCodePoints(String(sourceTurns[index]?.question || "").trim(), AI_FOLLOWUP_QUERY_MAX_CHARS);
-    const answer = limitCodePoints(String(sourceTurns[index]?.answer || "").trim(), 1200);
+    const answer = limitCodePoints(String(sourceTurns[index]?.answer || "").trim(), AI_ANSWER_CONTEXT_MAX_CHARS);
     if (!question || !answer) continue;
     const combinedLength = codePointLength(question) + codePointLength(answer);
     if (combinedLength > remaining && turns.length) break;
@@ -36,24 +37,30 @@ export function normalizeArticleContext(value, locale = "zh-CN", normalizeUrl = 
 
 export function normalizeQuestionContext(value) {
   if (!value || value.type !== "question") return null;
-  const initialQuery = limitCodePoints(String(value.initialQuery || "").trim(), 2000);
-  const initialAnswer = limitCodePoints(String(value.initialAnswer || "").trim(), 2000);
+  const initialQuery = limitCodePoints(String(value.initialQuery || "").trim(), AI_FOLLOWUP_QUERY_MAX_CHARS);
+  const initialAnswer = limitCodePoints(
+    String(value.initialAnswer || "").trim(),
+    Math.min(AI_ANSWER_CONTEXT_MAX_CHARS, Math.max(0, AI_FOLLOWUP_HISTORY_MAX_CHARS - codePointLength(initialQuery))),
+  );
   if (!initialQuery || !initialAnswer) return null;
   return {
     type: "question",
     initialQuery,
     initialAnswer,
-    turns: normalizeFollowupTurns(value.turns),
+    turns: normalizeFollowupTurns(
+      value.turns,
+      Math.max(0, AI_FOLLOWUP_HISTORY_MAX_CHARS - codePointLength(initialQuery) - codePointLength(initialAnswer)),
+    ),
   };
 }
 
-function normalizeFollowupTurns(value) {
+function normalizeFollowupTurns(value, maxChars = AI_FOLLOWUP_HISTORY_MAX_CHARS) {
   const sourceTurns = Array.isArray(value) ? value.slice(-AI_FOLLOWUP_HISTORY_MAX_TURNS) : [];
   const turns = [];
-  let remaining = AI_FOLLOWUP_HISTORY_MAX_CHARS;
+  let remaining = maxChars;
   for (let index = sourceTurns.length - 1; index >= 0 && remaining > 0; index -= 1) {
     const question = limitCodePoints(String(sourceTurns[index]?.question || "").trim(), AI_FOLLOWUP_QUERY_MAX_CHARS);
-    const answer = limitCodePoints(String(sourceTurns[index]?.answer || "").trim(), 1200);
+    const answer = limitCodePoints(String(sourceTurns[index]?.answer || "").trim(), AI_ANSWER_CONTEXT_MAX_CHARS);
     if (!question || !answer) continue;
     const combinedLength = codePointLength(question) + codePointLength(answer);
     if (combinedLength > remaining && turns.length) break;

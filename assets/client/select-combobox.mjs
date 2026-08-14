@@ -2,6 +2,7 @@ import {
   edgeEnabledOptionIndex,
   nextEnabledOptionIndex,
   optionLabel,
+  optionTriggerLabel,
   optionUnavailable,
   typeaheadOptionIndex,
 } from "./select-combobox-model.mjs";
@@ -9,6 +10,7 @@ import {
 export {
   edgeEnabledOptionIndex,
   nextEnabledOptionIndex,
+  optionTriggerLabel,
   typeaheadOptionIndex,
 } from "./select-combobox-model.mjs";
 
@@ -235,7 +237,7 @@ function syncCombobox(state) {
   const { select, wrapper, trigger, value } = state;
   const disabled = effectivelyDisabled(select);
   const selected = select.selectedOptions?.[0] || null;
-  const selectedLabel = selected ? optionLabel(selected) : "—";
+  const selectedLabel = selected ? optionTriggerLabel(selected) : "—";
 
   wrapper.hidden = select.hidden;
   wrapper.classList.toggle("is-disabled", disabled);
@@ -279,8 +281,15 @@ function renderListboxOptions(state) {
     const optionText = optionLabel(nativeOption);
     const optionLabelNode = select.ownerDocument.createElement("span");
     optionLabelNode.className = "select-combobox-option-label";
-    optionLabelNode.textContent = optionText;
+    optionLabelNode.textContent = String(nativeOption.dataset.comboboxOptionLabel || optionText).trim();
     option.append(optionLabelNode);
+    const optionMeta = String(nativeOption.dataset.comboboxOptionMeta || "").trim();
+    if (optionMeta) {
+      const optionMetaNode = select.ownerDocument.createElement("span");
+      optionMetaNode.className = "select-combobox-option-meta";
+      optionMetaNode.textContent = optionMeta;
+      option.append(optionMetaNode);
+    }
     option.title = nativeOption.title || optionText;
     optionNodes[optionIndex] = option;
     parent.append(option);
@@ -311,6 +320,7 @@ function renderListboxOptions(state) {
 
 function openCombobox(state) {
   if (effectivelyDisabled(state.select) || !state.select.options.length) return;
+  state.select.dispatchEvent(new Event("comboboxopen"));
   if (state.context.active && state.context.active !== state) state.context.active.close();
   state.context.active = state;
   state.open = true;
@@ -440,7 +450,10 @@ function positionListbox(state) {
   const view = state.select.ownerDocument.defaultView;
   const viewportWidth = view.innerWidth;
   const viewportHeight = view.innerHeight;
-  const width = Math.min(Math.max(rect.width, 180), viewportWidth - (VIEWPORT_MARGIN * 2));
+  const requestedWidth = Math.max(0, Number.parseFloat(state.select.dataset.comboboxListboxWidth) || 0);
+  const preferredMinimumWidth = Math.max(0, Number.parseFloat(state.select.dataset.comboboxListboxMinWidth) || 0);
+  const naturalWidth = Math.max(rect.width, preferredMinimumWidth, 180);
+  const width = Math.min(requestedWidth ? Math.max(requestedWidth, 180) : naturalWidth, viewportWidth - (VIEWPORT_MARGIN * 2));
   const left = clamp(rect.left, VIEWPORT_MARGIN, viewportWidth - width - VIEWPORT_MARGIN);
   const spaceBelow = viewportHeight - rect.bottom - VIEWPORT_MARGIN - LISTBOX_GAP;
   const spaceAbove = rect.top - VIEWPORT_MARGIN - LISTBOX_GAP;

@@ -205,7 +205,7 @@ button {
 
 .captured-page small {
   overflow: hidden;
-  font-family: ui-monospace, "Cascadia Mono", "SFMono-Regular", Consolas, monospace;
+  font-family: var(--font-ui);
   text-overflow: ellipsis;
   white-space: nowrap;
 }

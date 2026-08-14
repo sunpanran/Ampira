@@ -82,7 +82,7 @@
   --motion-emphasis-duration: 240ms;
   --motion-move-duration: 240ms;
   --motion-overlay-duration: 300ms;
-  --motion-first-frame-duration: 360ms;
+  --motion-first-frame-duration: 420ms;
   --motion-reader-duration: 360ms;
   --motion-ambient-duration: 1600ms;
   --motion-ease-standard: cubic-bezier(.2, 0, 0, 1);
@@ -114,7 +114,6 @@
   --gap: 16px;
   --font-ui: "HarmonyOS Sans SC", "PingFang SC", "Noto Sans CJK SC", "Microsoft YaHei UI", system-ui, sans-serif;
   --font-display: "Bahnschrift", "Aptos Display", "Segoe UI Variable Display", var(--font-ui);
-  --font-mono: "Cascadia Mono", "SFMono-Regular", Consolas, "Liberation Mono", "HarmonyOS Sans SC", "PingFang SC", "Microsoft YaHei UI", monospace;
 }
 
 :root[data-color-mode="light"] {
@@ -144,7 +143,7 @@
   --control-line: rgba(14, 14, 14, .10);
   --search-overlay-bg: color-mix(in srgb, var(--bg) 72%, transparent);
   --search-overlay-backdrop: var(--card-backdrop-blur);
-  --settings-overlay-bg: color-mix(in srgb, var(--bg) 46%, transparent);
+  --settings-overlay-bg: color-mix(in srgb, var(--bg) 72%, transparent);
   --settings-overlay-backdrop: blur(14px) saturate(106%);
   --settings-panel-bg: color-mix(in srgb, var(--surface-1) 84%, transparent);
   --settings-panel-backdrop: blur(28px) saturate(108%);
@@ -152,7 +151,7 @@
   --settings-panel-shadow: 0 26px 72px rgba(17, 24, 39, .16), inset 0 1px 0 rgba(255, 255, 255, .72);
   --summary-media-overlay: rgba(6, 8, 12, .06);
   --inspiration-card-bg: #E8ECF1;
-  --inspiration-media-overlay: rgba(246, 248, 251, .28);
+  --inspiration-media-overlay: rgba(246, 248, 251, .16);
   --inspiration-media-opacity: .82;
   --inspiration-glow-opacity: .15;
   --inspiration-title: #0E141C;
@@ -204,7 +203,7 @@
     --control-line: rgba(14, 14, 14, .10);
     --search-overlay-bg: color-mix(in srgb, var(--bg) 72%, transparent);
     --search-overlay-backdrop: var(--card-backdrop-blur);
-    --settings-overlay-bg: color-mix(in srgb, var(--bg) 46%, transparent);
+    --settings-overlay-bg: color-mix(in srgb, var(--bg) 72%, transparent);
     --settings-overlay-backdrop: blur(14px) saturate(106%);
     --settings-panel-bg: color-mix(in srgb, var(--surface-1) 84%, transparent);
     --settings-panel-backdrop: blur(28px) saturate(108%);
@@ -212,7 +211,7 @@
     --settings-panel-shadow: 0 26px 72px rgba(17, 24, 39, .16), inset 0 1px 0 rgba(255, 255, 255, .72);
     --summary-media-overlay: rgba(6, 8, 12, .06);
     --inspiration-card-bg: #E8ECF1;
-    --inspiration-media-overlay: rgba(246, 248, 251, .28);
+    --inspiration-media-overlay: rgba(246, 248, 251, .16);
     --inspiration-media-opacity: .82;
     --inspiration-glow-opacity: .15;
     --inspiration-title: #0E141C;

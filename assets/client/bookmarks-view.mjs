@@ -257,6 +257,9 @@ function createSeenButton(item, uncheckedLabel, checkedLabel, source = defaultSe
   button.title = label;
   button.setAttribute("aria-label", label);
   button.setAttribute("aria-pressed", String(isSeen));
+  button.dataset.seenKey = actionKey(item);
+  button.dataset.seenUncheckedLabel = uncheckedLabel;
+  button.dataset.seenCheckedLabel = checkedLabel;
   button.addEventListener("click", (event) => {
     event.preventDefault();
     event.stopPropagation();
@@ -281,12 +284,17 @@ function createReadingActions(item, options = {}) {
   );
   if (options.includeRead !== false) {
     const read = state.seen.has(actionKey(item));
+    const uncheckedLabel = t("action.markRead");
+    const checkedLabel = t("action.unmarkRead");
     actions.append(createActionToggleButton({
       active: read,
       icon: "checkmark",
-      label: t(read ? "action.unmarkRead" : "action.markRead"),
+      label: read ? checkedLabel : uncheckedLabel,
       className: "viewed-toggle",
-      onClick: () => toggleSeen(item, !read, options.source || defaultSeenSource(item)),
+      seenKey: actionKey(item),
+      seenUncheckedLabel: uncheckedLabel,
+      seenCheckedLabel: checkedLabel,
+      onClick: () => toggleSeen(item, !state.seen.has(actionKey(item)), options.source || defaultSeenSource(item)),
     }));
   }
   return actions;
@@ -311,7 +319,9 @@ function createManualSummaryButton(item, isRefreshing) {
   return button;
 }
 
-function createActionToggleButton({ active, icon, label, className, readingQueueKey, onClick }) {
+function createActionToggleButton({
+  active, icon, label, className, readingQueueKey, seenKey, seenUncheckedLabel, seenCheckedLabel, onClick,
+}) {
   const button = document.createElement("button");
   button.className = `action-toggle ${className || ""} ${active ? "is-active" : ""}`.trim();
   button.type = "button";
@@ -319,6 +329,11 @@ function createActionToggleButton({ active, icon, label, className, readingQueue
   button.setAttribute("aria-label", label);
   button.setAttribute("aria-pressed", String(Boolean(active)));
   if (readingQueueKey) button.dataset.readingQueueKey = readingQueueKey;
+  if (seenKey) {
+    button.dataset.seenKey = seenKey;
+    button.dataset.seenUncheckedLabel = seenUncheckedLabel;
+    button.dataset.seenCheckedLabel = seenCheckedLabel;
+  }
   button.addEventListener("click", (event) => {
     event.preventDefault();
     event.stopPropagation();

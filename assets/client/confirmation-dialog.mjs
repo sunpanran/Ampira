@@ -1,3 +1,5 @@
+import { MOTION_DURATION, prefersReducedMotion } from "./motion.mjs";
+
 export function createConfirmationDialogController(options) {
   const {
     dialog,
@@ -8,10 +10,14 @@ export function createConfirmationDialogController(options) {
     confirmButton,
     activeElement = () => globalThis.document?.activeElement || null,
     scheduleFocus = (callback) => queueMicrotask(callback),
+    scheduleClose = (callback, delay) => globalThis.setTimeout(callback, delay),
+    isReducedMotion = prefersReducedMotion,
+    closeMotionMs = MOTION_DURATION.state,
   } = options;
   let pendingPromise = null;
   let resolvePending = null;
   let previousFocus = null;
+  let closing = false;
 
   cancelButton.addEventListener("click", () => finish(false));
   confirmButton.addEventListener("click", () => finish(true));
@@ -47,6 +53,18 @@ export function createConfirmationDialogController(options) {
   }
 
   function finish(confirmed) {
+    if (!pendingPromise || !resolvePending || closing) return;
+    closing = true;
+    dialog.classList.add("closing");
+    const closeDelay = isReducedMotion() ? 0 : closeMotionMs;
+    if (closeDelay <= 0) {
+      finalizeFinish(confirmed);
+      return;
+    }
+    scheduleClose(() => finalizeFinish(confirmed), closeDelay);
+  }
+
+  function finalizeFinish(confirmed) {
     if (!pendingPromise || !resolvePending) return;
     const resolve = resolvePending;
     const focusTarget = previousFocus;
@@ -54,6 +72,8 @@ export function createConfirmationDialogController(options) {
     resolvePending = null;
     previousFocus = null;
     if (dialog.open) dialog.close();
+    dialog.classList.remove("closing");
+    closing = false;
     if (focusTarget?.isConnected !== false && typeof focusTarget?.focus === "function") {
       focusTarget.focus({ preventScroll: true });
     }

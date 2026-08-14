@@ -16,13 +16,14 @@ Ampira 是一个支持 Google Chrome 与 Microsoft Edge 的 Manifest V3 新标�
 
 内容默认保存在浏览器中，不用注册账号。Ampira 没有广告、行为分析、开发者服务器或远程代码。
 
-[Chrome 应用商店](https://chromewebstore.google.com/detail/oifmohbnghkaadoeghlemkllegajdajc?utm_source=item-share-cb) · [最新版本](https://github.com/sunpanran/Ampira/releases/latest) · [隐私政策](https://sunpanran.github.io/Ampira/privacy.html) · [支持](https://sunpanran.github.io/Ampira/support.html)
+[Chrome 应用商店](https://chromewebstore.google.com/detail/oifmohbnghkaadoeghlemkllegajdajc?utm_source=item-share-cb) · [Microsoft Edge 加载项](https://microsoftedge.microsoft.com/addons/detail/lnijhbhjljjgdcaehfhihjcdpanojmcb) · [最新版本](https://github.com/sunpanran/Ampira/releases/latest) · [隐私政策](https://sunpanran.github.io/Ampira/privacy.html) · [支持](https://sunpanran.github.io/Ampira/support.html)
 
 ### 功能亮点
 
 - 以只读方式读取你选择的书签文件夹，并用 RSS、Atom、JSON Feed 和公共来源（Ampira）补充资讯。
 - 资讯支持按时间或重要性排序；同一事件的相关报道会放在一起，也可以按日期回看。
 - 配置自己的 API Key 后，可生成卡片摘要和今日简报，也能结合正文继续提问。
+- 搜索可单独选择一个书签文件夹做定向研究，或由用户主动开启 AI 服务商支持的原生联网搜索；两项默认关闭，也可以同时使用。Brave 仅作为可选的缺图替换服务。
 - 每日灵感从 Ampira 预设或指定书签文件夹换一组卡片，也支持手动“换一换”。
 - 点击工具栏图标，或从资讯和书签卡片加入稍后读；站内阅读、搜索和归档用于继续处理或找回内容。
 - 快捷书签、待办、天气、顶部浏览器搜索和主题可按需使用。
@@ -64,7 +65,7 @@ Ampira 是一个支持 Google Chrome 与 Microsoft Edge 的 Manifest V3 新标�
 
 `activeTab` 只在明确点击后临时访问当前页，不提供持续标签页或浏览历史访问，也不会增加安装警告。可选的 `favicon` 权限只会在用户主动启用后申请，用于 Chrome 内置 Favicon API；Edge 不支持时回退到随包图标。站内阅读会在用户点击后先按普通 CORS 规则、无凭据且无 Referer 地尝试公开内容；只有网站不允许这种读取时，网站访问权限才从后续用户手势发起，并限制到精确来源。Ampira 不申请 `tabs`、`history`、`scripting`、`webRequest` 或必需的宽泛主机访问权限。
 
-资讯、摘要、搜索缓存和阅读状态保存在 IndexedDB。API 密钥只保存在 `chrome.storage.local`，不会进入浏览器账号同步；调用用户配置的 AI 或图片搜索服务时，密钥会直接发送给相应服务商，不会发送给 Ampira 开发者。
+资讯、摘要、搜索缓存和阅读状态保存在 IndexedDB。定向研究缓存只保留从 Feed 或 Reader 读到的少量正文片段及其标题、网址、来源和时间信息；书签标题与 URL 只作为候选索引，不进入回答证据，也不保存另行提取的全文。服务商原生联网结果只留在当前页面会话。API 密钥只保存在 `chrome.storage.local`，不会进入浏览器账号同步；调用用户配置的 AI 服务或可选 Brave 图片搜索时，密钥会直接发送给相应服务商，不会发送给 Ampira 开发者。
 
 ### 验证与打包
 
@@ -93,11 +94,13 @@ Ampira 是支援 Google Chrome 與 Microsoft Edge 的 Manifest V3 新分頁擴�
 
 如果你需要長期追蹤一個產業或研究主題，可以把常看的來源放進同一個書籤資料夾。Ampira 會集中更新，依重要性排序，再用 AI 整理成今日簡報。遇到值得繼續看的內容，也可以開啟內文追問。
 
+搜尋可單獨選取一個書籤資料夾進行定向研究，或由使用者主動開啟 AI 服務商支援的原生聯網搜尋；兩項預設關閉，也可以同時使用。Brave 僅作為選用的缺圖替換服務。
+
 每日靈感會從 Ampira 預設或指定書籤資料夾換一組卡片。稍後讀、站內閱讀、搜尋與封存則用來繼續處理或找回內容。
 
 內容預設保存在瀏覽器中，不用註冊帳號。Ampira 沒有廣告、行為分析、開發者伺服器或遠端程式碼。
 
-[Chrome 線上應用程式商店](https://chromewebstore.google.com/detail/oifmohbnghkaadoeghlemkllegajdajc?utm_source=item-share-cb) · [最新版本](https://github.com/sunpanran/Ampira/releases/latest) · [隱私權政策](https://sunpanran.github.io/Ampira/zh-TW/privacy.html) · [支援](https://sunpanran.github.io/Ampira/zh-TW/support.html)
+[Chrome 線上應用程式商店](https://chromewebstore.google.com/detail/oifmohbnghkaadoeghlemkllegajdajc?utm_source=item-share-cb) · [Microsoft Edge 附加元件](https://microsoftedge.microsoft.com/addons/detail/lnijhbhjljjgdcaehfhihjcdpanojmcb) · [最新版本](https://github.com/sunpanran/Ampira/releases/latest) · [隱私權政策](https://sunpanran.github.io/Ampira/zh-TW/privacy.html) · [支援](https://sunpanran.github.io/Ampira/zh-TW/support.html)
 
 ---
 
@@ -111,13 +114,14 @@ If you track an industry or research topic over time, put the sources you follow
 
 Data stays in the browser by default, with no account needed. Ampira has no ads, behavioral analytics, developer-operated backend, or remotely hosted code.
 
-[Chrome Web Store](https://chromewebstore.google.com/detail/oifmohbnghkaadoeghlemkllegajdajc?utm_source=item-share-cb) · [Latest release](https://github.com/sunpanran/Ampira/releases/latest) · [Privacy](https://sunpanran.github.io/Ampira/en/privacy.html) · [Support](https://sunpanran.github.io/Ampira/en/support.html)
+[Chrome Web Store](https://chromewebstore.google.com/detail/oifmohbnghkaadoeghlemkllegajdajc?utm_source=item-share-cb) · [Microsoft Edge Add-ons](https://microsoftedge.microsoft.com/addons/detail/lnijhbhjljjgdcaehfhihjcdpanojmcb) · [Latest release](https://github.com/sunpanran/Ampira/releases/latest) · [Privacy](https://sunpanran.github.io/Ampira/en/privacy.html) · [Support](https://sunpanran.github.io/Ampira/en/support.html)
 
 ### Highlights
 
 - Reads the bookmark folders you choose in read-only mode, with RSS, Atom, JSON Feed, and Public sources (Ampira) as supplements.
 - Sorts news by time or importance, groups coverage of the same event, and keeps previous dates available.
 - Uses your own API key for card summaries, a daily brief, article analysis, and follow-up questions.
+- Lets you research one bookmark folder, explicitly enable provider-native web search when the configured AI supports it, or use both; both scopes default off. Brave remains an optional replacement-image service only.
 - Shows a different set of Inspiration cards each day from the Ampira preset or a bookmark folder you choose.
 - Adds pages to Read later from the toolbar or a card; in-app reading, search, and archive help you continue or find content again.
 - Keeps quick bookmarks, to-dos, weather, browser search, and themes available when you need them.
@@ -159,7 +163,7 @@ Ampira requires only:
 
 `activeTab` applies only to the current page after an explicit click, provides no continuous tab or browsing-history access, and adds no install warning. The optional `favicon` permission is requested only after a user action and uses Chrome's built-in Favicon API; Edge falls back to the packaged icon when that API is unavailable. Website access is also user-initiated and restricted to exact origins. Ampira does not request `tabs`, `history`, `scripting`, `webRequest`, or broad required host access.
 
-Feed data, summaries, search caches, and reading state are stored in IndexedDB. API keys remain in `chrome.storage.local` and are excluded from browser account sync. When the user enables an AI or image-search provider, its key is sent directly to that provider and never to the Ampira developer.
+Feed data, summaries, search caches, and reading state are stored in IndexedDB. Directed-research caches keep only a small set of passages read from Feed or Reader plus their titles, URLs, source identity, and timing metadata. Bookmark titles and URLs remain non-citable candidates, and separately extracted full text is never cached. Provider-native web results stay in the current page session. API keys remain in `chrome.storage.local` and are excluded from browser account sync. AI credentials go only to the configured AI provider; the optional Brave key is used only for replacement-image search and is never sent to the Ampira developer.
 
 ### Verify and package
 

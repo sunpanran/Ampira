@@ -7,7 +7,7 @@ export function createDashboardController(options) {
     renderDaily, renderSummaries, renderSectionFilters, renderCategoryFilters,
     renderCategories, formatTodayMeta, getTodayKey, readNumber, writeJson,
     retainSeenArchiveEnabled, readSeenRecords, replaceSeenRecords,
-    canRefresh = () => true, syncSearchCopy = () => {}, refreshFeedbackMinMs = 2000,
+    canRefresh = () => true, syncSearchCopy = () => {}, syncAiSearchCapability = () => {}, refreshFeedbackMinMs = 2000,
   } = options;
   let dashboardLoadToken = 0;
   let refreshPollToken = 0;
@@ -104,6 +104,7 @@ function renderAll() {
   els.dailyBoard.removeAttribute("aria-busy");
   els.summaryGrid.removeAttribute("aria-busy");
   syncSearchCopy();
+  syncAiSearchCapability();
   if (state.settings) renderExclusionList();
   else renderExcludeFolderOptions();
   renderStatus();

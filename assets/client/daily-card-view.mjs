@@ -1,5 +1,7 @@
 import { cardIconName, cardTone } from "./card-policy.mjs";
 import { browserImageMeetsProfileDimensions } from "./card-image-quality.mjs";
+import { loadImageWithReveal } from "./async-image-reveal.mjs";
+import { activeDailyThumbSelector } from "./daily-thumb-transition.mjs";
 import { inspirationFallbackCoverAsset, resolveInspirationCoverUrl } from "./inspiration-cover.mjs";
 import { recoverInspirationImage } from "./inspiration-image-recovery.mjs";
 
@@ -35,14 +37,18 @@ function createNewsListCard(item) {
   const card = document.createElement("article");
   card.className = `news-list-card link-row ${state.seen.has(item.key) ? "seen" : (state.opened.has(item.key) ? "opened" : "")}`;
   setCardItemIdentity(card, item);
+  card.ampiraItem = item;
   card.tabIndex = 0;
   card.setAttribute("role", "link");
   card.setAttribute("aria-label", t("card.openNews", { title: cardTitle }));
-  card.addEventListener("click", () => openDailyItem(item));
+  card.addEventListener("click", () => openDailyItem(card.ampiraItem));
   card.addEventListener("keydown", (event) => {
-    activateCardFromKeyboard(event, () => openDailyItem(item));
+    activateCardFromKeyboard(event, () => openDailyItem(card.ampiraItem));
   });
-  contextAttachLink(card, () => ({ url: itemUrl(item), title: cardTitle, item }));
+  contextAttachLink(card, () => {
+    const currentItem = card.ampiraItem;
+    return { url: itemUrl(currentItem), title: displaySummaryTitle(currentItem), item: currentItem };
+  });
   const main = document.createElement("div");
   main.className = "link-main";
   const title = document.createElement("span");
@@ -59,11 +65,14 @@ function createNewsListCard(item) {
     createSeenButton(item, t("action.markRead"), t("action.unmarkRead"), "news"),
   );
   main.append(title, meta);
-  card.append(
+  const content = document.createElement("div");
+  content.className = "daily-batch-content news-list-content";
+  content.append(
     createBookmarkFavicon({ ...item, url: itemUrl(item) }),
     main,
     actions,
   );
+  card.append(content);
   return card;
 }
 
@@ -75,9 +84,12 @@ function attachNewsTitleReveal(card, title, cardTitle) {
   title.addEventListener("pointerleave", () => {
     if (activeNewsTitle === title) hideNewsTitleReveal();
   });
-  card.addEventListener("focus", () => showNewsTitleReveal(title, cardTitle));
+  card.addEventListener("focus", () => {
+    const currentTitle = card.querySelector(".news-list-title");
+    if (currentTitle) showNewsTitleReveal(currentTitle, currentTitle.textContent || "");
+  });
   card.addEventListener("blur", () => {
-    if (activeNewsTitle === title) hideNewsTitleReveal();
+    if (activeNewsTitle === card.querySelector(".news-list-title")) hideNewsTitleReveal();
   });
 }
 
@@ -147,15 +159,20 @@ function createDailyCard(item) {
   const card = document.createElement("article");
   card.className = `daily-card ${state.seen.has(item.key) ? "seen" : (state.opened.has(item.key) ? "opened" : "")}`;
   setCardItemIdentity(card, item);
+  card.ampiraItem = item;
   card.tabIndex = 0;
   card.setAttribute("role", "link");
   card.setAttribute("aria-label", t("card.openEntry", { title: cardTitle }));
   card.title = isNewsCard(item) ? cardTitle : itemUrl(item);
-  card.addEventListener("click", () => openDailyItem(item));
+  card.addEventListener("click", () => openDailyItem(card.ampiraItem));
   card.addEventListener("keydown", (event) => {
-    activateCardFromKeyboard(event, () => openDailyItem(item));
+    activateCardFromKeyboard(event, () => openDailyItem(card.ampiraItem));
   });
-  contextAttachLink(card, () => ({ url: itemUrl(item), title: cardTitle, item }));
+  contextAttachLink(card, () => {
+    const currentItem = card.ampiraItem;
+    const currentTitle = isNewsCard(currentItem) ? displaySummaryTitle(currentItem) : displayTitle(currentItem);
+    return { url: itemUrl(currentItem), title: currentTitle, item: currentItem };
+  });
   const top = document.createElement("div");
   top.className = "daily-top";
   const pill = document.createElement("span");
@@ -171,14 +188,17 @@ function createDailyCard(item) {
   const host = document.createElement("span");
   host.className = "item-host";
   host.textContent = item.host || item.url;
+  const content = document.createElement("div");
+  content.className = "daily-batch-content daily-card-content";
+  content.append(top, title, host);
   if (isInspirationCard(item)) {
     card.classList.add("has-inspiration-thumb");
     card.dataset.previewFingerprint = item.coverAsset
       ? `local:${item.coverAsset}`
       : inspirationPreviews.fingerprint(item);
-    card.append(top, title, host, createInspirationThumb(item));
+    card.append(createInspirationThumb(item), content);
   } else {
-    card.append(top, title, host);
+    card.append(content);
   }
   return card;
 }
@@ -208,7 +228,7 @@ function createInspirationThumb(item) {
   return thumb;
 }
 
-function renderInspirationImageThumb(thumb, item, imageUrl, { local = false, onError } = {}) {
+function renderInspirationImageThumb(thumb, item, imageUrl, { forceReveal = true, local = false, onError } = {}) {
   thumb.className = "inspiration-thumb";
   const img = document.createElement("img");
   let rejected = false;
@@ -230,16 +250,17 @@ function renderInspirationImageThumb(thumb, item, imageUrl, { local = false, onE
       failedUrl: imageUrl,
       isCurrent: () => thumb.firstElementChild === img,
       reject: () => inspirationPreviews.reject(item, imageUrl),
-      renderNext: (nextUrl) => renderInspirationImageThumb(thumb, item, nextUrl),
+      renderNext: (nextUrl) => renderInspirationImageThumb(thumb, item, nextUrl, { forceReveal }),
       renderFallback: () => renderInspirationFallbackThumb(thumb, item),
     });
   };
-  img.addEventListener("load", () => {
-    if (!local && !browserImageMeetsProfileDimensions(img, "visual")) rejectImage();
-  }, { once: true });
-  img.addEventListener("error", rejectImage, { once: true });
   thumb.replaceChildren(img);
-  img.src = imageUrl;
+  loadImageWithReveal(img, imageUrl, {
+    forceReveal,
+    isCurrent: () => thumb.firstElementChild === img,
+    onReject: rejectImage,
+    validate: local ? undefined : (image) => browserImageMeetsProfileDimensions(image, "visual"),
+  });
 }
 
 function preloadBrowserImage(imageUrl, { profile = "visual" } = {}) {
@@ -300,8 +321,8 @@ function requestInspirationPreview(item) {
 function updateVisibleInspirationThumbs(item, imageUrl, fingerprint) {
   for (const card of els.dailyBoard.querySelectorAll(".daily-card.has-inspiration-thumb")) {
     if (card.dataset.key !== item.key || card.dataset.previewFingerprint !== fingerprint) continue;
-    const thumb = card.querySelector(".inspiration-thumb");
-    if (thumb) renderInspirationImageThumb(thumb, item, imageUrl);
+    const thumb = card.querySelector(activeDailyThumbSelector);
+    if (thumb) renderInspirationImageThumb(thumb, item, imageUrl, { forceReveal: true });
   }
 }
 

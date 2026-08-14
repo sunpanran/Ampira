@@ -1,6 +1,7 @@
 (() => {
   const maxWebsiteShortcuts = 16;
   const storageKey = "ampira.colorMode";
+  const accentPaletteStorageKey = "ampira.accentPalette";
   const dashboardGlassBlurStorageKey = "ampira.dashboardGlassBlur";
   const coverStorageKey = "ampira.headerCover";
   const localCoverStorageKey = "ampira.header-cover.local.v1";
@@ -8,8 +9,14 @@
   const settingsStorageKey = "ampira.settings.v1";
   const headerCoverBlurMax = 50;
   const headerCoverBlurBleedMultiplier = 1.5;
+  const headerImageHeightMin = 70;
+  const headerImageHeightMax = 200;
+  const headerImageHeightStep = 5;
   const defaultHeaderImageAsset = "/assets/images/default-header.webp";
   const allowedModes = new Set(["system", "dark", "light"]);
+  const allowedAccentThemes = new Set(["violet", "cyan", "emerald", "amber", "rose", "custom"]);
+  const headerCoverRevealState = new WeakMap();
+  let dashboardStylesReadyPromise;
   let colorMode = "dark";
 
   try {
@@ -20,6 +27,24 @@
   }
 
   document.documentElement.dataset.colorMode = colorMode;
+  try {
+    const cachedAccentPalette = JSON.parse(localStorage.getItem(accentPaletteStorageKey) || "null");
+    const cachedAccentTheme = String(cachedAccentPalette?.theme || "").trim().toLowerCase();
+    const cachedAccentColor = normalizeHexColor(cachedAccentPalette?.color);
+    if (allowedAccentThemes.has(cachedAccentTheme) && cachedAccentColor) {
+      const accentRgb = [
+        parseInt(cachedAccentColor.slice(1, 3), 16),
+        parseInt(cachedAccentColor.slice(3, 5), 16),
+        parseInt(cachedAccentColor.slice(5, 7), 16),
+      ];
+      const root = document.documentElement;
+      root.dataset.accentTheme = cachedAccentTheme;
+      root.style.setProperty("--accent", cachedAccentColor);
+      root.style.setProperty("--accent-rgb", accentRgb.join(", "));
+    }
+  } catch {
+    // The stylesheet default remains the safe fallback when the appearance hint is unavailable.
+  }
   try {
     document.documentElement.dataset.dashboardGlassBlur = localStorage.getItem(dashboardGlassBlurStorageKey) === "off"
       ? "off"
@@ -42,6 +67,7 @@
       ? Promise.resolve(shortcutLayout)
       : hydrateWebsiteShortcutLayout(),
     headerCoverReady: Promise.resolve(),
+    revealHeaderCover,
   };
 
   try {
@@ -78,19 +104,25 @@
   }
 
   function restoreHeaderCover(imageUrl, fallbackUrl = "") {
+    const resolvedImageUrl = resolveHeaderImageSource(imageUrl);
+    const resolvedFallbackUrl = resolveHeaderImageSource(fallbackUrl);
+    preloadHeaderCover(resolvedImageUrl);
     const apply = () => {
       const hero = document.querySelector("#headerImageHero");
       const image = document.querySelector("#headerImage");
       if (!hero || !image) return false;
       hero.hidden = false;
-      const resolvedImageUrl = resolveHeaderImageSource(imageUrl);
-      const resolvedFallbackUrl = resolveHeaderImageSource(fallbackUrl);
       if (isSafeCoverSource(resolvedImageUrl)) {
         const source = resolvedImageUrl;
+        const reveal = () => revealHeaderCover(hero, image);
+        image.addEventListener("load", reveal, { once: true });
         image.addEventListener("error", () => {
           if (image.getAttribute("src") === source && isSafeCoverSource(resolvedFallbackUrl)) image.src = resolvedFallbackUrl;
         }, { once: true });
+        image.loading = "eager";
+        image.fetchPriority = "high";
         image.src = source;
+        reveal();
       }
       return true;
     };
@@ -100,6 +132,87 @@
       observer.disconnect();
     });
     observer.observe(document.documentElement, { childList: true, subtree: true });
+  }
+
+  function preloadHeaderCover(source) {
+    const value = String(source || "");
+    if (!value || value.startsWith("data:")) return;
+    if (!isSafeImageUrl(value) && !isSafePackagedHeaderImage(value)) return;
+    const preload = document.createElement("link");
+    preload.rel = "preload";
+    preload.as = "image";
+    preload.href = value;
+    preload.referrerPolicy = "no-referrer";
+    preload.setAttribute("fetchpriority", "high");
+    document.head.append(preload);
+  }
+
+  function revealHeaderCover(hero, image) {
+    if (!hero || !image?.complete || image.naturalWidth <= 0) return;
+    const source = currentHeaderCoverSource(image);
+    if (!source) return;
+    const current = headerCoverRevealState.get(hero);
+    if (current?.source === source && (current.pending || hero.classList.contains("is-loaded"))) return;
+    const state = { source, pending: true };
+    headerCoverRevealState.set(hero, state);
+    hero.classList.remove("is-loaded");
+    dashboardStylesReady().then(() => {
+      nextAnimationFrame(() => {
+        if (headerCoverRevealState.get(hero) !== state) return;
+        nextAnimationFrame(() => {
+          if (headerCoverRevealState.get(hero) !== state) return;
+          state.pending = false;
+          if (hero.hidden || !image.complete || image.naturalWidth <= 0 || currentHeaderCoverSource(image) !== source) {
+            headerCoverRevealState.delete(hero);
+            return;
+          }
+          hero.classList.add("is-loaded");
+        });
+      });
+    });
+  }
+
+  function dashboardStylesReady() {
+    if (dashboardStylesReadyPromise) return dashboardStylesReadyPromise;
+    dashboardStylesReadyPromise = new Promise((resolve) => {
+      let observer;
+      const attach = () => {
+        const links = [
+          document.querySelector('link[rel="stylesheet"][href="/assets/dashboard.css"]'),
+          document.querySelector('link[rel="stylesheet"][href="/assets/extension.css"]'),
+        ];
+        if (links.some((link) => !link)) return false;
+        observer?.disconnect();
+        Promise.all(links.map(waitForStylesheet)).then(resolve);
+        return true;
+      };
+      if (attach()) return;
+      observer = new MutationObserver(attach);
+      observer.observe(document.head, { childList: true });
+    });
+    return dashboardStylesReadyPromise;
+  }
+
+  function waitForStylesheet(link) {
+    if (link.sheet) return Promise.resolve();
+    return new Promise((resolve) => {
+      const finish = () => {
+        link.removeEventListener("load", finish);
+        link.removeEventListener("error", finish);
+        resolve();
+      };
+      link.addEventListener("load", finish, { once: true });
+      link.addEventListener("error", finish, { once: true });
+    });
+  }
+
+  function currentHeaderCoverSource(image) {
+    return String(image.currentSrc || image.getAttribute("src") || "");
+  }
+
+  function nextAnimationFrame(callback) {
+    if (typeof globalThis.requestAnimationFrame === "function") globalThis.requestAnimationFrame(callback);
+    else setTimeout(callback, 16);
   }
 
   function resolveHeaderImageSource(value) {
@@ -122,7 +235,10 @@
   function applyHeaderCoverHeight(value) {
     const numericValue = Number(value);
     const scale = Number.isFinite(numericValue)
-      ? Math.min(140, Math.max(70, Math.round(numericValue / 5) * 5))
+      ? Math.min(
+        headerImageHeightMax,
+        Math.max(headerImageHeightMin, Math.round(numericValue / headerImageHeightStep) * headerImageHeightStep),
+      )
       : 100;
     document.documentElement.style.setProperty("--header-cover-height-scale", String(scale / 100));
     document.documentElement.style.setProperty("--header-cover-fullscreen-height", `${scale}dvh`);
@@ -171,6 +287,11 @@
     const root = document.documentElement;
     root.classList.toggle("has-website-shortcuts", layout.enabled === true);
     root.dataset.websiteShortcutCount = String(layout.count || 0);
+  }
+
+  function normalizeHexColor(value) {
+    const match = String(value || "").trim().match(/^#?([a-f0-9]{6})$/i);
+    return match ? `#${match[1].toUpperCase()}` : "";
   }
 
   function isSafeImageUrl(value) {

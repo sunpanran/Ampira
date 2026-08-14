@@ -12,18 +12,20 @@ export function createReaderPreviewService(options) {
     readArticle, readCachedArticle, readWebsiteOverview, cacheUrlsPermitted, storePreviewCache,
     isSitePreviewTarget, previewCachePermitted,
   };
-async function readArticle(url) {
+async function readArticle(url, requestOptions = {}) {
+  requestOptions.signal?.throwIfAborted?.();
   const normalized = normalizeUserUrl(url);
   if (!normalized) throw typedError("INVALID_URL", "background.error.invalidUrl", {}, false, { url: String(url || "") });
   const origin = new URL(normalized).origin;
-  if (!await hasOriginPermission(normalized)) return readPublicArticle(normalized, origin);
+  if (!await hasOriginPermission(normalized)) return readPublicArticle(normalized, origin, requestOptions);
   const cacheEpoch = cacheMutations.capture();
   const reader = await loadReaderWithCache(normalized, {
     readCache: readReaderCache,
-    storeCache: (reader) => storeReaderCache(reader, cacheEpoch),
+    storeCache: (reader) => requestOptions.signal?.aborted ? undefined : storeReaderCache(reader, cacheEpoch),
     validateCache: async (cached) => cachedReaderPermitted(normalized, cached),
     fetchDocument: async (target) => {
       const reader = await fetchReader(target, {
+        signal: requestOptions.signal,
         validateResponse: async (response) => {
           const finalUrl = response.url || target;
           if (!await hasOriginPermission(finalUrl)) {
@@ -41,6 +43,7 @@ async function readArticle(url) {
       return reader;
     },
   });
+  requestOptions.signal?.throwIfAborted?.();
   if (!await cachedReaderPermitted(normalized, reader)) {
     throw typedError("ORIGIN_PERMISSION_REQUIRED", "background.error.websitePermission", {}, false, {
       origin,
@@ -50,7 +53,8 @@ async function readArticle(url) {
   return reader;
 }
 
-async function readCachedArticle(url) {
+async function readCachedArticle(url, requestOptions = {}) {
+  requestOptions.signal?.throwIfAborted?.();
   const normalized = normalizeUserUrl(url);
   if (!normalized) throw typedError("INVALID_URL", "background.error.invalidUrl", {}, false, { url: String(url || "") });
   const origin = new URL(normalized).origin;
@@ -64,14 +68,15 @@ async function readCachedArticle(url) {
   if (cached && await cachedReaderPermitted(normalized, cached)) {
     return { ...cached, requestedUrl: normalized, source: "cache" };
   }
-  return readArticle(normalized);
+  return readArticle(normalized, requestOptions);
 }
 
-async function readPublicArticle(normalized, origin) {
+async function readPublicArticle(normalized, origin, requestOptions = {}) {
   try {
-    const reader = await fetchReader(normalized);
+    const reader = await fetchReader(normalized, { signal: requestOptions.signal });
     return { ...reader, accessMode: "public-cors" };
   } catch (error) {
+    if (requestOptions.signal?.aborted) throw requestOptions.signal.reason || error;
     if (error?.code !== "READER_NETWORK_ERROR") throw error;
     if (typeof probeReaderUrl !== "function" || !await probeReaderUrl(normalized)) throw error;
     throw typedError("ORIGIN_PERMISSION_REQUIRED", "background.error.websitePermission", {}, false, {
@@ -81,10 +86,12 @@ async function readPublicArticle(normalized, origin) {
   }
 }
 
-async function readWebsiteOverview(url) {
+async function readWebsiteOverview(url, requestOptions = {}) {
+  requestOptions.signal?.throwIfAborted?.();
   const normalized = normalizeUserUrl(url);
   if (!normalized) throw typedError("INVALID_URL", "background.error.invalidUrl", {}, false, { url: String(url || "") });
   const response = await fetchReaderHtml(normalized, 12000, {
+    signal: requestOptions.signal,
     validateResponse: async (result) => {
       const finalUrl = result.url || normalized;
       if (!await hasOriginPermission(finalUrl)) {

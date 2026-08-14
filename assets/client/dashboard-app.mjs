@@ -13,7 +13,6 @@ import {
   selectDailyEvents, selectTodayNewsItems, selectUnseenPool,
 } from "./dashboard-selectors.mjs";
 import { createReaderController } from "./reader-ui.mjs";
-import { createAiSearchController } from "./ai-search-ui.mjs";
 import { syncSearchCopy as syncSearchCopyView } from "./search-copy.mjs";
 import { cloneSettingsDraft, diffSettingsDraft, snapshotSettingsDraft } from "./settings-draft.mjs";
 import { createSitePreviewController } from "./inspiration-preview-controller.mjs";
@@ -60,7 +59,7 @@ import { requestOrigins } from "./permission-client.mjs";
 import { createActionPort } from "./action-port.mjs";
 import { createCardTransition } from "./card-transition.mjs";
 import { setAllContentSyncControls, syncContentSyncMaster } from "./content-sync-settings.mjs";
-import { prefersReducedMotion as prefersReducedMotionSetting, restartMotionClass, setDisclosureVisibility } from "./motion.mjs";
+import { MOTION_DURATION, prefersReducedMotion as prefersReducedMotionSetting, restartMotionClass, setDisclosureVisibility } from "./motion.mjs";
 import { createManualAiUsageNoticeController } from "./manual-ai-usage-notice.mjs";
 import { createConfirmationDialogController } from "./confirmation-dialog.mjs";
 import {
@@ -77,11 +76,9 @@ const DAILY_INSPIRATION_BATCH_LIMIT = 3;
 const UPDATE_INSPIRATION_PRELOAD_TIMEOUT_MS = 800;
 const HOT_SUMMARY_PAGE_SIZE = 16;
 const SETTINGS_SAVE_CLOSE_DELAY_MS = 900;
-const SETTINGS_CLOSE_MOTION_MS = 180;
 const DAILY_BOARD_CARD_SELECTOR = ".news-list-card, .daily-card";
 const SUMMARY_CARD_SELECTOR = ".summary-card";
 const CARD_EXIT_MS = 120;
-const CARD_ENTER_MS = 240;
 const NEWS_CARD_TYPE = "news";
 const INSPIRATION_CARD_TYPE = "inspiration";
 const BOOKMARK_CARD_TYPE = "bookmark";
@@ -162,7 +159,7 @@ export async function createDashboardApp() {
   ]);
   const readerActions = createActionPort(["openExternal", "openExternalWindow"]);
   const summaryActions = createActionPort(["createNewsRanker", "newsSummaryItems", "refreshSummaryItem"]);
-  const cardTransition = createCardTransition({ exitMs: CARD_EXIT_MS, enterMs: CARD_ENTER_MS });
+  const cardTransition = createCardTransition({ exitMs: CARD_EXIT_MS, enterMs: MOTION_DURATION.emphasis });
 
   const loadDashboard = (...args) => dashboardController.loadDashboard(...args);
   const triggerRefresh = (...args) => dashboardController.triggerRefresh(...args);
@@ -277,7 +274,7 @@ export async function createDashboardApp() {
       state.settings?.retainSeenArchive === true ? "dash.seen.retained" : `dash.seen.${state.day}`,
       Array.from(state.seen).map((key) => ({ key, ...(state.seenMeta.get(key) || {}) })).slice(-150),
     ),
-    renderAll, renderTodayMeta, setIconLabel, localizedStatusMessage, cardTransition,
+    renderAll, renderTodayMeta, setIconLabel, localizedStatusMessage, confirmAction, cardTransition,
   });
   const {
     renderDaily, animateCardsIn, animateCardsOut, batchLabel, canReuseCard,
@@ -371,6 +368,13 @@ export async function createDashboardApp() {
     openExternal: readerActions.openExternal,
     renderAll,
     renderEfficiencyPanel,
+    renderActivitySurfaces: () => {
+      renderEfficiencyPanel();
+      renderDaily();
+      // Seen state does not change SIGNAL FEED membership or order. Its live
+      // controls and card classes are synchronized by the activity controller,
+      // which keeps decoded thumbnail nodes untouched.
+    },
     newsSummaryItems,
     hostFromUrl,
     t,
@@ -412,17 +416,36 @@ export async function createDashboardApp() {
     localizedErrorMessage,
   });
   readerActions.bind(readerController);
+  const [{ createAiSearchController }, { createAiStreamClient }] = await Promise.all([
+    import("./ai-search-ui.mjs"),
+    import("./ai-stream-client.mjs"),
+  ]);
   const syncSearchCopy = (options = {}) => syncSearchCopyView({ state, els, t, ...options });
+  const aiStreamClient = createAiStreamClient();
   const {
     open: openAiSearch,
     close: closeAiSearch,
     run: runAiSearch,
+    submitOrStop: submitOrStopAiSearch,
+    cancelEdit: cancelAiSearchEdit,
+    newConversation: newAiSearchConversation,
+    handleComposerInput: handleAiSearchComposerInput,
+    handleComposerKeydown: handleAiSearchComposerKeydown,
+    handleResearchFolderChange,
+    handleWebSearchToggle,
+    loadResearchFolders,
+    trapFocus: trapAiSearchFocus,
+    syncLocale: syncAiSearchLocale,
+    syncProviderCapability: syncAiSearchProviderCapability,
   } = createAiSearchController({
     state,
     els: overlayElements,
     t,
+    apiGet,
     apiPost,
     confirmManualAiUsage,
+    confirmAction,
+    streamClient: aiStreamClient,
     clearTopSearchFilter,
     syncNavToCurrentSection,
     setActiveNavButton,
@@ -431,6 +454,8 @@ export async function createDashboardApp() {
     localizedErrorMessage,
     openExternal,
     requestWebsitePermission,
+    requestSourcePermissions,
+    openAiSettings,
     syncSearchCopy,
   });
   contextMenu = createContextMenuController({
@@ -470,6 +495,7 @@ export async function createDashboardApp() {
     renderAll,
     syncNavExpandedWidth,
     syncAiSetupControls,
+    syncAiSearchLocale,
     syncHeaderCoverControls: () => headerCoverController?.syncControls(),
     syncSegmentedIndicator,
     syncCustomAccentColor: (color) => accentColorPicker?.sync(color),
@@ -648,7 +674,7 @@ export async function createDashboardApp() {
     renderStatus, renderEfficiencyPanel, renderAll, resetToDailyView,
     syncNavToCurrentSection, setActiveNavButton, navButton: els.settingsNav, getLocale, prepareLocale,
     settingsSaveCloseDelayMs: SETTINGS_SAVE_CLOSE_DELAY_MS,
-    settingsCloseMotionMs: SETTINGS_CLOSE_MOTION_MS,
+    settingsCloseMotionMs: MOTION_DURATION.state,
     inspirationPreviews: sitePreviews, syncHeaderImageFullscreenControl, syncHeaderImageBlurControl, syncHeaderImageHeightControl,
     syncAccentColorPickerBusy: (busy) => accentColorPicker.setBusy(busy),
     headerCoverController, availableNewsFolders,
@@ -676,6 +702,7 @@ export async function createDashboardApp() {
     readNumber, writeJson, retainSeenArchiveEnabled, readSeenRecords, replaceSeenRecords,
     canRefresh: () => refreshAvailability(state.data).available,
     syncSearchCopy,
+    syncAiSearchCapability: syncAiSearchProviderCapability,
   });
 
   function renderTodayMetaValue(value) {
@@ -773,10 +800,12 @@ export async function createDashboardApp() {
     bindEvents();
     startTodayClock();
     const initialLoadingMotion = renderInitialLoadingState();
+    // Header-cover storage and image decoding are visual enhancements. The cached
+    // layout hint already reserves the right geometry, so they must not delay data.
+    void Promise.resolve(globalThis.ampiraLayoutBootstrap?.headerCoverReady).catch(() => {});
     try {
       await Promise.all([
         globalThis.ampiraLayoutBootstrap?.websiteShortcutsReady,
-        globalThis.ampiraLayoutBootstrap?.headerCoverReady,
         loadSettings(),
         loadDashboard({ render: false }),
       ]);
@@ -820,27 +849,27 @@ export async function createDashboardApp() {
         left: 0,
         behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
       });
-      setActiveNavButton(document.querySelector("[data-scroll='daily']"));
     });
 
     document.querySelectorAll("[data-scroll]").forEach((button) => {
       button.addEventListener("click", () => {
         document.getElementById(button.dataset.scroll)?.scrollIntoView({ behavior: "smooth", block: "start" });
-        setActiveNavButton(button);
       });
     });
 
     els.settingsNav.addEventListener("click", openSettings);
     els.aiSearchNav.addEventListener("click", () => openAiSearch());
+    els.newAiSearch.addEventListener("click", newAiSearchConversation);
+    els.closeAiSearch.addEventListener("click", closeAiSearch);
     els.closeSettings.addEventListener("click", requestCloseSettings);
     els.settingsModal.addEventListener("click", (event) => {
       if (event.target === els.settingsModal) requestCloseSettings();
     });
     els.aiSearchOverlay.addEventListener("click", (event) => {
       if (!els.aiSearchOverlay.classList.contains("open")) return;
-      if (event.target.closest(".ai-search-form, .ai-answer")) return;
-      closeAiSearch();
+      if (event.target === els.aiSearchOverlay) closeAiSearch();
     });
+    els.aiSearchOverlay.addEventListener("keydown", trapAiSearchFocus);
     els.closeWebFrame.addEventListener("click", closeFloatingWeb);
     els.webFrameOverlay.addEventListener("click", (event) => {
       if (event.target === els.webFrameOverlay) closeFloatingWeb();
@@ -878,8 +907,14 @@ export async function createDashboardApp() {
     });
     els.aiSearchForm.addEventListener("submit", (event) => {
       event.preventDefault();
-      runAiSearch(els.aiSearchInput.value);
+      submitOrStopAiSearch();
     });
+    els.aiSearchInput.addEventListener("input", handleAiSearchComposerInput);
+    els.aiSearchInput.addEventListener("keydown", handleAiSearchComposerKeydown);
+    els.aiResearchFolder.addEventListener("change", handleResearchFolderChange);
+    els.aiResearchFolder.addEventListener("comboboxopen", loadResearchFolders);
+    els.aiWebSearchToggle.addEventListener("click", handleWebSearchToggle);
+    els.cancelAiSearchEdit?.addEventListener("click", cancelAiSearchEdit);
 
     els.search.addEventListener("input", () => {
       if (browserSearchEnabled()) return;
@@ -1038,11 +1073,11 @@ export async function createDashboardApp() {
       setAllContentSyncControls(els, els.contentSyncEnabledInput.checked);
       renderSettingsStatus();
     });
-    [els.syncReadingQueueEnabledInput, els.syncTodosEnabledInput, els.syncWeatherLocationEnabledInput].forEach((input) => {
-      input.addEventListener("change", () => { syncContentSyncMaster(els); renderSettingsStatus(); });
-    });
     els.webImageSearchEnabledInput.addEventListener("change", () => {
       setDisclosureVisibility(els.imageSearchStrategy, els.webImageSearchEnabledInput.checked);
+    });
+    [els.syncReadingQueueEnabledInput, els.syncTodosEnabledInput, els.syncWeatherLocationEnabledInput].forEach((input) => {
+      input.addEventListener("change", () => { syncContentSyncMaster(els); renderSettingsStatus(); });
     });
     [els.apiBaseUrlInput, els.apiStyleSelect, els.modelInput, els.dailyLimitInput, els.imageSearchApiKeyInput, els.aiDisclosureConsent, els.webImageSearchEnabledInput, els.cardSummaryEnabledInput, els.cacheSizeInput, els.hotNewsPerSourceInput, els.newsPerCategoryInput, els.bookmarkSectionEnabledInput, els.floatingOpenInput, els.readingQueueOpenOnReadAllInput, els.retainSeenArchiveInput, els.personalizedRankingEnabledInput, els.publicFeedSupplementEnabledInput].forEach((input) => {
       input.addEventListener("input", () => renderSettingsStatus());

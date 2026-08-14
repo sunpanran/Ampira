@@ -12,6 +12,7 @@ export function createActivityController(options) {
   let readingQueueReadAllPending = false;
   const {
     state, itemUrl, openExternalWindow, openExternal, renderAll, renderEfficiencyPanel,
+    renderActivitySurfaces = renderAll,
     newsSummaryItems, hostFromUrl, t, newsSectionName, newsCardType, findNewsItemReference,
     isNewsCard, displaySummaryTitle, displayTitle, displayBookmarkTitle, createThemedIcon,
     summaryText, srOnly, writeJson, readJson, apiPost, confirmAction,
@@ -94,13 +95,28 @@ function readingQueueOpenOnReadAll() {
 
 function applyReadingQueueUpdate(records, reopenedKeys = []) {
   const normalized = normalizeReadingQueueRecords(records);
+  const previousRecords = normalizeReadingQueueRecords(Array.from(state.readingQueue).map((key) => ({
+    key,
+    ...(state.readingQueueMeta.get(key) || {}),
+  })));
+  const queueChanged = JSON.stringify(previousRecords) !== JSON.stringify(normalized);
+  const reopened = [...new Set(reopenedKeys)].filter((key) => state.seen.has(key));
+  if (!queueChanged && !reopened.length) return false;
+  const affectedQueueKeys = new Set([
+    ...state.readingQueue,
+    ...normalized.map((record) => record.key),
+  ]);
   state.readingQueue = new Set(normalized.map((record) => record.key));
   state.readingQueueMeta = new Map(normalized.map((record) => [record.key, record]));
-  for (const key of reopenedKeys) {
+  for (const key of reopened) {
     state.seen.delete(key);
     state.seenMeta.delete(key);
   }
-  renderAll();
+  affectedQueueKeys.forEach(syncReadingQueueButtons);
+  reopened.forEach(syncSeenButtons);
+  if (reopened.length) renderActivitySurfaces();
+  else renderEfficiencyPanel();
+  return true;
 }
 
 function actionItemsByKey() {
@@ -188,11 +204,43 @@ function syncReadingQueueButtons(key) {
     button.title = label;
     button.setAttribute("aria-label", label);
     button.setAttribute("aria-pressed", String(active));
-    button.replaceChildren(
-      createThemedIcon(active ? "bookmark-filled" : "bookmark-ribbon", "action-toggle-icon"),
-      srOnly(label),
-    );
+    syncActionButtonContent(button, active ? "bookmark-filled" : "bookmark-ribbon", label);
   });
+}
+
+function syncSeenButtons(key) {
+  const active = state.seen.has(key);
+  document.querySelectorAll("[data-seen-key]").forEach((button) => {
+    if (button.dataset.seenKey !== key) return;
+    const label = active
+      ? button.dataset.seenCheckedLabel || t("action.unmarkRead")
+      : button.dataset.seenUncheckedLabel || t("action.markRead");
+    button.classList.toggle(button.classList.contains("seen-toggle") ? "is-seen" : "is-active", active);
+    button.title = label;
+    button.setAttribute("aria-label", label);
+    button.setAttribute("aria-pressed", String(active));
+    const srLabel = button.querySelector(".sr-only");
+    if (srLabel) srLabel.textContent = label;
+    const surface = button.closest?.(".daily-card, .news-list-card, .summary-card, .archive-card, .link-row");
+    surface?.classList.toggle("seen", active);
+    surface?.classList.toggle("opened", !active && state.opened.has(key));
+  });
+}
+
+function syncActionButtonContent(button, iconName, label) {
+  const currentIcon = button.querySelector(".action-toggle-icon");
+  const currentLabel = button.querySelector(".sr-only");
+  if (!currentIcon || !currentLabel) {
+    button.replaceChildren(createThemedIcon(iconName, "action-toggle-icon"), srOnly(label));
+    return;
+  }
+  const nextIcon = createThemedIcon(iconName, "action-toggle-icon");
+  currentIcon.className = nextIcon.className;
+  currentIcon.style.setProperty(
+    "--themed-icon-mask",
+    nextIcon.style.getPropertyValue("--themed-icon-mask"),
+  );
+  currentLabel.textContent = label;
 }
 
 function actionDetailsForItem(item) {
@@ -244,8 +292,9 @@ function toggleSeen(item, checked, source = defaultSeenSource(item)) {
     state.seenMeta.delete(key);
   }
   persistSeen();
+  syncSeenButtons(key);
   if (!checked && animateArchiveRemoval(key)) return;
-  renderAll();
+  renderActivitySurfaces();
 }
 
 function markOpenedItem(item) {
@@ -291,6 +340,7 @@ function removeFromReadingQueue(key) {
   state.readingQueue.delete(key);
   state.readingQueueMeta.delete(key);
   persistReadingQueue();
+  syncReadingQueueButtons(key);
 }
 
 function retainSeenArchiveEnabled() {

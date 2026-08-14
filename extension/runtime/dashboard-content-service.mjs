@@ -1,4 +1,5 @@
 import { aiOutputPartsMatchLocale } from "../core/ai-output-language.mjs";
+import { nativeWebSearchCapability } from "../core/ai.mjs";
 
 export function createDashboardContentService(options) {
   const {
@@ -49,9 +50,9 @@ async function buildDashboardPayload(attempt = 0) {
     feedPermissions.grantedOrigins,
   ).some((row) => row.granted);
   const credentialReady = providerCredentialAvailable(settings.openaiBaseUrl, secrets.hasOpenAIKey);
+  const providerConfigured = credentialReady && Boolean(String(settings.openaiSummaryModel || "").trim());
   let configuredForAi = settings.aiDisclosureAccepted === true
-    && credentialReady
-    && Boolean(String(settings.openaiSummaryModel || "").trim())
+    && providerConfigured
     && aiPermissionGranted;
   const sanitizedFeedItems = sanitizeCardAiSummaries(permittedFeedItems, settings, configuredForAi);
   const visibleFeedItems = presentableFeedItems(sanitizedFeedItems, settings, configuredForAi);
@@ -112,12 +113,13 @@ async function buildDashboardPayload(attempt = 0) {
     dailyDigest: digest,
     ai: {
       enabled: configuredForAi,
-      configured: credentialReady && Boolean(String(settings.openaiSummaryModel || "").trim()),
+      configured: providerConfigured,
       disclosureAccepted: settings.aiDisclosureAccepted === true,
       permissionGranted: aiPermissionGranted,
       model: settings.openaiSummaryModel,
       baseUrl: settings.openaiBaseUrl,
       apiStyle: settings.openaiApiStyle,
+      webSearchSupported: providerConfigured && Boolean(nativeWebSearchCapability(settings)),
       keySource: "local-extension-storage",
       maskedKey: secrets.hasOpenAIKey ? "••••••••" : "",
       dailyLimit: settings.dailyAiLimit,

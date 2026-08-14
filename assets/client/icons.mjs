@@ -36,6 +36,7 @@ const ICON_URLS = {
   eye: "/assets/icons/eye.svg",
   "eye-off": "/assets/icons/eye-off.svg",
   "file-search-01": "/assets/icons/file-search-01.svg",
+  "edit-05": "/assets/icons/edit-05.svg",
   "filter-lines": "/assets/icons/filter-lines.svg",
   folder: "/assets/icons/folder.svg",
   github: "/assets/icons/github.svg",
@@ -52,6 +53,8 @@ const ICON_URLS = {
   "rss-01": "/assets/icons/rss-01.svg",
   "save-01": "/assets/icons/save-01.svg",
   "search-lg": "/assets/icons/search-lg.svg",
+  "send-up": "/assets/icons/send-up.svg",
+  "stop-square": "/assets/icons/stop-square.svg",
   "server-01": "/assets/icons/server-01.svg",
   "settings-01": "/assets/icons/settings-01.svg",
   "shuffle-01": "/assets/icons/shuffle-01.svg",
@@ -107,16 +110,38 @@ function iconKey(name) {
   return ICON_URLS[key] ? key : "info-circle";
 }
 
+function setIconSource(icon, source) {
+  const reveal = () => {
+    icon.hidden = false;
+    icon.classList.remove("is-icon-pending");
+  };
+  const hide = () => {
+    icon.hidden = true;
+    icon.classList.remove("is-icon-pending");
+  };
+
+  icon.hidden = false;
+  icon.classList.add("is-icon-pending");
+  icon.addEventListener("load", reveal, { once: true });
+  icon.addEventListener("error", hide, { once: true });
+  icon.src = source;
+
+  if (icon.complete) {
+    if (icon.naturalWidth > 0) reveal();
+    else hide();
+  }
+}
+
 export function createIcon(name, className) {
   const key = iconKey(name);
   const icon = document.createElement("img");
   icon.className = `${className || "inline-icon"} industrial-icon untitled-icon icon-${key}`;
-  icon.src = ICON_URLS[key];
   icon.alt = "";
   icon.decoding = "async";
   icon.loading = "eager";
   icon.referrerPolicy = "no-referrer";
   icon.setAttribute("aria-hidden", "true");
+  setIconSource(icon, ICON_URLS[key]);
   return icon;
 }
 
@@ -132,12 +157,12 @@ export function createThemedIcon(name, className) {
 export function hydrateIcons(root = document) {
   root.querySelectorAll("[data-icon]").forEach((icon) => {
     const key = iconKey(icon.dataset.icon);
-    icon.src = ICON_URLS[key];
     icon.alt = "";
     icon.decoding = "async";
     icon.loading = "eager";
     icon.referrerPolicy = "no-referrer";
     icon.classList.add("industrial-icon", "untitled-icon", `icon-${key}`);
     icon.setAttribute("aria-hidden", "true");
+    setIconSource(icon, ICON_URLS[key]);
   });
 }

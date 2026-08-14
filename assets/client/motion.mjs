@@ -3,18 +3,14 @@ export const MOTION_EASING = Object.freeze({
   enter: "cubic-bezier(.16, 1, .3, 1)",
   exit: "cubic-bezier(.4, 0, 1, 1)",
   move: "cubic-bezier(.22, .8, .3, 1)",
-  ambient: "cubic-bezier(.37, 0, .63, 1)",
-  brand: "cubic-bezier(.34, 1.16, .64, 1)",
 });
 
 export const MOTION_DURATION = Object.freeze({
   press: 100,
   state: 180,
+  emphasis: 240,
   move: 240,
-  overlay: 300,
-  firstFrame: 360,
-  reader: 360,
-  ambient: 1600,
+  firstFrame: 420,
 });
 
 export function prefersReducedMotion({ includeHidden = true } = {}) {
@@ -25,6 +21,7 @@ export function prefersReducedMotion({ includeHidden = true } = {}) {
 export function animateElement(element, keyframes, options = {}) {
   if (typeof element?.animate !== "function" || prefersReducedMotion()) return null;
   const easing = MOTION_EASING[options.easing || "standard"] || MOTION_EASING.standard;
+  element.style?.setProperty?.("will-change", "transform, opacity");
   const animation = element.animate(keyframes, {
     duration: MOTION_DURATION[options.duration || "state"] || MOTION_DURATION.state,
     delay: Math.max(0, Number(options.delay) || 0),
@@ -33,7 +30,6 @@ export function animateElement(element, keyframes, options = {}) {
   });
   animation?.addEventListener?.("finish", () => element.style?.removeProperty?.("will-change"), { once: true });
   animation?.addEventListener?.("cancel", () => element.style?.removeProperty?.("will-change"), { once: true });
-  element.style?.setProperty?.("will-change", "transform, opacity");
   return animation;
 }
 
@@ -62,15 +58,15 @@ export function animatePanelEntrance(elements, options = {}) {
   const targets = Array.from(elements || []).filter((element) => typeof element?.animate === "function");
   if (!targets.length || prefersReducedMotion()) return [];
   const initialDelay = Math.max(0, Number(options.delay) || 0);
-  const stagger = Math.max(0, Number(options.stagger) || 32);
-  const maxStagger = Math.max(0, Number(options.maxStagger) || 96);
+  const stagger = Math.max(0, options.stagger === undefined ? 20 : Number(options.stagger) || 0);
+  const maxStagger = Math.max(0, options.maxStagger === undefined ? 60 : Number(options.maxStagger) || 0);
   return targets.map((target, index) => animateElement(target, [
-    { opacity: .2, transform: "translate3d(0, 8px, 0)" },
+    { opacity: 0, transform: "translate3d(0, 4px, 0)" },
     { opacity: 1, transform: "translate3d(0, 0, 0)" },
   ], {
     duration: "firstFrame",
     delay: initialDelay + Math.min(index * stagger, maxStagger),
-    easing: "enter",
+    easing: "standard",
     fill: "backwards",
   })).filter(Boolean);
 }

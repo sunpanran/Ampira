@@ -1,6 +1,7 @@
 import { isHotNewsItem as matchesHotNews, isSummaryFillItem as matchesSummaryFill } from "./card-policy.mjs";
+import { createDailyBatchTransition } from "./daily-batch-transition.mjs";
 import { createDailyCardView } from "./daily-card-view.mjs";
-import { animatePanelEntrance } from "./dom.mjs";
+import { animatePanelEntrance, nodesEqualIgnoringIconLoadState } from "./dom.mjs";
 import { orderPresetInspiration } from "./inspiration-preset-selection.mjs";
 import { fadeElementsOut } from "./motion.mjs";
 
@@ -26,7 +27,7 @@ export function createDailyView(options) {
     inspirationCardType, bookmarkCardType,
     createNewsRanker, createSeenButton, displayBookmarkTitle, localizedCategory,
     mergeRankedUnique, selectTodayNewsItems, selectUnseenPool, openExternal, persistSeen, renderAll,
-    renderTodayMeta, setIconLabel, localizedStatusMessage, cardTransition,
+    renderTodayMeta, setIconLabel, localizedStatusMessage, confirmAction, cardTransition,
   } = options;
   const {
     animateCardsIn, animateCardsOut, canReuseCard, clearCardAnimationState,
@@ -48,6 +49,16 @@ export function createDailyView(options) {
     isHttpUrl, hostFromUrl, openExternal, displayBookmarkTitle, isNewsCard,
     isInspirationCard, setCardItemIdentity,
   });
+  const dailyBatchTransition = createDailyBatchTransition({
+    animateCardsIn, canReuseCard, clearCardAnimationState, dailyBoardCardSelector,
+    dailyColumns, directDailyCards, els, prefersReducedMotion,
+    renderColumn: (columnId, batchTransition) => renderDailyColumn(columnId, {
+      animateAction: true,
+      batchTransition,
+      immediate: !batchTransition,
+      preserveBatchTransition: true,
+    }),
+  });
   return {
     renderDaily, animateCardsIn, animateCardsOut, batchLabel, canReuseCard,
     clearCardAnimationState, isNewsCard, newsSectionName, prefersReducedMotion,
@@ -55,6 +66,7 @@ export function createDailyView(options) {
     preloadBrowserImage, updateVisibleInspirationThumbs,
   };
 function renderDaily() {
+  dailyBatchTransition.cancel();
   const isSearching = Boolean(state.query);
   document.documentElement.classList.toggle("is-dashboard-searching", isSearching);
   els.dailySection.classList.toggle("is-searching", isSearching);
@@ -82,6 +94,7 @@ function dailyColumns() {
 }
 
 function renderDailyColumn(columnId, options = {}) {
+  if (!options.preserveBatchTransition) dailyBatchTransition.cancel();
   const column = dailyColumns().find((candidate) => candidate.id === columnId);
   const currentColumn = Array.from(els.dailyBoard.children)
     .find((candidate) => candidate.dataset.columnId === columnId);
@@ -93,7 +106,10 @@ function renderDailyColumn(columnId, options = {}) {
     && document.activeElement?.classList.contains("column-action");
   const token = dailyBoardRenderToken;
   cancelDailyColumnTransition(columnId);
-  syncDailyBoardColumn(currentColumn, createBoardColumn(column), token, { immediate: true });
+  syncDailyBoardColumn(currentColumn, createBoardColumn(column), token, {
+    batchTransition: options.batchTransition,
+    immediate: true,
+  });
   const action = currentColumn.querySelector(":scope > .column-head .column-action");
   if (restoreActionFocus) action?.focus({ preventScroll: true });
   if (options.animateAction && action) { action.classList.add("is-elastic"); action.addEventListener("animationend", () => action.classList.remove("is-elastic"), { once: true }); }
@@ -112,19 +128,18 @@ function renderDailyBoard(nodes, options = {}) {
     delete board.dataset.loading;
     board.replaceChildren(...nodes);
     if (state.data?.onboarding?.completed !== false) {
-      animatePanelEntrance(nodes.flatMap((column) => Array.from(column.children)), { delay: 0 });
+      animatePanelEntrance(nodes);
     }
     return;
   }
-  if (!board.children.length || prefersReducedMotion()) {
+  if (!board.children.length) {
     board.replaceChildren(...nodes);
     animateDailyBoardColumns(board);
     return;
   }
-  syncDailyBoardColumns(board, nodes, token);
+  syncDailyBoardColumns(board, nodes, token, prefersReducedMotion() ? { immediate: true } : {});
 }
-
-function syncDailyBoardColumns(board, nextColumns, token) {
+function syncDailyBoardColumns(board, nextColumns, token, options = {}) {
   const currentById = new Map(Array.from(board.children).map((column) => [column.dataset.columnId || "", column]));
   const nextIds = new Set(nextColumns.map((column) => column.dataset.columnId || ""));
   nextColumns.forEach((nextColumn, index) => {
@@ -132,10 +147,11 @@ function syncDailyBoardColumns(board, nextColumns, token) {
     const currentColumn = currentById.get(columnId);
     if (!currentColumn) {
       board.insertBefore(nextColumn, board.children[index] || null);
-      animateCardsIn(dailyBoardCards(nextColumn));
+      if (!options.immediate) animateCardsIn(dailyBoardCards(nextColumn));
       return;
     }
-    syncDailyBoardColumn(currentColumn, nextColumn, token);
+    currentColumn.className = nextColumn.className;
+    syncDailyBoardColumn(currentColumn, nextColumn, token, options);
     if (board.children[index] !== currentColumn) board.insertBefore(currentColumn, board.children[index] || null);
   });
   Array.from(board.children).forEach((column) => {
@@ -146,12 +162,12 @@ function syncDailyBoardColumns(board, nextColumns, token) {
 function syncDailyBoardColumn(currentColumn, nextColumn, token, options = {}) {
   const currentHead = currentColumn.querySelector(":scope > .column-head");
   const nextHead = nextColumn.querySelector(":scope > .column-head");
-  if (currentHead && nextHead && !currentHead.isEqualNode(nextHead)) currentHead.replaceWith(nextHead);
+  if (currentHead && nextHead && !nodesEqualIgnoringIconLoadState(currentHead, nextHead)) currentHead.replaceWith(nextHead);
   const currentList = currentColumn.querySelector(":scope > .card-list");
   const nextList = nextColumn.querySelector(":scope > .card-list");
   if (!currentList || !nextList) {
     currentColumn.replaceChildren(...nextColumn.childNodes);
-    animateCardsIn(dailyBoardCards(currentColumn));
+    if (!options.immediate) animateCardsIn(dailyBoardCards(currentColumn));
     return;
   }
   syncDailyCardList(currentList, nextList, token, options);
@@ -161,10 +177,14 @@ function syncDailyCardList(currentList, nextList, token, options = {}) {
   const columnId = currentList.closest(".board-column")?.dataset.columnId || "";
   const currentCards = directDailyCards(currentList);
   const nextCards = directDailyCards(nextList);
+  if (options.batchTransition) {
+    dailyBatchTransition.renderCardList(currentList, nextList, options.batchTransition);
+    return;
+  }
   if (!currentCards.length) {
     currentList.className = nextList.className;
     currentList.replaceChildren(...nextList.childNodes);
-    animateCardsIn(directDailyCards(currentList));
+    if (!options.immediate) animateCardsIn(directDailyCards(currentList));
     return;
   }
   if (!nextCards.length) {
@@ -186,7 +206,7 @@ function syncDailyCardList(currentList, nextList, token, options = {}) {
   const leavingCards = currentCards.filter((card) => card.dataset.key && !nextKeys.has(card.dataset.key));
   const applyDiff = () => {
     if (token !== dailyBoardRenderToken) return;
-    applyDailyCardListDiff(currentList, nextList, nextCards);
+    dailyBatchTransition.applyCardListDiff(currentList, nextList, nextCards, { animateEntries: !options.immediate });
   };
   if (leavingCards.length && !options.immediate && !prefersReducedMotion()) {
     const exitDuration = animateCardsOut(leavingCards);
@@ -210,29 +230,6 @@ function cancelDailyColumnTransition(columnId) {
   if (timer === undefined) return;
   window.clearTimeout(timer);
   dailyColumnTransitionTimers.delete(columnId);
-}
-
-function applyDailyCardListDiff(currentList, nextList, nextCards) {
-  const currentByKey = new Map(directDailyCards(currentList)
-    .filter((card) => card.dataset.key && !card.classList.contains("is-leaving"))
-    .map((card) => [card.dataset.key, card]));
-  const fragment = document.createDocumentFragment();
-  const enteringCards = [];
-  nextCards.forEach((nextCard) => {
-    const key = nextCard.dataset.key || "";
-    const currentCard = currentByKey.get(key);
-    if (currentCard) {
-      clearCardAnimationState(nextCard);
-      clearCardAnimationState(currentCard);
-      fragment.append(canReuseCard(currentCard, nextCard) ? currentCard : nextCard);
-      return;
-    }
-    enteringCards.push(nextCard);
-    fragment.append(nextCard);
-  });
-  currentList.className = nextList.className;
-  currentList.replaceChildren(fragment);
-  animateCardsIn(enteringCards);
 }
 
 function dailyBoardCards(root) {
@@ -361,7 +358,6 @@ function createColumnAction(column) {
     button.addEventListener("click", () => reshuffleDailyColumn(column.id));
   } else if (type === "clearSeen") {
     setIconLabel(button, "trash-01", t("action.clear"), "inline-icon", "btn-label");
-    button.classList.add("danger");
     button.addEventListener("click", clearSeenArchive);
   }
   return button;
@@ -374,12 +370,20 @@ function reshuffleDailyColumn(columnId) {
   state.variants[columnId] = (page.variant + 1) % page.pageCount;
   writeValue(`dash.variant.${state.day}.${columnId}`, String(state.variants[columnId]));
   if (columnId === "inspiration") writeValue(`dash.variant.${state.day}`, String(state.variants[columnId]));
-  renderDailyColumn(columnId, { animateAction: true });
+  dailyBatchTransition.run(columnId);
   if (columnId === "inspiration") void preloadDailyInspiration(updateInspirationPreloadTimeoutMs);
 }
 
-function clearSeenArchive() {
+async function clearSeenArchive() {
   if (!state.seen.size) return;
+  if (!await confirmAction({
+    kicker: t("confirmation.clearArchive.kicker"),
+    title: t("confirmation.clearArchive.title"),
+    body: t("confirmation.clearArchive.body"),
+    cancelLabel: t("confirmation.clearArchive.cancel"),
+    confirmLabel: t("confirmation.clearArchive.confirm"),
+    tone: "danger",
+  })) return;
   state.seen.clear();
   state.seenMeta.clear();
   persistSeen();

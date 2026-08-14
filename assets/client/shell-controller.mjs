@@ -24,7 +24,8 @@ export function createShellController(options) {
   };
 
 function syncViewportMetrics() {
-  const width = Math.max(320, document.documentElement.clientWidth || window.innerWidth || 0);
+  // Match CSS viewport units so a settling page scrollbar cannot recrop the cover.
+  const width = Math.max(320, window.innerWidth || document.documentElement.clientWidth || 0);
   if (Math.abs(width - viewportMetricWidth) < 0.5) return;
   viewportMetricWidth = width;
   document.documentElement.style.setProperty("--dashboard-viewport-w", `${width}px`);

@@ -36,7 +36,12 @@ import {
 } from "../core/device-consent.mjs";
 import { defaultBookmarkFoldersForLocale, translate, translateAiPrompt } from "../core/runtime-i18n.mjs";
 import { readerTranslationMatchesLocale } from "../core/ai-output-language.mjs";
-import { requestAiCompletion, testImageSearchConnection } from "../core/ai.mjs";
+import {
+  requestAiCompletion,
+  requestAiCompletionResult,
+  requestAiCompletionStream,
+  testImageSearchConnection,
+} from "../core/ai.mjs";
 import { createClientStateStore } from "../core/client-state.mjs";
 import { createContentSyncService } from "../core/content-sync.mjs";
 import { createQuotaManager, shouldReleaseAutomaticAiQuota } from "../core/quota.mjs";
@@ -65,6 +70,7 @@ import { createSettingsStore } from "../core/settings-store.mjs";
 import { createSettingsTransferDocument, parseSettingsTransferDocument } from "../core/settings-transfer.mjs";
 import { dailyDigestEvidence, parseGeneratedDailyDigest } from "../core/summary-text.mjs";
 import { normalizeUserUrl, searchFeed } from "../core/search.mjs";
+import { researchRequestEnabled } from "../core/research-search.mjs";
 import { createMessageRouter } from "./message-router.mjs";
 import { errorResult, publicErrorDetails, resultMessage, settingsLocale, typedError } from "./runtime-result.mjs";
 import { createRuntimeStatusStore } from "./status-store.mjs";
@@ -74,6 +80,9 @@ import { createPermissionWorkflow } from "./permission-workflow.mjs";
 import { createMaintenanceService } from "./maintenance-service.mjs";
 import { createRefreshService } from "./refresh-service.mjs";
 import { createAiSearchService } from "./ai-search-service.mjs";
+import { createImageSearchSettingsService } from "./image-search-settings-service.mjs";
+import { createAiStreamPortHandler } from "./ai-stream-port.mjs";
+import { createResearchSearchService } from "./research-search-service.mjs";
 import { createReaderPreviewService } from "./reader-preview-service.mjs";
 import { createSettingsWorkflow } from "./settings-workflow.mjs";
 import { createDashboardContentService } from "./dashboard-content-service.mjs";
@@ -207,7 +216,6 @@ const {
   answerAiSearch,
   callProvider,
   testOpenAISettings,
-  testImageSearchSettings,
 } = createAiSearchService({
   getRecord, setRecord, searchFeed, settingsLocale, translate, translateAiPrompt, normalizeUserUrl,
   hasOriginPermission, originPattern, secretStatus, currentFeedPermissionState,
@@ -215,15 +223,63 @@ const {
   cacheSourceIdentitiesPermitted, configuredFeedSources,
   readArticle, readCachedArticle,
   readWebsiteOverview,
-  hashText, aiConfigured, requestAiCompletion, providerOrigin, readProviderProfile,
-  readDeviceConsent, readSecrets, providerTestApiKey, providerTestConsentAllowed,
+  hashText, aiConfigured, requestAiCompletion, requestAiCompletionResult, requestAiCompletionStream,
+  providerOrigin, readProviderProfile,
+  readDeviceConsent, providerTestApiKey, providerTestConsentAllowed,
   providerCredentialAvailable, providerRequiresApiKey,
-  isValidServiceUrl, typedError, resultMessage, errorResult, testImageSearchConnection,
+  isValidServiceUrl, typedError, resultMessage, errorResult,
   safeOrigin, uniqueStrings, withFeedCacheMetadata,
   filterFeedItemsBySources, presentableFeedItems, feedCacheOrEmpty, cacheMutations, hasOriginPermissions, cacheUrlsPermitted,
   localDateKey, readerTextFromBlocks, assertFeedItemsStillPermitted, normalizeSettings,
   aiAccessPolicy,
 });
+const { testImageSearchSettings } = createImageSearchSettingsService({
+  getSettings,
+  readSecrets,
+  testImageSearchConnection,
+  hasOriginPermission,
+  resultMessage,
+  errorResult,
+});
+const {
+  listResearchFolders,
+  answerResearchSearch,
+  pruneResearchCaches,
+} = createResearchSearchService({
+  chrome,
+  getSettings,
+  settingsLocale,
+  translate,
+  getRecord,
+  setRecords,
+  permissionStatus,
+  hasOriginPermission,
+  hasOriginPermissions,
+  fetchSourceArticles,
+  sourceFetchOptions,
+  readArticle,
+  readerTextFromBlocks,
+  callProvider,
+  aiConfigured,
+  cacheMutations,
+  feedCacheOrEmpty,
+});
+const aiStreamPortOptions = {
+  publicErrorDetails,
+  track: (operation) => {
+    activeRequests.add(operation);
+    operation.finally(() => activeRequests.delete(operation));
+  },
+  run: async (payload, controls) => {
+    if (factoryResetting) throw typedError("FACTORY_RESET_IN_PROGRESS", "background.error.factoryResetInProgress", {}, true);
+    const queryIsUrl = Boolean(normalizeUserUrl(payload?.query));
+    const articleFollowup = Boolean(payload?.articleContext);
+    return researchRequestEnabled(payload?.research) && !queryIsUrl && !articleFollowup
+      ? answerResearchSearch(payload, controls)
+      : answerAiSearch(payload, { ...controls, stream: true });
+  },
+};
+const aiStreamPortHandler = createAiStreamPortHandler(aiStreamPortOptions);
 const refreshCoordinator = createRefreshCoordinator({
   getStatus: getRefreshStatus,
   isFresh: (status) => {
@@ -365,9 +421,16 @@ const routeMessage = createMessageRouter({
   "refresh:start": (payload) => startRefresh(payload.force === true),
   "feed:refresh-source": (payload) => refreshSource(payload),
   "refresh:status": () => getRefreshStatus(),
+  "research:folders": () => listResearchFolders(),
   "digest:refresh": () => refreshDailyDigest({ automatic: false }),
   "summary:refresh": (payload) => refreshSingleSummary(payload),
-  "ai:search": (payload) => answerAiSearch(payload),
+  "ai:search": (payload) => {
+    const queryIsUrl = Boolean(normalizeUserUrl(payload?.query));
+    const articleFollowup = Boolean(payload?.articleContext);
+    return researchRequestEnabled(payload?.research) && !queryIsUrl && !articleFollowup
+      ? answerResearchSearch(payload)
+      : answerAiSearch(payload);
+  },
   "browser:search": (payload, sender) => browserSearchService.search(payload, sender),
   "weather:search": (payload) => searchLocations(payload),
   "weather:get": (payload) => getForecast(payload),
@@ -465,10 +528,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   return true;
 });
 
+chrome.runtime.onConnect?.addListener(handleAiStreamPort);
+
 ensureRuntime().catch(() => {});
   }
 
-  function handleTabUpdated(tabId, changeInfo = {}) {
+function handleTabUpdated(tabId, changeInfo = {}) {
     if (factoryResetting) return;
     if (changeInfo.status !== "loading") return;
     resetActionFeedback(tabId).catch(() => {});
@@ -479,9 +544,15 @@ function handleAlarm(alarm) {
   if (alarm?.name === REFRESH_ALARM) startRefresh(false).catch(() => {});
 }
 
+function handleAiStreamPort(port) {
+  if (port?.name !== "ampira:ai-stream") return;
+  aiStreamPortHandler(port);
+}
+
 function handleBookmarksChanged() {
   if (factoryResetting) return;
   scheduleBookmarkRefresh();
+  pruneResearchCaches().catch(() => {});
 }
 
 function handlePermissionsAdded(permissions) {
@@ -495,6 +566,7 @@ function handlePermissionsAdded(permissions) {
 function handlePermissionsRemoved(permissions) {
   if (factoryResetting) return;
   const origins = permissions?.origins || [];
+  pruneResearchCaches({ removedOrigins: origins }).catch(() => {});
   const expectedPermissionEpoch = nextPermissionEpoch();
   const expectedEpoch = cacheMutations.invalidate();
   refreshCoordinator.invalidate();
@@ -519,6 +591,7 @@ async function ensureRuntime() {
     messageParams: {},
   });
   await pruneCache();
+  await pruneResearchCaches().catch(() => {});
   await reconcilePermissionCache().catch(() => {});
 }
 

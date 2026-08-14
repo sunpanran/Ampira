@@ -39,7 +39,12 @@ strong { color: #f6f3ff; }
   height: 48px;
 }
 .lead { max-width: 65ch; font-size: 18px; }
-.store-action { margin: 24px 0 30px; }
+.store-action {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 24px 0 30px;
+}
 .store-link {
   display: inline-flex;
   align-items: center;

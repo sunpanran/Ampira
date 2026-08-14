@@ -18,7 +18,10 @@ export async function runArchitectureTests(root) {
   const workerGraphRelative = new Set([...workerGraph].map((file) => path.relative(root, file).replaceAll("\\", "/")));
   const workerGraphBytes = (await Promise.all([...workerGraph].map(async (file) => (await fs.stat(file)).size)))
     .reduce((total, size) => total + size, 0);
-  assert(workerGraphBytes <= 640 * 1024, `the service worker static graph must stay within its 640 KiB startup budget (found ${workerGraphBytes} bytes)`);
+  assert(workerGraphBytes <= 672 * 1024, `the service worker static graph must stay within its 672 KiB startup budget (found ${workerGraphBytes} bytes)`);
+  const workerGraphSources = await Promise.all([...workerGraph].map((file) => fs.readFile(file, "utf8")));
+  assert(!workerGraphSources.some((source) => /\bimport\s*\(/.test(source)),
+    "MV3 service workers must use static module imports because Chrome does not support import()");
   assert(!workerGraphRelative.has("extension/core/i18n.mjs"), "the service worker must not load the full client translation catalog");
   assert(![...workerGraphRelative].some((file) => file.startsWith("assets/client/locales/")), "the service worker graph must exclude client locale modules");
   assert(!workerGraphRelative.has("extension/core/china-location-data.mjs"), "the service worker graph must exclude the eager China location module");
@@ -70,10 +73,17 @@ export async function runArchitectureTests(root) {
   const elementsSource = await fs.readFile(path.join(root, "assets/client/elements.mjs"), "utf8");
   const dashboardAppSource = await fs.readFile(path.join(root, "assets/client/dashboard-app.mjs"), "utf8");
   const extensionRuntimeSource = await fs.readFile(path.join(root, "extension/runtime/extension-runtime.mjs"), "utf8");
+  assert(extensionRuntimeSource.includes('import { createAiStreamPortHandler } from "./ai-stream-port.mjs";')
+    && !extensionRuntimeSource.includes('import("./ai-stream-port.mjs")')
+    && extensionRuntimeSource.includes("const aiStreamPortHandler = createAiStreamPortHandler(aiStreamPortOptions);"),
+  "the MV3 service worker must register streaming through a supported static module import");
   const actionPopupSource = await fs.readFile(path.join(root, "assets/client/action-popup.mjs"), "utf8");
   const sourceSettingsSource = await fs.readFile(path.join(root, "assets/client/source-settings-controller.mjs"), "utf8");
   const settingsControllerSource = await fs.readFile(path.join(root, "assets/client/settings-controller.mjs"), "utf8");
   const summaryViewSource = await fs.readFile(path.join(root, "assets/client/summary-view.mjs"), "utf8");
+  const summaryImageThumbSource = await fs.readFile(path.join(root, "assets/client/summary-image-thumb.mjs"), "utf8");
+  const asyncImageRevealSource = await fs.readFile(path.join(root, "assets/client/async-image-reveal.mjs"), "utf8");
+  const summaryThumbTransitionSource = await fs.readFile(path.join(root, "assets/client/summary-thumb-transition.mjs"), "utf8");
   const efficiencyViewSource = await fs.readFile(path.join(root, "assets/client/efficiency-view.mjs"), "utf8");
   const aiSearchUiSource = await fs.readFile(path.join(root, "assets/client/ai-search-ui.mjs"), "utf8");
   const readerUiSource = await fs.readFile(path.join(root, "assets/client/reader-ui.mjs"), "utf8");
@@ -84,11 +94,17 @@ export async function runArchitectureTests(root) {
   const settingsTransferSource = await fs.readFile(path.join(root, "assets/client/settings-transfer-controller.mjs"), "utf8");
   const dashboardHtml = await fs.readFile(path.join(root, "dashboard.html"), "utf8");
   const dailyViewSource = await fs.readFile(path.join(root, "assets/client/daily-view.mjs"), "utf8");
+  const dailyBatchTransitionSource = await fs.readFile(path.join(root, "assets/client/daily-batch-transition.mjs"), "utf8");
   const dailyCardViewSource = await fs.readFile(path.join(root, "assets/client/daily-card-view.mjs"), "utf8");
   const bookmarksViewSource = await fs.readFile(path.join(root, "assets/client/bookmarks-view.mjs"), "utf8");
+  const batchTransitionSource = await fs.readFile(path.join(root, "assets/client/batch-transition.mjs"), "utf8");
   const cardTransitionSource = await fs.readFile(path.join(root, "assets/client/card-transition.mjs"), "utf8");
+  const dailyThumbTransitionSource = await fs.readFile(path.join(root, "assets/client/daily-thumb-transition.mjs"), "utf8");
+  const summaryBatchTransitionSource = await fs.readFile(path.join(root, "assets/client/summary-batch-transition.mjs"), "utf8");
   const motionSource = await fs.readFile(path.join(root, "assets/client/motion.mjs"), "utf8");
   const motionTokensSource = await fs.readFile(path.join(root, "assets/styles/tokens.css"), "utf8");
+  const allStylesSource = (await Promise.all((await listFiles(path.join(root, "assets"), ".css"))
+    .map((file) => fs.readFile(file, "utf8")))).join("\n");
   const dashboardSectionsCssSource = await fs.readFile(path.join(root, "assets/styles/dashboard-sections.css"), "utf8");
   const motionResponsiveCssSource = await fs.readFile(path.join(root, "assets/styles/motion-responsive.css"), "utf8");
   const primitivesCssSource = await fs.readFile(path.join(root, "assets/styles/primitives.css"), "utf8");
@@ -111,19 +127,124 @@ export async function runArchitectureTests(root) {
     dailyViewSource.indexOf("function reshuffleDailyColumn"),
     dailyViewSource.indexOf("function clearSeenArchive"),
   );
-  assert(dailyReshuffleSource.includes("renderDailyColumn(columnId, { animateAction: true });")
-    && dailyReshuffleSource.indexOf("renderDailyColumn(columnId, { animateAction: true });") < dailyReshuffleSource.indexOf("preloadDailyInspiration")
+  assert(dailyReshuffleSource.includes("dailyBatchTransition.run(columnId);")
+    && dailyReshuffleSource.indexOf("dailyBatchTransition.run(columnId);") < dailyReshuffleSource.indexOf("preloadDailyInspiration")
     && !dailyReshuffleSource.includes("await preloadDailyInspiration"), "daily reshuffle must paint the selected column before warming inspiration previews");
   const renderDailyColumnSource = dailyViewSource.slice(
     dailyViewSource.indexOf("function renderDailyColumn"),
     dailyViewSource.indexOf("function renderDailyBoard"),
   );
-  assert(renderDailyColumnSource.includes("syncDailyBoardColumn(currentColumn, createBoardColumn(column), token, { immediate: true })")
+  assert(renderDailyColumnSource.includes("batchTransition: options.batchTransition")
+    && renderDailyColumnSource.includes("immediate: true")
     && renderDailyColumnSource.includes("cancelDailyColumnTransition(columnId)")
     && !renderDailyColumnSource.includes("++dailyBoardRenderToken"), "daily reshuffle must replace only the selected batch without waiting for or invalidating other column transitions");
+  assert(dailyViewSource.includes("nodesEqualIgnoringIconLoadState(currentHead, nextHead)")
+    && cardTransitionSource.includes("cloneWithoutIconLoadState(card)")
+    && efficiencyViewSource.includes("nodesEqualIgnoringIconLoadState(currentCard, nextCard)"),
+  "pending local icon classes must not replace otherwise unchanged dashboard headers or cards");
+  assert(efficiencyViewSource.includes("return syncQueuePanelCard(currentCard, nextCard);")
+    && efficiencyViewSource.includes("function syncQueuePanelHead(currentHead, nextHead)")
+    && efficiencyViewSource.includes("nodesEqualIgnoringIconLoadState(currentTitle, nextTitle)")
+    && efficiencyViewSource.includes("function syncQueuePanelList(currentList, nextList)")
+    && efficiencyViewSource.includes('node.matches?.(".queue-row[data-key]")'),
+  "reading queue changes must retain the live card shell, loaded title icon, and unchanged keyed rows");
   assert(dailyViewSource.includes("restoreActionFocus") && dailyViewSource.includes("focus({ preventScroll: true })"), "daily reshuffle must preserve keyboard focus when its column header is replaced");
+  const dailySharedTransitionSource = dailyBatchTransitionSource.slice(
+    dailyBatchTransitionSource.indexOf("function sharedTransitionParts"),
+    dailyBatchTransitionSource.indexOf("function setSharedTransitionNames"),
+  );
+  assert(dailyCardViewSource.includes('content.className = "daily-batch-content news-list-content"')
+    && dailyCardViewSource.includes('content.className = "daily-batch-content daily-card-content"')
+    && dailyBatchTransitionSource.includes('const name = `today-${columnId}-card-${index + 1}`;')
+    && dailyBatchTransitionSource.includes('suffix ? `${name}-${suffix}` : name')
+    && dailySharedTransitionSource.includes('":scope > .bookmark-favicon"')
+    && dailySharedTransitionSource.includes('":scope > .link-main"')
+    && !dailySharedTransitionSource.includes("news-list-actions")
+    && motionResponsiveCssSource.includes(":root.is-daily-batch-transitioning {\n  view-transition-name: none;")
+    && dailyBatchTransitionSource.includes("syncCard(currentCards[index], nextCards[index], { crossfadeThumb: columnId === \"inspiration\" });")
+    && dashboardSectionsCssSource.includes(".daily-card > .daily-batch-content")
+    && dashboardSectionsCssSource.includes(".news-list-card > .news-list-content"),
+  "daily batch changes must retain live card shells, crossfade visual content, and switch the action rail without animation");
+  assert(!motionResponsiveCssSource.includes("--daily-batch-")
+    && motionResponsiveCssSource.includes("dailyBatchOut var(--motion-state-duration) var(--motion-ease-exit) both")
+    && motionResponsiveCssSource.includes("::view-transition-new(*) {\n  opacity: 0;\n  animation: dailyBatchIn var(--motion-emphasis-duration) var(--motion-ease-enter) var(--motion-state-duration) both")
+    && motionResponsiveCssSource.includes("dailyThumbOut var(--motion-state-duration) var(--motion-ease-exit) both")
+    && motionResponsiveCssSource.includes("[data-daily-thumb-phase=\"entering\"] {\n  opacity: 0;\n  animation: dailyThumbIn var(--motion-emphasis-duration) var(--motion-ease-enter) var(--motion-state-duration) both")
+    && dailyThumbTransitionSource.includes('currentThumb.dataset.dailyThumbPhase = "leaving";')
+    && dailyThumbTransitionSource.includes('nextThumb.dataset.dailyThumbPhase = "entering";')
+    && dailyThumbTransitionSource.includes('activeDailyThumbSelector = \':scope > .inspiration-thumb:not([data-daily-thumb-phase="leaving"])\';')
+    && dailyCardViewSource.includes("card.querySelector(activeDailyThumbSelector)"),
+  "daily content and inspiration images must fade out fully before replacement content fades in");
   assert(summaryViewSource.includes('els.summaryBatch.querySelector(".btn-label")')
     && !summaryViewSource.includes("els.summaryBatch.textContent ="), "summary batch labels must update without removing the button icon");
+  const summaryReshuffleSource = summaryViewSource.slice(
+    summaryViewSource.indexOf("function reshuffleSummaries"),
+    summaryViewSource.indexOf("function summaryTime"),
+  );
+  assert(summaryReshuffleSource.includes("summaryBatchTransition.run();")
+    && !summaryReshuffleSource.includes("renderSummaries();"),
+  "SIGNAL FEED reshuffles must bypass the generic card exit delay");
+  assert(summaryBatchTransitionSource.includes("createBatchTransition({ ...options, activeClass: ACTIVE_CLASS })")
+    && batchTransitionSource.includes("previousTransition?.skipTransition?.();")
+    && batchTransitionSource.includes("if (token !== requestToken) return;")
+    && batchTransitionSource.includes('typeof documentNode.startViewTransition !== "function"')
+    && batchTransitionSource.includes('documentNode.visibilityState === "hidden"')
+    && batchTransitionSource.includes("const context = prepare(request);")
+    && batchTransitionSource.includes("update(context, request);")
+    && batchTransitionSource.includes("cleanup();"),
+  "summary batch transitions must coalesce rapid requests, clean prepared snapshots, and retain an immediate fallback");
+  assert(summaryViewSource.includes('content.className = "summary-card-content"')
+    && summaryViewSource.includes('style?.setProperty("view-transition-name", `signal-feed-card-${index + 1}`)')
+    && summaryViewSource.includes("syncSummaryCard(currentCards[index], nextCards[index], { crossfadeThumb: true });")
+    && summaryViewSource.includes("syncSummaryActions(currentCard, nextCard);")
+    && summaryViewSource.includes("currentActions.replaceChildren(...nextActions.childNodes);")
+    && summaryViewSource.includes("content.append(body);")
+    && summaryViewSource.includes("card.append(thumb, content, cardActions);")
+    && dashboardSectionsCssSource.includes(".summary-card > :not(.thumb)")
+    && dashboardSectionsCssSource.includes(".summary-card > .summary-card-actions")
+    && dashboardSectionsCssSource.includes('.summary-card[data-summary-action-count="2"] .summary-top'),
+  "SIGNAL FEED batch changes must retain live card shells and action glass while capturing only changing content");
+  assert(motionResponsiveCssSource.includes("::view-transition-group(*)")
+    && !motionResponsiveCssSource.includes("--summary-batch-")
+    && motionResponsiveCssSource.includes("signalFeedBatchOut var(--motion-state-duration) var(--motion-ease-exit) both")
+    && motionResponsiveCssSource.includes("::view-transition-new(*) {\n  opacity: 0;\n  animation: signalFeedBatchIn var(--motion-emphasis-duration) var(--motion-ease-enter) var(--motion-state-duration) both")
+    && motionResponsiveCssSource.includes("signalFeedThumbOut var(--motion-state-duration) var(--motion-ease-exit) both")
+    && motionResponsiveCssSource.includes("[data-summary-thumb-phase=\"entering\"] {\n  opacity: 0;\n  animation: signalFeedThumbIn var(--motion-emphasis-duration) var(--motion-ease-enter) var(--motion-state-duration) both")
+    && motionResponsiveCssSource.includes("border-radius: var(--radius-card);")
+    && !motionResponsiveCssSource.includes("#summaryGrid {\n  view-transition-name: signal-feed-grid;"),
+  "SIGNAL FEED content snapshots and live thumbnails must fade out fully before replacements fade in");
+  assert(summaryThumbTransitionSource.includes('currentThumb.dataset.summaryThumbPhase = "leaving";')
+    && summaryThumbTransitionSource.includes('nextThumb.dataset.summaryThumbPhase = "entering";')
+    && summaryThumbTransitionSource.includes("nodesEqualIgnoringTransientLoadState(currentThumb, nextThumb)")
+    && summaryThumbTransitionSource.includes('activeSummaryThumbSelector = \':scope > .thumb:not([data-summary-thumb-phase="leaving"])\';')
+    && summaryImageThumbSource.includes("card.querySelector(activeSummaryThumbSelector)")
+    && summaryImageThumbSource.includes('thumb.dataset.summaryThumbPhase === "leaving"'),
+  "summary thumbnails must fade through inside the live card and ignore stale outgoing image updates");
+  const activitySurfaceRenderSource = dashboardAppSource.slice(
+    dashboardAppSource.indexOf("renderActivitySurfaces: () => {"),
+    dashboardAppSource.indexOf("newsSummaryItems,", dashboardAppSource.indexOf("renderActivitySurfaces: () => {")),
+  );
+  assert(dailyThumbTransitionSource.includes("nodesEqualIgnoringTransientLoadState(currentThumb, nextThumb)")
+    && activityControllerSource.includes("syncActionButtonContent(button, active ? \"bookmark-filled\" : \"bookmark-ribbon\", label)")
+    && activityControllerSource.includes("if (!queueChanged && !reopened.length) return false;")
+    && activityControllerSource.includes("renderActivitySurfaces();")
+    && activityControllerSource.includes(".daily-card, .news-list-card, .summary-card, .archive-card, .link-row")
+    && bookmarksViewSource.includes("toggleSeen(item, !state.seen.has(actionKey(item))")
+    && activitySurfaceRenderSource.includes("renderDaily();")
+    && !activitySurfaceRenderSource.includes("renderSummaries();"),
+  "card action state changes must preserve loaded image and icon nodes while redrawing only membership-changing activity surfaces");
+  assert(dailyCardViewSource.includes('function renderInspirationImageThumb(thumb, item, imageUrl, { forceReveal = true, local = false, onError } = {})')
+    && dailyCardViewSource.includes('validate: local ? undefined : (image) => browserImageMeetsProfileDimensions(image, "visual")')
+    && dailyCardViewSource.includes('renderInspirationImageThumb(thumb, item, imageUrl, { forceReveal: true })')
+    && summaryImageThumbSource.includes('{ forceReveal: true }')
+    && asyncImageRevealSource.includes("await image.decode?.()")
+    && asyncImageRevealSource.includes("cacheHit && options.forceReveal !== true")
+    && motionResponsiveCssSource.includes("@keyframes previewImageIn")
+    && motionResponsiveCssSource.includes("transition: opacity var(--motion-first-frame-duration) var(--motion-ease-ambient)")
+    && motionResponsiveCssSource.includes('.inspiration-thumb[data-daily-thumb-phase="entering"] > img.is-preview-image-revealing')
+    && motionResponsiveCssSource.includes("transition-duration: var(--motion-press-duration)")
+    && motionResponsiveCssSource.includes("img.is-preview-image-pending"),
+  "inspiration images must use a deliberate first-frame fade without duplicating the batch crossfade while initial SIGNAL FEED cache hits remain immediate");
   assert(summaryViewSource.slice(0, 1800).includes("createThemedIcon, srOnly,")
     && dashboardAppSource.includes("createThemedIcon, srOnly,\n    createReadingActions"),
   "summary loading controls must receive the screen-reader label factory through explicit dependencies");
@@ -160,7 +281,11 @@ export async function runArchitectureTests(root) {
     "--motion-ease-ambient: cubic-bezier(.37, 0, .63, 1)",
     "--motion-ease-brand: cubic-bezier(.34, 1.16, .64, 1)",
   ]) assert(motionTokensSource.includes(token), `motion tokens must define ${token}`);
-  assert(motionTokensSource.includes('--font-mono: "Cascadia Mono"'), "technical labels must use a local monospace font stack");
+  for (const token of [...motionTokensSource.matchAll(/^\s*(--motion-[a-z0-9-]+):/gm)].map((match) => match[1])) {
+    assert(allStylesSource.includes(`var(${token})`), `global motion token ${token} must have at least one shipped CSS consumer`);
+  }
+  assert(!/(?:ui-)?monospace|Cascadia Mono|SFMono-Regular|Consolas|Liberation Mono/.test(allStylesSource),
+  "shipped interfaces must use the shared sans-serif stacks instead of monospace fonts");
   assert(motionSource.includes("export const MOTION_EASING")
     && motionSource.includes("createLoadingPhaseController")
     && motionSource.includes("animateKeyedLayout")
@@ -225,9 +350,15 @@ export async function runArchitectureTests(root) {
     ["read all", activityControllerSource, "confirmation.readAll.title"],
     ["unsaved settings", settingsControllerSource, "confirmation.unsaved.title"],
     ["settings import", settingsTransferSource, "confirmation.import.title"],
+    ["clear viewed archive", dailyViewSource, "confirmation.clearArchive.title"],
     ["clear source statistics", sourceSettingsSource, "confirmation.clearSuggestions.title"],
     ["block suggested sources", sourceSettingsSource, "confirmation.blockAll.title"],
   ]) assert(source.includes("await confirmAction({") && source.includes(key), `${name} must use the shared confirmation dialog`);
+  const clearArchiveActionSource = dailyViewSource.slice(
+    dailyViewSource.indexOf('} else if (type === "clearSeen")'),
+    dailyViewSource.indexOf("function reshuffleDailyColumn"),
+  );
+  assert(!clearArchiveActionSource.includes('classList.add("danger")'), "the viewed-archive clear trigger must use the standard text color");
   for (const file of clientFiles) {
     const source = await fs.readFile(file, "utf8");
     assert(!source.includes("window.confirm("), `${path.basename(file)} must not bypass the shared confirmation dialog`);
@@ -244,6 +375,7 @@ export async function runArchitectureTests(root) {
     assert(guardIndex >= 0 && requestIndex > guardIndex, `${name} must allow cancellation before entering its manual AI request`);
   }
   assert(aiSearchUiSource.includes("confirmManualAiUsage({ aiEnabled: state.data?.ai?.enabled === true })"), "Ampira local search must bypass the token notice when AI is unavailable");
+  assert(dashboardAppSource.includes('els.closeAiSearch.addEventListener("click", closeAiSearch)'), "the AI workbench close button must invoke the shared close workflow");
   assert(dashboardAppSource.includes("createConfirmationDialogController")
     && dashboardAppSource.includes("createManualAiUsageNoticeController")
     && (dashboardAppSource.match(/confirmManualAiUsage/g) || []).length >= 6, "dashboard composition must share one manual AI notice across all five entry points");
@@ -348,6 +480,20 @@ export async function runArchitectureTests(root) {
   });
   assert.equal(await permissionGateway.hasOriginPermission("https://news.example/story"), true);
   assert.equal(await permissionGateway.hasOriginPermission("http://remote.example/story"), false);
+  const braveResearchGateway = createPermissionGateway({
+    chrome: {
+      bookmarks: { async getTree() { return []; } },
+      permissions: { async getAll() { return { origins: [] }; } },
+    },
+    async getSettings() { return {}; },
+    async secretStatus() { return { hasOpenAIKey: false, hasImageSearchKey: true }; },
+  });
+  const braveResearchOrigins = await braveResearchGateway.selectedOrigins({ bookmarks: [] }, {
+    bookmarkConsentGranted: false,
+    webImageSearchEnabled: false,
+  });
+  assert(braveResearchOrigins.some((row) => row.origin === "https://api.search.brave.com/*"),
+    "a configured fallback-image key must expose its exact Brave origin even while image search is off so it can be removed");
   const zhCnPublicOrigins = await permissionGateway.selectedOrigins({ bookmarks: [] }, {
     bookmarkConsentGranted: true,
     publicFeedSupplementEnabled: true,
