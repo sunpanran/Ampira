@@ -717,9 +717,22 @@ $env:REQUIRED_SUPPORT_URL = "https://github.com/sunpanran/Ampira/issues"
 - 服务商原生联网检索开始执行真实的分阶段扩展：普通问题先查近 31 天，证据不足再解除日期限制；“最近/最新”先查近 7 天，再扩大到 31 天，仍缺少足够且可核对的证据时才解除限制。显式日期范围始终只执行该范围，不自动放宽。回答覆盖信息记录是否发生扩展。
 - 合成测试覆盖关闭绑定、研究操作原位替换、旧收藏夹错误状态、7 天到 31 天再到不限时间的三阶段请求，以及无可核对日期时继续扩大。没有读取真实书签、真实 AI 密钥或调用真实服务商，本轮未执行加载已解压扩展后的 Chrome/Edge 手动 QA。
 
+## 2026-08-17 — AI 数据传输说明概括化
+
+- 设置页的数据传输说明不再逐项枚举问题、文章字段、对话轮次和研究证据，统一概括为“提交或选择的内容”与“完成请求所需的上下文”。服务商仍明确为用户自己配置的服务商，实际传输范围和运行逻辑没有变化。
+- 简体中文、繁体中文、英文和 HTML 初始回退文案已同步；安全测试改为验证用户定向内容、必要上下文和配置服务商三个稳定披露要素，避免新增 AI 功能时仅因字段枚举变化反复修改文案。
+- 删除数据传输卡片下方“确认数据传输说明并授权当前服务域名”的重复默认提示，并在未确认阶段隐藏整条空状态行。无效地址、等待权限、授权进行中、授权成功和错误反馈仍按原流程显示，字段解锁与服务域名授权逻辑没有变化。
+
 ## 2026-08-14 — 26.2.11 发布包
 
 - `manifest.json` 版本由 `26.2.10` 递增到 `26.2.11`，README 与三语言 GitHub Pages 首页同步提供 Chrome Web Store 和 Microsoft Edge Add-ons 安装入口。
 - 使用公开支持地址 `https://github.com/sunpanran/Ampira/issues` 执行 `.\scripts\verify-extension.ps1 -Package`，统一测试、语法、资源、清单、本地化、文档、安全和打包检查全部通过。
 - `dist/ampira-26.2.11.zip` 包含 301 个文件、大小 2,325,390 B，SHA-256 为 `550988c1a7471aa76f47f765835dc09d533c3e9b260b851ec673ee225156c97a`；sidecar 与发布清单一致，ZIP 根目录包含唯一的 `manifest.json`。
 - 本轮完成自动验证与发布包审计，未执行加载已解压扩展后的 Chrome/Edge 手动 QA；Chrome Web Store 与 Microsoft Edge Add-ons 仍需在开发者后台上传并提交审核。
+
+## 2026-08-17 — 26.2.12 发布包
+
+- `manifest.json` 版本由 `26.2.11` 递增到 `26.2.12`。本版包含 AI 数据传输说明概括化、三语言同步、未确认阶段重复状态行隐藏及对应安全回归测试。
+- 使用公开支持地址 `https://github.com/sunpanran/Ampira/issues` 执行 `.\scripts\verify-extension.ps1 -Package`，统一测试、语法、资源、清单、本地化、文档、安全和打包检查全部通过。
+- `dist/ampira-26.2.12.zip` 包含 301 个文件、大小 2,325,054 B，SHA-256 为 `a53fbd5e27a1400d103c4ef4885fe1ed44bbbde9c686a8cf0fa8e490b95fd472`；sidecar 与发布清单一致，ZIP 根目录包含唯一的 `manifest.json`。
+- 本轮完成自动验证与发布包审计，未执行加载已解压扩展后的 Chrome/Edge 手动 QA；Chrome Web Store 与 Microsoft Edge Add-ons 由用户手动上传并提交审核。

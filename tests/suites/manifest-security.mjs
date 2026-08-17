@@ -108,8 +108,16 @@ assert.equal(translate("zh-CN", "context.explainArticle"), "解释文章");
 assert.equal(translate("zh-CN", "context.hideBookmarkCategory"), "隐藏此分类");
 assert.equal(translate("zh-Hant", "settings.bookmarks.restoreAll"), "全部恢復");
 assert.equal(translate("en", "empty.hiddenCategories.title"), "All categories are hidden");
-assert(translate("en", "settings.service.consent").includes("article URLs used for context"), "the prominent AI disclosure must include context article URLs");
-assert(translate("zh-CN", "settings.service.consent").includes("文章网址"), "the Chinese AI disclosure must include context article URLs");
+const englishAiDisclosure = translate("en", "settings.service.consent");
+const chineseAiDisclosure = translate("zh-CN", "settings.service.consent");
+assert(englishAiDisclosure.includes("content you submit or select")
+  && englishAiDisclosure.includes("context needed")
+  && englishAiDisclosure.includes("configured provider"),
+"the prominent AI disclosure must identify user-directed content, required context, and the configured provider");
+assert(chineseAiDisclosure.includes("提交或选择的内容")
+  && chineseAiDisclosure.includes("所需的上下文")
+  && chineseAiDisclosure.includes("配置的服务商"),
+"the Chinese AI disclosure must identify user-directed content, required context, and the configured provider");
 assert.equal(translate("en", "onboarding.step4.searchTitle"), "Content insights", "English onboarding must describe the content interpretation capability concisely");
 assert.equal(translate("zh-CN", "onboarding.step4.searchTitle"), "内容解读", "Chinese onboarding must retain the concise content interpretation label");
 assert.equal(translate("zh-CN", "onboarding.step1.body"), "从书签里的网站获取新资讯，再用 AI 整理和解读。", "onboarding must use the reviewed concise product introduction");
@@ -513,6 +521,11 @@ assert(dashboardSource.slice(aiFieldsetStart, aiFieldsetEnd).includes(" hidden")
 assert(dashboardSource.slice(aiFieldsetStart, aiFieldsetEnd).includes('aria-describedby="aiFormAccessStatus"'), "locked AI fields must reference the live setup status");
 const aiPermissionControllerSource = await fs.readFile(path.join(root, "assets", "client", "ai-permission-controller.mjs"), "utf8");
 assert(aiPermissionControllerSource.includes("els.aiProviderFields.hidden = !aiSetupState.formUnlocked"), "AI provider fields must become visible only after the current provider origin is authorized");
+assert(dashboardSource.includes('id="aiFormAccessStatus" data-stage="needs-consent" aria-live="polite" hidden'),
+  "the initial AI consent stage must not reserve a redundant visible status row");
+assert(aiPermissionControllerSource.includes("els.aiFormAccessStatus.hidden = !statusKey")
+  && !aiPermissionControllerSource.includes("settings.service.aiFormNeedsConsent"),
+"the consent stage must stay visually silent while actionable AI setup states remain available");
 assert(dashboardSource.indexOf('id="apiBaseUrlInput"') < aiFieldsetStart, "the provider URL must remain available before the gated AI fields");
 assert(dashboardSource.indexOf('id="clearKey"') < aiFieldsetStart, "credential removal must remain available outside the gated AI fields");
 assert(dashboardSource.indexOf('id="testKey"') < dashboardSource.indexOf('id="clearKey"'), "connection testing must sit immediately before credential removal in the visible provider actions");

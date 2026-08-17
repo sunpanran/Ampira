@@ -272,10 +272,10 @@
                   </div>
                   <input id="aiDisclosureConsent" type="checkbox" hidden>
                   <div class="ai-provider-access-step" id="aiProviderAccessStep">
-                    <div class="ai-provider-disclosure" id="aiProviderDisclosure"><strong data-i18n="settings.service.dataTransferTitle">发送给服务商的数据</strong><span data-i18n="settings.service.consent">启用 AI 后，问题、文章标题、摘要、选定正文和用于上下文的文章网址会发送给你配置的服务商；如公共来源已包含跨语言来源，其标题、摘要和网址会自动发送用于本地化。</span></div>
+                    <div class="ai-provider-disclosure" id="aiProviderDisclosure"><strong data-i18n="settings.service.dataTransferTitle">发送给服务商的数据</strong><span data-i18n="settings.service.consent">启用 AI 后，你提交或选择的内容，以及完成请求所需的上下文，会发送给你配置的服务商。</span></div>
                     <button class="btn primary" id="grantAiOrigin" type="button" disabled data-disabled-reason="prerequisite" aria-controls="aiProviderFields" aria-describedby="aiProviderDisclosure aiFormAccessStatus"><img class="btn-icon" data-icon="link-external-01" alt="" aria-hidden="true"><span class="btn-label" data-i18n="settings.service.acceptAndGrant">理解并授权</span></button>
                   </div>
-                  <div class="ai-form-access-status" id="aiFormAccessStatus" data-stage="needs-consent" data-i18n="settings.service.aiFormNeedsConsent" aria-live="polite">确认数据传输说明并授权当前服务域名。</div>
+                  <div class="ai-form-access-status" id="aiFormAccessStatus" data-stage="needs-consent" aria-live="polite" hidden></div>
                   <div class="ai-provider-editor-actions"><button class="btn danger" id="clearKey" type="button" hidden><img class="btn-icon" data-icon="trash-01" alt="" aria-hidden="true"><span class="btn-label" data-i18n="settings.service.removeKey">移除密钥</span></button></div>
                   <fieldset class="ai-provider-fields" id="aiProviderFields" aria-describedby="aiFormAccessStatus" disabled hidden>
                     <legend class="sr-only" data-i18n="settings.service.aiFormLegend">AI 服务配置</legend>

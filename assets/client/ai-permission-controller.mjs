@@ -354,17 +354,19 @@ export function createAiPermissionController(options) {
         ? "settings.service.aiFormRequesting"
         : ({
           [aiSetupStage.INVALID_ORIGIN]: "settings.service.aiFormInvalidOrigin",
-          [aiSetupStage.NEEDS_CONSENT]: "settings.service.aiFormNeedsConsent",
           [aiSetupStage.NEEDS_PERMISSION]: "settings.service.aiFormNeedsPermission",
           [aiSetupStage.READY]: "settings.service.aiFormReady",
         })[aiSetupState.stage]);
     els.aiFormAccessStatus.dataset.stage = aiSetupFeedback
       ? "error"
       : (aiGrantPending ? "grant-pending" : aiSetupState.stage);
-    els.aiFormAccessStatus.textContent = t(statusKey, {
-      origin: aiSetupState.origin,
-      ...(aiSetupFeedback?.params || {}),
-    });
+    els.aiFormAccessStatus.hidden = !statusKey;
+    els.aiFormAccessStatus.textContent = statusKey
+      ? t(statusKey, {
+        origin: aiSetupState.origin,
+        ...(aiSetupFeedback?.params || {}),
+      })
+      : "";
   }
 
   async function refreshAiSetupPermission({ focusOnLock = false } = {}) {
