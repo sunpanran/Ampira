@@ -1,4 +1,4 @@
-import { classifyContentLocale } from "./feed-language-policy.mjs";
+import { classifyContentLocale } from "./content-language.mjs";
 import { normalizeLocale } from "./locale.mjs";
 
 const CODE_FENCE = /```[\s\S]*?```/g;
@@ -7,6 +7,8 @@ const URL = /\bhttps?:\/\/[^\s<>()]+/gi;
 const EMAIL = /\b[^\s@]+@[^\s@]+\.[^\s@]+\b/g;
 const DIGEST_RANK_LINE = /^\s*RANK\s+\d+\s*:\s*[-+]?\d+(?:\.\d+)?\s*$/i;
 const DIGEST_PREFIX = /^\s*(?:OVERVIEW|TITLE\s+\d+)\s*:\s*/i;
+const LATIN_NAME = /\b(?:[A-Z][a-zA-Z]*|[a-z]+[A-Z][a-zA-Z]*)\b/g;
+const ENGLISH_FUNCTION_WORD = /^(?:a|an|the|this|that|these|those|is|are|was|were|be|been|will|can|must|should|has|have|had|and|or|but|of|to|for|from|in|on|with|by|as|it|its|they|their|we|our|you|your)$/i;
 
 export function visibleAiProse(value) {
   return String(value || "")
@@ -54,7 +56,11 @@ function proseMatchesLocale(prose, target) {
   }
 
   if (!classified.hanCount) return false;
-  if (classified.latinCount >= 10 && classified.latinCount >= classified.hanCount * 3) return false;
+  // Product names and acronyms are often longer than the surrounding Chinese
+  // clause. Count the remaining prose, not the spelling length of those names.
+  const proseWithoutNames = prose.replace(LATIN_NAME, (word) => ENGLISH_FUNCTION_WORD.test(word) ? word : " ");
+  const remainingLatin = (proseWithoutNames.match(/\p{Script=Latin}/gu) || []).length;
+  if (remainingLatin >= 10 && remainingLatin >= classified.hanCount * 2) return false;
   const targetScore = target === "zh-CN" ? classified.simplifiedScore : classified.traditionalScore;
   const oppositeScore = target === "zh-CN" ? classified.traditionalScore : classified.simplifiedScore;
   if (oppositeScore > 0 && (targetScore === 0 || oppositeScore >= targetScore * 2)) return false;

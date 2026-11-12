@@ -1,9 +1,18 @@
 import { spanText } from "./dom.mjs";
-import { createIcon } from "./icons.mjs";
+import { createIcon, createThemedIcon } from "./icons.mjs";
 import { allTranslations } from "./i18n.mjs";
 
 export function setIconLabel(node, icon, label, iconClass = "btn-icon", labelClass = "btn-label") {
   node.replaceChildren(createIcon(icon, iconClass), spanText(label, labelClass));
+}
+
+export function createAiTaskStatus(phase, label) {
+  const status = document.createElement("span");
+  status.className = "ai-task-status";
+  status.dataset.taskPhase = phase;
+  status.setAttribute("role", "status");
+  status.append(createThemedIcon(phase === "running" ? "loader" : phase === "queued" ? "clock" : "info-circle", "ai-task-status-icon"), spanText(label));
+  return status;
 }
 
 export function createAiLoadingState({
@@ -47,7 +56,7 @@ export function createAiLoadingState({
   return loading;
 }
 
-export function createEmptyState({ title = "", body = "", variant = "panel", actionLabel = "", onAction } = {}) {
+export function createEmptyState({ title = "", body = "", variant = "panel", actionLabel = "", actionIcon = "", onAction } = {}) {
   const node = document.createElement("div");
   const normalizedVariant = variant || "panel";
   node.className = `empty-state is-${normalizedVariant}${normalizedVariant === "error" ? " is-compact" : ""}`;
@@ -74,7 +83,7 @@ export function createEmptyState({ title = "", body = "", variant = "panel", act
     if (normalizedVariant === "plain") {
       action.textContent = actionLabel;
     } else {
-      setIconLabel(action, emptyActionIcon(actionLabel), actionLabel, "inline-icon", "btn-label");
+      setIconLabel(action, actionIcon || emptyActionIcon(actionLabel), actionLabel, "inline-icon", "btn-label");
     }
     action.addEventListener("click", (event) => {
       event.preventDefault();

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {
   applyContentSyncSettings,
+  contentSyncSettingsPayload,
   setAllContentSyncControls,
   setContentSyncControlsBusy,
   syncContentSyncMaster,
@@ -17,6 +18,7 @@ assert.equal(els.contentSyncEnabledInput.indeterminate, false, "the content sync
 assert.equal(els.contentSyncEnabledInput.attributes.get("aria-checked"), "true");
 assert.equal(els.contentSyncDetails.hidden, false, "enabled content sync must reveal its dependent controls");
 assertDependentAvailability(els, false);
+assert.equal(els.syncAiSettingsEnabledInput.checked, false, "credential sync must default off");
 
 setAllContentSyncControls(els, false);
 assert.equal(els.contentSyncEnabledInput.checked, false);
@@ -26,16 +28,22 @@ assert.equal(els.contentSyncDetails.hidden, true, "disabled content sync must hi
 assertDependentAvailability(els, true);
 
 setAllContentSyncControls(els, true);
+assert.equal(els.syncAiSettingsEnabledInput.checked, false, "the content master must not opt credentials into sync");
 assert.equal(els.contentSyncEnabledInput.checked, true);
 assert.equal(els.contentSyncDetails.hidden, false);
 assertDependentAvailability(els, false);
 
+assert.equal(contentSyncSettingsPayload(els).syncStockWatchlistEnabled, true);
+assert.equal(contentSyncSettingsPayload(els).syncCountdownsEnabled, true);
+
 setContentSyncControlsBusy(els, true);
+assert.equal(els.syncAiSettingsEnabledInput.disabled, true);
 assert.equal(els.contentSyncEnabledInput.disabled, true);
 assert.equal(els.contentSyncEnabledInput.label.attributes.get("aria-disabled"), "true");
 assertDependentAvailability(els, true);
 
 setContentSyncControlsBusy(els, false);
+assert.equal(els.syncAiSettingsEnabledInput.disabled, false);
 assert.equal(els.contentSyncEnabledInput.disabled, false);
 assert.equal(els.contentSyncEnabledInput.label.attributes.get("aria-disabled"), "false");
 assertDependentAvailability(els, false);
@@ -45,6 +53,22 @@ syncContentSyncMaster(els);
 assert.equal(els.contentSyncEnabledInput.checked, false);
 assert.equal(els.contentSyncDetails.hidden, true);
 assertDependentAvailability(els, true);
+els.syncAiSettingsEnabledInput.checked = true;
+setAllContentSyncControls(els, false);
+assert.equal(els.syncAiSettingsEnabledInput.checked, true, "credential sync must stay independent of the content master");
+assert.equal(els.syncAiSettingsEnabledInput.disabled, false, "credential sync remains usable when content sync is off");
+assert.equal(contentSyncSettingsPayload(els).syncAiSettingsEnabled, true);
+applyContentSyncSettings(els, { syncAiSettingsEnabled: true });
+assert.equal(els.syncAiSettingsEnabledInput.checked, true);
+assert.equal(els.contentSyncEnabledInput.checked, false);
+
+for (const field of ["syncStockWatchlistEnabled", "syncCountdownsEnabled"]) {
+  applyContentSyncSettings(els, { [field]: true });
+  assert.equal(els.contentSyncEnabledInput.checked, true, `${field} alone keeps the master enabled`);
+  assert.equal(els.contentSyncDetails.hidden, false);
+  assert.equal(contentSyncSettingsPayload(els)[field], true);
+  assertDependentAvailability(els, false);
+}
 
 console.log("content sync settings tests passed");
 
@@ -55,6 +79,9 @@ function createControls() {
     syncReadingQueueEnabledInput: createInput(),
     syncTodosEnabledInput: createInput(),
     syncWeatherLocationEnabledInput: createInput(),
+    syncStockWatchlistEnabledInput: createInput(),
+    syncCountdownsEnabledInput: createInput(),
+    syncAiSettingsEnabledInput: createInput(),
   };
 }
 
@@ -79,6 +106,8 @@ function dependentControls(els) {
     els.syncReadingQueueEnabledInput,
     els.syncTodosEnabledInput,
     els.syncWeatherLocationEnabledInput,
+    els.syncStockWatchlistEnabledInput,
+    els.syncCountdownsEnabledInput,
   ];
 }
 

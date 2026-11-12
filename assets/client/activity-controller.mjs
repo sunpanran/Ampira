@@ -1,5 +1,5 @@
 import { normalizeReadingQueueRecords } from "../../extension/core/reading-queue.mjs";
-import { fadeElementsOut, MOTION_DURATION, prefersReducedMotion, restartMotionClass } from "./motion.mjs";
+import { fadeElementsOut, MOTION_DURATION, prefersReducedMotion } from "./motion.mjs";
 
 const READING_QUEUE_STORAGE_KEY = "dash.readingQueue";
 const OPENED_STORAGE_KEY = "dash.opened";
@@ -15,11 +15,11 @@ export function createActivityController(options) {
     renderActivitySurfaces = renderAll,
     newsSummaryItems, hostFromUrl, t, newsSectionName, newsCardType, findNewsItemReference,
     isNewsCard, displaySummaryTitle, displayTitle, displayBookmarkTitle, createThemedIcon,
-    summaryText, srOnly, writeJson, readJson, apiPost, confirmAction,
+    srOnly, writeJson, readJson, apiPost, confirmAction,
   } = options;
   return {
     readingQueueItems, openAndMarkReadingQueue, findNewsItemByReference, isQueued,
-    actionKey, toggleReadingQueue, openDailyItem, openSummaryItem, matchesQuery, toggleSeen,
+    actionKey, toggleReadingQueue, openDailyItem, openSummaryItem, toggleSeen,
     markOpenedItem, dismissItem, sendFeedback, retainSeenArchiveEnabled,
     syncSeenArchiveRetention, defaultSeenSource, seenKey, readSeenRecords,
     replaceSeenRecords, applyReadingQueueUpdate,
@@ -186,11 +186,10 @@ function animateQueueRemoval(key) {
 
 function animateArchiveRemoval(key) {
   if (prefersReducedMotion()) return false;
-  const card = Array.from(document.querySelectorAll(".archive-card[data-key]"))
-    .find((item) => item.dataset.key === key);
-  if (!card) return false;
-  card.classList.add("is-fading-out");
-  card.inert = true;
+  const cards = Array.from(document.querySelectorAll(".archive-card[data-key]"))
+    .filter((item) => item.dataset.key === key);
+  if (!cards.length) return false;
+  for (const card of cards) { card.classList.add("is-fading-out"); card.inert = true; }
   window.setTimeout(renderAll, MOTION_DURATION.state);
   return true;
 }
@@ -272,11 +271,6 @@ function openDailyItem(item) {
 function openSummaryItem(item) {
   openExternal(itemUrl(item), displaySummaryTitle(item), item);
   renderEfficiencyPanel();
-}
-
-function matchesQuery(item) {
-  if (!state.query) return true;
-  return `${item.title} ${item.host} ${item.url} ${item.section} ${item.category} ${summaryText(item)}`.toLowerCase().includes(state.query);
 }
 
 function toggleSeen(item, checked, source = defaultSeenSource(item)) {

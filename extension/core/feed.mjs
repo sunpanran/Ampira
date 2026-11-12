@@ -73,6 +73,7 @@ const ARTICLE_QUERY_KEYS = new Set(["articleid", "contentid", "id", "newsid", "s
 const NEWS_LANDING_PATHS = new Set([...ARTICLE_PATH_MARKERS, "articles", "latest", "posts", "updates"]);
 
 export async function fetchSourceArticles(source, options = {}) {
+  options.signal?.throwIfAborted();
   const requestedLimit = Number(options.limit);
   const limit = requestedLimit === 0 ? 12 : Math.max(1, Math.min(12, Number.isFinite(requestedLimit) ? requestedLimit : 5));
   const scanLimit = sourceScanLimit(limit);
@@ -85,6 +86,7 @@ export async function fetchSourceArticles(source, options = {}) {
   let lastError = null;
   let landing = null;
   for (const candidate of candidates) {
+    options.signal?.throwIfAborted();
     const url = candidate.url;
     if (!url || attempted.has(url)) continue;
     attempted.add(url);
@@ -140,6 +142,7 @@ export async function fetchSourceArticles(source, options = {}) {
         continue;
       }
     } catch (error) {
+      options.signal?.throwIfAborted();
       lastError = error;
       if (error?.code === "ORIGIN_PERMISSION_REQUIRED") {
         const origin = safeSourceOrigin(error?.details?.url || url);
@@ -190,6 +193,7 @@ function sourceCandidates(source, profile) {
 
 async function tryFeedCandidate(url, method, context) {
   const { attempted, pendingFeeds, options, source, limit } = context;
+  options.signal?.throwIfAborted();
   if (!url || attempted.has(url)) return { responded: false, result: null, error: null };
   attempted.add(url);
   try {
@@ -208,6 +212,7 @@ async function tryFeedCandidate(url, method, context) {
       error: null,
     };
   } catch (error) {
+    options.signal?.throwIfAborted();
     if (error?.code === "ORIGIN_PERMISSION_REQUIRED") {
       const origin = safeSourceOrigin(error?.details?.url || url);
       if (origin && origin !== safeSourceOrigin(source.url)) pendingFeeds.push({ url, origin });
@@ -529,6 +534,7 @@ function looksLikeImageUrl(value) {
 
 async function fetchText(url, options = {}) {
   try {
+    options.signal?.throwIfAborted();
     if (typeof options.validateUrl === "function") await options.validateUrl(url);
     const headers = {
       accept: "application/rss+xml, application/atom+xml, application/feed+json, application/xml, text/xml, text/html;q=0.9, */*;q=0.5",
@@ -581,6 +587,7 @@ async function fetchText(url, options = {}) {
       notModified: false,
     };
   } catch (error) {
+    options.signal?.throwIfAborted();
     if (error?.messageKey || error?.code === "ORIGIN_PERMISSION_REQUIRED") throw error;
     if (error?.code === "RESPONSE_TOO_LARGE") {
       throw feedError("SOURCE_RESPONSE_TOO_LARGE", "background.error.sourceTooLarge", false, error.details);

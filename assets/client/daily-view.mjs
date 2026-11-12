@@ -1,9 +1,11 @@
 import { isHotNewsItem as matchesHotNews, isSummaryFillItem as matchesSummaryFill } from "./card-policy.mjs";
 import { createDailyBatchTransition } from "./daily-batch-transition.mjs";
 import { createDailyCardView } from "./daily-card-view.mjs";
-import { animatePanelEntrance, nodesEqualIgnoringIconLoadState } from "./dom.mjs";
+import { spanText } from "./dom.mjs";
 import { orderPresetInspiration } from "./inspiration-preset-selection.mjs";
-import { fadeElementsOut } from "./motion.mjs";
+import { createArchiveCardView } from "./archive-card-view.mjs";
+import { setKeyboardShortcutHint } from "./keyboard-shortcuts.mjs";
+import { playBatchActionFeedback } from "./motion.mjs";
 
 export function shouldShowColumnAction(column) {
   const type = column?.action;
@@ -15,18 +17,18 @@ export function shouldShowColumnAction(column) {
 
 export function createDailyView(options) {
   const {
-    state, els, t, tc, itemUrl, displayTitle, displaySummaryTitle, summaryText,
-    createEmptyState, createIcon, createThemedIcon, createReadingActions,
-    createBookmarkFavicon, contextAttachLink, openDailyItem, toggleSeen,
-    defaultSeenSource, newsSummaryItems, inspirationPreviews, apiGet,
-    normalizeUrl, isHttpUrl, faviconUrl, hostFromUrl, formatDateTime,
-    writeValue, writeJson, readJson, pageForItems, shuffle,
+    state, els, dashboardLayout, t, itemUrl, displayTitle, displaySummaryTitle,
+    createEmptyState, createThemedIcon, createReadingActions,
+    createBookmarkFavicon, contextAttachLink, openDailyItem,
+    newsSummaryItems, inspirationPreviews,
+    isHttpUrl, faviconUrl, hostFromUrl,
+    writeValue, pageForItems, shuffle,
     dailyNewsCount, dailyNewsBatchLimit, dailyInspirationCount,
     dailyInspirationBatchLimit, updateInspirationPreloadTimeoutMs,
     dailyBoardCardSelector, newsCardType,
-    inspirationCardType, bookmarkCardType,
+    inspirationCardType,
     createNewsRanker, createSeenButton, displayBookmarkTitle, localizedCategory,
-    mergeRankedUnique, selectTodayNewsItems, selectUnseenPool, openExternal, persistSeen, renderAll,
+    mergeRankedUnique, selectTodayNewsItems, selectUnseenPool, openExternal, persistSeen, renderAll, renderDailyCards,
     renderTodayMeta, setIconLabel, localizedStatusMessage, confirmAction, cardTransition,
   } = options;
   const {
@@ -43,23 +45,33 @@ export function createDailyView(options) {
     updateVisibleInspirationThumbs,
     createArchiveCard,
   } = createDailyCardView({
-    state, els, t, itemUrl, displayTitle, displaySummaryTitle, createIcon,
+    dashboardLayout,
+    state, els, t, itemUrl, displayTitle, displaySummaryTitle, createThemedIcon,
     createReadingActions, createBookmarkFavicon, contextAttachLink, openDailyItem,
     createSeenButton, localizedCategory, inspirationPreviews, faviconUrl,
     isHttpUrl, hostFromUrl, openExternal, displayBookmarkTitle, isNewsCard,
     isInspirationCard, setCardItemIdentity,
   });
+  const archiveView = createArchiveCardView({
+    state, t, createEmptyState, createArchiveCard, setIconLabel, confirmAction, persistSeen, renderAll,
+    newsSummaryItems, hostFromUrl, newsSectionName, newsCardType, isNewsCard,
+  });
   const dailyBatchTransition = createDailyBatchTransition({
+    getColumn: dashboardLayout.getCard,
     animateCardsIn, canReuseCard, clearCardAnimationState, dailyBoardCardSelector,
     dailyColumns, directDailyCards, els, prefersReducedMotion,
-    renderColumn: (columnId, batchTransition) => renderDailyColumn(columnId, {
-      animateAction: true,
-      batchTransition,
-      immediate: !batchTransition,
-      preserveBatchTransition: true,
-    }),
+    renderColumn: (columnId, batchTransition) => {
+      renderDailyColumn(columnId, { batchTransition, preserveBatchTransition: true });
+      for (const column of dailyColumns()) {
+        if (column.id !== columnId && column.type === state.cardTypes[columnId]) {
+          renderDailyColumn(column.id, { preserveBatchTransition: true });
+        }
+      }
+    },
   });
   return {
+    reshuffleDailyColumn, createArchiveContent: archiveView.render,
+    createDailyContent, syncDailyContent,
     renderDaily, animateCardsIn, animateCardsOut, batchLabel, canReuseCard,
     clearCardAnimationState, isNewsCard, newsSectionName, prefersReducedMotion,
     setCardItemIdentity, activateCardFromKeyboard, preloadDailyInspiration,
@@ -67,110 +79,45 @@ export function createDailyView(options) {
   };
 function renderDaily() {
   dailyBatchTransition.cancel();
-  const isSearching = Boolean(state.query);
-  document.documentElement.classList.toggle("is-dashboard-searching", isSearching);
-  els.dailySection.classList.toggle("is-searching", isSearching);
+  dailyBoardRenderToken += 1;
+  for (const id of dailyColumnTransitionTimers.keys()) cancelDailyColumnTransition(id);
   els.dailySection.hidden = false;
-  if (els.efficiencyPanel) els.efficiencyPanel.hidden = isSearching;
-  if (isSearching) {
-    renderTodayMeta();
-    renderDailyBoard([], { hideAfter: true });
-    return;
-  }
-  const columns = dailyColumns();
+  dashboardLayout.sync();
   renderTodayMeta();
-  renderDailyBoard(columns.map(createBoardColumn));
+  renderDailyCards();
 }
 
 function dailyColumns() {
-  const newsPage = dailyPageForCardType(newsCardType, dailyNewsCount);
-  const inspirationPage = dailyPageForCardType(inspirationCardType, dailyInspirationCount);
-  const seenItems = seenArchiveItems();
-  return [
-    { id: "news", label: t("daily.news"), icon: "news", items: newsPage.items, action: "reshuffle", pageInfo: newsPage },
-    { id: "inspiration", label: t("daily.inspiration"), icon: "sparkling", items: inspirationPage.items, action: "reshuffle", pageInfo: inspirationPage },
-    { id: "archive", label: t("daily.archive"), icon: "bookmark-ribbon", items: seenItems, action: "clearSeen", compact: true }
-  ];
+  return Object.entries(state.cardTypes).filter(([, type]) => ["news", "inspiration"].includes(type))
+    .map(([id, type]) => dailyColumn(id, type));
+}
+
+function dailyColumn(id, type) {
+  const pageInfo = dailyPageForCardType(type === "news" ? newsCardType : inspirationCardType,
+    type === "news" ? dailyNewsCount : dailyInspirationCount);
+  return { id, type, items: pageInfo.items, action: "reshuffle", pageInfo };
 }
 
 function renderDailyColumn(columnId, options = {}) {
   if (!options.preserveBatchTransition) dailyBatchTransition.cancel();
   const column = dailyColumns().find((candidate) => candidate.id === columnId);
-  const currentColumn = Array.from(els.dailyBoard.children)
-    .find((candidate) => candidate.dataset.columnId === columnId);
+  const currentColumn = dashboardLayout.getCard(columnId);
   if (!column || !currentColumn) {
     renderDaily();
     return;
   }
   const restoreActionFocus = currentColumn.contains(document.activeElement)
     && document.activeElement?.classList.contains("column-action");
-  const token = dailyBoardRenderToken;
   cancelDailyColumnTransition(columnId);
-  syncDailyBoardColumn(currentColumn, createBoardColumn(column), token, {
+  renderDailyCards(columnId, {
     batchTransition: options.batchTransition,
     immediate: true,
   });
   const action = currentColumn.querySelector(":scope > .column-head .column-action");
   if (restoreActionFocus) action?.focus({ preventScroll: true });
-  if (options.animateAction && action) { action.classList.add("is-elastic"); action.addEventListener("animationend", () => action.classList.remove("is-elastic"), { once: true }); }
 }
-function renderDailyBoard(nodes, options = {}) {
-  const token = ++dailyBoardRenderToken;
-  const board = els.dailyBoard;
-  if (options.hideAfter) {
-    board.classList.remove("is-transitioning");
-    board.replaceChildren();
-    board.hidden = true;
-    return;
-  }
-  board.hidden = false;
-  if (board.dataset.loading === "true") {
-    delete board.dataset.loading;
-    board.replaceChildren(...nodes);
-    if (state.data?.onboarding?.completed !== false) {
-      animatePanelEntrance(nodes);
-    }
-    return;
-  }
-  if (!board.children.length) {
-    board.replaceChildren(...nodes);
-    animateDailyBoardColumns(board);
-    return;
-  }
-  syncDailyBoardColumns(board, nodes, token, prefersReducedMotion() ? { immediate: true } : {});
-}
-function syncDailyBoardColumns(board, nextColumns, token, options = {}) {
-  const currentById = new Map(Array.from(board.children).map((column) => [column.dataset.columnId || "", column]));
-  const nextIds = new Set(nextColumns.map((column) => column.dataset.columnId || ""));
-  nextColumns.forEach((nextColumn, index) => {
-    const columnId = nextColumn.dataset.columnId || "";
-    const currentColumn = currentById.get(columnId);
-    if (!currentColumn) {
-      board.insertBefore(nextColumn, board.children[index] || null);
-      if (!options.immediate) animateCardsIn(dailyBoardCards(nextColumn));
-      return;
-    }
-    currentColumn.className = nextColumn.className;
-    syncDailyBoardColumn(currentColumn, nextColumn, token, options);
-    if (board.children[index] !== currentColumn) board.insertBefore(currentColumn, board.children[index] || null);
-  });
-  Array.from(board.children).forEach((column) => {
-    if (!nextIds.has(column.dataset.columnId || "")) column.remove();
-  });
-}
-
-function syncDailyBoardColumn(currentColumn, nextColumn, token, options = {}) {
-  const currentHead = currentColumn.querySelector(":scope > .column-head");
-  const nextHead = nextColumn.querySelector(":scope > .column-head");
-  if (currentHead && nextHead && !nodesEqualIgnoringIconLoadState(currentHead, nextHead)) currentHead.replaceWith(nextHead);
-  const currentList = currentColumn.querySelector(":scope > .card-list");
-  const nextList = nextColumn.querySelector(":scope > .card-list");
-  if (!currentList || !nextList) {
-    currentColumn.replaceChildren(...nextColumn.childNodes);
-    if (!options.immediate) animateCardsIn(dailyBoardCards(currentColumn));
-    return;
-  }
-  syncDailyCardList(currentList, nextList, token, options);
+function syncDailyContent(current, next, settings = {}) {
+  syncDailyCardList(current, next, dailyBoardRenderToken, { immediate: prefersReducedMotion(), ...settings });
 }
 
 function syncDailyCardList(currentList, nextList, token, options = {}) {
@@ -232,20 +179,12 @@ function cancelDailyColumnTransition(columnId) {
   dailyColumnTransitionTimers.delete(columnId);
 }
 
-function dailyBoardCards(root) {
-  return Array.from(root.querySelectorAll(dailyBoardCardSelector));
-}
-
 function directDailyCards(root) {
   return Array.from(root.children).filter((node) => node.matches?.(dailyBoardCardSelector));
 }
 
-function animateDailyBoardColumns(board) {
-  Array.from(board.children).forEach((column) => animateCardsIn(dailyBoardCards(column)));
-}
-
 function createDailyColumnEmptyState(column) {
-  if (column.id === "news" && state.data?.status?.running === true) return createDailyNewsCachingState();
+  if (column.type === "news" && state.data?.status?.running === true) return createDailyNewsCachingState();
   const emptyStates = {
     news: {
       title: t("daily.empty.newsTitle"),
@@ -255,17 +194,13 @@ function createDailyColumnEmptyState(column) {
       title: t("daily.empty.inspirationTitle"),
       body: t("daily.empty.inspirationBody"),
     },
-    archive: {
-      title: t("daily.empty.archiveTitle"),
-      body: t("daily.empty.archiveBody"),
-    },
   };
   return createEmptyState({
-    ...(emptyStates[column.id] || {
+    ...(emptyStates[column.type] || {
       title: t("daily.empty.defaultTitle"),
       body: t("daily.empty.defaultBody"),
     }),
-    variant: ["news", "inspiration", "archive"].includes(column.id) ? "compact" : "panel",
+    variant: "compact",
   });
 }
 
@@ -307,43 +242,21 @@ function createDailyNewsCachingState() {
   return node;
 }
 
-function createBoardColumn(column) {
-  const section = document.createElement("section");
-  section.className = `board-column ${column.id ? `is-${column.id}` : ""}`;
-  section.dataset.columnId = column.id || "";
-  const head = document.createElement("div");
-  head.className = "column-head";
-  const title = document.createElement("div");
-  title.className = "column-title";
-  const icon = createIcon(column.icon, "card-icon");
-  title.append(icon, document.createTextNode(column.label));
-  const tools = document.createElement("div");
-  tools.className = "column-tools";
-  if (column.pageInfo?.pageCount > 1 && column.action === "reshuffle") {
-    const hint = document.createElement("span");
-    hint.className = "batch-hint";
-    hint.textContent = batchLabel(column.pageInfo);
-    tools.append(hint);
-  }
+function createDailyContent(id, type) {
+  const column = dailyColumn(id, type);
+  const meta = column.pageInfo.pageCount > 1 ? spanText(batchLabel(column.pageInfo), "batch-hint") : null;
   const action = createColumnAction(column);
-  if (action) tools.append(action);
-  const count = document.createElement("span");
-  count.className = "count";
-  count.textContent = String(column.items.length);
-  tools.append(count);
-  head.append(title, tools);
   const list = document.createElement("div");
   list.className = "card-list";
-  const renderer = column.id === "news" ? createNewsListCard : (column.compact ? createArchiveCard : createDailyCard);
+  const renderer = type === "news" ? createNewsListCard : createDailyCard;
   if (column.items.length) {
-    if (column.id === "news") list.classList.add("link-list");
-    list.append(...column.items.map((item) => renderer(item)));
+    if (type === "news") list.classList.add("link-list");
+    list.append(...column.items.map(item => renderer(item)));
   } else {
     list.classList.add("is-empty");
     list.append(createDailyColumnEmptyState(column));
   }
-  section.append(head, list);
-  return section;
+  return { content: list, meta, actions: action ? [action] : [] };
 }
 
 function createColumnAction(column) {
@@ -355,83 +268,26 @@ function createColumnAction(column) {
   if (type === "reshuffle") {
     setIconLabel(button, "shuffle-01", t("action.reshuffle"), "inline-icon", "btn-label");
     button.classList.add("accent");
+    button.dataset.batchAction = column.id;
+    setKeyboardShortcutHint(button, "batch", t("action.reshuffle"), state.settings);
     button.addEventListener("click", () => reshuffleDailyColumn(column.id));
-  } else if (type === "clearSeen") {
-    setIconLabel(button, "trash-01", t("action.clear"), "inline-icon", "btn-label");
-    button.addEventListener("click", clearSeenArchive);
+
   }
   return button;
 }
 
 function reshuffleDailyColumn(columnId) {
-  if (!Object.prototype.hasOwnProperty.call(state.variants, columnId)) return;
-  const count = columnId === "news" ? dailyNewsCount : dailyInspirationCount;
-  const page = dailyPageForCardType(columnId === "news" ? newsCardType : inspirationCardType, count);
-  state.variants[columnId] = (page.variant + 1) % page.pageCount;
-  writeValue(`dash.variant.${state.day}.${columnId}`, String(state.variants[columnId]));
-  if (columnId === "inspiration") writeValue(`dash.variant.${state.day}`, String(state.variants[columnId]));
+  const type = state.cardTypes[columnId];
+  if (!["news", "inspiration"].includes(type)) return;
+  const count = type === "news" ? dailyNewsCount : dailyInspirationCount;
+  const page = dailyPageForCardType(type === "news" ? newsCardType : inspirationCardType, count);
+  if (page.pageCount <= 1) return;
+  state.variants[type] = (page.variant + 1) % page.pageCount;
+  writeValue(`dash.variant.${state.day}.${type}`, String(state.variants[type]));
+  if (type === "inspiration") writeValue(`dash.variant.${state.day}`, String(state.variants[type]));
+  playBatchActionFeedback(dashboardLayout.getCard(columnId)?.querySelector("[data-batch-action]"));
   dailyBatchTransition.run(columnId);
-  if (columnId === "inspiration") void preloadDailyInspiration(updateInspirationPreloadTimeoutMs);
-}
-
-async function clearSeenArchive() {
-  if (!state.seen.size) return;
-  if (!await confirmAction({
-    kicker: t("confirmation.clearArchive.kicker"),
-    title: t("confirmation.clearArchive.title"),
-    body: t("confirmation.clearArchive.body"),
-    cancelLabel: t("confirmation.clearArchive.cancel"),
-    confirmLabel: t("confirmation.clearArchive.confirm"),
-    tone: "danger",
-  })) return;
-  state.seen.clear();
-  state.seenMeta.clear();
-  persistSeen();
-  if (!fadeElementsOut(document.querySelectorAll(".archive-card"), renderAll)) renderAll();
-}
-function seenArchiveItems() {
-  const byKey = new Map(displayArchiveItems().map((item) => [item.key, item]));
-  return Array.from(state.seen)
-    .map((key) => archiveItemForSeenKey(key, byKey.get(key)))
-    .filter(Boolean);
-}
-
-function displayArchiveItems() {
-  const bookmarks = state.data?.bookmarks || [];
-  return [
-    ...bookmarks,
-    ...newsSummaryItems(false).filter((item) => item.sourceKey),
-  ];
-}
-
-function archiveItemForSeenKey(key, item) {
-  const meta = state.seenMeta.get(key) || {};
-  if (!item && !meta.title && !meta.url) return null;
-  return {
-    ...(item || fallbackArchiveItem(key, meta)),
-    key,
-    seenSource: meta.source || inferArchiveSource(item),
-    seenTitle: meta.title || "",
-    seenUrl: meta.url || "",
-  };
-}
-
-function fallbackArchiveItem(key, meta) {
-  const url = meta.url || "";
-  const isNews = meta.source === "news";
-  return {
-    key,
-    title: meta.title || hostFromUrl(url) || url || key,
-    url,
-    host: hostFromUrl(url),
-    section: isNews ? newsSectionName() : t("nav.bookmarks"),
-    category: isNews ? t("category.news") : t("category.website"),
-    cardType: isNews ? newsCardType : "",
-  };
-}
-
-function inferArchiveSource(item) {
-  return item?.sourceKey || isNewsCard(item) ? "news" : "bookmark";
+  if (type === "inspiration") void preloadDailyInspiration(updateInspirationPreloadTimeoutMs);
 }
 
 function newsSectionName() {
@@ -480,7 +336,7 @@ function dailyInspirationItems() {
 }
 
 function preloadDailyInspiration(timeoutMs = updateInspirationPreloadTimeoutMs) {
-  if (!state.data || !state.settings?.bookmarkConsentGranted) return Promise.resolve([]);
+  if (!state.data || (state.data.bot && state.data.bot.scopes?.inspiration !== false) || !state.settings?.bookmarkConsentGranted) return Promise.resolve([]);
   const pool = selectUnseenPool(
     dailyInspirationItems(),
     state.seen,

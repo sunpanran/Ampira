@@ -2,10 +2,13 @@ const CONTENT_SYNC_CONTROLS = Object.freeze([
   ["syncReadingQueueEnabledInput", "syncReadingQueueEnabled"],
   ["syncTodosEnabledInput", "syncTodosEnabled"],
   ["syncWeatherLocationEnabledInput", "syncWeatherLocationEnabled"],
+  ["syncStockWatchlistEnabledInput", "syncStockWatchlistEnabled"],
+  ["syncCountdownsEnabledInput", "syncCountdownsEnabled"],
 ]);
 
 export function applyContentSyncSettings(els, settings = {}) {
   for (const [control, field] of CONTENT_SYNC_CONTROLS) els[control].checked = settings[field] === true;
+  els.syncAiSettingsEnabledInput.checked = settings.syncAiSettingsEnabled === true;
   syncContentSyncMaster(els);
 }
 
@@ -24,11 +27,15 @@ export function syncContentSyncMaster(els) {
 }
 
 export function contentSyncSettingsPayload(els) {
-  return Object.fromEntries(CONTENT_SYNC_CONTROLS.map(([control, field]) => [field, els[control].checked]));
+  return {
+    ...Object.fromEntries(CONTENT_SYNC_CONTROLS.map(([control, field]) => [field, els[control].checked])),
+    syncAiSettingsEnabled: els.syncAiSettingsEnabledInput.checked,
+  };
 }
 
 export function setContentSyncControlsBusy(els, busy) {
   setSwitchUnavailable(els.contentSyncEnabledInput, busy);
+  setSwitchUnavailable(els.syncAiSettingsEnabledInput, busy);
   syncContentSyncControlAvailability(els, busy);
 }
 

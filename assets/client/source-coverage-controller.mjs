@@ -1,4 +1,5 @@
 import { requestOrigins } from "./permission-client.mjs";
+import { createIcon } from "./icons.mjs";
 
 export function createSourceCoverageController(options) {
   const {
@@ -15,7 +16,6 @@ export function createSourceCoverageController(options) {
       ["settings.sources.permissionPending", Number(summary.permissionRequired || 0)],
       ["settings.sources.needsReview", Number(summary.failed || 0) + Number(summary.empty || 0)],
     ];
-    if (metrics[1][1] + metrics[2][1] > 0) els.sourceCoverageDetails.open = true;
     els.sourceCoverageSummary.replaceChildren(...metrics.map(([labelKey, value]) => {
       const metric = document.createElement("div");
       metric.className = "source-coverage-metric";
@@ -72,10 +72,12 @@ export function createSourceCoverageController(options) {
       actions.append(grant);
     }
     const retry = document.createElement("button");
-    retry.className = "btn";
+    retry.className = "btn icon-btn";
     retry.type = "button";
     retry.disabled = sourceActions.has(record.sourceKey) || record.status === "permissionRequired" && !record.pendingFeed?.origin;
-    setIconLabel(retry, "synchronize", t("settings.sources.retry"));
+    retry.title = t("settings.sources.retry");
+    retry.setAttribute("aria-label", retry.title);
+    retry.append(createIcon("synchronize", "btn-icon"));
     retry.addEventListener("click", () => refreshSourceRecord(record, retry));
     actions.append(retry);
     row.append(main, actions);

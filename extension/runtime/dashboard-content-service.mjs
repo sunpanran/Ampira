@@ -1,5 +1,6 @@
 import { aiOutputPartsMatchLocale } from "../core/ai-output-language.mjs";
 import { nativeWebSearchCapability } from "../core/ai.mjs";
+import { botGeneratesBrief, botOrganizesNews } from "../core/bot-mode.mjs";
 
 export function createDashboardContentService(options) {
   const {
@@ -28,7 +29,7 @@ export function createDashboardContentService(options) {
     sanitizeDailyDigest,
   };
 
-async function buildDashboardPayload(attempt = 0) {
+async function buildDashboardPayload(attempt = 0, scope = "all") {
   const expectedCacheEpoch = cacheMutations.capture();
   const expectedPermissionEpoch = capturePermissionEpoch();
   const settings = await getSettings();
@@ -77,14 +78,14 @@ async function buildDashboardPayload(attempt = 0) {
     digestCandidates,
     "daily-digest",
   );
-  let digest = cachedDigest?.locale === locale
+  let digest = !botGeneratesBrief(settings) && cachedDigest?.locale === locale
     && digestCachePermitted(cachedDigest, feed.items, feedPermissions, settings, configuredForAi)
     ? cachedDigest
     : fallbackDigest;
   let sourceQuality = filterSourceQuality(rawSourceQuality, feedPermissions);
   let ready = feed.items.length;
   if (!cacheMutations.isCurrent(expectedCacheEpoch) || !isPermissionEpochCurrent(expectedPermissionEpoch)) {
-    if (attempt < 2) return buildDashboardPayload(attempt + 1);
+    if (attempt < 2) return buildDashboardPayload(attempt + 1, scope);
     feed = {
       ...feed,
       items: [],
@@ -101,7 +102,7 @@ async function buildDashboardPayload(attempt = 0) {
     sourceQuality = summarizeQuality({}, feedPermissions.sources, feedPermissions.sources);
     ready = 0;
   }
-  return {
+  const payload = {
     generatedAt: new Date().toISOString(),
     source: settings.inspirationSourceMode === "preset"
       ? "Chrome Bookmarks API + Ampira packaged preset"
@@ -159,6 +160,11 @@ async function buildDashboardPayload(attempt = 0) {
       bookmarkConsentGranted: settings.bookmarkConsentGranted === true,
     },
   };
+  if (scope === "news") {
+    const { sections, bookmarks, onboarding, readingQueue, ...content } = payload;
+    return content;
+  }
+  return payload;
 }
 
 async function configuredFeedSources(settings, model) {
@@ -167,7 +173,7 @@ async function configuredFeedSources(settings, model) {
   const publicSources = settings.publicFeedSupplementEnabled === false
     ? []
     : publicFeedsForLocale(settingsLocale(settings), {
-        includeAiOnly: await aiConfigured(settings),
+        includeAiOnly: botOrganizesNews(settings) || await aiConfigured(settings),
       }).map((feed) => ({ ...feed, externalDiscovery: true }));
   return [...localSources, ...publicSources];
 }

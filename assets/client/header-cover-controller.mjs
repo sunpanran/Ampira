@@ -1,7 +1,5 @@
-import { headerCoverImageErrorKey, optimizeHeaderCoverFile } from "./header-cover-image.mjs";
-
 export function createHeaderCoverController(options) {
-  const { state, els, t, apiGet } = options;
+  const { state, els, t, apiGet, hero } = options;
   let savedRecord = null;
   let savedExists = false;
   let savedInvalid = false;
@@ -11,6 +9,7 @@ export function createHeaderCoverController(options) {
   let externalReloadPending = false;
 
   function bind() {
+    hero?.addEventListener("headermediastatechange", syncControls);
     els.headerImageLocalChoose.addEventListener("click", () => els.headerImageLocalInput.click());
     els.headerImageLocalInput.addEventListener("change", handleFileSelection);
     els.headerImageLocalRemove.addEventListener("click", remove);
@@ -100,8 +99,10 @@ export function createHeaderCoverController(options) {
     if (!file || externalBusy) return;
     options.setSettingsBusy(true);
     options.renderSettingsStatus(t("settings.headerImage.localProcessing"));
+    let imageTools;
     try {
-      const record = await optimizeHeaderCoverFile(file);
+      imageTools = await import("./header-cover-image.mjs");
+      const record = await imageTools.optimizeHeaderCoverFile(file);
       draftRecord = record;
       state.localHeaderCover = record;
       savedInvalid = false;
@@ -109,7 +110,7 @@ export function createHeaderCoverController(options) {
       options.updatePreview();
       options.renderSettingsStatus(t("settings.headerImage.localReady"));
     } catch (error) {
-      options.renderSettingsStatus(t(headerCoverImageErrorKey(error)));
+      options.renderSettingsStatus(t(imageTools?.headerCoverImageErrorKey(error) || "settings.headerImage.localErrorDecode"));
     } finally {
       options.setSettingsBusy(false);
     }
@@ -117,6 +118,7 @@ export function createHeaderCoverController(options) {
 
   function syncControls() {
     const record = draftRecord;
+    const videoStatus = { loading: "videoLoading", ready: "videoActive", error: "videoFailed" }[hero?.dataset.headerVideoState];
     els.headerImageLocalChooseLabel.textContent = t(record
       ? "settings.headerImage.localReplace"
       : "settings.headerImage.localChoose");
@@ -124,7 +126,7 @@ export function createHeaderCoverController(options) {
       ? t("settings.headerImage.localActive")
       : savedInvalid
         ? t("settings.headerImage.localInvalid")
-        : t("settings.headerImage.localEmpty");
+        : t(videoStatus ? `settings.headerImage.${videoStatus}` : "settings.headerImage.localEmpty");
     els.headerImageLocalMeta.hidden = !record;
     els.headerImageLocalMeta.textContent = record
       ? t("settings.headerImage.localMeta", {

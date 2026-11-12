@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/icons/ampira-logo.svg" width="128" height="128" alt="Ampira logo">
+  <img src="assets/icons/ampira-logo.svg?v=20261112-cyan-flat" width="128" height="128" alt="Ampira logo">
 </p>
 
 # Ampira 资讯新标签页
@@ -20,14 +20,17 @@ Ampira 是一个支持 Google Chrome 与 Microsoft Edge 的 Manifest V3 新标�
 
 ### 功能亮点
 
+- 可选的 AI 助手看板支持分别勾选今日简报、资讯整理和 AI 问答，未勾选项沿用原有 AI 设置。天气、待办、资讯采集与排序、事件和灵感由插件处理。资讯的自动、批量和单条整理（含外文翻译）可选择内置 AI 或 Bot；刷新只采集，整理使用缓存。通过本机 MCP 配对，按需提交有界材料并复用已完成结果；需要 Node.js 20+ 和支持本地 MCP 的 AI 客户端。标准模式的数据与设置保留。[接入说明](bot-board-mode.md)
 - 以只读方式读取你选择的书签文件夹，并用 RSS、Atom、JSON Feed 和公共来源（Ampira）补充资讯。
+- 公共来源按界面语言提供 14 个可直接读取的资讯来源，涵盖新闻、商业、科技、科学与文化。选择公共来源并授权网站后即可使用，无需添加资讯书签或配置 AI；另有 3 个跨语言来源在 AI 就绪或启用 Bot 整理后参与。升级后可在“设置 → 浏览器”补充授权新增网站。
 - 资讯支持按时间或重要性排序；同一事件的相关报道会放在一起，也可以按日期回看。
 - 配置自己的 API Key 后，可生成卡片摘要和今日简报，也能结合正文继续提问。
+- 导航栏搜索按钮打开同一推荐列表，检索 Ampira 内容和全部浏览器收藏；可选 `history` 权限默认关闭，启用后按关键词搜索浏览器保留的历史。结果仅用于当前页面，不持久化、不同步，也不自动发送给 AI／Bot。列表还提供网址直达、默认引擎搜索和主动 AI 提问。
 - 搜索可单独选择一个书签文件夹做定向研究，或由用户主动开启 AI 服务商支持的原生联网搜索；两项默认关闭，也可以同时使用。Brave 仅作为可选的缺图替换服务。
 - 每日灵感从 Ampira 预设或指定书签文件夹换一组卡片，也支持手动“换一换”。
 - 点击工具栏图标，或从资讯和书签卡片加入稍后读；站内阅读、搜索和归档用于继续处理或找回内容。
-- 快捷书签、待办、天气、顶部浏览器搜索和主题可按需使用。
-- 网站访问只申请精确来源；API 密钥留在当前浏览器配置中，不进入账号同步。
+- 快捷书签、待办、天气、统一搜索和主题可按需使用。
+- 网站访问只申请精确来源；API 密钥默认保存在本机，可单独开启浏览器账号同步。
 - 远程内容始终作为不可信数据处理，并支持简体中文、繁体中文和英文。
 
 ### 本地加载
@@ -63,9 +66,9 @@ Ampira 是一个支持 Google Chrome 与 Microsoft Edge 的 Manifest V3 新标�
 - `storage`：保存设置、本地缓存和当前浏览器配置中的 API 凭据。
 - `alarms`：定期检查需要刷新的来源。
 
-`activeTab` 只在明确点击后临时访问当前页，不提供持续标签页或浏览历史访问，也不会增加安装警告。可选的 `favicon` 权限只会在用户主动启用后申请，用于 Chrome 内置 Favicon API；Edge 不支持时回退到随包图标。站内阅读会在用户点击后先按普通 CORS 规则、无凭据且无 Referer 地尝试公开内容；只有网站不允许这种读取时，网站访问权限才从后续用户手势发起，并限制到精确来源。Ampira 不申请 `tabs`、`history`、`scripting`、`webRequest` 或必需的宽泛主机访问权限。
+`activeTab` 只在明确点击后临时访问当前页，不提供持续标签页或浏览历史访问，也不会增加安装警告。可选的 `favicon` 权限只会在用户主动启用后申请，用于 Chrome 内置 Favicon API；Edge 不支持时回退到随包图标。站内阅读会在用户点击后先按普通 CORS 规则、无凭据且无 Referer 地尝试公开内容；只有网站不允许这种读取时，网站访问权限才从后续用户手势发起，并限制到精确来源。Ampira 不申请 `tabs`、`scripting`、`webRequest` 或必需的宽泛主机访问权限。
 
-资讯、摘要、搜索缓存和阅读状态保存在 IndexedDB。定向研究缓存只保留从 Feed 或 Reader 读到的少量正文片段及其标题、网址、来源和时间信息；书签标题与 URL 只作为候选索引，不进入回答证据，也不保存另行提取的全文。服务商原生联网结果只留在当前页面会话。API 密钥只保存在 `chrome.storage.local`，不会进入浏览器账号同步；调用用户配置的 AI 服务或可选 Brave 图片搜索时，密钥会直接发送给相应服务商，不会发送给 Ampira 开发者。
+资讯、摘要、搜索缓存和阅读状态保存在 IndexedDB。定向研究缓存只保留从 Feed 或 Reader 读到的少量正文片段及其标题、网址、来源和时间信息；书签标题与 URL 只作为候选索引，不进入回答证据，也不保存另行提取的全文。服务商原生联网结果只留在当前页面会话。API 密钥和 AI 服务配置默认保存在当前浏览器（`chrome.storage.local`）。如需在其他设备使用，可在“设置 → 浏览器 → 跨设备同步”单独开启密钥同步。AI 和 Brave 图片搜索密钥会与 AI 服务地址、协议、模型一起保存到浏览器账号的同步存储（`chrome.storage.sync`）；Ampira 不额外加密，也不设置同步密码。关闭后只删除账号中的同步副本，各设备已收到的设置仍会保留。使用时需登录同一浏览器账号并开启扩展同步；新设备仍需同意 AI 数据传输，并授权访问服务网站。调用 AI 或 Brave 图片搜索时，密钥会直接发送给相应服务商，不会发送给 Ampira 开发者。
 
 ### 验证与打包
 
@@ -90,6 +93,8 @@ $env:REQUIRED_SUPPORT_URL = "https://github.com/sunpanran/Ampira/issues"
 
 > 從書籤裡的網站取得新資訊，再用 AI 整理與解讀。
 
+可選的 AI 助手看板支援分別勾選今日簡報、資訊整理和 AI 問答，未勾選項沿用原有 AI 設定。天氣、待辦、資訊擷取與排序、事件及靈感由擴充功能處理。資訊的自動、批次及單筆整理（含外文翻譯）可選擇內建 AI 或 Bot；重新整理只擷取來源，整理使用快取。透過本機 MCP 配對，按需提交有界資料並重複使用已完成結果；需要 Node.js 20+ 與支援本機 MCP 的 AI 用戶端。標準模式的資料與設定保留。[接入說明](bot-board-mode.md)
+
 Ampira 是支援 Google Chrome 與 Microsoft Edge 的 Manifest V3 新分頁擴充功能。它讀取你選擇的書籤，把保存的網頁和這些網站的新內容放進同一頁。資訊可以依時間或重要性查看。AI 功能可選，可以產生卡片摘要與今日簡報；開啟內文後，還能繼續提問。
 
 如果你需要長期追蹤一個產業或研究主題，可以把常看的來源放進同一個書籤資料夾。Ampira 會集中更新，依重要性排序，再用 AI 整理成今日簡報。遇到值得繼續看的內容，也可以開啟內文追問。
@@ -97,6 +102,8 @@ Ampira 是支援 Google Chrome 與 Microsoft Edge 的 Manifest V3 新分頁擴�
 搜尋可單獨選取一個書籤資料夾進行定向研究，或由使用者主動開啟 AI 服務商支援的原生聯網搜尋；兩項預設關閉，也可以同時使用。Brave 僅作為選用的缺圖替換服務。
 
 每日靈感會從 Ampira 預設或指定書籤資料夾換一組卡片。稍後讀、站內閱讀、搜尋與封存則用來繼續處理或找回內容。
+
+公共來源依介面語言提供 14 個可直接讀取的資訊來源，涵蓋新聞、商業、科技、科學與文化。選擇公共來源並授權網站後即可使用，無需新增資訊書籤或設定 AI；另有 3 個跨語言來源在 AI 就緒或啟用 Bot 整理後參與。升級後可在「設定 → 瀏覽器」補充授權新增網站。
 
 內容預設保存在瀏覽器中，不用註冊帳號。Ampira 沒有廣告、行為分析、開發者伺服器或遠端程式碼。
 
@@ -118,14 +125,16 @@ Data stays in the browser by default, with no account needed. Ampira has no ads,
 
 ### Highlights
 
+- The optional AI assistant dashboard lets you select the daily brief, news summaries and AI chat independently. Unchecked features use your existing AI settings; weather, to-dos, feed collection, ranking, events and inspiration stay in Ampira. Automatic, batch and individual news organization, including translation, can use the configured API or Bot. Refresh only collects sources; organization uses cached evidence. Local MCP sends bounded evidence on demand and reuses completed work. Requires Node.js 20+ and a local-MCP client. Standard-mode data and settings are kept. [Setup](integrations/local-mcp/README.md)
 - Reads the bookmark folders you choose in read-only mode, with RSS, Atom, JSON Feed, and Public sources (Ampira) as supplements.
+- Public sources include 14 native-language feeds for each interface language, covering news, business, technology, science, and culture. Select public sources and allow website access to start reading, with no news bookmarks or AI setup needed. Three additional cross-language sources activate when AI is ready or Bot news organization is enabled. After an update, allow newly added websites in Settings → Browser.
 - Sorts news by time or importance, groups coverage of the same event, and keeps previous dates available.
 - Uses your own API key for card summaries, a daily brief, article analysis, and follow-up questions.
 - Lets you research one bookmark folder, explicitly enable provider-native web search when the configured AI supports it, or use both; both scopes default off. Brave remains an optional replacement-image service only.
 - Shows a different set of Inspiration cards each day from the Ampira preset or a bookmark folder you choose.
 - Adds pages to Read later from the toolbar or a card; in-app reading, search, and archive help you continue or find content again.
 - Keeps quick bookmarks, to-dos, weather, browser search, and themes available when you need them.
-- Requests only exact website origins and keeps API keys out of browser account sync.
+- Requests only exact website origins. API keys stay local by default, with separate opt-in browser account sync.
 - Treats remote content as untrusted data and supports Simplified Chinese, Traditional Chinese, and English.
 
 ### Load locally
@@ -161,9 +170,9 @@ Ampira requires only:
 - `storage`: settings, local caches, and API credentials for the current browser profile.
 - `alarms`: periodic checks for sources that are due for refresh.
 
-`activeTab` applies only to the current page after an explicit click, provides no continuous tab or browsing-history access, and adds no install warning. The optional `favicon` permission is requested only after a user action and uses Chrome's built-in Favicon API; Edge falls back to the packaged icon when that API is unavailable. Website access is also user-initiated and restricted to exact origins. Ampira does not request `tabs`, `history`, `scripting`, `webRequest`, or broad required host access.
+`activeTab` applies only to the current page after an explicit click, provides no continuous tab or browsing-history access, and adds no install warning. The optional `favicon` permission is requested only after a user action and uses Chrome's built-in Favicon API; Edge falls back to the packaged icon when that API is unavailable. Website access is also user-initiated and restricted to exact origins. Unified search combines Ampira content, all browser bookmarks and, after explicit optional `history` permission, query-matched browser history. History results stay in the page session and are never persisted, synchronized or automatically sent to AI/Bot. Suggestions include URL navigation, default-provider web search and an explicit Ask AI action. Ampira does not request `tabs`, `scripting`, `webRequest`, or broad required host access.
 
-Feed data, summaries, search caches, and reading state are stored in IndexedDB. Directed-research caches keep only a small set of passages read from Feed or Reader plus their titles, URLs, source identity, and timing metadata. Bookmark titles and URLs remain non-citable candidates, and separately extracted full text is never cached. Provider-native web results stay in the current page session. API keys remain in `chrome.storage.local` and are excluded from browser account sync. AI credentials go only to the configured AI provider; the optional Brave key is used only for replacement-image search and is never sent to the Ampira developer.
+Feed data, summaries, search caches, and reading state are stored in IndexedDB. Directed-research caches keep only a small set of passages read from Feed or Reader plus their titles, URLs, source identity, and timing metadata. Bookmark titles and URLs remain non-citable candidates, and separately extracted full text is never cached. Provider-native web results stay in the current page session. API keys and AI configuration stay in this browser (`chrome.storage.local`) by default. To use them on other devices, turn on the separate key-sync switch under Settings → Browser → Cross-device sync. AI and Brave image-search keys are saved together with the AI service URL, API protocol and model in your browser account's sync storage (`chrome.storage.sync`). Ampira adds no encryption or sync password. Turning sync off removes the copy in your browser account; settings already received on each device stay there. Sign in to the same browser account and enable extension sync. On new devices, you still need to agree to AI data sharing and allow access to the service's website. Keys are sent directly to the relevant AI or image-search service when used, never to the Ampira developer.
 
 ### Verify and package
 

@@ -532,35 +532,54 @@ async function callProvider(
     return typeof validateRequest === "function" ? validateRequest() : null;
   };
   const validateOutput = typeof outputValidator === "function" ? outputValidator : aiOutputMatchesLocale;
+  let rejectedText = "";
+  let validation = null;
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const requester = stream && typeof requestAiCompletionStream === "function"
       ? requestAiCompletionStream
       : (returnDetails && typeof requestAiCompletionResult === "function"
         ? requestAiCompletionResult
         : requestAiCompletion);
-    const response = await requester(providerSettings, {
-      ...providerCompletionOptions,
-      system: attempt === 0
-        ? system
-        : `${system}\n\n${repairInstruction || (enforceOutputLocale
-          ? translate(expectedLocale, "background.prompt.outputLanguageRepair")
-          : "The previous output failed validation. Correct it while following the user's requested language.")}`,
-      input,
-      ...(Array.isArray(messages) ? { messages } : {}),
-      maxTokens,
-      apiKey,
-      signal,
-      onDelta,
-      hasOriginPermission,
-      hasOriginPermissions,
-      validateRequest: validateCurrentRequest,
-    });
-    await assertExpectedLocale();
+    const fields = Array.isArray(validation?.fields) ? validation.fields.join(", ") : "";
+    let response;
+    try {
+      response = await requester(providerSettings, {
+        ...providerCompletionOptions,
+        system: attempt === 0
+          ? system
+          : `${system}\n\n${repairInstruction || (enforceOutputLocale
+            ? translate(expectedLocale, "background.prompt.outputLanguageRepair")
+            : "The previous output failed validation. Correct it while following the user's requested language.")}${fields ? `\n${translate(expectedLocale, "background.prompt.structuredRepair", { fields })}` : ""}`,
+        input: attempt > 0 && fields
+          ? `${input}\n\nAMPIRA_REJECTED_DRAFT=${JSON.stringify(rejectedText.slice(0, 4000))}`
+          : input,
+        ...(Array.isArray(messages) ? { messages } : {}),
+        maxTokens,
+        apiKey,
+        signal,
+        onDelta,
+        hasOriginPermission,
+        hasOriginPermissions,
+        validateRequest: validateCurrentRequest,
+      });
+    } catch (error) {
+      if (typeof outputValidator !== "function" || error?.code !== "AI_EMPTY_RESPONSE") throw error;
+      const emptyValidation = outputValidator("", expectedLocale);
+      if (!emptyValidation || typeof emptyValidation !== "object" || emptyValidation.valid !== false) throw error;
+      response = "";
+    }
+    signal?.throwIfAborted();
+    await validateCurrentRequest();
     const responseText = typeof response === "string" ? response : response?.text;
-    const localeMatches = !expectedLocale || enforceOutputLocale === false || aiOutputMatchesLocale(responseText, expectedLocale);
-    const customMatches = typeof outputValidator !== "function" || validateOutput(responseText, expectedLocale);
+    const checked = validateOutput(responseText, expectedLocale);
+    validation = checked && typeof checked === "object" ? checked : null;
+    const customMatches = typeof outputValidator !== "function" || (validation ? validation.valid === true : checked === true);
+    const localeMatches = !expectedLocale || enforceOutputLocale === false
+      || (validation ? validation.valid === true : aiOutputMatchesLocale(responseText, expectedLocale));
     if (localeMatches && customMatches) return response;
+    rejectedText = String(responseText || "");
   }
+  if (validation?.code) throw typedError(validation.code, validation.messageKey, {}, true);
   throw typedError("AI_WRONG_LANGUAGE", "background.error.aiWrongLanguage", {}, true);
 }
 

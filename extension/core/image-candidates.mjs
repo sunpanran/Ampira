@@ -1,9 +1,10 @@
 import { findAll, findFirst, parseHtml, walkElements } from "./reader-html-tree.mjs";
 import { isPrivateAddressLiteral } from "./network-policy.mjs";
+import { IMAGE_PROFILE_ARTICLE, IMAGE_PROFILE_VISUAL, imageDimension, imageMeetsProfileDimensions, normalizeImageProfile } from "./image-profile.mjs";
+
+export { IMAGE_PROFILE_ARTICLE, IMAGE_PROFILE_VISUAL, imageDimension, imageMeetsProfileDimensions, normalizeImageProfile } from "./image-profile.mjs";
 
 export const IMAGE_CANDIDATE_POLICY_VERSION = 3;
-export const IMAGE_PROFILE_ARTICLE = "article";
-export const IMAGE_PROFILE_VISUAL = "visual";
 
 const MAX_IMAGE_URL_LENGTH = 8192;
 const LOW_VALUE_IMAGE_PATTERN = /(?:^|[^a-z0-9])(?:app[-_ ]?download|arrow|avatar|badge|blank|caret|chevron|download[-_ ]?app|emoji|icon|loading|logo|logotype|partner|pixel|placeholder|qr(?:[-_ ]?code)?|social[-_ ]?share|spacer|spinner|sponsor|sprite|tracker|transparent)(?:$|[^a-z0-9])/i;
@@ -21,27 +22,6 @@ const LAZY_IMAGE_ATTRIBUTES = [
   "data-original", "data-original-src", "data-src", "data-lazy-src", "data-lazy",
   "data-image", "data-zoom-image", "data-flickity-lazyload", "data-cfsrc",
 ];
-
-const PROFILE_DIMENSIONS = Object.freeze({
-  article: Object.freeze({ shortEdge: 120, longEdge: 320, area: 70000 }),
-  visual: Object.freeze({ shortEdge: 100, longEdge: 240, area: 40000 }),
-});
-
-export function normalizeImageProfile(value) {
-  return value === IMAGE_PROFILE_ARTICLE ? IMAGE_PROFILE_ARTICLE : IMAGE_PROFILE_VISUAL;
-}
-
-export function imageMeetsProfileDimensions(width, height, profile = IMAGE_PROFILE_VISUAL) {
-  const normalizedProfile = normalizeImageProfile(profile);
-  const minimum = PROFILE_DIMENSIONS[normalizedProfile];
-  const normalizedWidth = imageDimension(width);
-  const normalizedHeight = imageDimension(height);
-  if (normalizedWidth && normalizedWidth < minimum.shortEdge) return false;
-  if (normalizedHeight && normalizedHeight < minimum.shortEdge) return false;
-  if (!normalizedWidth || !normalizedHeight) return true;
-  return Math.max(normalizedWidth, normalizedHeight) >= minimum.longEdge
-    && normalizedWidth * normalizedHeight >= minimum.area;
-}
 
 export function normalizeImageCandidateRecords(input, baseUrl, {
   limit = 3,
@@ -158,10 +138,6 @@ export function srcsetImageCandidates(value) {
     const score = match[3]?.toLowerCase() === "w" ? amount : amount * 1000;
     return { url: match[1], score, index };
   }).filter(Boolean).sort((left, right) => right.score - left.score || left.index - right.index).map((entry) => entry.url);
-}
-
-export function structuredImageCandidates(html, options = {}) {
-  return structuredImageCandidateRecords(html, normalizeImageProfile(options.profile)).map((candidate) => candidate.url);
 }
 
 export function selectArticleCandidate(root) {
@@ -554,13 +530,6 @@ function decodeImageEntities(value) {
 
 function cssBackgroundUrl(value) {
   return String(value || "").match(/background(?:-image)?\s*:\s*url\(\s*(['"]?)(.*?)\1\s*\)/i)?.[2] || "";
-}
-
-export function imageDimension(value) {
-  if (value && typeof value === "object") return imageDimension(value.value);
-  const match = String(value || "").trim().match(/^([\d.]+)(?:px)?$/i);
-  const number = Number(match?.[1] || 0);
-  return Number.isFinite(number) && number > 0 ? number : 0;
 }
 
 function cleanText(value) {

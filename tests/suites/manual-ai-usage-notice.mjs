@@ -196,4 +196,17 @@ const restored = createHarness(MANUAL_AI_USAGE_ACKNOWLEDGED);
 assert.equal(await restored.manual.confirmManualAiUsage(), true);
 assert.equal(restored.dialog.showCount, 0, "a persisted acknowledgement must survive a new dashboard session");
 
+const gesture = createHarness(null, { deferClose: true });
+let gestureCalls = 0;
+const gestureConfirmation = gesture.confirmAction({ onConfirmGesture: () => { gestureCalls += 1; } });
+gesture.confirmButton.dispatchEvent(new Event("click"));
+assert.equal(gestureCalls, 1, "browser permission hooks must run during the confirm click, before an animated close");
+assert.equal(gesture.dialog.open, true, "the hook must not depend on the dialog-close timer");
+gesture.flushClose();
+assert.equal(await gestureConfirmation, true);
+const cancelledGesture = gesture.confirmAction({ onConfirmGesture: () => { gestureCalls += 1; } });
+gesture.cancelButton.dispatchEvent(new Event("click"));
+gesture.flushClose();
+assert.equal(await cancelledGesture, false);
+assert.equal(gestureCalls, 1, "cancelled confirmations must not invoke permission hooks");
 console.log("manual AI usage notice tests passed");

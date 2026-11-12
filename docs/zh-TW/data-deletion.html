@@ -3,27 +3,46 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark light">
+  <link rel="icon" type="image/svg+xml" href="../assets/ampira-logo.svg?v=20261112-cyan-flat">
   <title>Ampira 資料刪除</title>
-  <link rel="stylesheet" href="../styles.css">
+  <link rel="stylesheet" href="../styles.css?v=20261112-cyan">
   <link rel="alternate" hreflang="zh-CN" href="../data-deletion.html">
   <link rel="alternate" hreflang="zh-TW" href="data-deletion.html">
   <link rel="alternate" hreflang="en" href="../en/data-deletion.html">
 </head>
-<body>
-  <a class="back" href="index.html">← Ampira</a>
-  <nav class="language-nav" aria-label="語言">
-    <a href="../data-deletion.html" lang="zh-CN">简体中文</a>
-    <a href="data-deletion.html" aria-current="page">繁體中文</a>
-    <a href="../en/data-deletion.html" lang="en">English</a>
+<body data-page="deletion">
+  <a class="skip-link" href="#main-content">跳至內文</a>
+  <header class="site-header">
+    <a class="mark" href="index.html" aria-label="Ampira · 首頁">
+      <img class="mark-logo" src="../assets/ampira-logo.svg?v=20261112-cyan-flat" width="48" height="48" alt="Ampira">
+      <span aria-hidden="true">AMPIRA</span>
+    </a>
+    <nav class="language-nav" aria-label="語言">
+      <a href="../data-deletion.html" lang="zh-CN">简体中文</a>
+      <a href="data-deletion.html" aria-current="page">繁體中文</a>
+      <a href="../en/data-deletion.html" lang="en">English</a>
+    </nav>
+  </header>
+  <nav class="site-nav" aria-label="說明導覽">
+    <a href="index.html" aria-label="首頁" title="首頁"><img class="nav-icon" src="../assets/grid-view.svg" width="18" height="18" alt="" aria-hidden="true"><span class="nav-label">首頁</span></a>
+    <a href="support.html" aria-label="支援" title="支援"><img class="nav-icon" src="../assets/message-question-circle.svg" width="18" height="18" alt="" aria-hidden="true"><span class="nav-label">支援</span></a>
+    <a href="privacy.html" aria-label="隱私權政策" title="隱私權政策"><img class="nav-icon" src="../assets/key-01.svg" width="18" height="18" alt="" aria-hidden="true"><span class="nav-label">隱私權政策</span></a>
+    <a href="data-deletion.html" aria-current="page" aria-label="資料刪除" title="資料刪除"><img class="nav-icon" src="../assets/trash-01.svg" width="18" height="18" alt="" aria-hidden="true"><span class="nav-label">資料刪除</span></a>
   </nav>
-  <h1>資料刪除</h1>
-  <ol>
-    <li>在「設定 → 關於 → 設定移轉」點選「恢復原廠設定」，可刪除目前裝置上的 Ampira 設定、API 金鑰、授權、本機首圖、快取和使用者內容，撤銷選用權限，並刪除瀏覽器帳戶同步中的 Ampira 設定及使用者選擇同步的閱讀佇列、待辦和天氣城市。同步刪除會影響同一帳號的其他裝置，但不會遠端刪除其他裝置獨有的本機資料；瀏覽器書籤不會被修改。</li>
-    <li>在設定的「資訊」頁點選「清除快取」，刪除資訊、摘要、搜尋快取與來源品質記錄。</li>
-    <li>在設定的「AI」頁點選「移除金鑰」或「移除搜尋金鑰」，刪除保存在擴充功能本機儲存空間中的對應憑據。</li>
-    <li>在 Chrome 的 <code>chrome://extensions</code> 或 Microsoft Edge 的 <code>edge://extensions</code> 解除安裝 Ampira，會清除擴充功能 IndexedDB、API 金鑰與本機擴充功能儲存空間。</li>
-    <li>若不希望恢復全部資料，可先在「設定 →瀏覽器 → 跨裝置內容」關閉單項同步開關，只刪除對應內容的瀏覽器帳戶同步副本並保留本機內容。</li>
-  </ol>
-  <p>Ampira 沒有開發者帳號或伺服器，因此不存在需要向開發者申請刪除的雲端使用者資料庫。</p>
+  <main class="document" id="main-content" tabindex="-1">
+    <p class="page-kicker">資料管理</p>
+    <h1>資料刪除</h1>
+    <ol>
+      <li>在「設定 → 關於 → 設定移轉」點選「恢復原廠設定」，會清除本機的 Ampira 設定、API 金鑰、授權、本機首圖、快取與使用者內容，並撤銷選用權限。瀏覽器帳號中同步的 Ampira 設定、稍後讀、待辦、天氣城市、自選股票、倒數日、金鑰與 AI 設定副本也會刪除。同步刪除會影響同一帳號的其他裝置，但不會遠端清除其他裝置獨有的本機資料。瀏覽器書籤和原始瀏覽歷史不會被修改；選用 history 權限會被撤銷，暫存的歷史搜尋結果會失效。</li>
+      <li>在設定的「資訊」頁點選「清除快取」，刪除資訊、摘要、搜尋快取與來源品質記錄。</li>
+      <li>在設定的「AI」頁點選「移除金鑰」或「移除搜尋金鑰」，會刪除本機對應的金鑰。如果金鑰同步已開啟，其他裝置也會同步刪除該金鑰。</li>
+      <li>在 Chrome 的 <code>chrome://extensions</code> 或 Microsoft Edge 的 <code>edge://extensions</code> 解除安裝 Ampira，會清除擴充功能 IndexedDB、API 金鑰與本機擴充功能儲存空間。</li>
+      <li>只想停止某項同步時，可在「設定 → 瀏覽器 → 跨裝置同步」關閉對應開關。這會刪除帳號中的該項同步副本，各裝置已收到的內容或 AI 設定仍會保留。</li>
+      <li>Bot 看板：在「設定 → MCP → 連接資訊」點選「中斷連接」（總開關關閉時也可操作），刪除瀏覽器中的本機位址與配對金鑰。要清除快取與傳送記錄，可切回標準模式後恢復原廠設定。輔助服務儲存的看板、留言與去重記錄需先停止服務，再單獨刪除其資料目錄（預設為使用者主目錄下的 .ampira-mcp）。AI 用戶端中的 MCP 設定與任務也需另行移除或停止。</li>
+    </ol>
+    <p>Ampira 沒有開發者帳號或伺服器，因此不存在需要向開發者申請刪除的雲端使用者資料庫。</p>
+  </main>
+  <footer class="site-footer"><span>Ampira 說明與支援</span><a href="https://github.com/sunpanran/Ampira" target="_blank" rel="noopener noreferrer">GitHub <span class="external-link-icon" aria-hidden="true"></span></a></footer>
 </body>
 </html>

@@ -6,13 +6,14 @@ export async function runFactoryResetTests() {
   const success = createHarness();
   assert.deepEqual(await success.service.factoryReset(), { ok: true });
   assert.deepEqual(success.removedPermissions, [{
-    permissions: ["favicon", "search"],
+    permissions: ["favicon", "search", "history"],
     origins: ["https://feed.example/*", "https://api.example/*"],
   }], "factory reset must remove only granted optional named permissions and optional origins");
   assert.equal(success.calls.includes("sync.clear"), true);
   assert.equal(success.calls.includes("local.clear"), true);
   assert.equal(success.calls.includes("session.clear"), true);
   assert.equal(success.calls.includes("records.clear"), true);
+  assert.equal(success.calls.includes("images.clear"), true);
   assert.deepEqual(success.resetting, [true, false]);
   assert.deepEqual(success.broadcasts, [{ type: "settings.factory-reset", payload: { reason: "factory-reset" } }]);
 
@@ -76,7 +77,7 @@ function createHarness({ failStep = "", contentReset = async () => {}, waitForAc
       async getAll() {
         calls.push("permissions.getAll");
         return {
-          permissions: ["activeTab", "bookmarks", "storage", "alarms", "favicon", "search"],
+          permissions: ["activeTab", "bookmarks", "storage", "alarms", "favicon", "search", "history"],
           origins: ["https://feed.example/*", "https://api.example/*", "https://feed.example/*"],
         };
       },
@@ -101,6 +102,7 @@ function createHarness({ failStep = "", contentReset = async () => {}, waitForAc
     },
     clientStateStore: { reset: async () => { calls.push("client.reset"); } },
     clearRecords: async () => { calls.push("records.clear"); },
+    clearImageCache: async () => { calls.push("images.clear"); },
     setResetting: (value) => resetting.push(value),
     broadcast: (type, payload) => broadcasts.push({ type, payload }),
     schedule: (callback) => callback(),

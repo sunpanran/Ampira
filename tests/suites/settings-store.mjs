@@ -4,6 +4,43 @@ import { normalizeSettings } from "../../extension/core/settings.mjs";
 import { settingsChunkKeys } from "../../extension/core/settings-storage.mjs";
 import { createSettingsStore } from "../../extension/core/settings-store.mjs";
 
+const appearanceStorage = memoryStorage();
+const appearanceStore = createSettingsStore(appearanceStorage);
+assert.equal((await appearanceStore.read()).colorMode, "system", "a new profile must follow the system preference");
+for (const colorMode of [undefined, "", "unknown"]) {
+  await appearanceStorage.set({ [SETTINGS_KEY]: { colorMode, uiLocale: "en" } });
+  assert.equal((await appearanceStore.read()).colorMode, "system", "missing or invalid stored modes must follow the system preference");
+}
+for (const colorMode of ["dark", "light", "system"]) {
+  await appearanceStore.write({ colorMode, uiLocale: "en" });
+  assert.equal((await appearanceStore.read()).colorMode, colorMode, "saved theme choices must survive a settings reload");
+}
+await appearanceStore.write({ colorMode: "dark" });
+await appearanceStore.reset();
+assert.equal((await appearanceStore.read()).colorMode, "system", "resetting settings must restore the system preference");
+
+assert.equal((await appearanceStore.read()).accentTheme, "cyan", "a new profile must use the cyan preset");
+assert.equal((await appearanceStore.read()).customAccentColor, "#06B6D4", "a new profile must initialize the custom color to cyan");
+for (const customAccentColor of [undefined, null, "", "invalid"]) {
+  await appearanceStorage.set({ [SETTINGS_KEY]: { accentTheme: "custom", customAccentColor } });
+  const restored = await appearanceStore.read();
+  assert.equal(restored.accentTheme, "custom", "a missing custom color must preserve the custom-mode selection");
+  assert.equal(restored.customAccentColor, "#06B6D4", "missing or invalid custom colors must fall back to cyan");
+}
+for (const accentTheme of [undefined, "", "unknown"]) {
+  await appearanceStorage.set({ [SETTINGS_KEY]: { accentTheme, uiLocale: "en" } });
+  assert.equal((await appearanceStore.read()).accentTheme, "cyan", "missing or invalid stored accents must use cyan");
+}
+for (const accentTheme of ["violet", "cyan", "emerald", "amber", "rose", "custom"]) {
+  await appearanceStore.write({ accentTheme, customAccentColor: "#123ABC" });
+  const restored = await appearanceStore.read();
+  assert.equal(restored.accentTheme, accentTheme, "saved accent choices must survive a settings reload");
+  assert.equal(restored.customAccentColor, "#123ABC", "saved custom colors must be preserved");
+}
+await appearanceStore.reset();
+assert.equal((await appearanceStore.read()).accentTheme, "cyan", "resetting settings must restore the cyan preset");
+assert.equal((await appearanceStore.read()).customAccentColor, "#06B6D4", "resetting settings must restore the custom color to cyan");
+
 const storage = memoryStorage();
 const store = createSettingsStore(storage);
 const oldSettings = largeSettings("old", 240);
@@ -104,6 +141,7 @@ function memoryStorage() {
     },
     async set(input) { Object.assign(values, input); },
     async remove(keys) { for (const key of (Array.isArray(keys) ? keys : [keys])) delete values[key]; },
+    async clear() { for (const key of Object.keys(values)) delete values[key]; },
   };
 }
 

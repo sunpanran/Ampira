@@ -6,6 +6,7 @@ const root = document.querySelector(".action-popup");
 const elements = {
   popupKicker: document.querySelector("#popupKicker"),
   statusIcon: document.querySelector("#statusIcon"),
+  statusLabel: document.querySelector("#statusLabel"),
   statusTitle: document.querySelector("#statusTitle"),
   statusBody: document.querySelector("#statusBody"),
   capturedPage: document.querySelector("#capturedPage"),
@@ -57,16 +58,18 @@ async function captureCurrentPage() {
 function renderStatus(status, record = null, tab = null) {
   const normalized = ["added", "already", "unsupported", "failed"].includes(status) ? status : "loading";
   const states = {
-    loading: { icon: "", title: t("action.popup.loadingTitle"), body: "" },
-    added: { icon: "check", title: t("action.captureAdded"), body: "" },
-    already: { icon: "check", title: t("action.captureAlreadyQueued"), body: "" },
+    loading: { icon: "", label: t("action.popup.loadingLabel"), title: t("action.popup.loadingTitle"), body: "" },
+    added: { icon: "check", label: t("action.popup.addedLabel"), title: t("action.captureAdded"), body: "" },
+    already: { icon: "check", label: t("action.popup.alreadyLabel"), title: t("action.captureAlreadyQueued"), body: "" },
     unsupported: {
       icon: "info-circle",
+      label: t("action.popup.unsupportedLabel"),
       title: t("action.popup.unsupportedTitle"),
       body: t("action.popup.unsupportedBody"),
     },
     failed: {
       icon: "info-circle",
+      label: t("action.popup.failedLabel"),
       title: t("action.popup.failedTitle"),
       body: t("action.popup.failedBody"),
     },
@@ -74,6 +77,7 @@ function renderStatus(status, record = null, tab = null) {
   const view = states[normalized];
   root.dataset.state = normalized;
   elements.statusIcon.replaceChildren(...(view.icon ? [createThemedIcon(view.icon, "status-glyph")] : []));
+  elements.statusLabel.textContent = view.label;
   elements.statusTitle.textContent = view.title;
   elements.statusBody.textContent = view.body;
   elements.statusBody.hidden = !view.body;
@@ -97,12 +101,12 @@ function applyAppearanceHint() {
   try {
     applyColorMode(localStorage.getItem("ampira.colorMode"));
   } catch {
-    applyColorMode("dark");
+    applyColorMode("system");
   }
 }
 
 function applyColorMode(value) {
-  document.documentElement.dataset.colorMode = ["system", "dark", "light"].includes(value) ? value : "dark";
+  document.documentElement.dataset.colorMode = ["system", "dark", "light"].includes(value) ? value : "system";
 }
 
 async function popupSettings() {

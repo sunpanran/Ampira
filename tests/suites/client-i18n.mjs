@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
+import { createStatusView } from "../../assets/client/status-view.mjs";
 
 const originalDescriptors = Object.fromEntries([
   "chrome",
   "CustomEvent",
   "document",
   "location",
+  "localStorage",
   "navigator",
 ].map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
 const localeEvents = [];
@@ -56,12 +58,50 @@ try {
   assert.equal(localeEvents.at(-1)?.type, "ampira:locale-changed");
   assert.equal(localeEvents.at(-1)?.detail?.locale, "zh-Hant");
 
+  const statusNodes = ["settings.overview.aiService", "settings.overview.aiNotConfigured"].map(key => ({
+    dataset: { i18n: key }, textContent: "",
+    removeAttribute(name) { if (name === "data-i18n") delete this.dataset.i18n; },
+  }));
+  const statusView = createStatusView({
+    els: { settingsOverviewTitle: statusNodes[0], settingsOverviewMeta: statusNodes[1] }, t: i18n.t,
+  });
+  const statusRoot = {
+    querySelectorAll: selector => selector === "[data-i18n]" ? statusNodes.filter(node => node.dataset.i18n) : [],
+  };
+  for (const locale of ["zh-CN", "zh-Hant", "en"]) {
+    i18n.setLocale(locale, { persist: false });
+    for (const key of ["settings.overview.aiReady", "settings.overview.aiNeedsAttention"]) {
+      statusView.renderOverviewStatus(i18n.t("settings.overview.aiService"), i18n.t(key));
+      i18n.translateDocument(statusRoot);
+      assert.equal(statusNodes[1].textContent, i18n.t(key), "translating settings must preserve the current AI readiness instead of restoring the unconfigured hint");
+    }
+    statusView.renderOverviewStatus(i18n.t("status.waitingUpdate"), i18n.t("status.noRecord"));
+    i18n.translateDocument(statusRoot);
+    assert.equal(statusNodes[0].textContent, i18n.t("status.waitingUpdate"), "translation must preserve the runtime loading title");
+  }
+
   const popupI18n = await import(`../../assets/client/popup-i18n.mjs?client-i18n-test=${Date.now()}`);
   popupI18n.setLocale("en-US");
   assert.equal(popupI18n.t("action.popup.loadingTitle"), "Saving");
   popupI18n.setLocale("zh-HK");
   assert.equal(popupI18n.t("action.popup.loadingTitle"), "正在儲存");
   assert.equal(popupI18n.t("unknown.popup.key"), "unknown.popup.key");
+
+  const hints = new Map([["dash.uiLocale", "en"]]);
+  defineGlobal("localStorage", { getItem: key => hints.get(key) || null, setItem: (key, value) => hints.set(key, value) });
+  const hintedI18n = await import(`../../assets/client/i18n.mjs?locale-hint-test=${Date.now()}`);
+  assert.equal(hintedI18n.getLocale(), "en", "a saved locale hint must win over the browser language before hydration");
+  assert.equal(hintedI18n.t("language.name"), "English");
+  await hintedI18n.prepareLocale("zh-Hant");
+  hintedI18n.setLocale("zh-Hant", { persist: false });
+  assert.equal(hints.get("dash.uiLocale"), "en", "unsaved language previews must not change the startup hint");
+  hintedI18n.setLocale("zh-Hant");
+  assert.equal(hints.get("dash.uiLocale"), "zh-Hant", "saved language changes must update the next tab's hint");
+  const { writeValue } = await import("../../assets/client/storage.mjs");
+  writeValue("dash.uiLocale", "");
+  defineGlobal("localStorage", { getItem() { throw new Error("blocked"); }, setItem() { throw new Error("blocked"); } });
+  const blockedI18n = await import(`../../assets/client/i18n.mjs?locale-hint-blocked-test=${Date.now()}`);
+  assert.equal(blockedI18n.getLocale(), "zh-CN", "blocked hint storage must fall back to the browser language");
 } finally {
   for (const [key, descriptor] of Object.entries(originalDescriptors)) {
     if (descriptor) Object.defineProperty(globalThis, key, descriptor);

@@ -7,6 +7,7 @@ export async function fetchBounded(url, options = {}, limits = {}) {
   const truncate = limits.truncate === true;
   const controller = new AbortController();
   const externalSignal = options.signal;
+  externalSignal?.throwIfAborted();
   const abortFromExternal = () => controller.abort(externalSignal?.reason);
   if (externalSignal?.aborted) abortFromExternal();
   else externalSignal?.addEventListener?.("abort", abortFromExternal, { once: true });
@@ -16,6 +17,7 @@ export async function fetchBounded(url, options = {}, limits = {}) {
     try {
       response = await fetch(url, { ...options, signal: controller.signal });
     } catch (error) {
+      externalSignal?.throwIfAborted();
       if (controller.signal.aborted && !externalSignal?.aborted) {
         throw networkError("NETWORK_TIMEOUT", true, { url: String(url), timeoutMs });
       }
@@ -44,6 +46,7 @@ export async function fetchBounded(url, options = {}, limits = {}) {
       buffer = body.buffer;
       return { response, buffer, truncated: body.truncated };
     } catch (error) {
+      externalSignal?.throwIfAborted();
       if (error?.code) throw error;
       if (controller.signal.aborted && !externalSignal?.aborted) {
         throw networkError("NETWORK_TIMEOUT", true, { url: response.url || String(url), timeoutMs });

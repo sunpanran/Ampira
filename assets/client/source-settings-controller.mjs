@@ -11,6 +11,7 @@ export function createSourceSettingsController(options) {
     state, els, t, tc, apiPost, setIconLabel, createEmptyState, renderSettingsStatus,
     localizedErrorMessage, formatDateTime, allTranslations, getSourceQuality: sourceQualitySummary,
   });
+  let exclusionListInitialized = false;
   return {
     currentExcludedNewsSources,
     availableNewsFolders,
@@ -116,7 +117,7 @@ function addNewsExclusion() {
     ],
   };
   els.excludeInput.value = "";
-  renderExclusionList();
+  renderExclusionList({ reveal: true });
   renderSettingsStatus(t("exclusion.added"));
 }
 
@@ -153,7 +154,7 @@ function addNewsFolderExclusion() {
       },
     ],
   };
-  renderExclusionList();
+  renderExclusionList({ reveal: true });
   renderSettingsStatus(t("exclusion.folderAdded"));
 }
 
@@ -223,11 +224,11 @@ async function blockAllSourceSuggestions() {
     ...(state.settings || {}),
     excludedNewsSources: next,
   };
-  renderExclusionList();
+  renderExclusionList({ reveal: true });
   renderSettingsStatus(t("exclusion.blockAllAdded", { count: addedCount }));
 }
 
-function renderExclusionList() {
+function renderExclusionList({ reveal = false } = {}) {
   const list = currentExcludedNewsSources();
   renderSourceCoverage();
   renderExcludeFolderOptions();
@@ -236,7 +237,8 @@ function renderExclusionList() {
   els.exclusionStatus.textContent = list.length
     ? tc("exclusion.ruleCount", list.length)
     : t("exclusion.keepAll");
-  els.exclusionDetails.open = list.length > 0;
+  if (!exclusionListInitialized || reveal) els.exclusionDetails.open = list.length > 0;
+  exclusionListInitialized = true;
   if (!list.length) {
     els.exclusionList.replaceChildren(createEmptyState({
       title: t("exclusion.empty.title"),
@@ -256,7 +258,6 @@ function renderSourceSuggestionList() {
   els.sourceSuggestionStatus.textContent = suggestions.length
     ? tc("exclusion.pendingSuggestions", suggestions.length)
     : t(checked ? "exclusion.nonePending" : "exclusion.waitingStats");
-  els.sourceSuggestionDetails.open = suggestions.length > 0;
   if (!suggestions.length) {
     els.sourceSuggestionList.replaceChildren(createEmptyState({
       title: t(checked
@@ -311,7 +312,10 @@ function createSourceSuggestionRow(suggestion) {
   const action = document.createElement("button");
   action.className = "btn";
   action.type = "button";
-  setIconLabel(action, "block", t("settings.exclusions.block"));
+  const actionLabel = document.createElement("span");
+  actionLabel.className = "btn-label";
+  actionLabel.textContent = t("settings.exclusions.block");
+  action.append(actionLabel);
   action.addEventListener("click", () => addSuggestedNewsExclusion(suggestion));
   row.append(main, action);
   return row;
@@ -339,7 +343,7 @@ function addSuggestedNewsExclusion(suggestion) {
       },
     ],
   };
-  renderExclusionList();
+  renderExclusionList({ reveal: true });
   renderSettingsStatus(t("exclusion.added"));
 }
 

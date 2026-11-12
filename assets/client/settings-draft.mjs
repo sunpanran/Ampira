@@ -1,3 +1,5 @@
+import { normalizeKeyboardShortcuts } from "../../extension/core/keyboard-shortcuts.mjs";
+
 const NUMERIC_FIELDS = new Set([
   "dailyAiLimit", "hotNewsCacheSize", "hotNewsEntriesPerSource", "newsEntriesPerCategory", "todayNewsPerPublisherLimit",
   "headerImageBlurAmount", "headerImageHeightScale",
@@ -23,6 +25,9 @@ export function diffSettingsDraft(draft = {}, baseline = null) {
       if (String(value || "").trim()) changed[key] = value;
       continue;
     }
+    // The disabled blur slider displays zero without changing its remembered amount.
+    if (key === "headerImageBlurAmount" && draft.headerImageBlurEnabled === false
+      && baseline.headerImageBlurEnabled === false && Number(value) === 0) continue;
     if (!draftValuesEqual(key, value, baseline[key])) changed[key] = value;
   }
   const savedProviderUrl = baseline.savedBaseUrl || baseline.openaiBaseUrl || baseline.baseUrl || "";
@@ -44,6 +49,7 @@ function providerOrigin(value) {
 }
 
 function draftValuesEqual(key, value, previous) {
+  if (key === "keyboardShortcuts") return JSON.stringify(normalizeKeyboardShortcuts(value)) === JSON.stringify(normalizeKeyboardShortcuts(previous));
   if (NUMERIC_FIELDS.has(key)) return Number(value) === Number(previous);
   if (Array.isArray(value) || Array.isArray(previous)) return JSON.stringify(value || []) === JSON.stringify(previous || []);
   return value === previous;

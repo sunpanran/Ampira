@@ -144,7 +144,7 @@ function weatherForecastUrl(coordinates) {
   url.searchParams.set("latitude", String(coordinates.latitude));
   url.searchParams.set("longitude", String(coordinates.longitude));
   url.searchParams.set("current", "temperature_2m,apparent_temperature,weather_code");
-  url.searchParams.set("hourly", "precipitation_probability");
+  url.searchParams.set("hourly", "precipitation_probability,weather_code");
   url.searchParams.set("daily", "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max");
   url.searchParams.set("temperature_unit", "celsius");
   url.searchParams.set("timezone", "auto");

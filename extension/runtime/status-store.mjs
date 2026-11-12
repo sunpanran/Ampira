@@ -1,4 +1,4 @@
-export function createRuntimeStatusStore({ getRecord, setRecord, broadcast, createStages }) {
+export function createRuntimeStatusStore({ getRecord, setRecord, broadcast, createStages, readUsage = async () => undefined }) {
   async function getRefreshStatus() {
     return getRecord("refresh-status", defaultRefreshStatus());
   }
@@ -12,16 +12,17 @@ export function createRuntimeStatusStore({ getRecord, setRecord, broadcast, crea
     return { ...defaultAiAutoStatus(), ...(await getRecord("ai-auto-status", null) || {}) };
   }
 
-  async function setAiAutoStatus(status, notify = true) {
+  async function setAiAutoStatus(status, notify = true, { contentChanged = false } = {}) {
     const normalized = { ...defaultAiAutoStatus(), ...status };
     await setRecord("ai-auto-status", normalized, "state");
-    if (notify) broadcast("dashboard.updated", { reason: "ai-auto-status" });
+    if (notify) broadcast("dashboard.ai-progress", { autoStatus: normalized, usedToday: await readUsage(), contentChanged });
     return normalized;
   }
 
   function defaultAiAutoStatus() {
     return {
       phase: "never", running: false, processed: 0, total: 0, eligible: 0,
+      attempted: 0, failed: 0, deferred: 0,
       startedAt: "", lastRunAt: "", errorKey: "", errorParams: {}, errorStage: "",
     };
   }

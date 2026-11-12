@@ -1,8 +1,9 @@
-const HOUR_MS = 60 * 60 * 1000;
-const DAY_MS = 24 * HOUR_MS;
+import { HOUR_MS, DAY_MS, FUTURE_SKEW_MS, finiteTime, localDateKey, newsTimeScope, publisherIdentity, verifiedTime } from "./news-item-model.mjs";
+
+export { localDateKey, newsTimeScope, publisherIdentity } from "./news-item-model.mjs";
+
 const EVENT_WINDOW_MS = 36 * HOUR_MS;
 const HIGH_CONFIDENCE_SINGLE_MAX_AGE_MS = 12 * HOUR_MS;
-const FUTURE_SKEW_MS = 15 * 60 * 1000;
 const FEEDBACK_WINDOW_MS = 30 * DAY_MS;
 const FEEDBACK_HALF_LIFE_MS = 14 * DAY_MS;
 const GENERIC_EVENT_TERMS = new Set([
@@ -111,16 +112,12 @@ export function buildDailyCandidates(items, options = {}) {
     : localImportance(right) - localImportance(left))
     || verifiedTime(right) - verifiedTime(left);
   const today = representatives.filter((item) => item.timeScope === "today").sort(compare);
-  const recent = representatives.filter((item) => item.timeScope === "recent").sort(compare).slice(0, recentLimit);
-  return diversifyPublishers([...today, ...recent], limit, publisherLimit);
-}
-
-export function newsTimeScope(item, nowValue = Date.now()) {
-  const now = finiteTime(nowValue, Date.now());
-  const published = verifiedTime(item);
-  if (!published || published - now > FUTURE_SKEW_MS) return "";
-  if (localDateKey(published) === localDateKey(now)) return "today";
-  return now - published <= DAY_MS ? "recent" : "";
+  const recent = representatives.filter((item) => item.timeScope === "recent")
+    .sort((a, b) => Number(a.localizationPending === true) - Number(b.localizationPending === true) || compare(a, b)).slice(0, recentLimit);
+  const ordered = [...today, ...recent];
+  const readable = diversifyPublishers(ordered.filter((item) => !item.localizationPending), limit, publisherLimit);
+  return readable.length >= limit ? readable
+    : [...readable, ...diversifyPublishers(ordered.filter((item) => item.localizationPending), limit - readable.length, publisherLimit)];
 }
 
 export function dailyCandidateFingerprint(items, options = {}) {
@@ -131,13 +128,9 @@ export function dailyCandidateFingerprint(items, options = {}) {
     Number(item.eventSourceCount || 1),
     item.eventConfidence || "single-source",
     item.timeScope || "",
+    item.localizationPending === true ? "pending" : "readable",
   ].join("|")).join("\n");
   return `ranking-${stableHash(`${publisherLimit}\n${content}`)}`;
-}
-
-export function publisherIdentity(item) {
-  return String(item?.publisherHost || item?.publisher || item?.host || item?.sourceKey || item?.source || "")
-    .trim().toLowerCase();
 }
 
 export function publicImportance(item) {
@@ -148,11 +141,6 @@ export function publicImportance(item) {
 function localImportance(item) {
   const score = Number(item?.localImportanceScore ?? item?.baseImportanceScore ?? item?.score ?? 0);
   return Number.isFinite(score) ? score : 0;
-}
-
-export function localDateKey(value = Date.now()) {
-  const date = new Date(finiteTime(value, Date.now()));
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
 function annotateEventClusters(items, now) {
@@ -462,20 +450,6 @@ function freshnessScore(age) {
   if (age <= 48 * HOUR_MS) return 10;
   if (age <= 96 * HOUR_MS) return 4;
   return 0;
-}
-
-function verifiedTime(item) {
-  if (item?.timeUnverified === true) return 0;
-  const time = Date.parse(String(item?.publishedAt || ""));
-  return Number.isFinite(time) ? time : 0;
-}
-
-function finiteTime(value, fallback) {
-  if (value instanceof Date) return Number.isFinite(value.getTime()) ? value.getTime() : fallback;
-  const number = Number(value);
-  if (Number.isFinite(number)) return number;
-  const parsed = Date.parse(String(value || ""));
-  return Number.isFinite(parsed) ? parsed : fallback;
 }
 
 function clampScore(value) {

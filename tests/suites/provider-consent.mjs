@@ -17,8 +17,7 @@ import {
 import {
   readProviderProfile,
   readSecrets,
-  updateProviderProfile,
-  updateSecrets,
+  updateCredentials,
 } from "../../extension/core/secrets.mjs";
 import { createSettingsStore } from "../../extension/core/settings-store.mjs";
 import { isValidServiceUrl, normalizeServiceUrl, normalizeSettings } from "../../extension/core/settings.mjs";
@@ -103,24 +102,24 @@ assert.deepEqual(await readDeviceConsent(provider.openaiBaseUrl), {
 }, "synced consent must not be inherited by this device");
 
 local.clearSetLog();
-const updated = await updateProviderProfile({
+const updated = await updateCredentials({ providerPatch: {
   openaiApiKey: "new-openai-key",
   openaiBaseUrl: "https://api.openai.com/v1",
   openaiApiStyle: "responses",
   openaiSummaryModel: "gpt-5.4-mini",
-});
+} });
 assert.equal(updated.credentialGeneration, provider.credentialGeneration + 1);
 assert.deepEqual((await local.get(LOCAL_PROVIDER_KEY))[LOCAL_PROVIDER_KEY], updated);
 const providerWrites = local.setLog().filter((entry) => Object.hasOwn(entry, LOCAL_PROVIDER_KEY));
 assert.equal(providerWrites.length, 1, "one provider change must use one local storage write");
 assert.deepEqual(providerWrites[0][LOCAL_PROVIDER_KEY], updated, "the atomic record must contain key and complete provider identity");
-assert.equal((await updateProviderProfile({ ...updated })).credentialGeneration, updated.credentialGeneration, "an unchanged profile must not advance its generation");
+assert.equal((await updateCredentials({ providerPatch: { ...updated } })).credentialGeneration, updated.credentialGeneration, "an unchanged profile must not advance its generation");
 
 const separateSecretLocal = memoryStorage();
 chrome.storage.local = separateSecretLocal;
-await updateProviderProfile({ openaiApiKey: "provider-key-kept-during-brave-update" });
-await updateSecrets({ braveSearchApiKey: "old-brave-key" });
-await updateSecrets({ braveSearchApiKey: "new-brave-key" });
+await updateCredentials({ providerPatch: { openaiApiKey: "provider-key-kept-during-brave-update" } });
+await updateCredentials({ secretsPatch: { braveSearchApiKey: "old-brave-key" } });
+await updateCredentials({ secretsPatch: { braveSearchApiKey: "new-brave-key" } });
 assert.equal((await readProviderProfile()).openaiApiKey, "provider-key-kept-during-brave-update");
 assert.deepEqual(await readSecrets(), {
   openaiApiKey: "provider-key-kept-during-brave-update",

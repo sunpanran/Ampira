@@ -20,7 +20,7 @@ $files = @(
   "assets/dashboard.css",
   "assets/extension.css"
 )
-$directories = @("assets/client", "assets/icons", "assets/images", "assets/presets", "assets/styles", "extension", "_locales")
+$directories = @("assets/client", "assets/icons", "assets/presets", "assets/styles", "extension", "_locales")
 
 function Get-Sha256([string]$Path) {
   return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -164,12 +164,11 @@ $files | ForEach-Object { [void]$allowedFiles.Add($_.Replace("\", "/")) }
 $allowedPatterns = @(
   '^assets/client/(?:[a-z0-9-]+/)*[a-z0-9-]+\.mjs$',
   '^assets/icons/[a-z0-9-]+\.svg$',
-  '^assets/images/default-header\.webp$',
   '^assets/presets/inspiration/[a-z0-9-]+\.webp$',
   '^assets/styles/[a-z0-9-]+\.css$',
   '^extension/service-worker\.mjs$',
   '^extension/core/[a-z0-9-]+\.mjs$',
-  '^extension/core/runtime-locales/(?:en|zh-CN|zh-Hant)\.mjs$',
+  '^extension/core/runtime-locales/(?:en|zh-CN|zh-Hant|keys)\.mjs$',
   '^extension/data/china-locations\.json$',
   '^extension/runtime/(?:[a-z0-9-]+/)*[a-z0-9-]+\.mjs$',
   '^extension/icons/icon-(?:16|32|48|128)\.png$',

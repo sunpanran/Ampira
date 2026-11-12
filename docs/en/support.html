@@ -3,27 +3,57 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark light">
+  <link rel="icon" type="image/svg+xml" href="../assets/ampira-logo.svg?v=20261112-cyan-flat">
   <title>Ampira Support</title>
-  <link rel="stylesheet" href="../styles.css">
+  <link rel="stylesheet" href="../styles.css?v=20261112-cyan">
   <link rel="alternate" hreflang="zh-CN" href="../support.html">
   <link rel="alternate" hreflang="zh-TW" href="../zh-TW/support.html">
   <link rel="alternate" hreflang="en" href="support.html">
 </head>
-<body>
-  <a class="back" href="index.html">← Ampira</a>
-  <nav class="language-nav" aria-label="Language">
-    <a href="../support.html" lang="zh-CN">简体中文</a>
-    <a href="../zh-TW/support.html" lang="zh-Hant">繁體中文</a>
-    <a href="support.html" aria-current="page">English</a>
+<body data-page="support">
+  <a class="skip-link" href="#main-content">Skip to content</a>
+  <header class="site-header">
+    <a class="mark" href="index.html" aria-label="Ampira · Home">
+      <img class="mark-logo" src="../assets/ampira-logo.svg?v=20261112-cyan-flat" width="48" height="48" alt="Ampira">
+      <span aria-hidden="true">AMPIRA</span>
+    </a>
+    <nav class="language-nav" aria-label="Language">
+      <a href="../support.html" lang="zh-CN">简体中文</a>
+      <a href="../zh-TW/support.html" lang="zh-Hant">繁體中文</a>
+      <a href="support.html" aria-current="page">English</a>
+    </nav>
+  </header>
+  <nav class="site-nav" aria-label="Help navigation">
+    <a href="index.html" aria-label="Home" title="Home"><img class="nav-icon" src="../assets/grid-view.svg" width="18" height="18" alt="" aria-hidden="true"><span class="nav-label">Home</span></a>
+    <a href="support.html" aria-current="page" aria-label="Support" title="Support"><img class="nav-icon" src="../assets/message-question-circle.svg" width="18" height="18" alt="" aria-hidden="true"><span class="nav-label">Support</span></a>
+    <a href="privacy.html" aria-label="Privacy" title="Privacy"><img class="nav-icon" src="../assets/key-01.svg" width="18" height="18" alt="" aria-hidden="true"><span class="nav-label">Privacy</span></a>
+    <a href="data-deletion.html" aria-label="Data deletion" title="Data deletion"><img class="nav-icon" src="../assets/trash-01.svg" width="18" height="18" alt="" aria-hidden="true"><span class="nav-label">Data deletion</span></a>
   </nav>
-  <h1>Support</h1>
-  <h2>Restore the browser’s default New Tab page</h2>
-  <p>Open <code>chrome://extensions</code> in Chrome or <code>edge://extensions</code> in Microsoft Edge, find Ampira, then disable or uninstall it. The browser does not allow an extension page setting to remove its own New Tab override dynamically.</p>
-  <h2>A news source has no content</h2>
-  <p>Check source coverage and per-source diagnostics on the News page, then verify exact-domain access on the Browser page. If a source page declares a Feed on another domain, Ampira lists that exact domain and waits for your click before requesting it. Bookmarks remain available without access.</p>
-  <h2>AI is unavailable</h2>
-  <p>Confirm that an API key is saved, the data-transfer notice is accepted, the AI service domain is allowed, and the connection test succeeds. Ampira does not provide or proxy API keys.</p>
-  <h2>Report a problem</h2>
-  <p>Use the <a href="https://github.com/sunpanran/Ampira/issues">project support channel</a> and include reproduction steps, the browser name and version, and screenshots that contain no keys or private bookmarks.</p>
+  <main class="document" id="main-content" tabindex="-1">
+    <p class="page-kicker">Help and support</p>
+    <h1>Support</h1>
+
+    <section class="doc-section" id="support-1">
+      <h2>Restore the browser’s default New Tab page</h2>
+      <p>Open <code>chrome://extensions</code> in Chrome or <code>edge://extensions</code> in Microsoft Edge, find Ampira, then disable or uninstall it. The browser does not allow an extension page setting to remove its own New Tab override dynamically.</p>
+    </section>
+
+    <section class="doc-section" id="support-2">
+      <h2>A news source has no content</h2>
+      <p>Check source coverage and per-source diagnostics on the News page, then verify exact-domain access on the Browser page. If a source page declares a Feed on another domain, Ampira lists that exact domain and waits for your click before requesting it. Bookmarks remain available without access.</p>
+    </section>
+
+    <section class="doc-section" id="support-3">
+      <h2>AI is unavailable</h2>
+      <p>Confirm that an API key is saved, the data-transfer notice is accepted, the AI service domain is allowed, and the connection test succeeds. Ampira does not provide or proxy API keys.</p>
+    </section>
+
+    <section class="doc-section" id="support-4">
+      <h2>Report a problem</h2>
+      <p>Use the <a href="https://github.com/sunpanran/Ampira/issues">project support channel</a> and include reproduction steps, the browser name and version, and screenshots that contain no keys or private bookmarks.</p>
+    </section>
+  </main>
+  <footer class="site-footer"><span>Ampira help and support</span><a href="https://github.com/sunpanran/Ampira" target="_blank" rel="noopener noreferrer">GitHub <span class="external-link-icon" aria-hidden="true"></span></a></footer>
 </body>
 </html>

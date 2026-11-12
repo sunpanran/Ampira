@@ -52,18 +52,3 @@ export function localizedExclusionReason(item = {}) {
   const aliases = { "手动屏蔽": "exclusion.reason.manual", "手动屏蔽文件夹": "exclusion.reason.manualFolder" };
   return aliases[item.reason] ? t(aliases[item.reason]) : (item.reason || t("exclusion.noReason"));
 }
-
-export function apiStyleLabel(value) {
-  return value === "chat_completions" ? t("settings.service.chatCompletions") : "Responses";
-}
-
-export function colorModeLabel(value) {
-  return { system: t("settings.colorMode.system"), dark: t("settings.colorMode.dark"), light: t("settings.colorMode.light") }[value] || t("settings.colorMode.system");
-}
-
-export function themeLabel(value) {
-  return {
-    violet: t("settings.accent.violet"), cyan: t("settings.accent.cyan"), emerald: t("settings.accent.emerald"),
-    amber: t("settings.accent.amber"), rose: t("settings.accent.rose"),
-  }[value] || t("settings.accent.violet");
-}

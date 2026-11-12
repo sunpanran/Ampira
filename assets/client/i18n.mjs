@@ -106,11 +106,24 @@ function detectInitialLocale() {
 }
 
 function readStoredLocale() {
-  return readValue(LOCALE_STORAGE_KEY) || "";
+  const stored = readValue(LOCALE_STORAGE_KEY);
+  if (stored) return stored;
+  try {
+    // A page-local hint avoids loading the browser's language before hydration.
+    // The runtime settings still decide the saved locale once they arrive.
+    return globalThis.localStorage?.getItem(LOCALE_STORAGE_KEY) || "";
+  } catch {
+    return "";
+  }
 }
 
 function writeStoredLocale(locale) {
   writeValue(LOCALE_STORAGE_KEY, locale);
+  try {
+    globalThis.localStorage?.setItem(LOCALE_STORAGE_KEY, locale);
+  } catch {
+    // The durable client-state write remains authoritative when hints are blocked.
+  }
 }
 
 function currentMessages() {

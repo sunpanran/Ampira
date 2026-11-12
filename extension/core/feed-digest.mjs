@@ -28,6 +28,7 @@ export function buildFallbackDigest(items, reason = "no-api-key", locale = "zh-C
     items: selected.map((item) => ({
       id: item.articleId,
       title: item.title,
+      localizationPending: item.localizationPending === true,
       summary: item.excerpt || translate(normalizedLocale, "background.digest.openOriginal"),
       reason: translate(normalizedLocale, "background.digest.highPriority"),
       url: item.url,

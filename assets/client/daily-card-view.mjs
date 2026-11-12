@@ -7,7 +7,7 @@ import { recoverInspirationImage } from "./inspiration-image-recovery.mjs";
 
 export function createDailyCardView(options) {
   const {
-    state, els, t, itemUrl, displayTitle, displaySummaryTitle, createIcon,
+    state, els, dashboardLayout, t, itemUrl, displayTitle, displaySummaryTitle, createThemedIcon,
     createReadingActions, createBookmarkFavicon, contextAttachLink, openDailyItem,
     createSeenButton, localizedCategory, inspirationPreviews, faviconUrl,
     isHttpUrl, hostFromUrl, openExternal, displayBookmarkTitle, isNewsCard,
@@ -176,11 +176,12 @@ function createDailyCard(item) {
   const top = document.createElement("div");
   top.className = "daily-top";
   const pill = document.createElement("span");
-  pill.className = `pill ${cardTone(item)}`;
+  pill.className = `pill ${cardTone(item)}${item.externalDiscovery ? " is-discovery" : ""}`;
   const pillLabel = item.externalDiscovery
     ? t("category.externalDiscovery")
     : item.timeUnverified ? t("category.timeUnverified") : localizedCategory(item);
-  pill.append(createIcon(cardIconName(item), "pill-icon"), document.createTextNode(pillLabel));
+  if (!isInspirationCard(item)) pill.append(createThemedIcon(cardIconName(item), "pill-icon"));
+  pill.append(document.createTextNode(pillLabel));
   top.append(pill);
   const title = document.createElement("span");
   title.className = "item-title";
@@ -319,7 +320,7 @@ function requestInspirationPreview(item) {
 }
 
 function updateVisibleInspirationThumbs(item, imageUrl, fingerprint) {
-  for (const card of els.dailyBoard.querySelectorAll(".daily-card.has-inspiration-thumb")) {
+  for (const card of dashboardLayout.root.querySelectorAll('.board-column.is-inspiration .daily-card.has-inspiration-thumb')) {
     if (card.dataset.key !== item.key || card.dataset.previewFingerprint !== fingerprint) continue;
     const thumb = card.querySelector(activeDailyThumbSelector);
     if (thumb) renderInspirationImageThumb(thumb, item, imageUrl, { forceReveal: true });

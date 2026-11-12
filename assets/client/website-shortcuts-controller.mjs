@@ -44,6 +44,8 @@ export function createWebsiteShortcutsController(options) {
   let dashboardOrderBusy = false;
   let dragState = null;
   let feedbackTimer = 0;
+  let shortcutLayout = null;
+  let shortcutLayoutLoading = null;
   const shortcutOverflow = createWebsiteShortcutOverflow({
     rail: els.websiteShortcuts,
     list: els.websiteShortcutList,
@@ -203,11 +205,8 @@ export function createWebsiteShortcutsController(options) {
   }
 
   function syncWebsiteShortcutFormState() {
-    setIconLabel(
-      els.addWebsiteShortcut,
-      editingIndex >= 0 ? "check" : "plus",
-      t(editingIndex >= 0 ? "settings.shortcuts.update" : "settings.shortcuts.add"),
-    );
+    if (editingIndex >= 0) els.addWebsiteShortcut.textContent = t("settings.shortcuts.update");
+    else setIconLabel(els.addWebsiteShortcut, "plus", t("settings.shortcuts.add"));
     els.cancelWebsiteShortcutEdit.hidden = editingIndex < 0;
     syncWebsiteShortcutActionState();
   }
@@ -254,32 +253,42 @@ export function createWebsiteShortcutsController(options) {
 
   function renderWebsiteShortcuts() {
     const enabled = state.settings?.websiteShortcutsEnabled === true;
-    const searching = Boolean(state.query);
+    if (enabled && !shortcutLayout) {
+      if (!shortcutLayoutLoading) shortcutLayoutLoading = import("./website-shortcut-layout.mjs").then(({ createWebsiteShortcutLayout }) => {
+        shortcutLayout = createWebsiteShortcutLayout({
+          list: els.websiteShortcutList, createItem: createDashboardShortcut,
+          signatureFor: (shortcut) => JSON.stringify([shortcut.title, t("shortcuts.open", { title: shortcut.title }), faviconUrl(shortcut)]),
+        });
+        renderWebsiteShortcuts();
+      }).catch((error) => { shortcutLayoutLoading = null; console.error("Shortcut layout unavailable", error); });
+      return;
+    }
     const isInitialEntrance = els.websiteShortcuts.dataset.loading === "true";
-    const layout = captureKeyedLayout(els.websiteShortcutList, ".website-shortcut[data-key]");
     delete els.websiteShortcuts.dataset.loading;
     if (dashboardOrderBusy) els.websiteShortcuts.setAttribute("aria-busy", "true");
     else els.websiteShortcuts.removeAttribute("aria-busy");
-    els.websiteShortcuts.hidden = !enabled || searching;
+    els.websiteShortcuts.hidden = !enabled;
     els.websiteShortcuts.classList.toggle("is-empty", false);
-    if (!enabled || searching) {
+    if (!enabled) {
+      if (dragState?.scope === "dashboard") clearShortcutDragState();
+      shortcutLayout?.reset();
       els.websiteShortcutList.replaceChildren();
       shortcutOverflow.scheduleSync();
       return;
     }
     const shortcuts = currentWebsiteShortcuts();
     if (!shortcuts.length) {
+      if (dragState?.scope === "dashboard") clearShortcutDragState();
+      shortcutLayout.reset();
       els.websiteShortcuts.classList.add("is-empty");
       els.websiteShortcutList.replaceChildren(createDashboardEmptyState());
       shortcutOverflow.scheduleSync();
       enterInitialShortcutRail();
       return;
     }
-    els.websiteShortcutList.replaceChildren(...shortcuts.map((shortcut, index) => (
-      createDashboardShortcut(shortcut, index, shortcuts.length)
-    )));
+    const changed = shortcutLayout.render(shortcuts, { animate: !isInitialEntrance, draggable: !dashboardOrderBusy });
+    if (changed && dragState?.scope === "dashboard") clearShortcutDragState();
     shortcutOverflow.scheduleSync();
-    if (!isInitialEntrance) animateKeyedLayout(els.websiteShortcutList, layout, ".website-shortcut[data-key]");
     enterInitialShortcutRail();
 
     function enterInitialShortcutRail() {
@@ -298,15 +307,13 @@ export function createWebsiteShortcutsController(options) {
     try { localStorage.setItem(WEBSITE_SHORTCUT_LAYOUT_STORAGE_KEY, JSON.stringify(layout)); } catch {}
   }
 
-  function createDashboardShortcut(shortcut, index, count) {
+  function createDashboardShortcut(shortcut) {
     const link = document.createElement("a");
     link.className = "website-shortcut";
     link.href = shortcut.url;
     link.target = "_self";
     link.rel = "noreferrer";
     link.title = shortcut.title;
-    link.draggable = count > 1 && !dashboardOrderBusy;
-    link.dataset.shortcutIndex = String(index);
     link.dataset.shortcutUrl = shortcut.url;
     link.dataset.key = shortcut.url;
     link.setAttribute("aria-label", t("shortcuts.open", { title: shortcut.title }));
@@ -347,6 +354,7 @@ export function createWebsiteShortcutsController(options) {
         return;
       }
       dragState = { scope, url, fromIndex: index, toIndex: index };
+      if (scope === "dashboard") shortcutLayout.begin(url, event);
       item.classList.add("is-dragging");
       container.classList.add("is-reordering");
       if (event.dataTransfer) {
@@ -365,19 +373,25 @@ export function createWebsiteShortcutsController(options) {
     container.addEventListener("drop", (event) => {
       if (dragState?.scope !== scope) return;
       event.preventDefault();
+      updateShortcutDropTarget(container, itemSelector, event, scope);
       const pending = { ...dragState };
-      clearShortcutDragState();
       const shortcuts = currentWebsiteShortcuts();
       const fromIndex = shortcuts.findIndex((shortcut) => shortcut.url === pending.url);
-      if (fromIndex < 0 || pending.toIndex === fromIndex) return;
+      const commit = fromIndex >= 0 && pending.toIndex >= 0 && pending.toIndex !== fromIndex;
+      clearShortcutDragState({ commit });
+      if (!commit) return;
       const next = reorderWebsiteShortcuts(shortcuts, fromIndex, pending.toIndex);
       if (scope === "settings") applySettingsShortcutOrder(next);
       else void persistDashboardShortcutOrder(shortcuts, next);
     });
-    container.addEventListener("dragend", clearShortcutDragState);
+    container.addEventListener("dragend", () => clearShortcutDragState());
   }
 
   function updateShortcutDropTarget(container, itemSelector, event, scope) {
+    if (scope === "dashboard") {
+      dragState.toIndex = shortcutLayout.preview(event);
+      return;
+    }
     const target = event.target instanceof Element ? event.target.closest(itemSelector) : null;
     const items = Array.from(container.querySelectorAll(itemSelector));
     let targetItem = target && container.contains(target) ? target : items.at(-1);
@@ -403,7 +417,8 @@ export function createWebsiteShortcutsController(options) {
     }
   }
 
-  function clearShortcutDragState() {
+  function clearShortcutDragState({ commit = false } = {}) {
+    if (dragState?.scope === "dashboard") shortcutLayout.end({ commit });
     clearShortcutDropIndicators();
     for (const container of [els.websiteShortcutList, els.websiteShortcutSettingsList]) {
       container?.classList.remove("is-reordering");

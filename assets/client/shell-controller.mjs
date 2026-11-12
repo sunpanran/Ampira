@@ -1,7 +1,8 @@
 import { isBookmarkSectionVisible } from "./bookmark-visibility.mjs";
+import { setKeyboardShortcutHint, shortcutTargetVisible } from "./keyboard-shortcuts.mjs";
 
 export function createShellController(options) {
-  const { els } = options;
+  const { els, state, openSearch } = options;
   let viewportMetricWidth = 0;
   let activeNavButton = null;
   let cachedNavButtons = null;
@@ -14,13 +15,13 @@ export function createShellController(options) {
     syncNavExpandedWidth,
     syncBookmarkSectionVisibility,
     handleGlobalSearchTyping,
-    focusDashboardSearch,
     initializePointerHighlights,
     initializeScrollSpy,
     syncNavToCurrentSection,
     setActiveNavButton,
     resetToDailyView,
     getCurrentSectionButton,
+    navigateToSection,
   };
 
 function syncViewportMetrics() {
@@ -42,6 +43,9 @@ function syncBookmarkSectionVisibility(settings = {}) {
 }
 
 function syncNavExpandedWidth() {
+  for (const button of document.querySelectorAll("[data-scroll]")) {
+    setKeyboardShortcutHint(button, button.dataset.scroll, button.getAttribute("aria-label"), state.settings);
+  }
   const sidebar = document.querySelector(".sidebar");
   const buttons = [...document.querySelectorAll(".nav-btn")].filter((button) => !button.hidden);
   if (!sidebar || !buttons.length) return;
@@ -60,9 +64,14 @@ function syncNavExpandedWidth() {
   const iconWidth = navIconWidth(buttons) || 16;
   const iconTrackWidth = cssLength(rootStyle, "--nav-icon-track-width", iconWidth);
   const labelSlotMin = lengthValue(rootStyle.getPropertyValue("--nav-label-slot-min"));
-  const maxLabelWidth = Math.max(...buttons.map((button) => navLabelWidth(button)));
-  const labelSlotWidth = Math.ceil(Math.max(labelSlotMin, maxLabelWidth + 16));
+  const items = [...buttons, ...sidebar.querySelectorAll(".nav-logo")];
+  const maxLabelWidth = Math.max(...items.map((item) => navLabelWidth(item)));
+  const labelSlotWidth = Math.ceil(Math.max(labelSlotMin, maxLabelWidth));
   const iconRight = iconTrackWidth / 2 + iconWidth / 2;
+  for (const item of items) {
+    const itemWidth = Math.ceil(iconRight + gap + navLabelWidth(item) + paddingRight + 2);
+    item.style.setProperty("--nav-item-expanded-width", `${Math.max(44, itemWidth)}px`);
+  }
   const fittedButtonWidth = iconRight + gap + labelSlotWidth + paddingRight + 2;
   const buttonWidth = Math.ceil(Math.max(minButtonWidth, fittedButtonWidth));
   const sidebarStyle = getComputedStyle(sidebar);
@@ -89,7 +98,6 @@ function navLabelWidth(button) {
   if (!context) return label.scrollWidth || text.length * 13;
   context.font = [
     style.fontStyle,
-    style.fontVariant,
     style.fontWeight,
     style.fontSize,
     style.fontFamily,
@@ -119,12 +127,11 @@ function lengthValue(value) {
 function handleGlobalSearchTyping(event) {
   if (!shouldCaptureSearchTyping(event)) return;
   event.preventDefault();
-  focusDashboardSearch();
-  insertSearchText(event.key);
+  openSearch(event.key);
 }
 
 function shouldCaptureSearchTyping(event) {
-  if (event.defaultPrevented) return false;
+  if (event.defaultPrevented || event.isComposing || event.keyCode === 229) return false;
   if (!event.key || event.key.length !== 1) return false;
   if (event.ctrlKey || event.metaKey || event.altKey) return false;
   if (els.settingsModal.classList.contains("open")) return false;
@@ -136,21 +143,6 @@ function shouldCaptureSearchTyping(event) {
 
 function isInteractiveTarget(target) {
   return Boolean(target?.closest?.("input, textarea, select, button, a[href], [role='button'], [role='link'], [role='menuitem'], [contenteditable='true'], [contenteditable='']"));
-}
-
-function focusDashboardSearch() {
-  els.search.focus({ preventScroll: true });
-  els.search.scrollIntoView({ behavior: "smooth", block: "center" });
-}
-
-function insertSearchText(text) {
-  const start = els.search.selectionStart ?? els.search.value.length;
-  const end = els.search.selectionEnd ?? start;
-  const next = `${els.search.value.slice(0, start)}${text}${els.search.value.slice(end)}`;
-  const cursor = start + text.length;
-  els.search.value = next;
-  els.search.setSelectionRange(cursor, cursor);
-  els.search.dispatchEvent(new Event("input", { bubbles: true }));
 }
 
 function initializePointerHighlights() {
@@ -228,6 +220,20 @@ function setActiveNavButton(nextActiveButton) {
 function resetToDailyView() {
   window.scrollTo({ top: 0, left: 0, behavior: "auto" });
   setActiveNavButton(scrollEntries().find((entry) => entry.button.dataset.scroll === "daily")?.button || null);
+}
+
+function navigateToSection(id, { focus = false } = {}) {
+  const entry = scrollEntries().find(({ button }) => button.dataset.scroll === id);
+  if (!entry || entry.button.hidden || !shortcutTargetVisible(entry.section)) return false;
+  entry.section.scrollIntoView({
+    behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start",
+  });
+  if (focus) {
+    const title = entry.section.querySelector("h2");
+    if (title) { title.tabIndex = -1; title.focus({ preventScroll: true }); }
+  }
+  setActiveNavButton(entry.button);
+  return true;
 }
 
 function getCurrentSectionButton() {

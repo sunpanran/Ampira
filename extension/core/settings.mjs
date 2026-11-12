@@ -6,15 +6,20 @@ import {
   HEADER_IMAGE_HEIGHT_STEP,
 } from "./constants.mjs";
 import { normalizeLocale } from "./locale.mjs";
+import { normalizeDashboardCardOrder } from "./dashboard-layout.mjs";
+import { normalizeKeyboardShortcuts } from "./keyboard-shortcuts.mjs";
 
 const BOOLEAN_FIELDS = [
+  "mcpEnabled", "botOrganizeNews", "botGenerateBrief", "botAnswerQuestions",
   "bookmarkConsentGranted", "onboardingCompleted", "aiDisclosureAccepted", "pointerGlowEnabled",
   "dashboardGlassBlurEnabled", "headerImageEnabled", "headerImageFixed", "headerImageFullscreen", "headerImageBlurEnabled", "cardSummaryEnabled",
   "floatingWebOpenEnabled", "readingQueueOpenOnReadAll", "readingQueueReadAllPrompted", "retainSeenArchive",
   "syncReadingQueueEnabled", "syncTodosEnabled", "syncWeatherLocationEnabled",
-  "personalizedRankingEnabled", "publicFeedSupplementEnabled", "webImageSearchEnabled", "bookmarkSectionEnabled", "websiteShortcutsEnabled",
+  "syncStockWatchlistEnabled", "syncCountdownsEnabled",
+  "personalizedRankingEnabled", "publicFeedSupplementEnabled", "webImageSearchEnabled", "bookmarkSectionEnabled", "websiteShortcutsEnabled", "keyboardShortcutsEnabled",
 ];
 const COLOR_MODES = new Set(["system", "dark", "light"]);
+const NAV_POSITIONS = new Set(["top", "bottom", "left", "right"]);
 const ACCENT_THEMES = new Set(["violet", "cyan", "emerald", "amber", "rose", "custom"]);
 const API_STYLES = new Set(["responses", "chat_completions"]);
 const NEWS_SOURCE_MODES = new Set(["public", "bookmarks"]);
@@ -56,12 +61,17 @@ export function normalizeSettings(value = {}) {
     settings.aiDisclosureAccepted = false;
   }
   settings.uiLocale = input.uiLocale ? normalizeLocale(input.uiLocale) : "";
+  settings.dashboardMode = input.dashboardMode === "bot" ? "bot" : "standard";
+  settings.dashboardCardOrder = normalizeDashboardCardOrder(input.dashboardCardOrder);
+  settings.keyboardShortcuts = normalizeKeyboardShortcuts(input.keyboardShortcuts);
   settings.colorMode = enumValue(input.colorMode, COLOR_MODES, DEFAULT_SETTINGS.colorMode);
+  settings.navPosition = enumValue(input.navPosition, NAV_POSITIONS, DEFAULT_SETTINGS.navPosition);
   settings.accentTheme = enumValue(input.accentTheme, ACCENT_THEMES, DEFAULT_SETTINGS.accentTheme);
   settings.customAccentColor = normalizeColor(input.customAccentColor, DEFAULT_SETTINGS.customAccentColor);
   settings.headerImageUrl = normalizePublicUrl(
     Object.hasOwn(input, "headerImageUrl") ? input.headerImageUrl : DEFAULT_SETTINGS.headerImageUrl,
   );
+  settings.headerImageMediaType = ["image", "video"].includes(input.headerImageMediaType) ? input.headerImageMediaType : "auto";
   settings.headerImageBlurAmount = boundedInteger(input.headerImageBlurAmount, 0, 50, DEFAULT_SETTINGS.headerImageBlurAmount);
   settings.headerImageHeightScale = boundedStepInteger(
     input.headerImageHeightScale,
@@ -141,7 +151,7 @@ export function normalizePublicUrl(value) {
   if (!value) return "";
   try {
     const url = new URL(String(value).trim());
-    if (url.href.length > 2048) return "";
+    if (url.href.length > 2048 || url.username || url.password) return "";
     if (url.protocol === "https:" || url.protocol === "http:" && isLocalHost(url.hostname)) return url.href;
   } catch {
     return "";

@@ -14,13 +14,18 @@ export const ALL_TRANSLATION_KEYS = Object.freeze([
 export const POPUP_LOCALE_KEYS = Object.freeze([
   "action.captureAdded",
   "action.captureAlreadyQueued",
+  "action.popup.addedLabel",
+  "action.popup.alreadyLabel",
   "action.popup.failedBody",
+  "action.popup.failedLabel",
   "action.popup.failedTitle",
   "action.popup.kicker",
+  "action.popup.loadingLabel",
   "action.popup.loadingTitle",
   "action.popup.localOnly",
   "action.popup.openAmpira",
   "action.popup.readLater",
   "action.popup.unsupportedBody",
+  "action.popup.unsupportedLabel",
   "action.popup.unsupportedTitle",
 ]);

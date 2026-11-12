@@ -1,7 +1,9 @@
 import {
   DEFAULT_SETTINGS,
+  SETTINGS_KEY,
   REFRESH_ALARM,
   REFRESH_PERIOD_MINUTES,
+  SYNC_CREDENTIALS_KEY,
 } from "../core/constants.mjs";
 import { hashText, inspirationPreviewTargets, originsFromUrls } from "../core/bookmarks.mjs";
 import {
@@ -15,6 +17,8 @@ import {
 import { normalizeFeedback } from "../core/feedback.mjs";
 import { filterPresentableFeedItems } from "../core/feed-language-policy.mjs";
 import { createHeaderCoverStore } from "../core/header-cover.mjs";
+import { createHeaderCoverCache } from "../core/header-cover-cache.mjs";
+import { createHeaderCoverFetchHandler } from "./header-cover-fetch.mjs";
 import { clearRecords, deleteRecord, getRecord, listRecords, pruneCache, setRecord, setRecords } from "../core/db.mjs";
 import { extractPageMetadata, fetchReader, fetchReaderHtml, loadReaderWithCache, probeReaderUrl, readerTextFromBlocks } from "../core/reader.mjs";
 import {
@@ -23,8 +27,7 @@ import {
   readSecrets,
   restoreCredentialState,
   secretStatus,
-  updateProviderProfile,
-  updateSecrets,
+  updateCredentials,
 } from "../core/secrets.mjs";
 import {
   captureDeviceConsentState,
@@ -72,6 +75,13 @@ import { dailyDigestEvidence, parseGeneratedDailyDigest } from "../core/summary-
 import { normalizeUserUrl, searchFeed } from "../core/search.mjs";
 import { researchRequestEnabled } from "../core/research-search.mjs";
 import { createMessageRouter } from "./message-router.mjs";
+import { createBotBoardService } from "./bot-board-service.mjs";
+import { createMcpSetupService } from "./mcp-setup-service.mjs";
+import { createBotSummaryService } from "./bot-summary-service.mjs";
+import { createBotNativeWorkflow } from "./bot-native-workflow.mjs";
+import { botDashboardPayload } from "../core/bot-board.mjs";
+import { botGeneratesBrief, botOrganizesNews, isBotMode } from "../core/bot-mode.mjs";
+import { BOT_LOCAL_ORIGIN } from "../core/bot-board.mjs";
 import { errorResult, publicErrorDetails, resultMessage, settingsLocale, typedError } from "./runtime-result.mjs";
 import { createRuntimeStatusStore } from "./status-store.mjs";
 import { createRuntimeSettingsService } from "./settings-service.mjs";
@@ -88,6 +98,7 @@ import { createSettingsWorkflow } from "./settings-workflow.mjs";
 import { createDashboardContentService } from "./dashboard-content-service.mjs";
 import { createBookmarkRefreshScheduler } from "./bookmark-refresh-scheduler.mjs";
 import { createWeatherService } from "./weather-service.mjs";
+import { createStockService } from "./stock-service.mjs";
 import { createCardSummaryPolicy } from "./card-summary-policy.mjs";
 import { createPermissionEpoch } from "./permission-epoch.mjs";
 import { createCacheMetadataPolicy } from "./cache-metadata-policy.mjs";
@@ -95,6 +106,7 @@ import { createAiAccessPolicy } from "./ai-access-policy.mjs";
 import { createCacheAccessPolicy } from "./cache-access-policy.mjs";
 import { createActionReadingQueueService } from "./action-reading-queue-service.mjs";
 import { createBrowserSearchService } from "./browser-search-service.mjs";
+import { createLocalSearchService } from "./local-search-service.mjs";
 import { createFactoryResetService } from "./factory-reset-service.mjs";
 import {
   emptySourceQuality,
@@ -114,6 +126,7 @@ const cacheMutations = createEpochMutationQueue();
 const clientStateStore = createClientStateStore({ getRecord, setRecord });
 const quotaManager = createQuotaManager(chrome.storage.local, localDateKey);
 const headerCoverStore = createHeaderCoverStore(chrome.storage.local);
+const headerCoverCache = createHeaderCoverCache({ getRecord, setRecord, deleteRecord });
 const settingsStore = createSettingsStore(chrome.storage.sync);
 const settingsService = createRuntimeSettingsService({ store: settingsStore, readProviderProfile, readDeviceConsent });
 const { getSettings } = settingsService;
@@ -153,9 +166,14 @@ const {
   setAiAutoStatus,
   defaultAiAutoStatus,
   defaultRefreshStatus,
-} = createRuntimeStatusStore({ getRecord, setRecord, broadcast, createStages: pipelineStages });
+} = createRuntimeStatusStore({
+  getRecord, setRecord, broadcast, createStages: pipelineStages,
+  readUsage: async () => (await quotaManager.read(Number.MAX_SAFE_INTEGER)).used,
+});
 const {
   currentBookmarkModel,
+  currentBookmarkTree,
+  invalidateBookmarkModel,
   emptyBookmarkModel,
   selectedOrigins,
   permissionStatus,
@@ -194,6 +212,10 @@ const {
   chrome, typedError, uniqueStrings, normalizeUserUrl,
   aiSearchResultPermitted: aiAccessPolicy.aiSearchResultPermitted,
   providerCredentialAvailable, aiConfigured, presentableFeedItems,
+});
+const localSearchService = createLocalSearchService({
+  chrome, getSettings, currentBookmarkTree, readDashboard: buildDashboardPayload,
+  captureEpoch: () => `${permissionEpoch.capture()}:${cacheMutations.capture()}`,
 });
 const {
   readArticle,
@@ -297,7 +319,11 @@ const { factoryReset } = createFactoryResetService({
   waitForActiveRequests: () => Promise.allSettled([...activeRequests]),
   clearSyncStorage: settingsStore.reset,
   clearRecords,
-  setResetting: (value) => { factoryResetting = value === true; },
+  clearImageCache: () => headerCoverCache.clear(),
+  setResetting: (value) => {
+    factoryResetting = value === true;
+    if (factoryResetting) invalidateBookmarkModel();
+  },
   broadcast,
 });
 const {
@@ -307,7 +333,11 @@ const {
 } = createWeatherService({
   hasOriginPermissions, getRecord, setRecord, typedError,
 });
+const { getQuotes, stockCachePermitted } = createStockService({
+  hasOriginPermissions, getRecord, setRecord, typedError, cacheMutations, permissionEpoch,
+});
 const cacheAccessPolicy = createCacheAccessPolicy({
+  stockCachePermitted,
   aiSearchResultPermitted: aiAccessPolicy.aiSearchResultPermitted,
   originPattern,
   cacheUrlsPermitted,
@@ -315,17 +345,19 @@ const cacheAccessPolicy = createCacheAccessPolicy({
   weatherCachePermitted,
 });
 const refreshService = createRefreshService({
+  organizeBot: options => botSummaries.organize(options),
+  onOrganizationComplete: () => botNative.syncBrief(),
   refreshCoordinator, getSettings, currentBookmarkModel, emptyBookmarkModel, currentFeedPermissionState,
-  configuredFeedSources, selectRefreshBatch, getRecord, setRecord, setRecords,
+  selectRefreshBatch, getRecord, setRecord, setRecords,
   setRefreshStatus, pipelineStages, broadcast, fetchSourceArticles, sourceFetchOptions,
   mapWithConcurrency, summarizeQuality, retainActiveUnrefreshedItems, rankAndDedupe,
   updateSourceQualityRecord,
   buildDailyCandidates, dailyCandidateFingerprint,
   assertFeedItemsStillPermitted, withFeedCacheMetadata, cacheMutations, aiConfigured,
-  getAiAutoStatus, setAiAutoStatus, defaultAiAutoStatus, readQuota, runAiWithinQuota,
+  getAiAutoStatus, setAiAutoStatus, defaultAiAutoStatus, readQuota, runAiWithinQuota, runAiBatchWithinQuota,
   callProvider, translate, translateAiPrompt, settingsLocale, parseGeneratedDailyDigest, dailyDigestEvidence,
   cardSummaryPolicy, buildFallbackDigest,
-  digestCachePermitted, filterFeedItemsBySources, presentableFeedItems, resultMessage, errorResult,
+  digestCachePermitted, filterFeedItemsBySources, presentableFeedItems, resultMessage,
   emptySourceQuality, localDateKey, uniqueStrings, safeOrigin, originPattern,
   sanitizeDailyDigest, typedError, feedCacheOrEmpty, getRefreshStatus, hostOf,
   originsFromUrls, fetchSourceImageCandidates: fetchSourceImageCandidateRecords, hasOriginPermission, hashText,
@@ -369,8 +401,8 @@ const {
   currentBookmarkModel, emptyBookmarkModel, selectedOrigins, currentFeedPermissionState,
   filterSourceQuality, getRecord, emptySourceQuality, defaultSettings: DEFAULT_SETTINGS,
   settingsService, readProviderProfile, bindProviderPatchToOrigin, isValidServiceUrl,
-  typedError, providerTestConsentAllowed, providerRequiresApiKey, hasOriginPermission, updateProviderProfile,
-  updateSecrets, setAiDisclosureConsent, captureCredentialState, restoreCredentialState,
+  typedError, providerTestConsentAllowed, providerRequiresApiKey, hasOriginPermission, updateCredentials,
+  setAiDisclosureConsent, captureCredentialState, restoreCredentialState,
   captureDeviceConsentState, restoreDeviceConsentState, cacheMutations, refreshCoordinator, setRecord,
   pruneStalePreviewCaches, pruneBravePreviewCaches, aiConfigured, setAiAutoStatus,
   defaultAiAutoStatus, startRefresh, broadcast,
@@ -398,6 +430,7 @@ const {
   cacheMutations, refreshCoordinator, clearRecords, setRecord, setRefreshStatus,
   defaultRefreshStatus, setAiAutoStatus, defaultAiAutoStatus, broadcast, resultMessage,
   quotaManager, getAiAutoStatus, emptySourceQuality, normalizeFeedback, getRecord,
+  clearImageCache: () => headerCoverCache.clear(),
 });
 const getSitePreview = createPreviewService({
   getSettings,
@@ -408,21 +441,109 @@ const getSitePreview = createPreviewService({
   isAllowedTarget: isSitePreviewTarget,
   captureCacheEpoch: () => cacheMutations.capture(),
 });
+let botNative;
+const botBoard = createBotBoardService({
+  storage: chrome.storage.local, getRecord, setRecord, getSettings, hasOriginPermission, cacheMutations,
+  capturePermissionEpoch: () => permissionEpoch.capture(),
+  isPermissionEpochCurrent: (epoch) => permissionEpoch.isCurrent(epoch),
+  prepareMessage: (action, settings) => botNative.prepareMessage(action, settings),
+  validateMessage: evidence => botNative.validateMessage(evidence),
+});
+const mcpSetup = createMcpSetupService({ storage: chrome.storage.local, getSettings, hasOriginPermission, getExtensionId: () => chrome.runtime.id, botBoard });
+const botSummaries = createBotSummaryService({
+  quotaManager, setAiAutoStatus, onComplete: () => botNative.syncBrief(),
+  getSettings, settingsLocale, getRecord, setRecord, botBoard, cacheMutations, broadcast,
+  capturePermissionEpoch: () => permissionEpoch.capture(), isPermissionEpochCurrent: epoch => permissionEpoch.isCurrent(epoch),
+  selectPermitted: async (settings, items) => {
+    const model = settings.bookmarkConsentGranted ? await currentBookmarkModel(settings) : emptyBookmarkModel();
+    const permissions = await currentFeedPermissionState(settings, model);
+    return sanitizeCardAiSummaries(filterFeedItemsBySources(items, permissions.permitted, permissions.grantedOrigins), settings, await aiConfigured(settings));
+  },
+  presentable: async (items, settings) => presentableFeedItems(items, settings, await aiConfigured(settings)),
+});
+botNative = createBotNativeWorkflow({
+  storage: chrome.storage.local, getSettings, settingsLocale, getRecord, setRecord, botBoard, cacheMutations,
+  capturePermissionEpoch: () => permissionEpoch.capture(), isPermissionEpochCurrent: epoch => permissionEpoch.isCurrent(epoch),
+  buildDailyCandidates, loadQuestionSearchContext, normalizeUserUrl, hasOriginPermission, readArticle, readerTextFromBlocks,
+  assertUrlsStillPermitted, assertFeedItemsStillPermitted, getRefreshStatus, localDateKey,
+  readPermittedFeed: async settings => {
+    const model = settings.bookmarkConsentGranted ? await currentBookmarkModel(settings) : emptyBookmarkModel();
+    const permissions = await currentFeedPermissionState(settings, model);
+    const feed = feedCacheOrEmpty(await getRecord("feed", null));
+    const raw = filterFeedItemsBySources(feed.items, permissions.permitted, permissions.grantedOrigins);
+    const configured = await aiConfigured(settings);
+    return { raw, visible: presentableFeedItems(sanitizeCardAiSummaries(raw, settings, configured), settings, configured) };
+  },
+});
+async function refreshBotBoard(payload = {}) {
+  const organization = await botSummaries.sync();
+  return { ...await botNative.refreshBoard(payload), organization };
+}
 const routeMessage = createMessageRouter({
-  "dashboard:get": () => buildDashboardPayload(),
+  "mcp:enabled": async (payload) => {
+    if (payload.enabled === true && !await hasOriginPermission(BOT_LOCAL_ORIGIN)) throw typedError("MCP_PERMISSION", "background.bot.permissionRequired", {}, false);
+    await saveSettings({ mcpEnabled: payload.enabled === true });
+    if (payload.enabled !== true) await mcpSetup.cancel();
+    await botSummaries.sync();
+    await botNative.syncBrief();
+    return botBoard.config();
+  },
+  "mcp:setup": () => mcpSetup.begin(),
+  "mcp:pair": () => mcpSetup.poll(),
+  "bot:config": () => botBoard.config(),
+  "bot:disconnect": async () => { await mcpSetup.cancel(); return botBoard.disconnect(); },
+  "bot:read": async () => botNative.sanitizeBoard(await botBoard.read()),
+  "bot:refresh": refreshBotBoard,
+  "bot:organization": async (payload) => {
+    await saveSettings({ botOrganizeNews: payload.enabled === true });
+    await botSummaries.sync();
+    return botBoard.config();
+  },
+  "bot:takeover": async (payload) => {
+    const field = payload.scope === "brief" ? "botGenerateBrief" : payload.scope === "news" ? "botOrganizeNews" : payload.scope === "questions" ? "botAnswerQuestions" : "";
+    if (!field || typeof payload.enabled !== "boolean") throw typedError("INVALID_REQUEST", "background.bot.invalidData", {}, false);
+    await saveSettings({ [field]: payload.enabled });
+    if (field === "botGenerateBrief") await botNative.syncBrief();
+    if (field === "botOrganizeNews") await botSummaries.sync();
+    return botBoard.config();
+  },
+  "bot:submit": async payload => botNative.sanitizeBoard(await botBoard.submit(payload)),
+  "bot:mode": async (payload) => {
+    refreshCoordinator.invalidate();
+    await saveSettings({ dashboardMode: payload.mode === "bot" ? "bot" : "standard" });
+    await botSummaries.sync();
+    await botNative.syncBrief();
+    return botBoard.config();
+  },
+  "dashboard:get": async (payload) => {
+    const base = await buildDashboardPayload(0, payload?.scope === "news" ? "news" : "all");
+    const settings = await getSettings();
+    base.organization = botOrganizesNews(settings) ? await botSummaries.status()
+      : { provider: "native", available: base.ai.enabled, ...base.ai.autoStatus, running: refreshService.isOrganizingNews(), pendingIds: [], failedIds: [] };
+    return isBotMode(settings) ? botDashboardPayload(base, await botNative.sanitizeBoard(await botBoard.read()), settingsLocale(settings)) : base;
+  },
   "settings:get": () => publicSettings(),
   "header-cover:get": () => headerCoverStore.read(),
+  "header-cover:prepare": async () => { await globalThis.clients.claim(); return { ok: true }; },
+  "header-cover:reject": async (payload) => { await headerCoverCache.reject(payload.url); return { ok: true }; },
   "settings:save": (payload) => saveSettings(payload),
   "settings:export": () => exportSettings(),
   "settings:import": (payload) => importSettings(payload),
   "settings:factory-reset": () => factoryReset(),
   "settings:test": (payload) => testOpenAISettings(payload),
   "settings:image-test": (payload) => testImageSearchSettings(payload),
-  "refresh:start": (payload) => startRefresh(payload.force === true),
+  "refresh:start": async (payload) => {
+    return startRefresh(payload.force === true, { organize: payload.automatic === true });
+  },
+  "news:organize": () => refreshService.organizeNews(),
   "feed:refresh-source": (payload) => refreshSource(payload),
   "refresh:status": () => getRefreshStatus(),
   "research:folders": () => listResearchFolders(),
-  "digest:refresh": () => refreshDailyDigest({ automatic: false }),
+  "digest:refresh": async () => {
+    if (!botGeneratesBrief(await getSettings())) return refreshDailyDigest({ automatic: false });
+    await botNative.syncBrief(true);
+    return botDashboardPayload({}, await refreshBotBoard({ force: true })).dailyDigest;
+  },
   "summary:refresh": (payload) => refreshSingleSummary(payload),
   "ai:search": (payload) => {
     const queryIsUrl = Boolean(normalizeUserUrl(payload?.query));
@@ -431,9 +552,11 @@ const routeMessage = createMessageRouter({
       ? answerResearchSearch(payload)
       : answerAiSearch(payload);
   },
+  "search:query": payload => localSearchService.search(payload),
   "browser:search": (payload, sender) => browserSearchService.search(payload, sender),
   "weather:search": (payload) => searchLocations(payload),
   "weather:get": (payload) => getForecast(payload),
+  "stocks:get": (payload) => getQuotes(payload),
   "reader:get": (payload) => readArticle(payload.url),
   "reader:translate": (payload) => translateReaderArticle(payload),
   "preview:get": (payload) => getSitePreview(payload),
@@ -462,6 +585,7 @@ const routeMessage = createMessageRouter({
 });
 
   let started = false;
+  let historyInvalidationRegistered = false;
   return {
     ensureReady: ensureRuntime,
     handleMessage: handleRequest,
@@ -478,6 +602,18 @@ const routeMessage = createMessageRouter({
   function start() {
     if (started) return;
     started = true;
+
+globalThis.addEventListener?.("fetch", createHeaderCoverFetchHandler({
+  cache: headerCoverCache,
+  origin: new URL(chrome.runtime.getURL("/")).origin,
+  clients: globalThis.clients,
+  isResetting: () => factoryResetting,
+  track: (operation) => {
+    activeRequests.add(operation);
+    operation.finally(() => activeRequests.delete(operation)).catch(() => {});
+    return operation;
+  },
+}));
 
 chrome.runtime.onInstalled.addListener((details = {}) => {
   ensureRuntime().catch(() => {});
@@ -496,17 +632,44 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   handleAlarm(alarm);
 });
 
-for (const event of [chrome.bookmarks.onCreated, chrome.bookmarks.onChanged, chrome.bookmarks.onMoved, chrome.bookmarks.onRemoved]) {
-  event.addListener(handleBookmarksChanged);
+for (const event of [chrome.bookmarks.onCreated, chrome.bookmarks.onChanged, chrome.bookmarks.onMoved, chrome.bookmarks.onRemoved,
+  chrome.bookmarks.onChildrenReordered, chrome.bookmarks.onImportEnded]) {
+  event?.addListener(handleBookmarksChanged);
 }
 
 chrome.permissions.onAdded.addListener(handlePermissionsAdded);
 
 chrome.permissions.onRemoved.addListener(handlePermissionsRemoved);
 
+registerHistoryInvalidation();
+
 chrome.storage.onChanged?.addListener((changes, areaName) => {
   if (factoryResetting) return;
   contentSyncService.handleStorageChanged(changes, areaName);
+  const changedSettings = areaName === "sync" ? changes[SETTINGS_KEY] : null;
+  if (changedSettings && JSON.stringify(changedSettings.oldValue?.dashboardCardOrder) !== JSON.stringify(changedSettings.newValue?.dashboardCardOrder)) {
+    broadcast("settings.changed", { dashboardLayoutOnly: true, dashboardCardOrder: normalizeSettings(changedSettings.newValue).dashboardCardOrder });
+  }
+  if (changedSettings && (changedSettings.oldValue?.mcpEnabled !== changedSettings.newValue?.mcpEnabled || changedSettings.oldValue?.dashboardMode !== changedSettings.newValue?.dashboardMode
+    || changedSettings.oldValue?.botOrganizeNews !== changedSettings.newValue?.botOrganizeNews
+    || changedSettings.oldValue?.botGenerateBrief !== changedSettings.newValue?.botGenerateBrief
+    || changedSettings.oldValue?.botAnswerQuestions !== changedSettings.newValue?.botAnswerQuestions)) {
+    cacheMutations.invalidate(); refreshCoordinator.invalidate();
+    broadcast("settings.changed", { mcpSettingsChanged: true });
+  }
+  if (areaName === "sync" && Object.hasOwn(changes, SYNC_CREDENTIALS_KEY)) {
+    cacheMutations.invalidate();
+    refreshCoordinator.invalidate();
+    settingsService.mutate(async () => {
+      if (factoryResetting) return;
+      const settings = await getSettings();
+      await cacheMutations.run(() => setRecord("daily-digest", null, "cache"));
+      await pruneBravePreviewCaches();
+      await setAiAutoStatus(await aiConfigured(settings) ? defaultAiAutoStatus() : { ...defaultAiAutoStatus(), phase: "not-ready" }, false);
+      broadcast("settings.changed", { automaticAiChanged: true, imageSearchChanged: true });
+      broadcast("dashboard.updated", { reason: "credential-sync" });
+    }).catch(() => broadcast("settings.changed", { credentialSyncChanged: true }));
+  }
 });
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
@@ -550,13 +713,28 @@ function handleAiStreamPort(port) {
 }
 
 function handleBookmarksChanged() {
+  invalidateBookmarkModel();
+  localSearchService.invalidate();
+  broadcast("search.invalidated", { reason: "bookmarks-changed" });
   if (factoryResetting) return;
   scheduleBookmarkRefresh();
   pruneResearchCaches().catch(() => {});
 }
 
+function registerHistoryInvalidation() {
+  if (historyInvalidationRegistered || !chrome.history?.onVisitRemoved) return;
+  chrome.history.onVisitRemoved.addListener(() => {
+    localSearchService.invalidate();
+    broadcast("search.invalidated", { reason: "history-removed" });
+  });
+  historyInvalidationRegistered = true;
+}
+
 function handlePermissionsAdded(permissions) {
   if (factoryResetting) return;
+  registerHistoryInvalidation();
+  localSearchService.invalidate();
+  broadcast("search.invalidated", { reason: "permissions-changed" });
   nextPermissionEpoch();
   handleAddedOrigins(permissions?.origins || []).catch(() => {
     broadcast("settings.changed", { permissionsChanged: true });
@@ -564,6 +742,9 @@ function handlePermissionsAdded(permissions) {
 }
 
 function handlePermissionsRemoved(permissions) {
+  invalidateBookmarkModel();
+  localSearchService.invalidate();
+  broadcast("search.invalidated", { reason: "permissions-changed" });
   if (factoryResetting) return;
   const origins = permissions?.origins || [];
   pruneResearchCaches({ removedOrigins: origins }).catch(() => {});
@@ -591,6 +772,7 @@ async function ensureRuntime() {
     messageParams: {},
   });
   await pruneCache();
+  await headerCoverCache.prune().catch(() => {});
   await pruneResearchCaches().catch(() => {});
   await reconcilePermissionCache().catch(() => {});
 }
@@ -667,6 +849,13 @@ async function runAiWithinQuota(settings, operation) {
     if (shouldReleaseAutomaticAiQuota(error)) await quotaManager.release(reservation);
     throw error;
   }
+}
+
+async function runAiBatchWithinQuota(settings, count, operation) {
+  const reservation = await quotaManager.reserve(settings.dailyAiLimit, count);
+  if (!reservation) return { usedAi: false, value: null };
+  try { return { usedAi: true, value: await operation(reservation.units) }; }
+  catch (error) { if (shouldReleaseAutomaticAiQuota(error)) await quotaManager.release(reservation); throw error; }
 }
 
 function broadcast(type, payload) {

@@ -21,7 +21,7 @@ export function prefersReducedMotion({ includeHidden = true } = {}) {
 export function animateElement(element, keyframes, options = {}) {
   if (typeof element?.animate !== "function" || prefersReducedMotion()) return null;
   const easing = MOTION_EASING[options.easing || "standard"] || MOTION_EASING.standard;
-  element.style?.setProperty?.("will-change", "transform, opacity");
+  element.style?.setProperty?.("will-change", options.willChange ?? "transform, opacity");
   const animation = element.animate(keyframes, {
     duration: MOTION_DURATION[options.duration || "state"] || MOTION_DURATION.state,
     delay: Math.max(0, Number(options.delay) || 0),
@@ -34,6 +34,29 @@ export function animateElement(element, keyframes, options = {}) {
 }
 
 const actionFeedbackAnimations = new WeakMap();
+const batchFeedbackAnimations = new WeakMap();
+
+export function playBatchActionFeedback(element) {
+  if (!element) return null;
+  const previous = batchFeedbackAnimations.get(element);
+  const currentTransform = previous ? globalThis.getComputedStyle?.(element)?.transform : "";
+  previous?.cancel();
+  batchFeedbackAnimations.delete(element);
+  if (element.disabled || typeof element.animate !== "function" || prefersReducedMotion()) return null;
+  // Keep transient feedback out of DOM attributes so header reconciliation retains the button.
+  const animation = element.animate([
+    { transform: currentTransform && currentTransform !== "none" ? currentTransform : "translateY(1px) scale(.985)", offset: 0, easing: MOTION_EASING.enter },
+    { transform: "translateY(0) scale(1.028)", offset: .42, easing: MOTION_EASING.standard },
+    { transform: "translateY(0) scale(1)", offset: 1 },
+  ], { duration: MOTION_DURATION.emphasis, fill: "none" });
+  batchFeedbackAnimations.set(element, animation);
+  const cleanup = () => {
+    if (batchFeedbackAnimations.get(element) === animation) batchFeedbackAnimations.delete(element);
+  };
+  animation.addEventListener("finish", cleanup, { once: true });
+  animation.addEventListener("cancel", cleanup, { once: true });
+  return animation;
+}
 
 export function playActionFeedback(element) {
   if (!element) return null;
@@ -104,23 +127,6 @@ export function createLoadingPhaseController(elements, options = {}) {
   }, ambientDelay);
 
   return { finish };
-}
-
-export function createLoadingSurfaceController(element, options = {}) {
-  if (!element) return { finish() {} };
-  element.classList.add("ai-loading-surface");
-  if (options.ariaBusy !== false) element.setAttribute("aria-busy", "true");
-  const phases = createLoadingPhaseController([element], options);
-  let finished = false;
-  return {
-    finish() {
-      if (finished) return;
-      finished = true;
-      phases.finish();
-      element.classList.remove("ai-loading-surface");
-      if (options.ariaBusy !== false) element.removeAttribute("aria-busy");
-    },
-  };
 }
 
 export function captureKeyedLayout(root, selector = "[data-key]") {

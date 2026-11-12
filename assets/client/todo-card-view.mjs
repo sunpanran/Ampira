@@ -13,20 +13,36 @@ import {
   prefersReducedMotion,
   restartMotionClass,
 } from "./motion.mjs";
+import { setKeyboardShortcutHint } from "./keyboard-shortcuts.mjs";
+import { nodesEqualIgnoringIconLoadState } from "./dom.mjs";
 
 const TODO_COMPOSER_ID = "utilityTodoComposer";
 
 export function createTodoCardView(options) {
   const {
     state, t, createIcon, writeJson, requestRender, getContentRoot, getFocusFallback,
+    instanceId = "utility", onChange = () => {},
   } = options;
   let composerOpen = false;
+  let limitNotice = false;
+  let composer = null;
+  let addIcon = "";
+  const composerId = `${TODO_COMPOSER_ID}-${instanceId}`;
+  const wrapper = document.createElement("div");
+  const notice = document.createElement("p");
+  notice.className = "utility-inline-status todo-limit-feedback";
+  notice.setAttribute("role", "status");
+  const empty = document.createElement("p");
+  empty.className = "utility-inline-status todo-empty";
+  const list = document.createElement("div");
+  list.className = "todo-list utility-scroll-list";
+  wrapper.append(notice, empty, list);
 
   const addButton = document.createElement("button");
-  addButton.className = "efficiency-action utility-todo-add-toggle";
+  addButton.className = "action-toggle utility-todo-add-toggle";
   addButton.type = "button";
   addButton.hidden = true;
-  addButton.setAttribute("aria-controls", TODO_COMPOSER_ID);
+  addButton.setAttribute("aria-controls", composerId);
   addButton.addEventListener("click", toggleComposer);
 
   return {
@@ -34,6 +50,7 @@ export function createTodoCardView(options) {
     createContent,
     resetComposer,
     syncAddButton,
+    openComposer,
   };
 
   function syncAddButton(active) {
@@ -49,39 +66,55 @@ export function createTodoCardView(options) {
     const atLimit = state.todos.length >= TODO_ITEM_LIMIT;
     if (atLimit) composerOpen = false;
     addButton.disabled = atLimit;
-    addButton.replaceChildren(createIcon(composerOpen ? "x-close" : "plus", "todo-composer-icon"));
+    const icon = composerOpen ? "x-close" : "plus";
+    if (addIcon !== icon) { addIcon = icon; addButton.replaceChildren(createIcon(icon, "action-toggle-icon")); }
     const label = atLimit
       ? t("todo.limit", { count: TODO_ITEM_LIMIT })
       : t(composerOpen ? "todo.cancelAdd" : "todo.addLabel");
-    addButton.title = label;
+    setKeyboardShortcutHint(addButton, "todo", label, state.settings, !composerOpen);
     addButton.setAttribute("aria-label", label);
     addButton.setAttribute("aria-expanded", String(composerOpen));
     return state.todos.filter((item) => !item.completed).length;
   }
 
   function createContent() {
-    const wrapper = document.createElement("div");
     wrapper.className = `todo-content${composerOpen ? " is-composing" : ""}`;
-    if (composerOpen) wrapper.append(createComposer());
-
-    const items = sortedTodoItems(state.todos);
-    if (!items.length) {
-      const empty = document.createElement("p");
-      empty.className = "utility-inline-status todo-empty";
-      empty.textContent = t("todo.empty");
-      wrapper.append(empty);
-      return wrapper;
+    notice.hidden = !(limitNotice && state.todos.length >= TODO_ITEM_LIMIT);
+    notice.textContent = t("todo.limit", { count: TODO_ITEM_LIMIT });
+    if (composerOpen && !composer) {
+      composer = createComposer();
+      wrapper.insertBefore(composer, empty);
     }
-    const list = document.createElement("div");
-    list.className = "todo-list utility-scroll-list";
-    list.append(...items.map(createTodoRow));
-    wrapper.append(list);
+    if (composer) {
+      composer.hidden = !composerOpen;
+      composer.querySelector("input").placeholder = t("todo.placeholder");
+      composer.querySelector("input").setAttribute("aria-label", t("todo.addLabel"));
+      composer.querySelector("button").textContent = t("todo.add");
+    }
+    const items = sortedTodoItems(state.todos);
+    empty.textContent = t("todo.empty");
+    empty.hidden = Boolean(items.length);
+    list.hidden = !items.length;
+    const focused = document.activeElement;
+    const focusedKey = list.contains(focused) ? focused.closest(".todo-row")?.dataset.key : null;
+    const focusedAction = focused?.classList.contains("todo-remove") ? ".todo-remove" : ".todo-toggle";
+    const rows = new Map(Array.from(list.children, (row) => [row.dataset.key, row]));
+    const nextRows = items.map((item) => {
+      const next = createTodoRow(item), current = rows.get(item.id);
+      return current && nodesEqualIgnoringIconLoadState(current, next) ? current : next;
+    });
+    nextRows.forEach((row, index) => { if (list.children[index] !== row) list.insertBefore(row, list.children[index] || null); });
+    while (list.children.length > nextRows.length) list.lastElementChild.remove();
+    if (focusedKey && document.activeElement !== focused) {
+      const row = nextRows.find((node) => node.dataset.key === focusedKey);
+      (row?.querySelector(focusedAction) || (addButton.disabled ? getFocusFallback() : addButton)).focus({ preventScroll: true });
+    }
     return wrapper;
   }
 
   function createComposer() {
     const form = document.createElement("form");
-    form.id = TODO_COMPOSER_ID;
+    form.id = composerId;
     form.className = "utility-entry-form todo-entry-form";
     const input = document.createElement("input");
     input.className = "utility-entry-input";
@@ -120,25 +153,32 @@ export function createTodoCardView(options) {
     const text = document.createElement("span");
     text.className = "efficiency-row-title todo-title";
     text.textContent = item.text;
+    text.title = item.text;
     const remove = document.createElement("button");
     remove.className = "todo-remove";
     remove.type = "button";
     remove.setAttribute("aria-label", t("todo.delete", { title: item.text }));
     remove.append(createIcon("trash", "todo-action-icon"));
     remove.addEventListener("click", () => deleteTodo(item.id));
-    row.append(toggle, text, remove);
+    row.prepend(toggle, text);
+    row.append(remove);
     return row;
   }
 
   function toggleComposer() {
-    if (state.todos.length >= TODO_ITEM_LIMIT) return;
-    composerOpen = !composerOpen;
-    requestRender();
-    if (composerOpen) {
-      queueMicrotask(() => getContentRoot().querySelector(".todo-entry-form input")?.focus({ preventScroll: true }));
-      return;
+    if (composerOpen) closeComposer();
+    else openComposer();
+  }
+
+  function openComposer() {
+    if (state.todos.length >= TODO_ITEM_LIMIT) { limitNotice = true; requestRender(); return false; }
+    limitNotice = false;
+    if (!composerOpen) {
+      composerOpen = true;
+      requestRender();
     }
-    focusAddButton();
+    queueMicrotask(() => getContentRoot().querySelector(".todo-entry-form input")?.focus({ preventScroll: true }));
+    return true;
   }
 
   function closeComposer() {
@@ -150,6 +190,7 @@ export function createTodoCardView(options) {
 
   function resetComposer() {
     composerOpen = false;
+    limitNotice = false;
   }
 
   function addTodo(event, input) {
@@ -162,6 +203,7 @@ export function createTodoCardView(options) {
     }
     const layout = captureTodoLayout();
     state.todos = [item, ...state.todos];
+    input.value = "";
     composerOpen = false;
     persistTodos();
     renderTodoMotion(layout, item.id);
@@ -214,6 +256,7 @@ export function createTodoCardView(options) {
   function persistTodos() {
     state.todos = normalizeTodoItems(state.todos);
     writeJson(TODO_ITEMS_KEY, state.todos);
+    onChange();
   }
 
   function focusAddButton() {

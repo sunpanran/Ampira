@@ -1,6 +1,6 @@
-export const DEFAULT_ACCENT_THEME = "violet";
-export const DEFAULT_CUSTOM_ACCENT_COLOR = "#9152FF";
-export const DEFAULT_COLOR_MODE = "dark";
+export const DEFAULT_ACCENT_THEME = "cyan";
+export const DEFAULT_CUSTOM_ACCENT_COLOR = "#06B6D4";
+export const DEFAULT_COLOR_MODE = "system";
 export const ACCENT_THEMES = Object.freeze({
   violet: "#9152FF",
   cyan: "#06B6D4",
@@ -19,13 +19,17 @@ export function normalizeColorMode(value) {
   return mode === "system" || mode === "dark" || mode === "light" ? mode : DEFAULT_COLOR_MODE;
 }
 
+export function normalizeNavPosition(value) {
+  return ["top", "bottom", "left", "right"].includes(value) ? value : "left";
+}
+
 export function normalizeHexColor(value) {
   const match = String(value || "").trim().match(/^#?([a-f0-9]{6})$/i);
   return match ? `#${match[1].toUpperCase()}` : "";
 }
 
 export function paletteFromAccent(accent) {
-  const accentRgb = hexToRgb(accent) || hexToRgb(DEFAULT_CUSTOM_ACCENT_COLOR);
+  const accentRgb = hexToRgb(accent) || hexToRgb(ACCENT_THEMES[DEFAULT_ACCENT_THEME]);
   return { accent: rgbToHex(accentRgb), accentRgb };
 }
 

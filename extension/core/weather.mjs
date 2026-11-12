@@ -4,7 +4,7 @@ export const WEATHER_ORIGINS = Object.freeze([
   WEATHER_GEOCODING_ORIGIN,
   WEATHER_FORECAST_ORIGIN,
 ]);
-export const WEATHER_CACHE_KEY = "weather-forecast-v3";
+export const WEATHER_CACHE_KEY = "weather-forecast-v4";
 export const WEATHER_CACHE_FRESH_MS = 30 * 60 * 1000;
 export const WEATHER_CACHE_STALE_MS = 6 * 60 * 60 * 1000;
 export const WEATHER_QUERY_MAX_LENGTH = 80;
@@ -81,6 +81,7 @@ export function normalizeWeatherForecastResponse(value) {
     const day = {
       date: normalizeIsoDate(date),
       weatherCode: conditionWeatherCode(weatherConditionKey(weatherCodes[sourceIndex])),
+      dominantWeatherCode: dominantDailyWeatherCode(hourly, date, weatherCodes[sourceIndex]),
       temperatureMaxC: boundedNumber(maximums[sourceIndex], -150, 100),
       temperatureMinC: boundedNumber(minimums[sourceIndex], -150, 100),
       precipitationProbabilityPeak: boundedInteger(precipitationPeaks[sourceIndex], 0, 100),
@@ -96,13 +97,30 @@ export function normalizeWeatherForecastResponse(value) {
   };
 }
 
-function weatherHourIndices(times, date, minimumHour, maximumHour) {
-  const indices = [];
-  for (let index = 0; index < times.length; index += 1) {
-    const parsed = normalizeLocalDateTime(times[index]);
-    if (parsed?.date === date && parsed.hour >= minimumHour && parsed.hour <= maximumHour) indices.push(index);
+function dominantDailyWeatherCode(hourly, date, fallback) {
+  const indices = weatherHourIndices(hourly.time, date, 0, 23);
+  const hours = new Set(indices.map((index) => normalizeLocalDateTime(hourly.time[index]).hour));
+  const codes = indices.map((index) => conditionWeatherCode(weatherConditionKey(hourly.weather_code?.[index])));
+  if (indices.length !== 24 || hours.size !== 24 || codes.includes(null)) {
+    return conditionWeatherCode(weatherConditionKey(fallback));
   }
-  return indices;
+  const counts = new Map();
+  for (const code of codes) counts.set(code, (counts.get(code) || 0) + 1);
+  const ranked = [...counts].sort(([a, countA], [b, countB]) => (
+    countB - countA || b - a
+  ));
+  const rainHours = (counts.get(51) || 0) + (counts.get(61) || 0);
+  const [main, count] = ranked[0];
+  return rainHours > count || rainHours === count && main <= 61
+    ? ranked.find(([code]) => code === 51 || code === 61)[0]
+    : main;
+}
+
+function weatherHourIndices(times, date, minimumHour, maximumHour) {
+  return times.flatMap((time, index) => {
+    const parsed = normalizeLocalDateTime(time);
+    return parsed?.date === date && parsed.hour >= minimumHour && parsed.hour <= maximumHour ? [index] : [];
+  });
 }
 
 function normalizeLocalDateTime(value) {
@@ -167,7 +185,7 @@ export function weatherConditionKey(codeValue) {
   if ([51, 53, 55, 56, 57].includes(code)) return "drizzle";
   if ([61, 63, 65, 66, 67, 80, 81, 82].includes(code)) return "rain";
   if ([71, 73, 75, 77, 85, 86].includes(code)) return "snow";
-  if ([95, 96, 99].includes(code)) return "thunderstorm";
+  if ([95, 96, 97, 99].includes(code)) return "thunderstorm";
   return "unknown";
 }
 

@@ -1,8 +1,12 @@
 import { cleanAiAnswerMarkup, parseAiAnswer } from "./ai-answer-format.mjs";
+import { renderAiMarkdown } from "./ai-markdown.mjs";
 import { copyText } from "./clipboard.mjs";
 import { createThemedIcon } from "./icons.mjs";
-import { animateElement, createLoadingSurfaceController, MOTION_DURATION } from "./motion.mjs";
-import { createAiLoadingState } from "./ui-primitives.mjs";
+import { animateElement, createLoadingPhaseController, MOTION_DURATION } from "./motion.mjs";
+import { createAiLoadingState, createAiTaskStatus } from "./ui-primitives.mjs";
+import { isAiTaskBusy } from "./ai-task-state.mjs";
+import { createBotConversationController } from "./bot-conversation-controller.mjs";
+import { usesBotChat } from "../../extension/core/bot-mode.mjs";
 const AI_COPY_FEEDBACK_MS = 1600;
 const INITIAL_QUERY_MAX_CHARS = 8000;
 const FOLLOWUP_MAX_CHARS = 8000;
@@ -51,13 +55,22 @@ export function createAiSearchController(options) {
   let researchFolderStatus = "idle";
   let researchView = null;
   let researchViewPromise = null;
-  let markdownView = null;
-  let markdownViewPromise = null;
   let activeStreamRequestId = "";
   let activePendingAnswer = null;
   let editingMessageId = 0;
   let editRestoreState = null;
   let streamRenderFrame = 0;
+  let botMode = usesBotChat(state.data);
+  const botConversation = createBotConversationController({ state, els, t, apiPost,
+    appendMessage: appendConversationMessage, finishMessage: finishConversationResponse,
+    setMeta: setAiSearchMeta, syncComposer: syncComposerState,
+    reset: () => resetConversation({ animate: false, syncCopy: false }),
+    removeMessages: (models) => {
+      const ids = new Set(models.map((model) => model.id));
+      session.messages = session.messages.filter((model) => !ids.has(model.id));
+      models.forEach((model) => model.element?.remove());
+    },
+  });
 
   return {
     open,
@@ -73,10 +86,12 @@ export function createAiSearchController(options) {
     loadResearchFolders,
     trapFocus,
     syncLocale,
-    syncProviderCapability: syncResearchControls,
+    syncProviderCapability,
+    suspend,
   };
 
   function open(query = "", shouldRun = false) {
+    syncConversationMode();
     const inputQuery = String(query || "");
     const startsFresh = shouldRun && Boolean(inputQuery.trim());
     const wasOpen = els.aiSearchOverlay.classList.contains("open");
@@ -87,7 +102,7 @@ export function createAiSearchController(options) {
     if (closeTimer) window.clearTimeout(closeTimer);
     closeTimer = 0;
     els.aiSearchOverlay.classList.remove("closing");
-    if (startsFresh) resetConversation({ animate: false, syncCopy: false });
+    if (startsFresh && !usesBotChat(state.data)) resetConversation({ animate: false, syncCopy: false });
     els.aiSearchOverlay.classList.add("open");
     options.syncSearchCopy({ forceDialog: true });
     if (session.meta) els.aiSearchMeta.textContent = session.meta;
@@ -97,17 +112,18 @@ export function createAiSearchController(options) {
     options.setActiveNavButton(options.navButton);
     if (startsFresh) {
       els.aiSearchInput.value = inputQuery;
-      options.clearTopSearchFilter();
     } else if (inputQuery && !session.messages.length) {
       els.aiSearchInput.value = inputQuery;
     }
     syncComposerState();
     autoResizeComposer();
     focusComposer();
+    if (usesBotChat(state.data)) void botConversation.open();
     if (startsFresh) void run(inputQuery);
   }
 
   function close() {
+    botConversation.close();
     if (!els.aiSearchOverlay.classList.contains("open") || els.aiSearchOverlay.classList.contains("closing")) return;
     els.aiSearchOverlay.classList.add("closing");
     const closeDelay = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : MOTION_DURATION.state;
@@ -119,13 +135,24 @@ export function createAiSearchController(options) {
     }, closeDelay);
   }
 
+  function suspend() {
+    botConversation.close();
+    panelAnimation?.cancel?.();
+    panelAnimation = null;
+    if (closeTimer) window.clearTimeout(closeTimer);
+    closeTimer = 0;
+    els.aiSearchOverlay.classList.remove("closing");
+  }
+
   function newConversation() {
+    if (usesBotChat(state.data)) { botConversation.newConversation(); focusComposer(); return; }
     stopCurrentRequest({ preservePartial: false });
     resetConversation({ animate: true, syncCopy: true });
     focusComposer();
   }
 
   function submitOrStop() {
+    if (usesBotChat(state.data)) { if (!state.aiSearchBusy) void botConversation.send(els.aiSearchInput.value); return; }
     if (state.aiSearchBusy) {
       stopCurrentRequest({ preservePartial: true });
       return;
@@ -134,6 +161,8 @@ export function createAiSearchController(options) {
   }
 
   async function run(rawQuery, runOptions = {}) {
+    syncConversationMode();
+    if (usesBotChat(state.data)) return botConversation.send(rawQuery);
     const rawText = String(rawQuery || "").trim();
     if (!rawText || state.aiSearchBusy) return;
     const startsNewArticle = looksLikeUrl(rawText);
@@ -384,7 +413,7 @@ export function createAiSearchController(options) {
     activeRequestScope = null;
     els.aiAnswer.hidden = true;
     els.aiAnswer.dataset.mode = "conversation";
-    els.aiAnswer.classList.remove("is-resolving", "ai-loading-surface");
+    els.aiAnswer.classList.remove("is-resolving");
     els.aiAnswer.removeAttribute("aria-busy");
     els.aiAnswer.replaceChildren();
     els.aiSearchPanel.classList.remove("has-conversation");
@@ -402,6 +431,12 @@ export function createAiSearchController(options) {
   }
 
   function applyConversationCopy() {
+    if (usesBotChat(state.data)) {
+      els.aiSearchInput.maxLength = 6000;
+      els.aiSearchInput.placeholder = t("bot.messagePlaceholder");
+      els.aiSearchInput.setAttribute("aria-label", t("bot.messagePlaceholder"));
+      return;
+    }
     const context = session.context;
     const inputKey = context?.type === "article"
       ? "aiSearch.followupInput"
@@ -535,11 +570,13 @@ export function createAiSearchController(options) {
         paragraphCount: 1,
         variant: "compact",
       }));
+    } else if (model.role === "user") {
+      renderMarkdownBody(model, body);
     } else {
       body.textContent = model.text;
     }
     bubble.append(body);
-    if (model.role === "user") bubble.append(createEditMessageButton(model));
+    if (model.role === "user" && !usesBotChat(state.data)) bubble.append(createEditMessageButton(model));
     message.append(bubble);
     message.addEventListener("animationend", () => message.classList.remove("is-entering"), { once: true });
     model.element = message;
@@ -580,6 +617,7 @@ export function createAiSearchController(options) {
       finishReason: String(response.finishReason || ""),
       interrupted: response.interrupted === true,
       retryable: response.retryable === true,
+      taskPhase: response.taskPhase || "",
     });
     message.className = [
       "ai-conversation-message",
@@ -593,9 +631,11 @@ export function createAiSearchController(options) {
       "is-resolving",
     ].filter(Boolean).join(" ");
     message.removeAttribute("aria-busy");
+    if (isAiTaskBusy(model.taskPhase)) message.setAttribute("aria-busy", "true");
     const body = message.querySelector(".ai-conversation-body");
     body.replaceChildren();
-    await renderAssistantBody(model, body, researchUi);
+    if (model.taskPhase) body.append(createAiTaskStatus(model.taskPhase, content));
+    else await renderAssistantBody(model, body, researchUi);
     if (!message.isConnected) return;
     if (responseMode !== "research") appendLinks(model.links, body);
     appendResponseActions(message, model);
@@ -607,7 +647,7 @@ export function createAiSearchController(options) {
   function appendMessageMeta(message, model) {
     const footer = ensureMessageFooter(message);
     const meta = document.createElement("div");
-    meta.className = "ai-message-meta";
+    meta.className = `ai-message-meta${model.mode === "bot" && model.status === "complete" ? " sr-only" : ""}`;
     const statusKey = model.status === "error"
       ? "aiSearch.message.error"
       : model.status === "stopped"
@@ -621,7 +661,7 @@ export function createAiSearchController(options) {
           : model.usedAi ? "aiSearch.message.ai" : "aiSearch.message.local";
     const origin = document.createElement("span");
     origin.className = "ai-message-origin";
-    origin.textContent = t(statusKey);
+    origin.textContent = t(model.mode === "bot" ? "bot.agent" : statusKey);
     meta.append(origin);
     if (model.cached) {
       const cached = document.createElement("span");
@@ -757,7 +797,7 @@ export function createAiSearchController(options) {
   }
 
   function appendGenerationAction(target, model) {
-    if (model.role !== "assistant") return;
+    if (model.role !== "assistant" || model.mode === "bot") return;
     const isLatest = [...session.messages].reverse().find((item) => item.role === "assistant") === model;
     if (!isLatest) return;
     if (model.incomplete) {
@@ -845,7 +885,7 @@ export function createAiSearchController(options) {
     finishAiLoadingMotion();
     aiLoadingMotion = {
       target,
-      controller: createLoadingSurfaceController(target),
+      controller: createLoadingPhaseController([target]),
     };
   }
 
@@ -870,26 +910,17 @@ export function createAiSearchController(options) {
       loadedResearchView.renderResearchAnswer({ model, target, t, openExternal: options.openExternal });
       return;
     }
-    const markdown = await loadMarkdownView();
-    if (!target.isConnected) return;
-    markdown.renderAiMarkdown(target, model.text, {
+    renderMarkdownBody(model, target);
+  }
+
+  function renderMarkdownBody(model, target) {
+    renderAiMarkdown(target, model.text, {
       openExternal: options.openExternal,
       labels: {
         copyCode: t("aiSearch.copyCode"),
         codeCopied: t("aiSearch.codeCopied"),
       },
     });
-  }
-
-  async function loadMarkdownView() {
-    if (markdownView) return markdownView;
-    if (!markdownViewPromise) {
-      markdownViewPromise = import("./ai-markdown.mjs").then((module) => {
-        markdownView = module;
-        return module;
-      });
-    }
-    return markdownViewPromise;
   }
 
   function renderStructuredAnswer(text, target) {
@@ -1011,7 +1042,7 @@ export function createAiSearchController(options) {
   }
 
   function handleResearchFolderChange() {
-    if (!aiResearchScopesAvailable(state.data?.ai)) return;
+    if (usesBotChat(state.data) || !aiResearchScopesAvailable(state.data?.ai)) return;
     const selected = researchFolders.find((folder) => folder.id === els.aiResearchFolder.value);
     draftResearchScope.bookmarkFolderId = selected?.id || "";
     draftResearchScope.bookmarkFolderTitle = selected?.title || "";
@@ -1020,7 +1051,7 @@ export function createAiSearchController(options) {
   }
 
   function handleWebSearchToggle() {
-    if (!aiWebSearchSupported(state.data?.ai)) return;
+    if (usesBotChat(state.data) || !aiWebSearchSupported(state.data?.ai)) return;
     draftResearchScope.webSearch = !draftResearchScope.webSearch;
     draftResearchScope.cursor = "";
     syncResearchControls();
@@ -1080,14 +1111,14 @@ export function createAiSearchController(options) {
 
   function availableResearchScope(value = {}, cursorOverride) {
     const scope = normalizeUiResearchScope(value, cursorOverride);
-    if (!aiResearchScopesAvailable(state.data?.ai)) return emptyResearchScope();
+    if (usesBotChat(state.data) || !aiResearchScopesAvailable(state.data?.ai)) return emptyResearchScope();
     if (!aiWebSearchSupported(state.data?.ai)) scope.webSearch = false;
     return scope;
   }
 
   function syncResearchControls() {
-    const researchScopesAvailable = aiResearchScopesAvailable(state.data?.ai);
-    const webSearchSupported = aiWebSearchSupported(state.data?.ai);
+    const researchScopesAvailable = !usesBotChat(state.data) && aiResearchScopesAvailable(state.data?.ai);
+    const webSearchSupported = !usesBotChat(state.data) && aiWebSearchSupported(state.data?.ai);
     if (!researchScopesAvailable) {
       draftResearchScope = emptyResearchScope();
     } else if (!webSearchSupported && draftResearchScope.webSearch) {
@@ -1114,10 +1145,27 @@ export function createAiSearchController(options) {
     syncComposerToolsLayout();
   }
 
+  function syncConversationMode() {
+    const next = usesBotChat(state.data);
+    if (next === botMode) return false;
+    botMode = next;
+    botConversation.deactivate();
+    resetConversation({ animate: false, syncCopy: true });
+    return true;
+  }
+
+  function syncProviderCapability() {
+    const changed = syncConversationMode();
+    syncResearchControls();
+    if (changed && botMode && els.aiSearchOverlay.classList.contains("open") && !els.aiSearchOverlay.classList.contains("closing")) {
+      void botConversation.open();
+    }
+  }
+
   function syncComposerToolsLayout() {
     const scopeControls = els.aiResearchFolder.closest(".ai-search-scope-controls");
     if (!scopeControls) return;
-    const showScopeTools = aiResearchScopesAvailable(state.data?.ai);
+    const showScopeTools = !usesBotChat(state.data) && aiResearchScopesAvailable(state.data?.ai);
     const showTransientTools = els.aiSearchNextTurn.hidden === false || els.aiSearchEditState?.hidden === false;
     const showTools = showScopeTools || showTransientTools;
     scopeControls.hidden = !showTools;
@@ -1167,6 +1215,7 @@ export function createAiSearchController(options) {
         }));
         continue;
       }
+      if (model.taskPhase) continue;
       if (model.mode === "research") {
         model.element.querySelector(".ai-research-sources")?.remove();
         const body = model.element.querySelector(".ai-conversation-body");
@@ -1218,9 +1267,9 @@ export function createAiSearchController(options) {
   }
 
   function syncComposerState() {
-    const stopping = state.aiSearchBusy;
-    els.aiSearchSubmit.disabled = !stopping && !els.aiSearchInput.value.trim();
-    const label = t(stopping ? "aiSearch.stop" : "aiSearch.send");
+    const stopping = state.aiSearchBusy && !usesBotChat(state.data);
+    els.aiSearchSubmit.disabled = Boolean(usesBotChat(state.data) && state.aiSearchBusy) || !stopping && !els.aiSearchInput.value.trim();
+    const label = t(usesBotChat(state.data) ? "bot.send" : stopping ? "aiSearch.stop" : "aiSearch.send");
     els.aiSearchSubmit.setAttribute("aria-label", label);
     els.aiSearchSubmit.title = label;
     els.aiSearchSubmit.replaceChildren(createThemedIcon(stopping ? "stop-square" : "send-up", "btn-icon"));
@@ -1270,6 +1319,7 @@ export function createAiSearchController(options) {
   }
 
   function restoreFocus() {
+    if (options.restoreFocus) { options.restoreFocus(); lastFocusedElement = null; return; }
     const target = lastFocusedElement?.isConnected ? lastFocusedElement : options.navButton;
     if (target?.isConnected && typeof target.focus === "function") {
       target.focus({ preventScroll: true });

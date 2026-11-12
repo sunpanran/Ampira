@@ -169,10 +169,10 @@ export function pipelineStages(active) {
   return { discovering: "complete", fetching: active === "fetching" ? "running" : "complete", extracting: "complete", deduplicating: "complete", enriching: "complete", complete: active === "complete" ? "running" : "pending" };
 }
 
-export async function mapWithConcurrency(items, limit, worker) {
+export async function mapWithConcurrency(items, limit, worker, { signal, isCurrent = () => true } = {}) {
   let index = 0;
   const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
-    while (index < items.length) await worker(items[index++]);
+    while (index < items.length && !signal?.aborted && isCurrent()) await worker(items[index++]);
   });
   await Promise.all(runners);
 }

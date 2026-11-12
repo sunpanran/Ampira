@@ -1,7 +1,12 @@
-import { animatePanelEntrance, nodesEqualIgnoringIconLoadState } from "./dom.mjs";
-import { createUtilityCardView } from "./utility-card-view.mjs";
-import { animateKeyedLayout, captureKeyedLayout, createLoadingSurfaceController } from "./motion.mjs";
-import { createAiLoadingState } from "./ui-primitives.mjs";
+import { animatePanelEntrance, nodesEqualIgnoringIconLoadState, spanText } from "./dom.mjs";
+import { createSwitchableCardView } from "./switchable-card-view.mjs";
+import { animateKeyedLayout, captureKeyedLayout } from "./motion.mjs";
+import { briefTaskPhase, isAiTaskBusy } from "./ai-task-state.mjs";
+import { usesBotBrief } from "../../extension/core/bot-mode.mjs";
+import { createDigestCardView } from "./digest-card-view.mjs";
+import { createWeatherCardState } from "./weather-card-state.mjs";
+import { SWITCHABLE_CARD_IDS, todoCardTarget } from "./dashboard-card-types.mjs";
+import { buildDailyEventCandidates } from "../../extension/core/daily-events.mjs";
 
 export function shouldShowQueueReadAll(items) {
   return Boolean(items?.length);
@@ -9,159 +14,88 @@ export function shouldShowQueueReadAll(items) {
 
 export function createEfficiencyView(options) {
   const {
-    state, els, t, tc, apiPost, confirmManualAiUsage, createEmptyState, createIcon, createThemedIcon,
-    localizedStatusMessage, localizedResponseMessage, localizedErrorMessage,
-    displaySummaryTitle, itemUrl, formatDateTime, readingQueueItems,
-    openAndMarkReadingQueue, openDailyItem, renderStatus,
+    state, els, dashboardLayout, t, tc, apiPost, confirmManualAiUsage, createEmptyState, createIcon,
+    localizedErrorMessage, displaySummaryTitle, itemUrl, readingQueueItems,
+    openAndMarkReadingQueue, openDailyItem,
     createBookmarkFavicon, displayBookmarkTitle,
     findNewsItemByReference, hostFromUrl, isNewsCard, openExternal,
     readingQueueOpenOnReadAll, renderDaily, renderOverviewStatus, renderSummaries, selectDailyEvents,
-    openAiSettings, getLocale, writeJson, writeValue, requestWeatherPermissions, attachLinkContextMenu,
+    openAiSettings, getLocale, writeJson, writeValue, requestWeatherPermissions, attachLinkContextMenu, createArchiveContent,
   } = options;
-  const utilityCardView = createUtilityCardView({
-    state, t, tc, getLocale, apiPost, createEmptyState, createIcon,
-    createEventsContent: createDailyEventsContent, writeJson, writeValue,
-    requestWeatherPermissions, localizedErrorMessage,
-  });
   let eventTitleReveal = null;
   let activeEventTitle = null;
   let dailyDigestRevealPending = false;
-  let dailyDigestLoadingMotion = null;
-  return { renderEfficiencyPanel, refreshDailyDigest, invalidateWeather: utilityCardView.invalidateWeather };
-function dailyDigestStatusLabel(digest, ai) {
-  if (state.dailyDigestRefreshing) return t("action.organizing");
-  if (ai?.enabled !== true) return t("digest.status.noService");
-  if (!digest?.generatedAt) return t("digest.status.waiting");
-  if (digest.status === "ai") return t("digest.status.ai");
-  if (digest.status === "quota-or-empty") return t("digest.status.quota");
-  if (digest.status === "no-api-key") return t("digest.status.noService");
-  if (digest.status === "fallback") return t("digest.status.failed");
-  if (digest.status === "pending") return t("digest.status.waiting");
-  return t("digest.status.notGenerated");
-}
-
-function createDailyDigestEmptyState(digest) {
-  if (state.data?.ai?.enabled !== true) {
-    return createEmptyState({
-      title: t("digest.noService.title"),
-      body: t("digest.noService.body"),
-      variant: "compact",
-      actionLabel: t("action.configureAi"),
-      onAction: openAiSettings,
-    });
-  }
-  if (digest?.status === "fallback") {
-    return createEmptyState({
-      title: t("digest.failed.title"),
-      body: digest.errorKey
-        ? localizedErrorMessage({ messageKey: digest.errorKey, messageParams: digest.errorParams || {} })
-        : t("digest.failed.body"),
-      variant: "compact",
-      actionLabel: t("action.reorganize"),
-      onAction: refreshDailyDigest,
-    });
-  }
-  if (digest?.status === "quota-or-empty") {
-    return createEmptyState({
-      title: t("digest.retry.title"),
-      body: t("digest.retry.body"),
-      variant: "compact",
-      actionLabel: t("action.reorganize"),
-      onAction: refreshDailyDigest,
-    });
-  }
-  return createEmptyState({
-    title: t("digest.empty.title"),
-    body: t("digest.empty.body"),
-    variant: "compact",
-    actionLabel: t("action.generateDigest"),
-    onAction: refreshDailyDigest,
-  });
-}
-
-function hasGeneratedDailyDigestOverview(digest, lines) {
-  if (digest?.status !== "ai") return false;
-  const items = Array.isArray(digest?.items) ? digest.items.filter(Boolean) : [];
-  if (items.length) return true;
-  if (!lines.length) return false;
-  return lines.length > 0;
-}
-
-function createDailyDigestPanelCard() {
-  const digest = state.data?.dailyDigest;
-  const statusLabel = dailyDigestStatusLabel(digest, state.data?.ai);
-  const card = createEfficiencyCard(t("digest.cardTitle"), statusLabel, "sparkling");
-  card.classList.add("digest-card");
-  card.classList.toggle("is-refreshing", state.dailyDigestRefreshing);
-  card.setAttribute("aria-busy", String(state.dailyDigestRefreshing));
-  if (state.dailyDigestRefreshing) {
-    const meta = card.querySelector(".efficiency-meta");
-    meta?.setAttribute("aria-live", "polite");
-  }
-  const overview = document.createElement("div");
-  overview.className = "ai-digest-overview";
-  const overviewLines = Array.isArray(digest?.overview)
-    ? digest.overview.map((line) => String(line || "").trim()).filter(Boolean)
-    : [];
-  if (hasGeneratedDailyDigestOverview(digest, overviewLines)) {
-    card.classList.toggle("is-resolving", dailyDigestRevealPending && !state.dailyDigestRefreshing);
-    overview.replaceChildren(...dailyDigestBriefNodes(digest));
-  } else if (state.dailyDigestRefreshing) {
-    overview.replaceChildren(createDailyDigestLoadingState());
-  } else {
-    overview.replaceChildren(createDailyDigestEmptyState(digest));
-  }
-  card.append(overview);
-  return card;
-}
-
-function createDailyDigestLoadingState() {
-  return createAiLoadingState({
-    statusText: `${t("digest.refreshing.title")} ${t("digest.refreshing.body")}`,
-    noteText: t("digest.refreshing.body"),
-    paragraphCount: 3,
-    variant: "brief",
-  });
-}
-
-function dailyDigestBriefNodes(digest) {
-  const nodes = [];
-  const overviewLines = Array.isArray(digest?.overview)
-    ? digest.overview.map((line) => String(line || "").trim()).filter(Boolean).slice(0, 3)
-    : [];
-  if (overviewLines.length) {
-    const summary = document.createElement("button");
-    summary.className = "ai-digest-summary";
-    summary.type = "button";
-    summary.disabled = state.dailyDigestRefreshing;
-    summary.title = t("action.reorganize");
-    summary.setAttribute("aria-label", t("action.reorganize"));
-    summary.addEventListener("click", refreshDailyDigest);
-    summary.append(...dailyDigestParagraphs(overviewLines).map((line) => {
-      const paragraph = document.createElement("span");
-      paragraph.className = "ai-digest-paragraph";
-      paragraph.textContent = line;
-      return paragraph;
+  let dailyDigestActionPending = false;
+  const views = new Map();
+  const renderType = (type, except) => {
+    for (const [id, view] of views) if (id !== except && state.cardTypes[id] === type) view.render();
+  };
+  const weatherState = createWeatherCardState({ state, apiPost, localizedErrorMessage, notify: () => renderType("weather") });
+  let stockState = null;
+  const getStockState = () => stockState ||= import("./stock-card-state.mjs").then(({ createStockCardState }) =>
+    createStockCardState({ apiPost, localizedErrorMessage, writeJson, notify: () => renderType("stocks") }))
+    .catch(error => { stockState = null; throw error; });
+  const refreshStocks = () => {
+    if (document.visibilityState === "visible" && Object.values(state.cardTypes).includes("stocks")) {
+      stockState?.then(shared => shared.ensure()).catch(() => {});
+    }
+  };
+  let countdownState = null;
+  const getCountdownState = () => countdownState ||= import("./countdown-card-state.mjs").then(({ createCountdownCardState }) =>
+    createCountdownCardState({ writeJson, notify: () => renderType("countdown") }))
+    .catch(error => { countdownState = null; throw error; });
+  const refreshUtilityDates = () => {
+    refreshStocks();
+    if (document.visibilityState === "visible" && Object.values(state.cardTypes).includes("countdown")) {
+      countdownState?.then(shared => shared.refreshDay()).catch(() => {});
+    }
+  };
+  for (const id of SWITCHABLE_CARD_IDS) {
+    const digestView = createDigestCardView({ state, t, createEmptyState, createIcon, localizedErrorMessage, openAiSettings,
+      openExternal, refreshDailyDigest, isRevealPending: () => dailyDigestRevealPending });
+    views.set(id, createSwitchableCardView({
+      id, state, t, tc, getLocale, apiPost, createEmptyState, createIcon, writeJson, writeValue, attachLinkContextMenu,
+      createEventsContent: createDailyEventsContent, createDigestContent: digestView.render, createArchiveContent,
+      createQueueContent, createDailyContent: options.createDailyContent, onTypeChange: renderDaily,
+      reconcileContent: (type, current, next, settings) => {
+        if (type === "queue") syncQueuePanelList(current, next);
+        else if (["news", "inspiration"].includes(type)) options.syncDailyContent(current, next, settings);
+        else return false;
+        return true;
+      },
+      requestWeatherPermissions, localizedErrorMessage, weatherState, getStockState, getCountdownState, notifyTodos: (source) => renderType("todo", source),
     }));
-    nodes.push(summary);
   }
-  return nodes;
-}
-
-function dailyDigestParagraphs(lines) {
-  if (lines.length !== 1) return lines;
-  const segments = lines[0].match(/[^；;。！？]+(?:[；;。！？]+|$)/gu)
-    ?.map((segment) => segment.trim())
-    .filter(Boolean) || [];
-  if (segments.length < 2) return lines;
-  const groupCount = Math.min(4, segments.length);
-  const groups = Array.from({ length: groupCount }, () => []);
-  segments.forEach((segment, index) => {
-    groups[Math.min(groupCount - 1, Math.floor(index * groupCount / segments.length))].push(segment);
+  document.addEventListener("visibilitychange", () => {
+    refreshUtilityDates();
+    if (document.visibilityState === "visible" && Object.values(state.cardTypes).includes("weather")) weatherState.ensure({ retryStale: true });
   });
-  return groups.map((group) => group.join(""));
-}
-
+  const utilityTimer = window.setInterval(refreshUtilityDates, 60_000);
+  window.addEventListener("pagehide", () => window.clearInterval(utilityTimer), { once: true });
+  function getTodoTargetCard() {
+    const order = Array.from(dashboardLayout.root.querySelectorAll(".dashboard-slot > [data-dashboard-card]"), (card) => card.dataset.dashboardCard);
+    const focusedId = document.activeElement?.closest?.("[data-dashboard-card]")?.dataset.dashboardCard;
+    return views.get(todoCardTarget(state.cardTypes, order, focusedId));
+  }
+  function getCardContextActions(target) {
+    const card = target.closest("[data-dashboard-card]");
+    const view = views.get(card?.dataset.dashboardCard);
+    return view?.card === card ? view.contextActions(target) : [];
+  }
+  function renderDailyCards(id, settings) {
+    for (const [cardId, view] of views) {
+      if ((!id || id === cardId) && ["news", "inspiration"].includes(state.cardTypes[cardId])) {
+        dashboardLayout.mount(cardId, view.render(undefined, settings));
+      }
+    }
+  }
+  return { renderEfficiencyPanel, renderDailyCards, refreshDailyDigest, invalidateWeather: weatherState.invalidate,
+    invalidateStocks: () => stockState?.then(shared => shared.invalidate()).catch(() => {}),
+    syncPersonalCards() {
+      stockState?.then(shared => shared.syncFromStorage()).catch(() => {});
+      countdownState?.then(shared => shared.syncFromStorage()).catch(() => {});
+    },
+    getTodoTargetCard: () => getTodoTargetCard()?.card, openTodoComposer: () => getTodoTargetCard()?.openTodoComposer(), getCardContextActions };
 function openDigestItem(digestItem) {
   const item = findNewsItemByReference(digestItem);
   if (item) {
@@ -173,108 +107,30 @@ function openDigestItem(digestItem) {
 
 function renderEfficiencyPanel() {
   if (!els.efficiencyPanel) return;
-  const queueLayout = captureKeyedLayout(els.efficiencyPanel, ".queue-row[data-key]");
-  const isSearching = Boolean(state.query);
+  dashboardLayout.sync();
+  const queueLayouts = new Map(Array.from(views, ([id, view]) => [id, captureKeyedLayout(view.card, ".queue-row[data-key]")]));
   const isInitialEntrance = els.efficiencyPanel.dataset.loading === "true";
-  els.efficiencyPanel.hidden = isSearching;
-  if (isSearching) {
-    finishDailyDigestLoadingMotion();
-    els.efficiencyPanel.replaceChildren();
-    return;
-  }
-  const queueItems = readingQueueItems();
-  const dailyEvents = selectDailyEvents(state.data?.dailyDigest?.items || [], {
+  const now = Date.now();
+  const eventCandidates = buildDailyEventCandidates(state.data?.feed?.items || [],
+    (state.data?.nativeDailyDigest || state.data?.dailyDigest)?.items || [], now);
+  const dailyEvents = selectDailyEvents(eventCandidates, {
+    now,
     limit: 3,
     recentLimit: 1,
     minSourceCount: 2,
   });
-  const cards = [
-    utilityCardView.render(dailyEvents),
-    createDailyDigestPanelCard(),
-    createQueuePanelCard(queueItems),
-  ];
-  const renderedCards = syncEfficiencyCards(els.efficiencyPanel, cards);
-  syncDailyDigestLoadingMotion(renderedCards[1]);
+  const renderedCards = Array.from(views, ([id, view]) => {
+    const card = view.render(dailyEvents, { immediate: isInitialEntrance });
+    dashboardLayout.mount(id, card);
+    return card;
+  });
+  delete els.dailyBoard.dataset.loading;
   if (isInitialEntrance) {
     delete els.efficiencyPanel.dataset.loading;
     if (state.data?.onboarding?.completed !== false) animatePanelEntrance(renderedCards);
   } else {
-    animateKeyedLayout(els.efficiencyPanel, queueLayout, ".queue-row[data-key]");
+    for (const [id, view] of views) animateKeyedLayout(view.card, queueLayouts.get(id), ".queue-row[data-key]");
   }
-}
-
-function syncDailyDigestLoadingMotion(card) {
-  if (!state.dailyDigestRefreshing || !card) {
-    finishDailyDigestLoadingMotion();
-    return;
-  }
-  if (dailyDigestLoadingMotion?.target === card) return;
-  finishDailyDigestLoadingMotion();
-  dailyDigestLoadingMotion = {
-    target: card,
-    controller: createLoadingSurfaceController(card),
-  };
-}
-
-function finishDailyDigestLoadingMotion() {
-  if (!dailyDigestLoadingMotion) return;
-  const active = dailyDigestLoadingMotion;
-  dailyDigestLoadingMotion = null;
-  active.controller.finish();
-}
-
-function syncEfficiencyCards(panel, nextCards) {
-  const currentCards = Array.from(panel.children);
-  const renderedCards = nextCards.map((nextCard, index) => {
-    const currentCard = currentCards[index];
-    if (!currentCard?.matches?.(".efficiency-card")) return nextCard;
-    if (nodesEqualIgnoringIconLoadState(currentCard, nextCard)) return currentCard;
-    if (currentCard.classList.contains("queue-card") && nextCard.classList.contains("queue-card")) {
-      return syncQueuePanelCard(currentCard, nextCard);
-    }
-    return nextCard;
-  });
-  const retainedCards = new Set(renderedCards);
-  renderedCards.forEach((card, index) => {
-    if (panel.children[index] !== card) panel.insertBefore(card, panel.children[index] || null);
-  });
-  Array.from(panel.children).forEach((card) => {
-    if (!retainedCards.has(card)) card.remove();
-  });
-  return renderedCards;
-}
-
-function syncQueuePanelCard(currentCard, nextCard) {
-  currentCard.className = nextCard.className;
-  const currentHead = currentCard.querySelector(":scope > .efficiency-head");
-  const nextHead = nextCard.querySelector(":scope > .efficiency-head");
-  if (currentHead && nextHead) syncQueuePanelHead(currentHead, nextHead);
-  else if (nextHead) currentCard.prepend(nextHead);
-  else currentHead?.remove();
-
-  const currentList = currentCard.querySelector(":scope > .efficiency-list");
-  const nextList = nextCard.querySelector(":scope > .efficiency-list");
-  if (currentList && nextList) syncQueuePanelList(currentList, nextList);
-  else if (nextList) currentCard.append(nextList);
-  else currentList?.remove();
-  return currentCard;
-}
-
-function syncQueuePanelHead(currentHead, nextHead) {
-  const currentTitle = currentHead.querySelector(":scope > .efficiency-title");
-  const nextTitle = nextHead.querySelector(":scope > .efficiency-title");
-  if (currentTitle && nextTitle && !nodesEqualIgnoringIconLoadState(currentTitle, nextTitle)) {
-    currentTitle.replaceWith(nextTitle);
-  } else if (!currentTitle && nextTitle) {
-    currentHead.prepend(nextTitle);
-  } else if (currentTitle && !nextTitle) {
-    currentTitle.remove();
-  }
-  const currentTools = currentHead.querySelector(":scope > .efficiency-head-tools");
-  const nextTools = nextHead.querySelector(":scope > .efficiency-head-tools");
-  if (currentTools && nextTools) currentTools.replaceWith(nextTools);
-  else if (nextTools) currentHead.append(nextTools);
-  else currentTools?.remove();
 }
 
 function syncQueuePanelList(currentList, nextList) {
@@ -300,7 +156,8 @@ function directQueueRows(list) {
   return Array.from(list.children).filter((node) => node.matches?.(".queue-row[data-key]"));
 }
 
-function createQueuePanelCard(items) {
+function createQueueContent() {
+  const items = readingQueueItems();
   const shouldOpen = readingQueueOpenOnReadAll();
   const hasChosenReadAllBehavior = state.settings?.readingQueueReadAllPrompted === true;
   let readAll = null;
@@ -311,10 +168,8 @@ function createQueuePanelCard(items) {
     readAll.title = t(hasChosenReadAllBehavior ? (shouldOpen ? "queue.readAllOpen" : "queue.readAllNoOpen") : "queue.readAllChoose", { count: items.length });
     readAll.setAttribute("aria-label", readAll.title);
     readAll.textContent = t("action.readAll");
-    readAll.addEventListener("click", () => openAndMarkReadingQueue(items));
+    readAll.addEventListener("click", () => openAndMarkReadingQueue(readingQueueItems()));
   }
-  const card = createEfficiencyCard(t("queue.cardTitle"), tc("queue.pending", items.length), "bookmark-ribbon", readAll);
-  card.classList.add("queue-card");
   const list = document.createElement("div");
   list.className = "efficiency-list";
   if (!items.length) {
@@ -326,8 +181,7 @@ function createQueuePanelCard(items) {
   } else {
     list.append(...items.map(createQueuePanelRow));
   }
-  card.append(list);
-  return card;
+  return { content: list, meta: spanText(tc("queue.pending", items.length), "efficiency-meta"), actions: readAll ? [readAll] : [] };
 }
 
 function createDailyEventsContent(items) {
@@ -343,26 +197,6 @@ function createDailyEventsContent(items) {
     list.append(...items.map(createDailyEventPanelRow));
   }
   return list;
-}
-
-function createEfficiencyCard(titleText, metaText, iconName, action = null) {
-  const card = document.createElement("section");
-  card.className = "efficiency-card";
-  const head = document.createElement("div");
-  head.className = "efficiency-head";
-  const title = document.createElement("div");
-  title.className = "efficiency-title";
-  title.append(createIcon(iconName, "card-icon"), document.createTextNode(titleText));
-  const meta = document.createElement("span");
-  meta.className = "efficiency-meta";
-  meta.textContent = metaText;
-  const tools = document.createElement("div");
-  tools.className = "efficiency-head-tools";
-  if (action) tools.append(action);
-  tools.append(meta);
-  head.append(title, tools);
-  card.append(head);
-  return card;
 }
 
 function createQueuePanelRow(item) {
@@ -406,12 +240,10 @@ function createDailyEventPanelRow(item) {
   meta.textContent = [
     item.publisher || item.source || item.host || "",
     confirmationLabel,
+    item.resolvedTimeScope === "recent" ? t("events.recent") : "",
   ].filter(Boolean).join(" · ");
   main.append(title, meta);
-  const badge = document.createElement("span");
-  badge.className = "efficiency-score";
-  badge.textContent = String(Math.round(Number(item.importanceScore || 0)));
-  row.append(main, badge);
+  row.append(main);
   return row;
 }
 
@@ -464,8 +296,16 @@ function hideEventTitleReveal() {
 async function refreshDailyDigest(event) {
   event?.preventDefault();
   event?.stopPropagation?.();
-  if (state.dailyDigestRefreshing) return;
-  if (!await confirmManualAiUsage()) return;
+  if (dailyDigestActionPending) return;
+  dailyDigestActionPending = true;
+  try { await runDailyDigestRefresh(); } finally { dailyDigestActionPending = false; }
+}
+
+async function runDailyDigestRefresh() {
+  if (isAiTaskBusy(briefTaskPhase(state))) return;
+  if (!usesBotBrief(state.data) && !await confirmManualAiUsage()) return;
+  if (isAiTaskBusy(briefTaskPhase(state))) return;
+  delete state.dailyDigestErrorAt;
   state.dailyDigestRefreshing = true;
   renderEfficiencyPanel();
   try {
@@ -475,6 +315,7 @@ async function refreshDailyDigest(event) {
     renderSummaries();
     renderDaily();
   } catch (error) {
+    state.dailyDigestErrorAt = String(state.data?.dailyDigest?.generatedAt || "");
     renderOverviewStatus(t("digest.refreshFailed"), localizedErrorMessage(error));
   } finally {
     state.dailyDigestRefreshing = false;

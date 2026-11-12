@@ -3,7 +3,7 @@ export function createSettingsTransferController(options) {
     els, state, t, apiGet, apiPost, confirmAction, localizedErrorMessage,
     runSettingsAction, renderSettingsStatus, loadSettings, captureSettingsSnapshot, resetSecretDrafts,
     applyUiLocale, getLocale, prepareLocale, inspirationPreviews, loadDashboard, triggerRefresh,
-    parseSettingsTransferText, settingsTransferFilename, maxSettingsTransferBytes, resetExtensionPage,
+    resetExtensionPage,
   } = options;
 
   return { exportSettings, importSettingsFile, factoryReset };
@@ -12,7 +12,10 @@ export function createSettingsTransferController(options) {
     return runSettingsAction(async (isCurrent) => {
       renderSettingsStatus(t("settings.transfer.exporting"));
       try {
-        const config = await apiGet("/api/settings/export");
+        const [config, { settingsTransferFilename }] = await Promise.all([
+          apiGet("/api/settings/export"),
+          import("../../extension/core/settings-transfer.mjs"),
+        ]);
         if (!isCurrent()) return;
         const fileName = settingsTransferFilename(config.exportedAt);
         downloadSettingsDocument(config, fileName);
@@ -28,13 +31,13 @@ export function createSettingsTransferController(options) {
     const file = input.files?.[0];
     input.value = "";
     if (!file || els.importSettings.disabled) return;
-    if (file.size > maxSettingsTransferBytes) {
-      renderSettingsStatus(t("settings.transfer.importFailed", { message: t("settings.transfer.error.tooLarge") }));
-      return;
-    }
-
     let transfer;
     try {
+      const { MAX_SETTINGS_TRANSFER_BYTES, parseSettingsTransferText } = await import("../../extension/core/settings-transfer.mjs");
+      if (file.size > MAX_SETTINGS_TRANSFER_BYTES) {
+        renderSettingsStatus(t("settings.transfer.importFailed", { message: t("settings.transfer.error.tooLarge") }));
+        return;
+      }
       transfer = parseSettingsTransferText(await file.text(), state.settings);
     } catch (error) {
       renderSettingsStatus(t("settings.transfer.importFailed", { message: settingsTransferErrorMessage(error) }));

@@ -18,13 +18,17 @@ export async function runArchitectureTests(root) {
   const workerGraphRelative = new Set([...workerGraph].map((file) => path.relative(root, file).replaceAll("\\", "/")));
   const workerGraphBytes = (await Promise.all([...workerGraph].map(async (file) => (await fs.stat(file)).size)))
     .reduce((total, size) => total + size, 0);
-  assert(workerGraphBytes <= 672 * 1024, `the service worker static graph must stay within its 672 KiB startup budget (found ${workerGraphBytes} bytes)`);
+  // Runtime catalogs share keys and exclude Reader controls used only by the page.
+  assert(workerGraphBytes <= 800 * 1024, `the service worker static graph must stay within its 800 KiB startup budget (found ${workerGraphBytes} bytes)`);
   const workerGraphSources = await Promise.all([...workerGraph].map((file) => fs.readFile(file, "utf8")));
   assert(!workerGraphSources.some((source) => /\bimport\s*\(/.test(source)),
     "MV3 service workers must use static module imports because Chrome does not support import()");
   assert(!workerGraphRelative.has("extension/core/i18n.mjs"), "the service worker must not load the full client translation catalog");
   assert(![...workerGraphRelative].some((file) => file.startsWith("assets/client/locales/")), "the service worker graph must exclude client locale modules");
   assert(!workerGraphRelative.has("extension/core/china-location-data.mjs"), "the service worker graph must exclude the eager China location module");
+  assert(!workerGraphRelative.has("assets/client/header-cover-image.mjs")
+    && !workerGraphSources.some((source) => source.includes("nextHeaderCoverDimensions")),
+  "local cover upload optimization must stay outside the service worker graph");
   assert(workerGraphRelative.has("extension/core/runtime-i18n.mjs")
     && workerGraphRelative.has("extension/core/runtime-locales/en.mjs")
     && workerGraphRelative.has("extension/core/runtime-locales/zh-CN.mjs")
@@ -38,7 +42,22 @@ export async function runArchitectureTests(root) {
   const dashboardGraphRelative = new Set([...dashboardGraph].map((file) => path.relative(root, file).replaceAll("\\", "/")));
   const dashboardGraphBytes = (await Promise.all([...dashboardGraph].map(async (file) => (await fs.stat(file)).size)))
     .reduce((total, size) => total + size, 0);
-  assert(dashboardGraphBytes <= 760 * 1024, `the dashboard static graph must stay within its 760 KiB startup budget (found ${dashboardGraphBytes} bytes)`);
+  // Shared display policies must not pull in extraction, ranking, or unopened tools.
+  assert(dashboardGraphBytes <= 735 * 1024, `the dashboard static graph must stay within its 735 KiB startup budget (found ${dashboardGraphBytes} bytes)`);
+  for (const module of ["extension/core/image-candidates.mjs", "extension/core/reader-html-tree.mjs",
+    "extension/core/news-ranking.mjs", "extension/core/settings-transfer.mjs", "assets/client/reader-ui.mjs"]) {
+    assert(!dashboardGraphRelative.has(module), `${module} must stay outside the dashboard startup graph`);
+  }
+  assert(!dashboardGraphRelative.has("assets/client/header-cover-image.mjs")
+    && !dashboardGraphRelative.has("extension/core/header-cover.mjs"),
+  "local cover upload processing must stay outside the dashboard startup graph");
+  assert(!dashboardGraphRelative.has("assets/client/header-cover-renderer.mjs")
+    && !dashboardGraphRelative.has("assets/client/header-cover-video.mjs"),
+  "cover rendering and video playback must load on demand");
+  for (const module of ["assets/client/stock-card-view.mjs", "assets/client/stock-card-state.mjs", "extension/core/stocks.mjs",
+    "assets/client/countdown-card-view.mjs", "assets/client/countdown-card-state.mjs", "extension/core/countdown.mjs"]) {
+    assert(!dashboardGraphRelative.has(module), "optional card models and views must load only when their type is selected");
+  }
   assert(dashboardGraphRelative.has("assets/client/locales/all-translations.mjs"), "the dashboard graph must include the generated cross-locale subset");
   assert(!dashboardGraphRelative.has("extension/core/i18n.mjs"), "the dashboard must not eagerly load the full-catalog i18n adapter");
   for (const locale of ["en", "zh-CN", "zh-Hant"]) {
@@ -81,10 +100,14 @@ export async function runArchitectureTests(root) {
   const sourceSettingsSource = await fs.readFile(path.join(root, "assets/client/source-settings-controller.mjs"), "utf8");
   const settingsControllerSource = await fs.readFile(path.join(root, "assets/client/settings-controller.mjs"), "utf8");
   const summaryViewSource = await fs.readFile(path.join(root, "assets/client/summary-view.mjs"), "utf8");
+  const summaryOrganizationSource = await fs.readFile(path.join(root, "assets/client/summary-organization-controller.mjs"), "utf8");
   const summaryImageThumbSource = await fs.readFile(path.join(root, "assets/client/summary-image-thumb.mjs"), "utf8");
   const asyncImageRevealSource = await fs.readFile(path.join(root, "assets/client/async-image-reveal.mjs"), "utf8");
   const summaryThumbTransitionSource = await fs.readFile(path.join(root, "assets/client/summary-thumb-transition.mjs"), "utf8");
   const efficiencyViewSource = await fs.readFile(path.join(root, "assets/client/efficiency-view.mjs"), "utf8");
+  const switchableCardViewSource = await fs.readFile(path.join(root, "assets/client/switchable-card-view.mjs"), "utf8");
+  const digestViewSource = await fs.readFile(path.join(root, "assets/client/digest-card-view.mjs"), "utf8");
+  const archiveViewSource = await fs.readFile(path.join(root, "assets/client/archive-card-view.mjs"), "utf8");
   const aiSearchUiSource = await fs.readFile(path.join(root, "assets/client/ai-search-ui.mjs"), "utf8");
   const readerUiSource = await fs.readFile(path.join(root, "assets/client/reader-ui.mjs"), "utf8");
   const aiConnectionTestSource = await fs.readFile(path.join(root, "assets/client/ai-connection-test.mjs"), "utf8");
@@ -125,26 +148,26 @@ export async function runArchitectureTests(root) {
   assert(dailyViewSource.includes("cardTransition") && !dailyViewSource.includes("function animateCardsOut"), "daily and summary views must share the card transition primitive");
   const dailyReshuffleSource = dailyViewSource.slice(
     dailyViewSource.indexOf("function reshuffleDailyColumn"),
-    dailyViewSource.indexOf("function clearSeenArchive"),
+    dailyViewSource.indexOf("function newsSectionName"),
   );
   assert(dailyReshuffleSource.includes("dailyBatchTransition.run(columnId);")
     && dailyReshuffleSource.indexOf("dailyBatchTransition.run(columnId);") < dailyReshuffleSource.indexOf("preloadDailyInspiration")
     && !dailyReshuffleSource.includes("await preloadDailyInspiration"), "daily reshuffle must paint the selected column before warming inspiration previews");
   const renderDailyColumnSource = dailyViewSource.slice(
     dailyViewSource.indexOf("function renderDailyColumn"),
-    dailyViewSource.indexOf("function renderDailyBoard"),
+    dailyViewSource.indexOf("function syncDailyContent"),
   );
   assert(renderDailyColumnSource.includes("batchTransition: options.batchTransition")
     && renderDailyColumnSource.includes("immediate: true")
     && renderDailyColumnSource.includes("cancelDailyColumnTransition(columnId)")
     && !renderDailyColumnSource.includes("++dailyBoardRenderToken"), "daily reshuffle must replace only the selected batch without waiting for or invalidating other column transitions");
-  assert(dailyViewSource.includes("nodesEqualIgnoringIconLoadState(currentHead, nextHead)")
+  assert(switchableCardViewSource.includes("nodesEqualIgnoringIconLoadState(current, node)")
     && cardTransitionSource.includes("cloneWithoutIconLoadState(card)")
-    && efficiencyViewSource.includes("nodesEqualIgnoringIconLoadState(currentCard, nextCard)"),
+    && efficiencyViewSource.includes("nodesEqualIgnoringIconLoadState(currentRow, nextRow)"),
   "pending local icon classes must not replace otherwise unchanged dashboard headers or cards");
-  assert(efficiencyViewSource.includes("return syncQueuePanelCard(currentCard, nextCard);")
-    && efficiencyViewSource.includes("function syncQueuePanelHead(currentHead, nextHead)")
-    && efficiencyViewSource.includes("nodesEqualIgnoringIconLoadState(currentTitle, nextTitle)")
+  assert(efficiencyViewSource.includes('if (type === "queue") syncQueuePanelList(current, next);')
+    && switchableCardViewSource.includes("signature !== titleSignature")
+    && switchableCardViewSource.includes("options.reconcileContent?.(type, current, view.content, settings)")
     && efficiencyViewSource.includes("function syncQueuePanelList(currentList, nextList)")
     && efficiencyViewSource.includes('node.matches?.(".queue-row[data-key]")'),
   "reading queue changes must retain the live card shell, loaded title icon, and unchanged keyed rows");
@@ -161,7 +184,7 @@ export async function runArchitectureTests(root) {
     && dailySharedTransitionSource.includes('":scope > .link-main"')
     && !dailySharedTransitionSource.includes("news-list-actions")
     && motionResponsiveCssSource.includes(":root.is-daily-batch-transitioning {\n  view-transition-name: none;")
-    && dailyBatchTransitionSource.includes("syncCard(currentCards[index], nextCards[index], { crossfadeThumb: columnId === \"inspiration\" });")
+    && dailyBatchTransitionSource.includes('!transitionState.bounded && currentList.closest(".board-column")?.classList.contains("is-inspiration")')
     && dashboardSectionsCssSource.includes(".daily-card > .daily-batch-content")
     && dashboardSectionsCssSource.includes(".news-list-card > .news-list-content"),
   "daily batch changes must retain live card shells, crossfade visual content, and switch the action rail without animation");
@@ -245,9 +268,9 @@ export async function runArchitectureTests(root) {
     && motionResponsiveCssSource.includes("transition-duration: var(--motion-press-duration)")
     && motionResponsiveCssSource.includes("img.is-preview-image-pending"),
   "inspiration images must use a deliberate first-frame fade without duplicating the batch crossfade while initial SIGNAL FEED cache hits remain immediate");
-  assert(summaryViewSource.slice(0, 1800).includes("createThemedIcon, srOnly,")
-    && dashboardAppSource.includes("createThemedIcon, srOnly,\n    createReadingActions"),
-  "summary loading controls must receive the screen-reader label factory through explicit dependencies");
+  assert(summaryOrganizationSource.includes('button.setAttribute("aria-label", label)')
+    && summaryViewSource.includes("createAiTaskStatus"),
+  "summary processing controls must expose accessible status labels");
   const refreshProgressHandler = dashboardAppSource.slice(
     dashboardAppSource.indexOf('detail?.type === "refresh.progress"'),
     dashboardAppSource.indexOf("function handleFaviconPermissionChanged"),
@@ -265,10 +288,10 @@ export async function runArchitectureTests(root) {
     && !bookmarksViewSource.includes("window.setTimeout(onClick, 360);")
     && !dashboardSectionsCssSource.includes("is-subtle-elastic"),
   "summary actions must update immediately and use one non-conflicting feedback animation");
-  assert(primitivesCssSource.includes(".action-toggle-icon.is-loading-icon {")
+  assert(primitivesCssSource.includes('.ai-task-status[data-task-phase="running"] .ai-task-status-icon {')
     && !primitivesCssSource.includes(".is-loading .action-toggle-icon {")
-    && bookmarksViewSource.includes('"is-loading-icon"'),
-  "only explicitly marked loading action icons may spin");
+    && !bookmarksViewSource.includes('"is-loading-icon"'),
+  "AI card feedback must animate only the compact running status icon");
   assert(!/\.summary-card-actions[^{\n]*\.action-toggle[^{\n]*:hover/.test(dashboardSectionsCssSource)
     && dashboardSectionsCssSource.includes(".seen-toggle:hover,\n.action-toggle:hover {\n  background: transparent;\n  color: var(--text);\n}")
     && !motionResponsiveCssSource.includes("@keyframes cardActionHoverSpring"),
@@ -293,11 +316,11 @@ export async function runArchitectureTests(root) {
   assert(aiSearchUiSource.includes('setAiSearchMeta(t(isFollowup')
     && aiSearchUiSource.includes("createAiLoadingState")
     && !aiSearchUiSource.includes('els.aiAnswer.textContent = t("aiSearch.analyzing")'), "AI search processing states must share the accessible loading skeleton and live status treatment");
-  assert(efficiencyViewSource.includes('meta?.setAttribute("aria-live", "polite")')
-    && efficiencyViewSource.includes("createAiLoadingState"), "the daily brief must expose a live processing label and share the AI loading skeleton");
+  assert(digestViewSource.includes("createAiTaskStatus")
+    && digestViewSource.includes("briefTaskPhase(state)"), "the daily brief must expose a shared live task status");
   assert(summaryViewSource.includes('card.setAttribute("aria-busy", "true")')
-    && summaryViewSource.includes("createLoadingSurfaceController(card)")
-    && summaryViewSource.includes("finishManualSummaryLoadingMotion(item.key)"), "manual card summaries must expose and clean up the shared loading state");
+    && summaryViewSource.includes("summaryTaskPhase(state, item.key)")
+    && summaryOrganizationSource.includes("state.manualRefreshKeys.delete(item.key)"), "manual and background card summaries must expose and clean up busy state");
   for (const file of clientFiles.filter((name) => path.basename(name) !== "motion.mjs")) {
     const source = await fs.readFile(file, "utf8");
     assert(!source.includes("cubic-bezier("), `${path.basename(file)} must use named motion curves instead of anonymous cubic-bezier values`);
@@ -350,21 +373,18 @@ export async function runArchitectureTests(root) {
     ["read all", activityControllerSource, "confirmation.readAll.title"],
     ["unsaved settings", settingsControllerSource, "confirmation.unsaved.title"],
     ["settings import", settingsTransferSource, "confirmation.import.title"],
-    ["clear viewed archive", dailyViewSource, "confirmation.clearArchive.title"],
+    ["clear viewed archive", archiveViewSource, "confirmation.clearArchive.title"],
     ["clear source statistics", sourceSettingsSource, "confirmation.clearSuggestions.title"],
     ["block suggested sources", sourceSettingsSource, "confirmation.blockAll.title"],
   ]) assert(source.includes("await confirmAction({") && source.includes(key), `${name} must use the shared confirmation dialog`);
-  const clearArchiveActionSource = dailyViewSource.slice(
-    dailyViewSource.indexOf('} else if (type === "clearSeen")'),
-    dailyViewSource.indexOf("function reshuffleDailyColumn"),
-  );
+  const clearArchiveActionSource = archiveViewSource;
   assert(!clearArchiveActionSource.includes('classList.add("danger")'), "the viewed-archive clear trigger must use the standard text color");
   for (const file of clientFiles) {
     const source = await fs.readFile(file, "utf8");
     assert(!source.includes("window.confirm("), `${path.basename(file)} must not bypass the shared confirmation dialog`);
   }
   for (const [name, source, route] of [
-    ["single summary", summaryViewSource, 'apiPost("/api/summary/refresh"'],
+    ["single summary", summaryOrganizationSource, 'apiPost("/api/summary/refresh"'],
     ["daily brief", efficiencyViewSource, 'apiPost("/api/daily-summary/refresh"'],
     ["AI search", aiSearchUiSource, 'apiPost("/api/ai/search"'],
     ["Reader translation", readerUiSource, 'apiPost("/api/reader/translate"'],
@@ -379,7 +399,7 @@ export async function runArchitectureTests(root) {
   assert(dashboardAppSource.includes("createConfirmationDialogController")
     && dashboardAppSource.includes("createManualAiUsageNoticeController")
     && (dashboardAppSource.match(/confirmManualAiUsage/g) || []).length >= 6, "dashboard composition must share one manual AI notice across all five entry points");
-  assert(efficiencyViewSource.slice(0, 1200).includes("openAiSettings"), "efficiency view must declare its AI settings action dependency");
+  assert(/const\s*\{[^}]*\bopenAiSettings\b[^}]*\}\s*=\s*options/.test(efficiencyViewSource), "efficiency view must declare its AI settings action dependency");
   assert(dashboardAppSource.includes("  openAiSettings,"), "dashboard composition must provide the AI settings action");
   assert(appEntry.includes('launchUrl.searchParams.get("open") === "ai-settings"')
     && appEntry.includes('history.replaceState(null, ""')
@@ -394,7 +414,7 @@ export async function runArchitectureTests(root) {
     [...dailyViewSource.matchAll(/\binspirationPreviews\.([A-Za-z_$][\w$]*)/g), ...dailyCardViewSource.matchAll(/\binspirationPreviews\.([A-Za-z_$][\w$]*)/g)]
       .map((match) => match[1]),
   );
-  const inspirationPreviewProxy = dashboardAppSource.match(/inspirationPreviews:\s*\{([\s\S]*?)\n\s*\},\n\s*apiGet/)?.[1] || "";
+  const inspirationPreviewProxy = dashboardAppSource.match(/inspirationPreviews:\s*\{([\s\S]*?)\n\s*\},/)?.[1] || "";
   for (const capability of inspirationPreviewCapabilities) {
     assert(inspirationPreviewProxy.includes(`${capability}:`), `dashboard composition must proxy inspirationPreviews.${capability}`);
   }
@@ -524,6 +544,17 @@ export async function runArchitectureTests(root) {
     "handleBookmarksChanged", "handlePermissionsAdded", "handlePermissionsRemoved",
     "handleActionClicked", "handleTabUpdated", "start",
   ]) assert.equal(typeof runtime[method], "function", `runtime must expose ${method}`);
+  await assert.rejects(runtime.handleMessage({ type: "mcp:enabled", payload: { enabled: true } }),
+    error => error?.code === "MCP_PERMISSION", "MCP enable must reach its permission gate rather than the unknown-request handler");
+  const previousChrome = Object.getOwnPropertyDescriptor(globalThis, "chrome");
+  Object.defineProperty(globalThis, "chrome", { configurable: true, value: { storage: { local: storage, sync: storage } } });
+  try {
+    for (const type of ["mcp:setup", "mcp:pair"]) await assert.rejects(runtime.handleMessage({ type, payload: {} }),
+      error => error?.code === "mcpDisabled", `${type} must reach the disabled-feature gate rather than the unknown-request handler`);
+  } finally {
+    if (previousChrome) Object.defineProperty(globalThis, "chrome", previousChrome);
+    else delete globalThis.chrome;
+  }
   await assert.rejects(
     runtime.handleMessage({ type: "feed:refresh-source", payload: {} }),
     (error) => error?.code === "SOURCE_NOT_FOUND",

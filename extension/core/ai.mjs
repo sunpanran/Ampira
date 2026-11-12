@@ -130,6 +130,8 @@ async function prepareAiRequest(settings, options, stream) {
     );
   }
   const chat = settings.openaiApiStyle === "chat_completions";
+  const xaiResponses = !chat && isOfficialXaiEndpoint(endpoint);
+  const kimiChat = chat && settings.openaiSummaryModel === "kimi-k3.1-pro" && isOfficialKimiEndpoint(endpoint);
   const nativeMessages = Array.isArray(options.messages);
   const messages = normalizeAiMessages(options.messages, options.input);
   const requestBody = webSearchKind === "gemini_interactions" ? {
@@ -142,7 +144,9 @@ async function prepareAiRequest(settings, options, stream) {
         ...(options.system ? [{ role: "system", content: String(options.system) }] : []),
         ...messages,
       ],
-      max_tokens: options.maxTokens,
+      ...(kimiChat
+        ? { max_completion_tokens: options.maxTokens, reasoning_effort: "low" }
+        : { max_tokens: options.maxTokens }),
       ...(stream ? { stream: true } : {}),
       ...(webSearchKind === "openai_chat_search" ? { web_search_options: {} } : {}),
       ...(options.preferVisibleOutput === true && isOfficialDeepSeekEndpoint(endpoint)
@@ -150,12 +154,20 @@ async function prepareAiRequest(settings, options, stream) {
         : {}),
     } : {
       model: settings.openaiSummaryModel,
-      instructions: options.system,
-      input: nativeMessages ? messages : options.input,
+      ...(xaiResponses ? {
+        input: [
+          ...(options.system ? [{ role: "system", content: String(options.system) }] : []),
+          ...messages,
+        ],
+      } : {
+        instructions: options.system,
+        input: nativeMessages ? messages : options.input,
+      }),
       max_output_tokens: options.maxTokens,
       ...(stream ? { stream: true } : {}),
       ...(webSearchKind === "openai_responses" ? { tools: [{ type: "web_search" }] } : {}),
-      ...(isOfficialOpenAiEndpoint(endpoint) ? { store: false } : {}),
+      ...(isOfficialOpenAiEndpoint(endpoint) || xaiResponses ? { store: false } : {}),
+      ...(xaiResponses && settings.openaiSummaryModel === "grok-4.7" ? { reasoning: { effort: "low" } } : {}),
     };
   const headers = { "content-type": "application/json" };
   if (apiKey && webSearchKind === "gemini_interactions") headers["x-goog-api-key"] = apiKey;
@@ -336,6 +348,22 @@ function isOfficialDeepSeekEndpoint(value) {
 function isOfficialOpenAiEndpoint(value) {
   try {
     return new URL(value).hostname.toLowerCase() === "api.openai.com";
+  } catch {
+    return false;
+  }
+}
+
+function isOfficialXaiEndpoint(value) {
+  try {
+    return new URL(value).origin === "https://api.x.ai";
+  } catch {
+    return false;
+  }
+}
+
+function isOfficialKimiEndpoint(value) {
+  try {
+    return ["https://api.moonshot.cn", "https://api.moonshot.ai"].includes(new URL(value).origin);
   } catch {
     return false;
   }

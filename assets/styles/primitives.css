@@ -1,8 +1,54 @@
 /* primitives */
+.date-picker-control { position: relative; min-width: 0; }
+.date-picker-control > input { padding-inline: 9px 34px; }
+.date-picker-control .date-picker-trigger { position: absolute; right: 2px; top: 1px; width: 28px; min-width: 28px; height: 28px; min-height: 28px; }
+.date-picker-popover {
+  position: fixed; inset: auto; z-index: 215; display: block; margin: 0; padding: 12px;
+  box-sizing: border-box; width: 304px; max-width: calc(100vw - 16px); max-height: calc(100dvh - 16px); overflow: auto;
+  border: 1px solid var(--line-soft); border-radius: var(--radius-panel); corner-shape: var(--corner-shape-surface);
+  background: var(--surface-2); color: var(--text); box-shadow: var(--shadow-panel);
+  font-family: var(--font-ui); font-size: 12px;
+}
+.date-picker-popover[hidden] { display: none; }
+.date-picker-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 7px; }
+.date-picker-previous .action-toggle-icon { transform: rotate(90deg); }
+.date-picker-next .action-toggle-icon { transform: rotate(-90deg); }
+.date-picker-month, .date-picker-month-option, .date-picker-day, .date-picker-shortcut {
+  border: 1px solid transparent; border-radius: var(--radius-row); background: transparent;
+  color: var(--text); font: inherit; cursor: pointer;
+  transition: background var(--motion-state-duration) var(--motion-ease-standard), color var(--motion-state-duration) var(--motion-ease-standard);
+}
+.date-picker-month { min-height: 30px; padding: 4px 9px; font-weight: 650; }
+.date-picker-month:hover, .date-picker-month-option:where(:not(:disabled)):hover,
+.date-picker-day:hover, .date-picker-shortcut:hover { background: var(--row-hover-fill); }
+.date-picker-grid { width: 100%; table-layout: fixed; border-collapse: separate; border-spacing: 3px; }
+.date-picker-grid th { padding: 3px 0; color: var(--muted-2); font-size: 11px; font-weight: 500; text-align: center; }
+.date-picker-grid td { padding: 0; text-align: center; }
+.date-picker-day { width: 100%; min-width: 0; min-height: 32px; padding: 0; border-radius: var(--radius-tag); font-variant-numeric: tabular-nums; }
+.date-picker-day.is-other-month { color: var(--muted-2); }
+.date-picker-day.is-today { border-color: var(--active-line); }
+.date-picker-day.is-selected, .date-picker-month-option[aria-pressed="true"] { border-color: transparent; background: var(--active-bg); color: var(--text-strong); font-weight: 700; }
+.date-picker-day.is-selected:hover, .date-picker-month-option[aria-pressed="true"]:hover { background: var(--active-bg-hover); }
+.date-picker-year { display: flex; align-items: center; gap: 9px; margin-bottom: 8px; padding-inline: 3px; color: var(--muted); }
+.date-picker-year input { width: 105px; border-radius: var(--radius-control); }
+.date-picker-months { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; padding: 3px; }
+.date-picker-month-option { min-height: 36px; padding: 5px 8px; }
+.date-picker-month-option:disabled { color: var(--muted-2); cursor: not-allowed; }
+.date-picker-footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; padding: 10px 3px 0; border-top: 1px solid var(--line-faint); }
+.date-picker-quick { display: flex; flex-wrap: wrap; gap: 4px; }
+.date-picker-shortcut { min-height: 30px; padding: 5px 8px; color: var(--muted); font-size: 11px; }
+.date-picker-popover .date-picker-confirm { min-height: 30px; padding: 0 12px; font-size: 12px; background: var(--active-bg); border-color: var(--active-control-line); }
+.date-picker-popover .date-picker-confirm:hover { background: var(--active-bg-hover); border-color: var(--active-control-line); }
+.date-picker-error { padding: 7px 3px 0; color: var(--red); font-size: 11px; }
+.date-picker-error[hidden] { display: none; }
+@media (hover: none), (pointer: coarse) {
+  .date-picker-day { min-height: 40px; }
+  .date-picker-month-option, .date-picker-shortcut, .date-picker-popover .date-picker-confirm { min-height: 40px; }
+}
+
 .btn,
 .empty-state-action,
-.column-action,
-.context-menu button {
+.column-action {
   min-height: var(--control-height-button);
   display: inline-flex;
   align-items: center;
@@ -11,6 +57,7 @@
   padding: 0 var(--control-padding-inline);
   border: 1px solid var(--control-line);
   border-radius: var(--radius-button);
+  corner-shape: var(--corner-shape-surface);
   background: var(--control-bg);
   color: var(--text);
   cursor: pointer;
@@ -21,20 +68,18 @@
   transition: color var(--motion-state-duration) var(--motion-ease-standard), border-color var(--motion-state-duration) var(--motion-ease-standard), background var(--motion-state-duration) var(--motion-ease-standard), box-shadow var(--motion-state-duration) var(--motion-ease-standard), transform var(--motion-press-duration) var(--motion-ease-standard), opacity var(--motion-state-duration) var(--motion-ease-standard);
 }
 
-.btn:hover,
-.empty-state-action:hover,
-.column-action:hover,
-.context-menu button:hover,
-.context-menu button:focus-visible {
-  border-color: var(--line);
+/* Disabled guards must not raise the original hover specificity. */
+.btn:where(:not(:disabled)):hover,
+.empty-state-action:where(:not(:disabled)):hover,
+.column-action:where(:not(:disabled)):hover {
+  border-color: var(--control-hover-line);
   background: var(--control-hover-bg);
 }
 
 .btn.primary,
 .settings-tabs button.active,
-.theme-swatch.active,
 .column-action.accent {
-  border-color: var(--active-line);
+  border-color: var(--active-control-line);
   background:
     linear-gradient(var(--active-bg), var(--active-bg)),
     var(--control-bg);
@@ -42,10 +87,10 @@
   box-shadow: var(--active-shadow);
 }
 
-.btn.primary:hover,
+.btn.primary:where(:not(:disabled)):hover,
 .settings-tabs button.active:hover,
-.theme-swatch.active:hover,
-.column-action.accent:hover {
+.column-action.accent:where(:not(:disabled)):hover {
+  border-color: var(--active-control-line);
   background:
     linear-gradient(var(--active-bg-hover), var(--active-bg-hover)),
     var(--control-bg);
@@ -72,15 +117,13 @@
 .column-action:active,
 .theme-swatch:active,
 .action-toggle:active,
-.empty-state-action:active,
-.context-menu button:active {
+.empty-state-action:active {
   transform: translateY(1px) scale(.985);
 }
 
 .btn.icon-btn,
 .action-toggle,
-.seen-toggle,
-.search-ai {
+.seen-toggle {
   width: var(--control-height-button);
   min-width: var(--control-height-button);
   min-height: var(--control-height-button);
@@ -88,10 +131,10 @@
   place-items: center;
   padding: 0;
   border-radius: var(--radius-icon-button);
+  corner-shape: round;
 }
 
-.btn.is-loading .btn-icon,
-.action-toggle-icon.is-loading-icon {
+.btn.is-loading .btn-icon {
   animation: spin .9s linear infinite;
 }
 
@@ -99,8 +142,31 @@
   opacity: .62;
 }
 
+.ai-task-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.ai-task-status-icon {
+  width: 12px;
+  height: 12px;
+  flex: 0 0 12px;
+}
+
+.ai-task-status[data-task-phase="running"] .ai-task-status-icon {
+  animation: spin .9s linear infinite;
+}
+
+.ai-task-status[data-task-phase="failed"] {
+  color: var(--red);
+}
+
 select {
-  --select-arrow-color: var(--muted-2);
   width: 100%;
   min-width: 0;
   max-width: 100%;
@@ -109,13 +175,12 @@ select {
   overflow: hidden;
   border: 1px solid var(--control-line);
   border-radius: var(--radius-control);
+  corner-shape: var(--corner-shape-surface);
   appearance: none;
   background-color: var(--control-bg);
-  background-image:
-    linear-gradient(45deg, transparent 50%, var(--select-arrow-color) 50%),
-    linear-gradient(135deg, var(--select-arrow-color) 50%, transparent 50%);
-  background-position: calc(100% - 17px) 50%, calc(100% - 12px) 50%;
-  background-size: 5px 5px, 5px 5px;
+  background-image: var(--select-arrow-image);
+  background-position: right 12px center;
+  background-size: 16px 16px;
   background-repeat: no-repeat;
   color: var(--text);
   cursor: pointer;
@@ -129,13 +194,11 @@ select {
 }
 
 select:not(:disabled):hover {
-  --select-arrow-color: var(--muted);
-  border-color: var(--line);
+  border-color: var(--control-hover-line);
   background-color: var(--control-hover-bg);
 }
 
 select:not(:disabled):focus {
-  --select-arrow-color: var(--accent);
   border-color: var(--active-line);
   background-color: var(--control-hover-bg);
 }
@@ -147,7 +210,6 @@ select:focus-visible {
 }
 
 select:disabled {
-  --select-arrow-color: var(--muted-2);
   background-color: color-mix(in srgb, var(--control-bg) 72%, var(--surface-0));
   color: var(--muted-2);
   cursor: not-allowed;
@@ -206,6 +268,7 @@ select optgroup {
   padding: 0 13px 0 12px;
   border: 1px solid var(--control-line);
   border-radius: var(--radius-control);
+  corner-shape: var(--corner-shape-surface);
   background: var(--control-bg);
   color: var(--text);
   cursor: pointer;
@@ -216,9 +279,9 @@ select optgroup {
   transition: color var(--motion-state-duration) var(--motion-ease-standard), border-color var(--motion-state-duration) var(--motion-ease-standard), background-color var(--motion-state-duration) var(--motion-ease-standard), opacity var(--motion-state-duration) var(--motion-ease-standard);
 }
 
-.select-combobox-trigger:hover,
+.select-combobox-trigger:where(:not(:disabled)):hover,
 .select-combobox.is-open .select-combobox-trigger {
-  border-color: var(--line);
+  border-color: var(--control-hover-line);
   background: var(--control-hover-bg);
 }
 
@@ -247,22 +310,22 @@ select optgroup {
 }
 
 .select-combobox-chevron {
-  width: 7px;
-  height: 7px;
-  border-right: 1.5px solid var(--muted-2);
-  border-bottom: 1.5px solid var(--muted-2);
-  transform: rotate(45deg) translate(-1px, -1px);
+  width: 16px;
+  height: 16px;
+  background-color: currentColor;
+  color: var(--muted-2);
+  mask: url("../icons/chevron-down.svg") center / contain no-repeat;
   transform-origin: center;
-  transition: border-color var(--motion-state-duration) var(--motion-ease-standard), transform var(--motion-state-duration) var(--motion-ease-standard);
+  transition: color var(--motion-state-duration) var(--motion-ease-standard), transform var(--motion-state-duration) var(--motion-ease-standard);
 }
 
-.select-combobox-trigger:hover .select-combobox-chevron {
-  border-color: var(--muted);
+.select-combobox-trigger:where(:not(:disabled)):hover .select-combobox-chevron {
+  color: var(--muted);
 }
 
 .select-combobox.is-open .select-combobox-chevron {
-  border-color: var(--accent);
-  transform: rotate(225deg) translate(-1px, -1px);
+  color: var(--accent);
+  transform: rotate(180deg);
 }
 
 .select-combobox-listbox {
@@ -280,6 +343,7 @@ select optgroup {
   overscroll-behavior: contain;
   border: 1px solid var(--line);
   border-radius: var(--radius-control);
+  corner-shape: var(--corner-shape-surface);
   background: var(--surface-2);
   box-shadow: var(--shadow-panel), inset 0 1px 0 var(--line-faint);
   color: var(--text);
@@ -322,6 +386,7 @@ select optgroup {
   align-items: center;
   padding: 7px 34px 7px 10px;
   border-radius: calc(var(--radius-control) - 3px);
+  corner-shape: var(--corner-shape-surface);
   color: var(--muted);
   cursor: pointer;
   font-size: 13px;
@@ -362,13 +427,13 @@ select optgroup {
 .select-combobox-option.is-selected::after {
   position: absolute;
   top: 50%;
-  right: 13px;
-  width: 8px;
-  height: 4px;
-  border-bottom: 1.5px solid var(--accent);
-  border-left: 1.5px solid var(--accent);
+  right: 9px;
+  width: 16px;
+  height: 16px;
+  background-color: var(--accent);
+  mask: url("../icons/check.svg") center / contain no-repeat;
   content: "";
-  transform: translateY(-68%) rotate(-45deg);
+  transform: translateY(-50%);
 }
 
 .select-combobox-option.is-disabled {
@@ -402,56 +467,8 @@ select optgroup {
   }
 }
 
-.search-wrap {
-  position: relative;
-  width: min(100%, 420px);
-  border-radius: var(--radius-control);
-  isolation: isolate;
-}
-
-.search {
-  width: 100%;
-  height: var(--control-height-input);
-  padding: 0 46px 0 14px;
-  border: 1px solid var(--control-line);
-  border-radius: var(--radius-control);
-  background: var(--blur-panel-bg);
-  color: var(--text);
-  outline: 0;
-  -webkit-backdrop-filter: var(--card-backdrop-blur);
-  backdrop-filter: var(--card-backdrop-blur);
-  transition: border-color var(--motion-state-duration) var(--motion-ease-standard), background var(--motion-state-duration) var(--motion-ease-standard), box-shadow var(--motion-state-duration) var(--motion-ease-standard);
-}
-
-.search::placeholder,
 input::placeholder {
   color: var(--muted-2);
-}
-
-.search:focus {
-  border-color: var(--active-line);
-  box-shadow: var(--focus-ring);
-}
-
-.search-ai {
-  position: absolute;
-  right: 3px;
-  top: 50%;
-  border: 1px solid transparent;
-  background: transparent;
-  color: var(--muted);
-  cursor: pointer;
-  transform: translateY(-50%);
-  z-index: 3;
-}
-
-.search-ai:hover {
-  background: var(--active-bg);
-  color: var(--text);
-}
-
-.search-ai:active {
-  transform: translateY(-50%) scale(.985);
 }
 
 .segmented {
@@ -464,6 +481,7 @@ input::placeholder {
   padding: 3px;
   border: 1px solid var(--control-line);
   border-radius: var(--radius-button);
+  corner-shape: var(--corner-shape-surface);
   background: var(--control-bg);
   overflow: hidden;
   isolation: isolate;
@@ -481,8 +499,9 @@ input::placeholder {
   z-index: 0;
   width: var(--segmented-w);
   height: var(--segmented-h);
-  border: 1px solid var(--active-line);
+  border: 1px solid var(--active-control-line);
   border-radius: var(--radius-button);
+  corner-shape: var(--corner-shape-surface);
   background: var(--active-bg);
   box-shadow: var(--active-shadow);
   opacity: 0;
@@ -513,6 +532,7 @@ input::placeholder {
   gap: 6px;
   padding: 0 var(--control-padding-inline);
   border-radius: var(--radius-button);
+  corner-shape: var(--corner-shape-surface);
   background: transparent;
   color: var(--muted);
   cursor: pointer;
@@ -530,92 +550,102 @@ input::placeholder {
   color: var(--text);
 }
 
-#summaryOrder {
-  width: auto;
-  min-height: 42px;
-  gap: 2px;
-  padding: 2px;
-  border: 1px solid var(--control-line);
-  border-radius: var(--radius-pill);
-  background: var(--control-bg);
-  overflow: hidden;
-  --segmented-x: 39px;
-  --segmented-y: 2px;
-  --segmented-w: 36px;
-  --segmented-h: 36px;
-}
-
-#summaryOrder button {
-  width: var(--control-height-button);
-  height: var(--control-height-button);
-  min-width: var(--control-height-button);
-  min-height: var(--control-height-button);
-  display: grid;
-  place-items: center;
-  padding: 0;
+#sectionFilter button {
   border: 1px solid transparent;
-  border-radius: var(--radius-icon-button);
-  line-height: 0;
-  transition: color var(--motion-state-duration) var(--motion-ease-standard), border-color var(--motion-state-duration) var(--motion-ease-standard), background var(--motion-state-duration) var(--motion-ease-standard), box-shadow var(--motion-state-duration) var(--motion-ease-standard), transform var(--motion-press-duration) var(--motion-ease-standard);
+  transition: color var(--motion-state-duration) var(--motion-ease-standard), border-color var(--motion-state-duration) var(--motion-ease-standard), background var(--motion-state-duration) var(--motion-ease-standard), transform var(--motion-press-duration) var(--motion-ease-standard);
 }
 
-#summaryOrder button::before {
+#sectionFilter button:not(.active) {
+  border-color: var(--control-line);
+}
+
+#sectionFilter button:not(.active):hover {
+  border-color: var(--control-hover-line);
+}
+
+.summary-order {
+  width: 112px;
+  flex: 0 0 auto;
+}
+
+.summary-order:lang(en) {
+  width: 148px;
+}
+
+.summary-order select,
+.summary-order .select-combobox-trigger {
+  min-height: 32px;
+  border-radius: var(--radius-button);
+}
+
+.summary-order .select-combobox-trigger {
+  grid-template-columns: 18px minmax(0, 1fr) 14px;
+  gap: 6px;
+  padding-inline: 10px;
+}
+
+.summary-order .select-combobox-chevron {
+  width: 14px;
+  height: 14px;
+}
+
+.summary-order .select-combobox-trigger::before,
+#summaryOrder-combobox-listbox .select-combobox-option::before {
   content: "";
-  position: absolute;
-  inset: 2px;
-  z-index: 0;
-  border: 1px solid transparent;
-  border-radius: var(--radius-icon-button);
-  background: transparent;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity var(--motion-state-duration) var(--motion-ease-standard), border-color var(--motion-state-duration) var(--motion-ease-standard), background var(--motion-state-duration) var(--motion-ease-standard), box-shadow var(--motion-state-duration) var(--motion-ease-standard);
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  background-color: currentColor;
+  mask: url("../icons/flash.svg") center / contain no-repeat;
 }
 
-#summaryOrder button.active {
-  border-color: transparent;
-  background: transparent;
-  box-shadow: none;
+.summary-order .select-combobox[data-value="time"] .select-combobox-trigger::before,
+#summaryOrder-combobox-listbox .select-combobox-option[data-value="time"]::before {
+  mask-image: url("../icons/clock.svg");
 }
 
-#summaryOrder button.active::before {
-  border-color: var(--active-line);
+#summaryOrder-combobox-listbox {
+  padding: 4px;
+  border-radius: var(--radius-button);
+}
+
+#summaryOrder-combobox-listbox .select-combobox-option {
+  min-height: 32px;
+  gap: 6px;
+  padding: 6px 30px 6px 8px;
+  border-radius: var(--radius-control);
+}
+
+#summaryOrder-combobox-listbox .select-combobox-option.is-selected {
   background: var(--active-bg);
-  box-shadow: var(--active-shadow);
-  opacity: 1;
 }
 
-#summaryOrder button.active:hover {
-  background: transparent;
+#summaryOrder-combobox-listbox .select-combobox-option.is-active:not(.is-selected) {
+  background: var(--row-hover-fill);
 }
 
-#summaryOrder button.active:hover::before {
-  background: var(--active-bg-hover);
-}
-
-#summaryOrder .segment-indicator {
-  display: none;
-  border-radius: var(--radius-icon-button);
-}
-
-#summaryOrder .segment-icon {
-  position: relative;
-  z-index: 1;
-  display: block;
-  margin: auto;
+@media (pointer: coarse) {
+  .summary-order select,
+  .summary-order .select-combobox-trigger,
+  #summaryOrder-combobox-listbox .select-combobox-option {
+    min-height: 44px;
+  }
 }
 
 .appearance-segmented {
   width: fit-content;
-  border-radius: var(--radius-pill);
+  border-radius: var(--radius-button);
+  corner-shape: var(--corner-shape-surface);
 }
 
 .appearance-segmented .segment-indicator {
-  border-radius: var(--radius-pill);
+  border-radius: var(--radius-button);
+  corner-shape: var(--corner-shape-surface);
 }
 
 .appearance-segmented button {
-  border-radius: var(--radius-pill);
+  border-radius: var(--radius-button);
+  corner-shape: var(--corner-shape-surface);
 }
 
 .category-segmented {
@@ -649,8 +679,7 @@ input::placeholder {
 }
 
 .pill,
-.count,
-.efficiency-score {
+.count {
   min-height: 22px;
   display: inline-flex;
   align-items: center;
@@ -667,16 +696,23 @@ input::placeholder {
   white-space: nowrap;
 }
 
-.pill.news,
-.pill.inspiration,
-.pill.summary {
-  border-color: rgba(var(--accent-rgb), .24);
-  background: rgba(var(--accent-rgb), .10);
-  color: var(--text);
+.pill {
+  border-color: var(--tag-line);
+  border-radius: var(--radius-tag);
+  corner-shape: var(--corner-shape-surface);
+  background: var(--tag-bg);
+  font-weight: 600;
 }
 
-.pill.bookmark {
-  background: var(--surface-1);
+.pill .pill-icon {
+  width: 13px;
+  height: 13px;
+  opacity: .8;
+}
+
+.pill.is-discovery .pill-icon {
+  color: var(--accent);
+  opacity: .9;
 }
 
 .pill.error {
@@ -713,6 +749,7 @@ input::placeholder {
   padding: 24px;
   border: 0;
   border-radius: var(--radius-card);
+  corner-shape: var(--corner-shape-surface);
   background: color-mix(in srgb, var(--surface-0) 70%, transparent);
   color: var(--muted);
   text-align: center;
@@ -806,7 +843,8 @@ input::placeholder {
   gap: 4px;
   padding: 14px 18px 15px;
   border: 1px solid rgba(255, 255, 255, .12);
-  border-radius: var(--radius-control);
+  border-radius: var(--radius-card);
+  corner-shape: var(--corner-shape-surface);
   background: rgba(10, 11, 13, .48);
   box-shadow: 0 12px 32px rgba(0, 0, 0, .18);
   -webkit-backdrop-filter: blur(22px) saturate(1.08);
@@ -940,7 +978,6 @@ input::placeholder {
   width: 100%;
   padding: 14px 16px 15px;
   border: 1px solid rgba(240, 106, 106, .16);
-  border-radius: var(--radius-row);
   background: color-mix(in srgb, var(--danger-soft) 72%, transparent);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, .02);
 }
@@ -960,25 +997,6 @@ input::placeholder {
   font-size: 11px;
   line-height: 1.5;
   text-wrap: pretty;
-}
-
-.daily-shell:has(.empty-state.is-error) {
-  min-height: 0;
-}
-
-.daily-shell:has(.empty-state.is-error) .daily-primary {
-  position: static;
-  height: auto;
-  grid-template-rows: auto;
-}
-
-.daily-shell:has(.empty-state.is-error) .board {
-  min-height: 0;
-  align-self: start;
-}
-
-.daily-shell:has(.empty-state.is-error) .efficiency-panel:empty {
-  display: none;
 }
 
 .category-grid:has(> .empty-state) {

@@ -1,3 +1,9 @@
+export const PRIORITY_BOOKMARK_LIMIT = 3;
+
+export function normalizeSearchQuery(value) {
+  return String(value || "").trim().slice(0, 8000);
+}
+
 export function normalizeUserUrl(value) {
   const text = String(value || "").trim();
   const candidate = /^https?:\/\//i.test(text) ? text : (/^[\w.-]+\.[a-z]{2,}(?:[/:?#].*)?$/i.test(text) ? `https://${text}` : "");

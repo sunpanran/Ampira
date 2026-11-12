@@ -5,6 +5,7 @@ export function createMaintenanceService(options) {
     cacheMutations, refreshCoordinator, clearRecords, setRecord, setRefreshStatus,
     defaultRefreshStatus, setAiAutoStatus, defaultAiAutoStatus, broadcast, resultMessage,
     quotaManager, getAiAutoStatus, emptySourceQuality, normalizeFeedback, getRecord,
+    clearImageCache = async () => {},
   } = options;
   return { recordBookmarkConsent, completeOnboarding, clearGeneratedCache, resetQuota, resetPreferences, resetSourceQuality, recordFeedback };
 async function recordBookmarkConsent() {
@@ -22,6 +23,7 @@ async function clearGeneratedCache() {
   const settings = await getSettings();
   cacheMutations.invalidate();
   refreshCoordinator.invalidate();
+  await clearImageCache();
   await cacheMutations.run(async () => {
     await clearRecords("cache");
     await setRecord("refresh-source-cursor", 0, "state");

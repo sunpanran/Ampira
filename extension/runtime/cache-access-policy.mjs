@@ -2,6 +2,7 @@ export function createCacheAccessPolicy(options) {
   const {
     aiSearchResultPermitted, originPattern, cacheUrlsPermitted,
     previewCachePermitted, weatherCachePermitted = async () => false,
+    stockCachePermitted = async () => false,
   } = options;
 
   async function isRecordPermitted(record, context) {
@@ -25,6 +26,7 @@ export function createCacheAccessPolicy(options) {
       return cacheUrlsPermitted([record.value?.requestedUrl, record.value?.url, record.value?.canonicalUrl]);
     }
     if (record.value?.capability === "weather") return weatherCachePermitted(record.value);
+    if (record.value?.capability === "stocks") return stockCachePermitted(record.value);
     return true;
   }
 

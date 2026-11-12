@@ -1,3 +1,5 @@
+import { briefTaskPhase } from "./ai-task-state.mjs";
+
 export function createDashboardController(options) {
   const {
     state, els, t, apiGet, apiPost, preloadDailyInspiration,
@@ -12,25 +14,98 @@ export function createDashboardController(options) {
   let dashboardLoadToken = 0;
   let refreshPollToken = 0;
   let todayClockTimer = 0;
+  let dashboardLoadPromise = null;
+  let pendingLoad = null;
+  let aiProgressVersion = 0;
+  let latestAiProgress = null;
+  let needsFullRender = false;
 
-  return { loadDashboard, triggerRefresh, startPolling, renderAll, startTodayClock, renderTodayMeta, handleDayRollover };
+  return { loadDashboard, applyAiProgress, triggerRefresh, startPolling, renderAll, startTodayClock, renderTodayMeta, handleDayRollover };
 
-async function loadDashboard(options = {}) {
-  const token = ++dashboardLoadToken;
+function loadDashboard(options = {}) {
+  dashboardLoadToken += 1;
+  const request = { scope: options.scope === "news" && state.data && !needsFullRender ? "news" : "all", render: options.render !== false };
+  pendingLoad = mergeLoads(pendingLoad, request);
+  if (!dashboardLoadPromise) dashboardLoadPromise = Promise.resolve().then(drainDashboardLoads);
+  return dashboardLoadPromise;
+}
+
+async function drainDashboardLoads() {
+  let loaded = false;
   try {
-    const data = await apiGet("/api/dashboard");
-    if (token !== dashboardLoadToken) return false;
-    state.data = data;
-    if (options.render !== false) {
-      renderAll();
-      preloadDailyInspiration(inspirationPreloadTimeoutMs);
+    while (pendingLoad) {
+      const request = pendingLoad;
+      pendingLoad = null;
+      const token = dashboardLoadToken;
+      const progressVersion = aiProgressVersion;
+      try {
+        const data = await apiGet(request.scope === "news" ? "/api/dashboard?scope=news" : "/api/dashboard");
+        if (token !== dashboardLoadToken) {
+          pendingLoad = mergeLoads(request, pendingLoad);
+          continue;
+        }
+        state.data = request.scope === "news" ? { ...state.data, ...data } : data;
+        if (request.scope === "all") needsFullRender = false;
+        if (progressVersion !== aiProgressVersion) patchAiProgress();
+        if (request.render) {
+          if (request.scope === "news") renderNews();
+          else {
+            renderAll();
+            preloadDailyInspiration(inspirationPreloadTimeoutMs);
+          }
+        }
+        loaded = true;
+      } catch (error) {
+        if (token !== dashboardLoadToken) {
+          pendingLoad = mergeLoads(request, pendingLoad);
+          continue;
+        }
+        if (request.scope === "news") {
+          renderOverviewStatus(t("connection.unavailable"), localizedErrorMessage(error));
+        } else {
+          needsFullRender = true;
+          els.dailyBoard?.removeAttribute?.("aria-busy");
+          els.summaryGrid?.removeAttribute?.("aria-busy");
+          renderConnectionError(error);
+        }
+      }
     }
-    return true;
-  } catch (error) {
-    if (token !== dashboardLoadToken) return false;
-    renderConnectionError(error);
-    return false;
+    return loaded;
+  } finally {
+    dashboardLoadPromise = null;
   }
+}
+
+function mergeLoads(left, right) {
+  if (!left) return right;
+  if (!right) return left;
+  return { scope: left.scope === "all" || right.scope === "all" ? "all" : "news", render: left.render || right.render };
+}
+
+function applyAiProgress(payload) {
+  if (!payload?.autoStatus) return;
+  const previousBriefPhase = briefTaskPhase(state);
+  latestAiProgress = payload;
+  aiProgressVersion += 1;
+  patchAiProgress();
+  if (state.data) renderStatus();
+  if (state.data && previousBriefPhase !== briefTaskPhase(state)) renderEfficiencyPanel();
+  if (payload.contentChanged) void loadDashboard({ scope: "news" });
+}
+
+function patchAiProgress() {
+  if (!state.data?.ai || !latestAiProgress) return;
+  state.data.ai = { ...state.data.ai, autoStatus: latestAiProgress.autoStatus };
+  if (state.data.organization) state.data.organization = { ...state.data.organization, ...latestAiProgress.autoStatus };
+  if (Number.isFinite(latestAiProgress.usedToday)) state.data.ai.usedToday = latestAiProgress.usedToday;
+}
+
+function renderNews() {
+  syncAiSearchCapability();
+  renderStatus();
+  renderEfficiencyPanel();
+  renderDaily();
+  renderSummaries();
 }
 
 async function triggerRefresh(force) {
@@ -40,7 +115,7 @@ async function triggerRefresh(force) {
   els.settingsRefresh.disabled = true;
   setRefreshRequestFeedback(true);
   try {
-    const result = await apiPost(`/api/refresh${force ? "?force=1" : ""}`);
+    const result = await apiPost(`/api/refresh${force ? "?force=1" : ""}`, { automatic: force !== true });
     if (state.data && result.status) {
       state.data.status = result.status;
       renderStatus();

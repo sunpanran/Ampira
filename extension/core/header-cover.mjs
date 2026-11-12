@@ -1,11 +1,7 @@
 import { LOCAL_HEADER_COVER_KEY } from "./constants.mjs";
 
-export const HEADER_COVER_INPUT_MAX_BYTES = 20 * 1024 * 1024;
 export const HEADER_COVER_STORED_MAX_BYTES = Math.floor(2.5 * 1024 * 1024);
 export const HEADER_COVER_MAX_DIMENSION = 2560;
-export const HEADER_COVER_MIN_LONG_EDGE = 1280;
-export const HEADER_COVER_QUALITIES = Object.freeze([0.88, 0.80, 0.72]);
-export const HEADER_COVER_RESIZE_FACTOR = 0.85;
 
 const WEBP_DATA_URL_PREFIX = "data:image/webp;base64,";
 
@@ -92,19 +88,6 @@ export function webpDataUrlByteLength(value) {
   if (!base64 || base64.length % 4 !== 0 || !/^[A-Za-z0-9+/]+={0,2}$/.test(base64)) return 0;
   const padding = base64.endsWith("==") ? 2 : base64.endsWith("=") ? 1 : 0;
   return base64.length * 3 / 4 - padding;
-}
-
-export function nextHeaderCoverDimensions(width, height) {
-  const currentWidth = Math.max(1, Math.round(Number(width) || 0));
-  const currentHeight = Math.max(1, Math.round(Number(height) || 0));
-  const longEdge = Math.max(currentWidth, currentHeight);
-  if (longEdge <= HEADER_COVER_MIN_LONG_EDGE) return { width: currentWidth, height: currentHeight };
-  const nextLongEdge = Math.max(HEADER_COVER_MIN_LONG_EDGE, Math.floor(longEdge * HEADER_COVER_RESIZE_FACTOR));
-  const scale = nextLongEdge / longEdge;
-  return {
-    width: Math.max(1, Math.round(currentWidth * scale)),
-    height: Math.max(1, Math.round(currentHeight * scale)),
-  };
 }
 
 function headerCoverError(code, cause) {

@@ -16,7 +16,8 @@ export async function apiPost(url, body) {
     }
     return readJsonResponse(await fetch(url, options));
   }
-  return sendExtensionRequest({ ...routeFor("POST", url), payload: body || {} });
+  const route = routeFor("POST", url);
+  return sendExtensionRequest({ ...route, payload: { ...route.payload, ...(body || {}) } });
 }
 
 export async function sendExtensionRequest(request) {
@@ -37,7 +38,7 @@ export async function sendExtensionRequest(request) {
 }
 
 subscribeRuntimeMessages((message) => {
-  if (!message?.type || !/^(content-sync|dashboard|reading-queue|refresh|settings)\./.test(message.type)) return;
+  if (!message?.type || !/^(content-sync|dashboard|reading-queue|refresh|search|settings)\./.test(message.type)) return;
   window.dispatchEvent(new CustomEvent("ampira:runtime-message", { detail: message }));
 });
 

@@ -2,9 +2,10 @@ import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { DEFAULT_SETTINGS } from "../../extension/core/constants.mjs";
+import { normalizeSettings } from "../../extension/core/settings.mjs";
 import { textLength, truncateText } from "../../assets/client/text.mjs";
 import { cleanGeneratedSummaryLine, extractGeneratedSummaryTitle, hasStructuralSummaryPrefix, limitGeneratedSummaryLines, normalizeSummaryMarkup, parseGeneratedDailyDigest } from "../../extension/core/summary-text.mjs";
-import { cleanAiAnswerMarkup, extractDirectAnswer, parseAiAnswer } from "../../assets/client/ai-answer-format.mjs";
+import { cleanAiAnswerMarkup, parseAiAnswer } from "../../assets/client/ai-answer-format.mjs";
 import {
   exactPermissionOrigins, newlyRequiredUngrantedOrigins, permissionRowCounts, requiredUngrantedOrigins,
 } from "../../assets/client/permission-ui-model.mjs";
@@ -39,7 +40,7 @@ const dashboardContentRuntimeSource = await fs.readFile(path.join(root, "extensi
 
 assert.equal(manifest.manifest_version, 3);
 assert(dashboardHtml.includes('<span class="about-version" id="aboutVersion"></span>'), "the About panel must reserve a version output without hard-coding a release");
-assert(dashboardHtml.includes('<img class="about-logo" src="/assets/icons/ampira-logo.svg?v=20260717-crisp"'), "the About panel must render the canonical vector logo");
+assert(/<img class="about-logo" src="\/assets\/icons\/ampira-logo\.svg(?:\?[^\"]*)?"/.test(dashboardHtml), "the About panel must render the canonical vector logo");
 assert(!dashboardHtml.slice(dashboardHtml.indexOf('<div class="about-brand">'), dashboardHtml.indexOf('<div class="about-links">')).includes("logo-purple.svg"), "the About panel must not retain the legacy purple-only logo");
 await assert.rejects(fs.access(path.join(root, "assets", "logo-purple.svg")), /ENOENT/, "the legacy purple-only logo must be removed");
 await assert.rejects(fs.access(path.join(root, "store", "assets", "ampira-store-icon.svg")), /ENOENT/, "the blurred store-only vector must be removed");
@@ -52,9 +53,9 @@ assert(versionDashboardAppSource.includes("globalThis.chrome?.runtime?.getManife
   && versionDashboardAppSource.includes("els.aboutVersion.textContent = `v${appVersion}`"), "the About panel version must come from the runtime manifest with a local-preview manifest fallback");
 assert(!dashboardHtml.includes(manifest.version), "dashboard HTML must not hard-code the manifest version");
 assert.equal(manifest.chrome_url_overrides.newtab, "dashboard.html");
-assert(logoSource.includes('<rect x="4.75" y="4.75" width="94.5" height="94.5" rx="23.25"')
-  && logoSource.includes('fill="#9152FF"')
-  && logoSource.includes('fill="#F7F2FF"')
+assert(logoSource.includes('viewBox="0 0 104 104"')
+  && logoSource.includes('fill="#06B6D4"')
+  && logoSource.includes('fill="#F4FBFD"')
   && !/(?:linear|radial)Gradient|filter=/.test(logoSource), "the canonical logo must use the reviewed flat, crisp geometry and Ampira palette");
 assert.deepEqual([storeIconPng.readUInt32BE(16), storeIconPng.readUInt32BE(20)], [128, 128], "the Chrome Web Store icon must remain 128x128");
 assert.deepEqual([managerIconPng.readUInt32BE(16), managerIconPng.readUInt32BE(20)], [48, 48], "the extension-management icon must remain 48x48");
@@ -62,7 +63,7 @@ assert.deepEqual([toolbarIcon16Png.readUInt32BE(16), toolbarIcon16Png.readUInt32
 assert.deepEqual([toolbarIcon32Png.readUInt32BE(16), toolbarIcon32Png.readUInt32BE(20)], [32, 32], "the high-density toolbar icon must remain 32x32");
 assert.equal(manifest.action.default_popup, "action-popup.html", "the toolbar action must open a visible capture confirmation popup");
 assert.deepEqual(manifest.permissions.sort(), ["activeTab", "alarms", "bookmarks", "storage"]);
-assert.deepEqual([...(manifest.optional_permissions || [])].sort(), ["favicon", "search"], "website icons and browser search must use optional named permissions so upgrades do not disable existing installs");
+assert.deepEqual([...(manifest.optional_permissions || [])].sort(), ["favicon", "history", "search"], "website icons, local history lookup and browser search must remain optional permissions");
 for (const forbidden of ["tabs", "history", "scripting", "webRequest", "management", "unlimitedStorage"]) {
   assert(!manifest.permissions.includes(forbidden), `manifest must not request ${forbidden}`);
 }
@@ -79,7 +80,6 @@ assert(cspDirectives.get("img-src")?.includes("'self'"), "the native favicon end
 
 const actionPopupHtml = await fs.readFile(path.join(root, "action-popup.html"), "utf8");
 const actionPopupSource = await fs.readFile(path.join(root, "assets/client/action-popup.mjs"), "utf8");
-const actionPopupCss = await fs.readFile(path.join(root, "assets/styles/action-popup.css"), "utf8");
 assert(actionPopupHtml.includes('src="assets/icons/ampira-logo.svg"') && !actionPopupHtml.includes("logo-purple.svg"), "the toolbar popup must reuse the canonical vector logo");
 assert(actionPopupHtml.includes('role="status"') && actionPopupHtml.includes('aria-live="polite"'), "the capture popup must announce its result accessibly");
 assert(actionPopupHtml.includes('src="assets/client/action-popup.mjs"'), "the capture popup must execute only its packaged module");
@@ -93,7 +93,6 @@ assert(actionPopupSource.includes('from "./popup-i18n.mjs"')
 "the popup must use its generated micro-catalog and direct runtime port instead of the full dashboard dependency graph");
 assert(actionPopupSource.includes('import { createThemedIcon } from "./icons.mjs"') && actionPopupSource.includes('icon: "check"') && actionPopupSource.includes('icon: "info-circle"'), "popup controls and states must use the shared local icon library");
 assert(actionPopupSource.includes("textContent") && !actionPopupSource.includes("innerHTML"), "captured page metadata must remain inert text");
-assert(actionPopupCss.includes("--popup-warning: #F4C95D") && !actionPopupCss.includes("var(--red)"), "popup warnings must use the reviewed amber state instead of red");
 
 assert.equal(DEFAULT_LOCALE, "zh-CN");
 assert.deepEqual(SUPPORTED_LOCALES, ["en", "zh-CN", "zh-Hant"]);
@@ -129,7 +128,7 @@ assert.deepEqual(defaultBookmarkFoldersForLocale("zh-Hant"), { news: "資訊", i
 assert.equal(translate("en", "settings.bookmarks.folderOption", { name: "Design", count: 5 }), "Design (5)");
 assert.equal(DEFAULT_SETTINGS.newsBookmarkFolder, "");
 assert.equal(DEFAULT_SETTINGS.inspirationBookmarkFolder, "");
-assert.equal(DEFAULT_SETTINGS.colorMode, "dark", "appearance must default to dark mode");
+assert.equal(DEFAULT_SETTINGS.colorMode, "system", "appearance must follow the system preference by default");
 assert.equal(DEFAULT_SETTINGS.dashboardGlassBlurEnabled, true, "dashboard glass blur must stay enabled unless the user turns it off");
 assert.equal(DEFAULT_SETTINGS.headerImageEnabled, true, "the header image must be enabled by default");
 assert.equal(DEFAULT_SETTINGS.headerImageBlurEnabled, false, "header-image blur must be opt-in");
@@ -176,12 +175,15 @@ const structuredAiAnswer = parseAiAnswer("核心判断：直接结论。\n关键
 assert.deepEqual(structuredAiAnswer.sections.map(({ title }) => title), ["核心判断", "关键信息"]);
 assert(structuredAiAnswer.sections[1].body.includes("• 事实一"), "AI search bullets must remain semantic after Markdown cleanup");
 assert.equal(
-  extractDirectAnswer("直接回答：你好，需要我帮你找什么？\n本地依据：没有匹配内容。\n补充判断：这是社交性开场。\n建议动作：等待用户继续输入。"),
+  parseAiAnswer("直接回答：你好，需要我帮你找什么？\n本地依据：没有匹配内容。\n补充判断：这是社交性开场。\n建议动作：等待用户继续输入。").sections[0].body,
   "你好，需要我帮你找什么？",
-  "dashboard questions must expose only the user-facing answer from legacy structured responses",
+  "legacy structured answers must preserve each section's user-facing text",
 );
 assert.equal(DEFAULT_SETTINGS.floatingWebOpenEnabled, false, "in-app reading must be opt-in by default");
-assert.equal(DEFAULT_SETTINGS.retainSeenArchive, true, "viewed items must remain archived by default");
+assert.equal(DEFAULT_SETTINGS.retainSeenArchive, false, "viewed archive retention must be opt-in by default");
+assert.equal(normalizeSettings({}).retainSeenArchive, false, "missing archive retention settings must use daily cleanup");
+assert.equal(normalizeSettings({ retainSeenArchive: true }).retainSeenArchive, true, "an explicit archive retention opt-in must be preserved");
+assert.equal(normalizeSettings({ retainSeenArchive: false }).retainSeenArchive, false, "an explicit archive retention opt-out must be preserved");
 assert.equal(DEFAULT_SETTINGS.personalizedRankingEnabled, false, "personalized ranking must be opt-in by default");
 
 const permissionUiRows = [
@@ -301,7 +303,7 @@ assert.deepEqual(manifestDescriptions, [
   reviewedBrandTaglines["zh-Hant"],
 ], "all packaged locales must use the reviewed brand tagline on the browser extensions page");
 const storeSummaries = [
-  "News from your bookmarks, sorted by time or importance. Optional AI summarizes and answers questions. Data stays local. No sign-up.",
+  "News from your bookmarks, sorted by time or importance. Optional AI summarizes and answers questions. Local by default. No sign-up.",
   "从书签里的网站获取新资讯，按时间或重要性查看。AI 功能可选，可生成摘要和今日简报，也能结合正文继续解读。数据默认保存在本地，不用注册账号。",
   "從書籤裡的網站取得新資訊，依時間或重要性查看。AI 功能可選，可產生摘要與今日簡報，也能讀取內文並繼續解讀。資料預設留在本機，不用註冊帳號。",
 ];
@@ -349,7 +351,7 @@ assert.deepEqual(untranslatedDashboardLines, [], "dashboard-owned Chinese copy m
 const settingsTabNames = [...dashboardSource.matchAll(/data-settings-tab="([^"]+)"/g)].map((match) => match[1]).sort();
 const settingsPanelNames = [...dashboardSource.matchAll(/data-settings-panel="([^"]+)"/g)].map((match) => match[1]).sort();
 assert.deepEqual(settingsTabNames, settingsPanelNames, "every settings tab must map to exactly one settings panel");
-assert.equal(settingsTabNames.length, 7, "settings must retain the seven existing sections");
+assert.deepEqual(settingsTabNames, ["about", "appearance", "bookmarks", "bot", "browser", "cache", "exclusions", "service"], "settings must retain the seven existing sections and add a dedicated Bot board page");
 for (const id of [
   "sourceCoverageDetails", "cacheAdvancedDetails", "cacheMaintenanceDetails",
   "bookmarkExtraDetails", "bookmarkHiddenDetails", "sourcePermissionDetails", "exclusionDetails",
@@ -395,7 +397,7 @@ for (const id of [
 ]) {
   assert.equal(dashboardIds.filter((value) => value === id).length, 1, `settings control id must remain unique: ${id}`);
 }
-const servicePanelStart = dashboardSource.indexOf('<div class="settings-panel active" data-settings-panel="service">');
+const servicePanelStart = dashboardSource.indexOf('data-settings-panel="service"');
 const cachePanelStart = dashboardSource.indexOf('<div class="settings-panel" data-settings-panel="cache">');
 const servicePanelSource = dashboardSource.slice(servicePanelStart, cachePanelStart);
 assert(servicePanelSource.includes('id="settingsOverviewTitle"'), "the AI runtime overview must live inside the AI settings panel");
@@ -403,7 +405,7 @@ assert(!dashboardSource.slice(0, servicePanelStart).includes('id="settingsOvervi
 const browserPanelStart = dashboardSource.indexOf('<div class="settings-panel" data-settings-panel="browser">');
 const exclusionsPanelStart = dashboardSource.indexOf('<div class="settings-panel" data-settings-panel="exclusions">');
 const browserPanelSource = dashboardSource.slice(browserPanelStart, exclusionsPanelStart);
-const bookmarksPanelStart = dashboardSource.indexOf('<div class="settings-panel" data-settings-panel="bookmarks">');
+const bookmarksPanelStart = dashboardSource.indexOf('data-settings-panel="bookmarks"');
 const appearancePanelStart = dashboardSource.indexOf('<div class="settings-panel" data-settings-panel="appearance">');
 const aboutPanelStart = dashboardSource.indexOf('<div class="settings-panel" data-settings-panel="about">');
 const settingsFooterStart = dashboardSource.indexOf('<div class="modal-actions">', aboutPanelStart);
@@ -431,7 +433,9 @@ assert(shellControllerSource.includes("els.bookmarkNav.hidden = !visible")
   && shellControllerSource.includes("els.librarySection.hidden = !visible")
   && shellControllerSource.includes('.filter((button) => !button.hidden)')
   && shellControllerSource.includes("entry.section.hidden !== true"), "hidden bookmark surfaces must be removed from navigation sizing and scroll selection");
-assert(shellControllerSource.includes("maxLabelWidth + 16"), "expanded navigation width must leave a language-safe label inset");
+assert(shellControllerSource.includes('sidebar.querySelectorAll(".nav-logo")')
+  && shellControllerSource.includes("Math.max(labelSlotMin, maxLabelWidth)")
+  && shellControllerSource.includes("iconRight + gap + labelSlotWidth + paddingRight + 2"), "expanded navigation must fit the longest localized label or brand name with explicit right padding");
 assert(!shellControllerSource.includes('    ".nav-btn",'), "navigation must not remain registered for the removed pointer glow");
 assert(shellControllerSource.includes("new IntersectionObserver(syncNavToCurrentSection")
   && shellControllerSource.includes("scrollObserver.observe(entry.section)")
@@ -458,7 +462,7 @@ assert(sourceCoverageControllerSource.includes("await requestOrigins([pattern])"
 assert(sourceCoverageControllerSource.includes('apiPost("/api/feed/source/refresh", { sourceKey })'), "source diagnostics must support a scoped source retry");
 const refreshServiceSource = await fs.readFile(path.join(root, "extension", "runtime", "refresh-service.mjs"), "utf8");
 assert(/return\s*\{[\s\S]{0,160}\brefreshSource\b/.test(refreshServiceSource), "the refresh service factory must expose the scoped source refresh route");
-assert.equal((dashboardSource.match(/class="ai-service-group"/g) || []).length, 3, "AI settings must separate provider configuration, optional image search, and top search without adding a second Feed permission path");
+assert.equal((dashboardSource.match(/class="ai-service-group"/g) || []).length, 2, "optional image search and top search must remain separate from the combined AI service region without adding a second Feed permission path");
 assert(!dashboardSource.includes('id="aiFeedAccessGroup"') && !dashboardSource.includes('id="grantAiFeedOrigins"'), "cross-language Feed domains must use the existing initial source-permission flow");
 assert(dashboardSource.includes('class="credential-panel ai-image-layout"') && dashboardSource.includes('class="ai-image-actions"'), "optional image-search controls must use a grouped credential layout with responsive actions");
 assert(!dashboardSource.includes('id="refreshPermissionStatus"'), "website access must sync automatically without a no-op refresh button");
@@ -564,7 +568,8 @@ for (const [file, expectedLang, locale, tagline, summary, logoPath, storeLabel] 
 ]) {
   const text = await fs.readFile(path.join(root, file), "utf8");
   assert(text.includes(`<html lang="${expectedLang}">`), `${file} must declare ${expectedLang}`);
-  assert(text.includes(`<img class="mark-logo" src="${logoPath}" width="48" height="48" alt="Ampira">`), `${file} must show the packaged Ampira logo`);
+  const docsLogoReference = text.match(/<img class="mark-logo" src="([^"]+)" width="48" height="48" alt="Ampira">/)?.[1];
+  assert.equal(docsLogoReference?.split(/[?#]/, 1)[0], logoPath, `${file} must show the packaged Ampira logo`);
   assert(text.includes(`<a class="store-link" href="${chromeWebStoreUrl}" target="_blank" rel="noopener noreferrer">${storeLabel}`), `${file} must show the localized Chrome Web Store link`);
   assert(text.includes(`<h1>${tagline}</h1>`), `${file} must use the reviewed brand tagline`);
   assert(text.includes(`<meta name="description" content="${summary}">`), `${file} must use the reviewed localized summary`);

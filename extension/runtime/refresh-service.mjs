@@ -1,7 +1,13 @@
-import { createCardSummaryPolicy } from "./card-summary-policy.mjs";
+import { createCardSummaryPolicy, validateCardSummaryOutput } from "./card-summary-policy.mjs";
+import { automaticSummaryCandidates as selectSummaryCandidates, runAutomaticAiWorkflow } from "./automatic-ai-workflow.mjs";
+import { cardSummaryContextKey, isAiContentError, nextSummaryRetry, withoutSummaryRetry } from "../core/card-summary-retry.mjs";
 import { createFeedImageService, feedImageCacheFresh, selectFeedImageEnrichmentTargets } from "./feed-image-service.mjs";
 import { aiOutputPartsMatchLocale } from "../core/ai-output-language.mjs";
-import { localizedSummaryMatchesLocale } from "../core/feed-language-policy.mjs";
+import { botGeneratesBrief, botOrganizesNews, isBotMode } from "../core/bot-mode.mjs";
+import { createLocalization } from "../core/feed-localization.mjs";
+import { translateFeedBatch } from "./feed-translation-batch.mjs";
+import { CARD_SUMMARY_WRITING_RULES } from "../core/card-summary-format.mjs";
+import { createNewsOrganizationService } from "./news-organization-service.mjs";
 import {
   selectDistinctEventEvidence,
   shouldRetainPreviousItemsAfterEmpty,
@@ -23,14 +29,14 @@ const AI_ARTICLE_SUMMARY_MAX_TOKENS = 1200;
 export function createRefreshService(options) {
   const {
     refreshCoordinator, getSettings, currentBookmarkModel, emptyBookmarkModel, currentFeedPermissionState,
-    configuredFeedSources, selectRefreshBatch, getRecord, setRecord, setRecords,
+    selectRefreshBatch, getRecord, setRecord, setRecords,
     setRefreshStatus, pipelineStages, broadcast, fetchSourceArticles, sourceFetchOptions,
     mapWithConcurrency, summarizeQuality, retainActiveUnrefreshedItems, rankAndDedupe,
     assertFeedItemsStillPermitted, withFeedCacheMetadata, cacheMutations, aiConfigured,
-    getAiAutoStatus, setAiAutoStatus, defaultAiAutoStatus, readQuota, runAiWithinQuota,
+    getAiAutoStatus, setAiAutoStatus, defaultAiAutoStatus, readQuota, runAiWithinQuota, runAiBatchWithinQuota,
     callProvider, translate, translateAiPrompt, settingsLocale, parseGeneratedDailyDigest, dailyDigestEvidence, buildFallbackDigest,
     digestCachePermitted, filterFeedItemsBySources, presentableFeedItems = (items) => items,
-    resultMessage, errorResult,
+    resultMessage,
     emptySourceQuality, localDateKey, uniqueStrings, safeOrigin, originPattern,
     sanitizeDailyDigest, typedError, feedCacheOrEmpty, getRefreshStatus, hostOf,
     originsFromUrls, isPermissionEpochCurrent, buildDailyCandidates,
@@ -47,11 +53,7 @@ export function createRefreshService(options) {
     preserveCardAiSummary,
     sanitizeCardAiSummaries,
   } = cardSummaryPolicy;
-  const cardSummaryOutputMatchesLocale = (value, locale) => {
-    const organized = generatedCardSummary(value);
-    const parts = [organized.title, ...organized.summary].filter(Boolean);
-    return aiOutputPartsMatchLocale(parts.length ? parts : [value], locale);
-  };
+  const cardSummaryOutputMatchesLocale = validateCardSummaryOutput;
   const dailyDigestOutputMatchesLocale = (value, itemCount, locale) => {
     const organized = parseGeneratedDailyDigest(value, itemCount);
     const parts = [...organized.overview, ...organized.eventTitles.filter(Boolean)];
@@ -71,22 +73,32 @@ export function createRefreshService(options) {
     hashText: options.hashText,
     refreshCoordinator,
   });
+  const organization = createNewsOrganizationService({
+    getSettings, getStatus: getAiAutoStatus, organizeBot: options.organizeBot || (async () => ({ started: false })),
+    organizeNative: ({ allowDigest = false, retryFailed = false }) => {
+      const epoch = cacheMutations.capture();
+      return runAutomaticAiAfterFailedRefresh(() => cacheMutations.isCurrent(epoch), undefined, allowDigest, retryFailed);
+    },
+    summarizeNative: refreshSingleSummary, onComplete: options.onOrganizationComplete,
+  });
+  const isWorkCurrent = generation => typeof generation === "function" ? generation() : refreshCoordinator.isCurrent(generation);
   return {
-    startRefresh, runRefresh, refreshSource, refreshDailyDigest, refreshSingleSummary,
+    startRefresh, runRefresh, refreshSource, refreshDailyDigest, refreshSingleSummary: organization.summarize,
+    organizeNews: () => organization.start({ retryFailed: true }), waitForOrganization: organization.wait, isOrganizingNews: organization.isRunning,
     generatedCardSummary, preserveCardAiSummary, sanitizeCardAiSummaries,
   };
-async function startRefresh(force) {
-  return refreshCoordinator.start(force === true);
+async function startRefresh(force, options = {}) {
+  return refreshCoordinator.start(force === true, options);
 }
 
 async function runRefresh(generation, options = {}) {
   try {
     return await performRefresh(generation, options);
   } catch (error) {
-    if (!refreshCoordinator.isCurrent(generation)) return;
+    if (!isWorkCurrent(generation)) return;
     try {
-      const automaticFallback = await runAutomaticAiAfterFailedRefresh(generation);
-      if (!refreshCoordinator.isCurrent(generation)) return;
+      const automaticFallback = options.organize === false ? null : await organization.start({ allowDigest: true });
+      if (!isWorkCurrent(generation)) return;
       if (automaticFallback) broadcast("dashboard.updated", { reason: "refresh-failed-ai-fallback" });
       const previous = await getRefreshStatus();
       const failed = {
@@ -100,18 +112,6 @@ async function runRefresh(generation, options = {}) {
         stages: pipelineStages("complete"),
       };
       await setRefreshStatus(failed);
-      const autoStatus = await getAiAutoStatus();
-      if (autoStatus.running) await setAiAutoStatus({
-        ...autoStatus,
-        phase: "error",
-        running: false,
-        lastRunAt: new Date().toISOString(),
-        errorKey: error?.messageKey || "background.error.aiNetwork",
-        errorParams: error?.messageParams || {},
-        errorStage: autoStatus.phase === "running-digest"
-          ? "digest"
-          : autoStatus.phase === "running-cards" ? "cards" : "refresh",
-      });
       broadcast("refresh.progress", failed);
     } catch {
       // Preserve the original refresh failure when status persistence also fails.
@@ -120,10 +120,10 @@ async function runRefresh(generation, options = {}) {
   }
 }
 
-async function performRefresh(generation) {
+async function performRefresh(generation, { signal, organize = true } = {}) {
   const cacheEpoch = cacheMutations.capture();
   const settings = await getSettings();
-  if (!refreshCoordinator.isCurrent(generation)) return;
+  if (!isWorkCurrent(generation)) return;
   const locale = settingsLocale(settings);
   if (!settings.bookmarkConsentGranted) return;
   const model = await currentBookmarkModel(settings);
@@ -149,7 +149,7 @@ async function performRefresh(generation) {
     messageParams: refreshSources.length ? { count: refreshSources.length } : {},
     stages: pipelineStages("fetching"),
   };
-  if (!refreshCoordinator.isCurrent(generation)) return;
+  if (!isWorkCurrent(generation)) return;
   await setRefreshStatus(status);
   broadcast("refresh.progress", status);
   const [rawPreviousFeedSnapshot, previousQualitySnapshot] = await Promise.all([
@@ -161,6 +161,7 @@ async function performRefresh(generation) {
   const articles = [];
   const replacedSources = [];
   await mapWithConcurrency(refreshSources, 4, async (source) => {
+    if (!isWorkCurrent(generation) || signal?.aborted) return;
     const previousRecord = previousQualitySnapshot.records?.[source.key] || {};
     const previousItems = (previousFeedSnapshot.items || []).filter((item) => item.sourceKey === source.key);
     try {
@@ -171,6 +172,7 @@ async function performRefresh(generation) {
       }
       const result = await fetchSourceArticles(source, {
         ...sourceFetchOptions(settings.hotNewsEntriesPerSource),
+        signal,
         profile: sourceFetchProfile(previousRecord, previousItems),
       });
       const items = result.items || [];
@@ -206,6 +208,7 @@ async function performRefresh(generation) {
         reasonKey: "",
       });
     } catch (error) {
+      if (!isWorkCurrent(generation) || signal?.aborted) return;
       status.failed += 1;
       const terminal = [404, 410].includes(Number(error?.details?.status));
       quality[source.key] = updateSourceQualityRecord(previousRecord, {
@@ -230,26 +233,26 @@ async function performRefresh(generation) {
       status.message = "";
       status.messageKey = "background.processedSources";
       status.messageParams = { completed: status.completed, total: status.total };
-      if (refreshCoordinator.isCurrent(generation)) {
+      if (isWorkCurrent(generation)) {
         await setRefreshStatus(status);
         broadcast("refresh.progress", status);
       }
     }
-  });
-  if (!refreshCoordinator.isCurrent(generation)) return;
-  await enrichMissingFeedImages(articles, { cacheEpoch, generation });
+  }, { signal, isCurrent: () => isWorkCurrent(generation) });
+  if (!isWorkCurrent(generation)) return;
+  await enrichMissingFeedImages(articles, { cacheEpoch, generation, signal });
   updateImageQualityMetrics(quality, articles);
-  if (!refreshCoordinator.isCurrent(generation)) return;
+  if (!isWorkCurrent(generation)) return;
   const aiReadyForRefresh = await aiConfigured(settings);
   const committed = await cacheMutations.run(async (isCurrent) => {
-    if (!isCurrent() || !refreshCoordinator.isCurrent(generation)) return null;
+    if (!isCurrent() || !isWorkCurrent(generation)) return null;
     const [previous, previousQuality, previousDigest, feedback] = await Promise.all([
       getRecord("feed", { items: [] }),
       getRecord("source-quality", emptySourceQuality()),
       getRecord("daily-digest", null),
       getRecord("feedback", []),
     ]);
-    if (!isCurrent() || !refreshCoordinator.isCurrent(generation)) return null;
+    if (!isCurrent() || !isWorkCurrent(generation)) return null;
     const previousFeed = feedCacheOrEmpty(previous);
     const retained = filterFeedItemsBySources(
       retainActiveUnrefreshedItems(previousFeed.items, permitted, replacedSources),
@@ -292,7 +295,7 @@ async function performRefresh(generation) {
           preselected: true,
           publisherLimit: settings.todayNewsPerPublisherLimit,
         }), digestCandidates, "daily-digest");
-    if (!isCurrent() || !refreshCoordinator.isCurrent(generation)) return null;
+    if (!isCurrent() || !isWorkCurrent(generation)) return null;
     await setRecords([
       { key: "feed", value: feed, kind: "cache" },
       { key: "source-quality", value: qualitySummary, kind: "cache" },
@@ -303,18 +306,12 @@ async function performRefresh(generation) {
       },
       { key: "refresh-source-cursor", value: refreshBatch.nextCursor, kind: "state" },
     ]);
-    return { items, needsDigest: Boolean(visibleItems.length && aiReadyForRefresh && preservedDigest.status !== "ai") };
+    return { items };
   }, cacheEpoch);
-  if (!committed || !refreshCoordinator.isCurrent(generation)) return;
-  const automaticRun = await runAutomaticAiAfterRefresh({
-    settings,
-    items: committed.items,
-    needsDigest: committed.needsDigest,
-    aiReady: aiReadyForRefresh,
-    cacheEpoch,
-    generation,
-  });
-  const { items, errorKey: autoSummaryErrorKey } = automaticRun;
+  if (!committed || !isWorkCurrent(generation)) return;
+  broadcast("dashboard.updated", { reason: "feed" });
+  const items = committed.items;
+  if (!isWorkCurrent(generation)) return;
   const finished = {
     ...status,
     running: false,
@@ -322,20 +319,21 @@ async function performRefresh(generation) {
     progress: 1,
     message: "",
     messageKey: items.length
-      ? (autoSummaryErrorKey ? "background.cachedItemsAiDeferred" : "background.cachedItems")
+      ? "background.cachedItems"
       : "background.noItems",
     messageParams: items.length ? { count: items.length } : {},
     stages: pipelineStages("complete"),
   };
   await setRefreshStatus(finished);
-  if (!refreshCoordinator.isCurrent(generation)) return;
+  if (!isWorkCurrent(generation)) return;
   broadcast("dashboard.updated", { reason: "refresh-complete" });
+  if (organize) await organization.start({ allowDigest: true });
 }
 
-async function runAutomaticAiAfterFailedRefresh(generation) {
+async function runAutomaticAiAfterFailedRefresh(generation, signal, allowDigest = true, retryFailed = false) {
   try {
     const settings = await getSettings();
-    if (!settings.bookmarkConsentGranted || !refreshCoordinator.isCurrent(generation)) return null;
+    if (!settings.bookmarkConsentGranted || !isWorkCurrent(generation)) return null;
     const model = await currentBookmarkModel(settings);
     const feedPermissions = await currentFeedPermissionState(settings, model);
     const cacheEpoch = cacheMutations.capture();
@@ -344,11 +342,14 @@ async function runAutomaticAiAfterFailedRefresh(generation) {
       getRecord("daily-digest", null),
       aiConfigured(settings),
     ]);
-    if (!refreshCoordinator.isCurrent(generation)) return null;
+    if (!isWorkCurrent(generation)) return null;
     const rawFeed = feedCacheOrEmpty(feed);
     const permittedItems = filterFeedItemsBySources(rawFeed.items, feedPermissions.permitted, feedPermissions.grantedOrigins);
     const items = presentableFeedItems(permittedItems, settings, aiReady);
-    if (!permittedItems.length) return null;
+    if (!permittedItems.length) {
+      await setAiAutoStatus({ ...defaultAiAutoStatus(), phase: "no-candidates", lastRunAt: new Date().toISOString() }, true);
+      return { items: [], errorKey: "" };
+    }
     const needsDigest = Boolean(aiReady && (
       digest?.status !== "ai"
       || !digestCachePermitted(digest, items, feedPermissions, settings, aiReady)
@@ -358,10 +359,15 @@ async function runAutomaticAiAfterFailedRefresh(generation) {
       items: permittedItems,
       needsDigest,
       aiReady,
+      allowDigest,
+      retryFailed,
       cacheEpoch,
       generation,
+      signal,
     });
-  } catch {
+  } catch (error) {
+    if (isWorkCurrent(generation)) await setAiAutoStatus({ ...defaultAiAutoStatus(), phase: "error",
+      errorKey: error.messageKey || "background.error.aiNetwork", errorParams: error.messageParams || {} }, true);
     return null;
   }
 }
@@ -535,256 +541,172 @@ function nextEligibleAtForError(error) {
   return new Date(Date.now() + bounded).toISOString();
 }
 
-async function runAutomaticAiAfterRefresh({ settings, items, needsDigest, aiReady, cacheEpoch, generation }) {
-  const previous = await getAiAutoStatus();
-  const quota = await readQuota(settings.dailyAiLimit);
+async function runAutomaticAiAfterRefresh(input) {
+  const { settings, cacheEpoch, generation, signal } = input;
+  return runAutomaticAiWorkflow({ ...input, allowDigest: input.allowDigest !== false && !botGeneratesBrief(settings) }, {
+    getAiAutoStatus, setAiAutoStatus, readQuota, automaticallySummarizeCards, refreshDailyDigest,
+    selectCandidates: (items, mode, options = {}) => automaticSummaryCandidates(items, settings, mode,
+      { ...options, includeCooling: input.retryFailed === true || options.includeCooling === true }),
+    isCurrent: () => !signal?.aborted && cacheMutations.isCurrent(cacheEpoch) && isWorkCurrent(generation),
+  });
+}
+
+function automaticSummaryCandidates(items, settings, mode, options) {
   const locale = settingsLocale(settings);
-  const remainingQuota = Math.max(0, settings.dailyAiLimit - quota.used);
-  const requiredCandidates = automaticSummaryCandidates(items, locale, "required");
-  const optionalCandidates = settings.cardSummaryEnabled
-    ? automaticSummaryCandidates(items, locale, "optional")
-    : [];
-  const requiredEligible = Math.min(requiredCandidates.length, remainingQuota);
-  const digestEligible = (needsDigest || requiredEligible > 0) && remainingQuota > requiredEligible;
-  const optionalEligible = Math.min(
-    optionalCandidates.length,
-    Math.max(0, remainingQuota - requiredEligible - Number(digestEligible)),
-  );
-  const total = requiredEligible + Number(digestEligible) + optionalEligible;
-  const hasPendingWork = requiredCandidates.length > 0 || needsDigest || optionalCandidates.length > 0;
-  const startedAt = new Date().toISOString();
-  const base = {
-    processed: 0,
-    total,
-    eligible: requiredEligible + optionalEligible,
-    startedAt,
-    lastRunAt: previous.lastRunAt || "",
-    errorKey: "",
-    errorParams: {},
-    errorStage: "",
-  };
-  if (!aiReady) {
-    await setAiAutoStatus({ ...base, phase: "not-ready", running: false, lastRunAt: startedAt });
-    return { items, errorKey: "" };
-  }
-  if (!remainingQuota && hasPendingWork) {
-    await setAiAutoStatus({ ...base, phase: "quota", running: false, lastRunAt: startedAt });
-    return { items, errorKey: "" };
-  }
-  if (!total) {
-    await setAiAutoStatus({ ...base, phase: "no-candidates", running: false, lastRunAt: startedAt });
-    return { items, errorKey: "" };
-  }
-
-  let processed = 0;
-  let phase = requiredEligible ? "running-cards" : digestEligible ? "running-digest" : "running-cards";
-  let errorKey = "";
-  let errorParams = {};
-  let errorStage = "";
-  await setAiAutoStatus({ ...base, phase, running: true });
-
-  if (requiredEligible && refreshCoordinator.isCurrent(generation)) {
-    const automatic = await automaticallySummarizeCards(
-      settings,
-      items,
-      cacheEpoch,
-      generation,
-      requiredEligible,
-      async (cardProcessed) => {
-        await setAiAutoStatus({ ...base, phase: "running-cards", running: true, processed: processed + cardProcessed });
-      },
-      { mode: "required" },
-    );
-    items = automatic.items;
-    processed += automatic.processed;
-    if (automatic.quotaReached
-      || automatic.processed < requiredEligible
-      || requiredCandidates.length > automatic.processed) phase = "quota";
-    if (automatic.errorKey) {
-      errorKey = automatic.errorKey;
-      errorParams = automatic.errorParams || {};
-      errorStage = "cards";
-    }
-  }
-
-  const digestRequiredAfterLocalization = needsDigest || processed > 0;
-  const remainingAfterRequired = Math.max(0, remainingQuota - processed);
-  if (!errorKey
-    && phase !== "quota"
-    && digestRequiredAfterLocalization
-    && remainingAfterRequired > 0
-    && refreshCoordinator.isCurrent(generation)) {
-    phase = "running-digest";
-    await setAiAutoStatus({ ...base, phase, running: true, processed });
-    const digest = await refreshDailyDigest({ automatic: true });
-    if (digest.status === "ai") processed += 1;
-    else if (digest.status === "quota-or-empty") phase = "quota";
-    else {
-      errorKey = digest.errorKey || "background.error.aiNetwork";
-      errorParams = digest.errorParams || {};
-      errorStage = "digest";
-    }
-  }
-
-  const remainingAfterDigest = Math.max(0, remainingQuota - processed);
-  const optionalLimit = Math.min(optionalCandidates.length, remainingAfterDigest);
-  if ((!errorKey || errorStage === "digest")
-    && phase !== "quota"
-    && optionalLimit
-    && refreshCoordinator.isCurrent(generation)) {
-    phase = "running-cards";
-    await setAiAutoStatus({ ...base, phase, running: true, processed });
-    const automatic = await automaticallySummarizeCards(
-      settings,
-      items,
-      cacheEpoch,
-      generation,
-      optionalLimit,
-      async (cardProcessed) => {
-        await setAiAutoStatus({ ...base, phase, running: true, processed: processed + cardProcessed });
-      },
-      { mode: "optional" },
-    );
-    items = automatic.items;
-    processed += automatic.processed;
-    if (automatic.quotaReached) phase = "quota";
-    if (automatic.errorKey) {
-      if (!errorKey) {
-        errorKey = automatic.errorKey;
-        errorParams = automatic.errorParams || {};
-        errorStage = "cards";
-      }
-    }
-  }
-
-  if (errorKey) phase = "error";
-  else if (phase !== "quota") phase = "completed";
-  await setAiAutoStatus({
-    ...base,
-    phase,
-    running: false,
-    processed,
-    lastRunAt: new Date().toISOString(),
-    errorKey,
-    errorParams,
-    errorStage,
-  });
-  return { items, errorKey, errorParams, errorStage };
-}
-
-function requiresCrossLanguageLocalization(item, locale) {
-  return item?.externalDiscovery === true
-    && Boolean(String(item?.contentLocale || "").trim())
-    && String(item.contentLocale) !== String(locale);
-}
-
-function automaticSummaryCandidates(items, locale, mode) {
-  return (Array.isArray(items) ? items : []).filter((item) => {
-    if (isCurrentCardSummary(item, locale)) return false;
-    const required = requiresCrossLanguageLocalization(item, locale);
-    if (mode === "required") return required && Boolean(String(item?.title || item?.excerpt || "").trim());
-    return !required && Boolean(String(item?.excerpt || "").trim());
-  });
+  const sanitized = sanitizeCardAiSummaries(items, settings, true);
+  return selectSummaryCandidates(sanitized, settings, locale, isCurrentCardSummary, mode, options);
 }
 
 async function automaticallySummarizeCards(
-  settings,
-  items,
-  cacheEpoch,
-  generation,
-  candidateLimit,
-  onProgress = null,
-  { mode = "optional" } = {},
+  settings, items, cacheEpoch, generation, candidateLimit, onProgress = null,
+  { mode = "optional", signal, includeCooling = false } = {},
 ) {
-  if (!await aiConfigured(settings)) return { items, errorKey: "", errorParams: {}, processed: 0, eligible: 0, quotaReached: false };
+  if (mode === "required" && isBotMode(settings)) return automaticallyTranslateCards(settings, items, cacheEpoch, generation, candidateLimit, onProgress, signal, includeCooling);
+  const outcome = { items, errorKey: "", errorParams: {}, processed: 0, attempted: 0, failed: 0, quotaReached: false, stopped: false };
+  if (!await aiConfigured(settings)) return { ...outcome, stopped: true };
   const locale = settingsLocale(settings);
-  let currentItems = items;
-  let errorKey = "";
-  let errorParams = {};
-  let processed = 0;
-  let quotaReached = false;
-  const candidates = automaticSummaryCandidates(items, locale, mode).slice(0, candidateLimit);
-
+  const candidates = automaticSummaryCandidates(items, settings, mode, { includeCooling }).slice(0, candidateLimit);
+  const active = () => !signal?.aborted && cacheMutations.isCurrent(cacheEpoch) && isWorkCurrent(generation);
   for (const candidate of candidates) {
-    if (!cacheMutations.isCurrent(cacheEpoch) || !refreshCoordinator.isCurrent(generation)) break;
-    let result;
+    if (!active()) break;
     try {
       const context = await automaticCardSummaryContext(candidate);
-      result = await runAiWithinQuota(settings, () => callProvider(
-        settings,
-        translateAiPrompt(locale, "background.prompt.cardSummary"),
-        translate(locale, "background.prompt.webInput", {
-          url: candidate.url,
-          title: candidate.title,
-          text: context.text,
-        }),
-        AI_ARTICLE_SUMMARY_MAX_TOKENS,
-        "",
-        async () => {
-          const validation = await assertFeedItemsStillPermitted([candidate]);
-          return { ...validation, origins: uniqueStrings([...validation.origins, ...context.origins]) };
-        },
-        {
-          expectedLocale: locale,
-          outputValidator: (value) => cardSummaryOutputMatchesLocale(value, locale),
-        },
-      ));
-    } catch (error) {
-      errorKey = error?.messageKey || "background.error.aiNetwork";
-      errorParams = error?.messageParams || {};
-      break;
-    }
-    if (!result.usedAi) {
-      quotaReached = true;
-      break;
-    }
-    const organized = generatedCardSummary(result.value);
-    if (!organized.title || !organized.summary.length) {
-      errorKey = "background.error.aiNoText";
-      break;
-    }
-    if (!localizedSummaryMatchesLocale(organized.title, organized.summary, locale)) {
-      errorKey = "background.error.aiWrongLanguage";
-      break;
-    }
-    const summarizedAt = new Date().toISOString();
-    const providerOrigin = safeOrigin(settings.openaiBaseUrl);
-    const committedItem = await cacheMutations.run(async (isCurrent) => {
-      if (!isCurrent() || !refreshCoordinator.isCurrent(generation)) return null;
-      const latestSettings = await getSettings();
-      if ((mode !== "required" && !latestSettings.cardSummaryEnabled) || !await aiConfigured(latestSettings)) return null;
-      if (settingsLocale(latestSettings) !== locale) return null;
-      if (safeOrigin(latestSettings.openaiBaseUrl) !== providerOrigin) return null;
-      const latestModel = latestSettings.bookmarkConsentGranted ? await currentBookmarkModel(latestSettings) : emptyBookmarkModel();
-      const latestPermissions = await currentFeedPermissionState(latestSettings, latestModel);
-      if (latestPermissions.permittedByKey.get(String(candidate.sourceKey || "")) !== originPattern(candidate.sourceOrigin || "")) return null;
-      const feed = feedCacheOrEmpty(await getRecord("feed", null));
-      let updatedItem = null;
-      const updatedItems = feed.items.map((item) => {
-        if ((item.articleId || item.entryKey) !== (candidate.articleId || candidate.entryKey) || item.url !== candidate.url) return item;
-        if (isCurrentCardSummary(item, locale)) return item;
-        updatedItem = { ...item, summaryTitle: organized.title, summary: organized.summary, summaryStatus: "ai", summaryLocale: locale, summarizedAt, summaryProviderOrigin: providerOrigin };
-        return updatedItem;
+      const result = await runAiWithinQuota(settings, async () => {
+        outcome.attempted += 1;
+        const value = await callProvider(
+          settings,
+          translateAiPrompt(locale, "background.prompt.cardSummary"),
+          translate(locale, "background.prompt.webInput", { url: candidate.url, title: candidate.title, text: context.text }),
+          AI_ARTICLE_SUMMARY_MAX_TOKENS, "",
+          async () => {
+            const latest = await getSettings();
+            if (botOrganizesNews(latest)) throw typedError("AI_CONFIGURATION_CHANGED", "background.error.aiConfigurationChanged", {}, true);
+            if (mode === "optional" && !latest.cardSummaryEnabled) throw typedError("AI_CONFIGURATION_CHANGED", "background.error.aiConfigurationChanged", {}, true);
+            const validation = await assertFeedItemsStillPermitted([candidate]);
+            return { ...validation, origins: uniqueStrings([...validation.origins, ...context.origins]) };
+          },
+          { signal, expectedLocale: locale, outputValidator: (value) => cardSummaryOutputMatchesLocale(value, locale), preferVisibleOutput: true },
+        );
+        const validation = cardSummaryOutputMatchesLocale(value, locale);
+        if (!validation.valid) throw typedError(validation.code, validation.messageKey, {}, true);
+        return generatedCardSummary(value);
       });
-      if (!updatedItem || !isCurrent()) return null;
-      const visibleItems = presentableFeedItems(updatedItems, latestSettings, true);
-      await setRecord("feed", {
-        ...feed,
-        items: updatedItems,
-        localCount: visibleItems.filter((item) => !item.externalDiscovery).length,
-        publicCount: visibleItems.filter((item) => item.externalDiscovery).length,
-      }, "cache");
-      return updatedItem;
-    }, cacheEpoch);
-    if (!committedItem) break;
-    currentItems = currentItems.map((item) => item.url === committedItem.url ? committedItem : item);
-    processed += 1;
-    if (typeof onProgress === "function") await onProgress(processed);
+      if (!result.usedAi) { outcome.quotaReached = true; break; }
+      if (!active()) break;
+      const organized = result.value;
+      const committedItem = await commitCardOutcome(candidate, settings, cacheEpoch, generation, mode, signal, (item) => ({
+        ...withoutSummaryRetry(item), summaryTitle: organized.title, summary: organized.summary,
+        ...(mode === "required" ? { localization: createLocalization(item, organized, locale, "native", new Date().toISOString(), safeOrigin(settings.openaiBaseUrl)) } : {}),
+        summaryStatus: "ai", summaryLocale: locale, summarizedAt: new Date().toISOString(),
+        summaryProviderOrigin: safeOrigin(settings.openaiBaseUrl),
+      }));
+      if (!committedItem) { outcome.stopped = true; break; }
+      outcome.items = outcome.items.map((item) => item.url === committedItem.url ? committedItem : item);
+      outcome.processed += 1;
+      if (onProgress) await onProgress({ ...outcome, contentChanged: true });
+    } catch (error) {
+      if (!active()) break;
+      if (!isAiContentError(error)) {
+        outcome.errorKey = error?.messageKey || "background.error.aiNetwork";
+        outcome.errorParams = error?.messageParams || {};
+        break;
+      }
+      const committedItem = await commitCardOutcome(candidate, settings, cacheEpoch, generation, mode, signal, (item) => ({
+        ...item, summaryRetry: nextSummaryRetry(item, settings, locale, error),
+      }));
+      if (!committedItem) { outcome.stopped = true; break; }
+      outcome.items = outcome.items.map((item) => item.url === committedItem.url ? committedItem : item);
+      outcome.failed += 1;
+      if (onProgress) await onProgress({ ...outcome, contentChanged: false });
+    }
   }
-  return { items: currentItems, errorKey, errorParams, processed, eligible: candidates.length, quotaReached };
+  return outcome;
 }
 
-async function refreshDailyDigest({ automatic = false } = {}) {
+async function automaticallyTranslateCards(settings, items, cacheEpoch, generation, candidateLimit, onProgress, signal, includeCooling = false) {
+  const outcome = { items, errorKey: "", errorParams: {}, processed: 0, attempted: 0, failed: 0, stopped: false, quotaReached: false };
+  const locale = settingsLocale(settings), candidates = automaticSummaryCandidates(items, settings, "required", { includeCooling }).slice(0, candidateLimit);
+  const active = () => !signal?.aborted && cacheMutations.isCurrent(cacheEpoch) && isWorkCurrent(generation);
+  for (let offset = 0; offset < candidates.length && active();) {
+    let group = [];
+    let reserved;
+    try { reserved = await runAiBatchWithinQuota(settings, Math.min(5, candidates.length - offset), async units => {
+      group = candidates.slice(offset, offset + units); outcome.attempted += units;
+      return translateFeedBatch(group, locale, inputs => callProvider(settings,
+        `${translateAiPrompt(locale, "background.prompt.feedTranslationBatch")}\n\n${CARD_SUMMARY_WRITING_RULES}`, JSON.stringify({ locale, translations: inputs }), Math.min(3600, 300 + inputs.length * 650), "",
+        async () => {
+          const latest = await getSettings();
+          if (!active() || !isBotMode(latest) || botOrganizesNews(latest)) throw typedError("AI_CONFIGURATION_CHANGED", "background.error.aiConfigurationChanged", {}, true);
+          return assertFeedItemsStillPermitted(group);
+        }, { signal, expectedLocale: locale, enforceOutputLocale: false, outputValidator: () => true, preferVisibleOutput: true }));
+    }); } catch (error) {
+      outcome.errorKey = error.messageKey || "background.error.aiNetwork"; outcome.errorParams = error.messageParams || {};
+      outcome.stopped = true; break;
+    }
+    if (!reserved.usedAi) { outcome.quotaReached = true; break; }
+    offset += group.length;
+    for (const candidate of group) {
+      if (!active()) { outcome.stopped = true; break; }
+      const organized = reserved.value.results.get(candidate.articleId || candidate.entryKey);
+      if (!organized && reserved.value.error && !isAiContentError(reserved.value.error)) continue;
+      const failure = reserved.value.error || typedError("AI_INVALID_OUTPUT", "background.error.aiInvalidOutput", {}, true);
+      const committed = await commitCardOutcome(candidate, settings, cacheEpoch, generation, "required", signal, item => organized ? ({
+        ...withoutSummaryRetry(item), summaryTitle: organized.title, summary: organized.summary, summaryStatus: "ai", summaryLocale: locale,
+        summarizedAt: new Date().toISOString(), summaryProviderOrigin: safeOrigin(settings.openaiBaseUrl),
+        localization: createLocalization(item, organized, locale, "native", new Date().toISOString(), safeOrigin(settings.openaiBaseUrl)),
+      }) : ({ ...item, summaryRetry: nextSummaryRetry(item, settings, locale, failure) }));
+      if (!committed) { outcome.stopped = true; break; }
+      outcome.items = outcome.items.map(item => (item.articleId || item.entryKey) === (committed.articleId || committed.entryKey) ? committed : item);
+      if (organized) outcome.processed++; else outcome.failed++;
+    }
+    if (onProgress) await onProgress({ ...outcome, contentChanged: outcome.processed > 0 });
+    if (reserved.value.error && !isAiContentError(reserved.value.error)) {
+      outcome.errorKey = reserved.value.error.messageKey || "background.error.aiNetwork";
+      outcome.errorParams = reserved.value.error.messageParams || {}; break;
+    }
+    if (outcome.stopped) break;
+  }
+  return outcome;
+}
+
+async function commitCardOutcome(candidate, settings, cacheEpoch, generation, mode, signal, update) {
+  const locale = settingsLocale(settings);
+  const contextKey = cardSummaryContextKey(candidate, settings, locale);
+  return cacheMutations.run(async (isCurrent) => {
+    const active = () => isCurrent() && !signal?.aborted && isWorkCurrent(generation);
+    if (!active()) return null;
+    const latestSettings = await getSettings();
+    if (botOrganizesNews(latestSettings)) return null;
+    if ((mode !== "required" && !latestSettings.cardSummaryEnabled) || !await aiConfigured(latestSettings)) return null;
+    if (settingsLocale(latestSettings) !== locale || cardSummaryContextKey(candidate, latestSettings, locale) !== contextKey) return null;
+    const latestModel = latestSettings.bookmarkConsentGranted ? await currentBookmarkModel(latestSettings) : emptyBookmarkModel();
+    const permissions = await currentFeedPermissionState(latestSettings, latestModel);
+    if (permissions.permittedByKey.get(String(candidate.sourceKey || "")) !== originPattern(candidate.sourceOrigin || "")) return null;
+    const feed = feedCacheOrEmpty(await getRecord("feed", null));
+    let updatedItem = null;
+    const updatedItems = feed.items.map((item) => {
+      if ((item.articleId || item.entryKey) !== (candidate.articleId || candidate.entryKey) || item.url !== candidate.url) return item;
+      if (cardSummaryContextKey(item, latestSettings, locale) !== contextKey || isCurrentCardSummary(item, locale)) return item;
+      const [sanitized] = sanitizeCardAiSummaries([item], latestSettings, true);
+      updatedItem = update(sanitized);
+      return updatedItem;
+    });
+    if (!updatedItem || !active()) return null;
+    // Also recheck fetch origins before either a successful summary or retry metadata is committed.
+    await assertFeedItemsStillPermitted([candidate]);
+    if (!active()) return null;
+    const visibleItems = presentableFeedItems(updatedItems, latestSettings, true);
+    await setRecord("feed", {
+      ...feed, items: updatedItems,
+      localCount: visibleItems.filter((item) => !item.externalDiscovery).length,
+      publicCount: visibleItems.filter((item) => item.externalDiscovery).length,
+    }, "cache");
+    return updatedItem;
+  }, cacheEpoch);
+}
+
+async function refreshDailyDigest({ automatic = false, signal } = {}) {
+  signal?.throwIfAborted();
   const cacheEpoch = cacheMutations.capture();
   const settings = await getSettings();
   const locale = settingsLocale(settings);
@@ -830,6 +752,7 @@ async function refreshDailyDigest({ automatic = false } = {}) {
         "",
         () => assertFeedItemsStillPermitted(contextItems),
         {
+          signal,
           preferVisibleOutput: true,
           expectedLocale: locale,
           outputValidator: (value) => dailyDigestOutputMatchesLocale(value, digest.items.length, locale),
@@ -868,6 +791,7 @@ async function refreshDailyDigest({ automatic = false } = {}) {
         digest = { ...digest, status: "quota-or-empty" };
       }
     } catch (error) {
+      signal?.throwIfAborted();
       const errorKey = error?.messageKey || "background.error.aiNetwork";
       digest = {
         ...digest,
@@ -875,12 +799,15 @@ async function refreshDailyDigest({ automatic = false } = {}) {
         error: translate(locale, errorKey, error?.messageParams || {}),
         errorKey,
         errorParams: error?.messageParams || {},
+        errorCode: error?.code || "",
       };
     }
   }
+  signal?.throwIfAborted();
   const sanitized = await sanitizeDailyDigest(digest);
   digest = sanitized.digest;
   const committed = await cacheMutations.run(async (isCurrent) => {
+    signal?.throwIfAborted();
     if (!isCurrent() || !isPermissionEpochCurrent(sanitized.permissionEpoch)) return null;
     await setRecord("daily-digest", digest, "cache");
     return digest;
@@ -909,6 +836,7 @@ async function refreshSingleSummary(body) {
   if (!target || !permittedSourceOrigin || permittedSourceOrigin !== originPattern(target.sourceOrigin || "")) {
     return resultMessage(settings, false, "background.error.sourceNotFound");
   }
+  if (isCurrentCardSummary(sanitizeCardAiSummaries([target], settings, await aiConfigured(settings))[0], locale)) return { ok: true, status: "completed" };
   const excerptText = automaticCardSummaryContext(target).text;
   if (!excerptText) throw typedError("SUMMARY_CONTENT_MISSING", "summary.status.noContent", {}, false);
   const summaryText = await callProvider(
@@ -921,33 +849,38 @@ async function refreshSingleSummary(body) {
     }),
     AI_ARTICLE_SUMMARY_MAX_TOKENS,
     "",
-    () => assertFeedItemsStillPermitted([target]),
+    async () => {
+      if (botOrganizesNews(await getSettings())) throw typedError("AI_CONFIGURATION_CHANGED", "background.error.aiConfigurationChanged", {}, true);
+      return assertFeedItemsStillPermitted([target]);
+    },
     {
       expectedLocale: locale,
       outputValidator: (value) => cardSummaryOutputMatchesLocale(value, locale),
+      preferVisibleOutput: true,
     },
   );
   const organized = generatedCardSummary(summaryText);
-  if (!organized.title || !organized.summary.length) throw typedError("AI_EMPTY_RESPONSE", "background.error.aiNoText", {}, true);
-  if (!localizedSummaryMatchesLocale(organized.title, organized.summary, locale)) {
-    throw typedError("AI_WRONG_LANGUAGE", "background.error.aiWrongLanguage", {}, true);
-  }
+  const validation = cardSummaryOutputMatchesLocale(summaryText, locale);
+  if (!validation.valid) throw typedError(validation.code, validation.messageKey, {}, true);
   const committed = await cacheMutations.run(async (isCurrent) => {
     if (!isCurrent()) return null;
     const latestSettings = await getSettings();
-    if (!latestSettings.bookmarkConsentGranted) return null;
+    if (!latestSettings.bookmarkConsentGranted || botOrganizesNews(latestSettings)) return null;
     const latestModel = await currentBookmarkModel(latestSettings);
     const latestPermissions = await currentFeedPermissionState(latestSettings, latestModel);
     if (!isCurrent() || latestPermissions.permittedByKey.get(String(target.sourceKey || "")) !== permittedSourceOrigin) return null;
     const previous = feedCacheOrEmpty(await getRecord("feed", null));
     if (settingsLocale(latestSettings) !== locale) return null;
+    const contextKey = cardSummaryContextKey(target, settings, locale);
+    if (cardSummaryContextKey(target, latestSettings, locale) !== contextKey) return null;
     const permittedPrevious = filterFeedItemsBySources(previous.items || [], latestPermissions.permitted, latestPermissions.grantedOrigins);
     const items = permittedPrevious.map((item) => (
       item.sourceKey === target.sourceKey
       && (item.articleId || item.entryKey) === (target.articleId || target.entryKey)
       && item.url === target.url
+      && cardSummaryContextKey(item, latestSettings, locale) === contextKey
         ? {
-          ...item,
+          ...withoutSummaryRetry(sanitizeCardAiSummaries([item], latestSettings, true)[0]),
           summaryTitle: organized.title,
           summary: organized.summary,
           summaryStatus: "ai",

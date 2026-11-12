@@ -10,8 +10,6 @@ const SECTION_LABELS = new Set([
   "網站定位", "適合誰", "使用提醒",
 ]);
 
-const DIRECT_ANSWER_LABELS = new Set(["直接回答", "直接回答", "Direct answer"]);
-
 export function cleanAiAnswerMarkup(value) {
   return String(value || "")
     .replace(/```[\w-]*\s*/g, "")
@@ -71,10 +69,4 @@ export function parseAiAnswer(value) {
       body: section.body.trim(),
     })),
   };
-}
-
-export function extractDirectAnswer(value) {
-  const parsed = parseAiAnswer(value);
-  const directAnswer = parsed.sections.find((section) => DIRECT_ANSWER_LABELS.has(section.title));
-  return directAnswer?.body || parsed.text;
 }

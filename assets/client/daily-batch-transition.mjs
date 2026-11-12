@@ -2,6 +2,7 @@ import { createBatchTransition } from "./batch-transition.mjs";
 import { cleanupDailyThumbTransitions, crossfadeDailyThumb, syncDailyThumb } from "./daily-thumb-transition.mjs";
 
 export function createDailyBatchTransition(options) {
+  const snapshotLists = new Set();
   const {
     animateCardsIn,
     canReuseCard,
@@ -9,12 +10,13 @@ export function createDailyBatchTransition(options) {
     dailyBoardCardSelector,
     dailyColumns,
     directDailyCards,
-    els,
+    getColumn,
     prefersReducedMotion,
     renderColumn,
   } = options;
   const controller = createBatchTransition({
     activeClass: "is-daily-batch-transitioning",
+    documentNode: options.documentNode,
     cleanup,
     prefersReducedMotion,
     prepare,
@@ -23,11 +25,17 @@ export function createDailyBatchTransition(options) {
 
   function prepare(columnId) {
     const column = dailyColumns().find((candidate) => candidate.id === columnId);
-    const currentColumn = Array.from(els.dailyBoard.children)
-      .find((candidate) => candidate.dataset.columnId === columnId);
-    const currentList = currentColumn?.querySelector(":scope > .card-list");
+    const currentColumn = getColumn(columnId);
+    const currentList = currentColumn?.querySelector(":scope > .utility-card-body > .card-list");
     const currentCards = currentList ? directDailyCards(currentList) : [];
     const nextCardCount = column?.items?.length || 0;
+    const bounded = currentList && (currentList.closest(".dashboard-slot")?.dataset.slotSize === "compact"
+      || currentList.scrollHeight > currentList.clientHeight + 1);
+    if (bounded) {
+      currentList.style.setProperty("view-transition-name", `today-${columnId}-viewport`);
+      snapshotLists.add(currentList);
+      return { columnId, nextCardCount, bounded: true };
+    }
     currentCards.forEach((card, index) => {
       if (index < nextCardCount) setSharedTransitionNames(card, columnId, index);
       else setTransitionName(card, columnId, index);
@@ -54,12 +62,12 @@ export function createDailyBatchTransition(options) {
 
     const sharedCount = Math.min(currentCards.length, nextCards.length);
     for (let index = 0; index < sharedCount; index += 1) {
-      setSharedTransitionNames(nextCards[index], columnId, index);
-      syncCard(currentCards[index], nextCards[index], { crossfadeThumb: columnId === "inspiration" });
+      if (!transitionState.bounded) setSharedTransitionNames(nextCards[index], columnId, index);
+      syncCard(currentCards[index], nextCards[index], { crossfadeThumb: !transitionState.bounded && currentList.closest(".board-column")?.classList.contains("is-inspiration") });
     }
 
     for (let index = sharedCount; index < nextCards.length; index += 1) {
-      setTransitionName(nextCards[index], columnId, index);
+      if (!transitionState.bounded) setTransitionName(nextCards[index], columnId, index);
       currentList.append(nextCards[index]);
     }
 
@@ -120,9 +128,11 @@ export function createDailyBatchTransition(options) {
   }
 
   function cleanup() {
-    const cards = Array.from(els.dailyBoard.querySelectorAll(
-      ".board-column.is-news > .card-list > .news-list-card, .board-column.is-inspiration > .card-list > .daily-card",
-    ));
+    for (const list of snapshotLists) list.style.removeProperty("view-transition-name");
+    snapshotLists.clear();
+    const cards = dailyColumns().flatMap(({ id }) => Array.from(getColumn(id)?.querySelectorAll(
+      ":scope > .utility-card-body > .card-list > .news-list-card, :scope > .utility-card-body > .card-list > .daily-card",
+    ) || []));
     for (const card of cards) {
       card.style.removeProperty("view-transition-name");
       batchContent(card)?.style.removeProperty("view-transition-name");

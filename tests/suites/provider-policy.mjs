@@ -94,4 +94,27 @@ assert.deepEqual(bindProviderPatchToOrigin({
   openaiApiKey: "new-secret",
 }, "an explicit new credential must remain bound to the new origin");
 
+const groqUrl = "https://api.groq.com/openai/v1";
+const grokUrl = "https://api.x.ai/v1";
+assert.equal(providerRequiresApiKey(grokUrl), true);
+assert.equal(providerTestApiKey({
+  storedKey: "groq-fixture-key",
+  draftBaseUrl: groqUrl,
+  storedBaseUrl: groqUrl,
+}), "groq-fixture-key", "removing the preset must not invalidate a saved Groq credential");
+assert.equal(providerTestApiKey({
+  storedKey: "groq-fixture-key",
+  draftBaseUrl: grokUrl,
+  storedBaseUrl: groqUrl,
+}), "", "Grok must never reuse a saved Groq key");
+assert.equal(providerTestConsentAllowed({
+  savedAccepted: true,
+  draftBaseUrl: grokUrl,
+  savedBaseUrl: groqUrl,
+}), false, "Grok requires fresh consent after switching from Groq");
+assert.deepEqual(bindProviderPatchToOrigin({ openaiBaseUrl: grokUrl }, {
+  openaiBaseUrl: groqUrl,
+  openaiApiKey: "groq-fixture-key",
+}), { openaiBaseUrl: grokUrl, openaiApiKey: "" });
+
 console.log("provider policy tests passed");

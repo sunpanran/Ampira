@@ -22,8 +22,7 @@ export function createAiPermissionController(options) {
   let aiSetupState = deriveAiSetupControlState();
   let aiSetupFeedback = null;
   let selectedProvider = CUSTOM_PROVIDER;
-  let userEditing = false;
-  let uiPrepared = false;
+  let providerEditorMode = "";
 
   return {
     initializeAiProviderUi,
@@ -50,13 +49,10 @@ export function createAiPermissionController(options) {
     };
     els.aiProviderPrimaryList.addEventListener("click", selectFromCatalog);
     els.aiProviderMoreList.addEventListener("click", selectFromCatalog);
-    els.editAiProvider.addEventListener("click", () => openProviderEditor(false));
-    els.changeAiProvider.addEventListener("click", () => openProviderEditor(true));
-    els.closeAiProviderCatalog.addEventListener("click", () => {
-      setDisclosureVisibility(els.aiProviderCatalog, false);
-      setDisclosureVisibility(els.aiProviderConfiguration, true);
-      els.apiBaseUrlInput.focus();
-    });
+    els.editAiProvider.addEventListener("click", () => toggleProviderEditor("configuration"));
+    els.changeAiProvider.addEventListener("click", () => toggleProviderEditor("catalog"));
+    els.closeAiProviderCatalog.addEventListener("click", () => setProviderEditorMode(""));
+    els.closeAiProviderConfiguration.addEventListener("click", () => setProviderEditorMode(""));
     els.toggleMoreProviders.addEventListener("click", toggleMoreProviders);
     els.aiProviderRegionSelect.addEventListener("change", () => {
       const configuration = aiProviderConfiguration(selectedProvider, els.aiProviderRegionSelect.value);
@@ -71,8 +67,7 @@ export function createAiPermissionController(options) {
 
   function prepareAiProviderUi() {
     selectedProvider = aiProviderPresetForUrl(els.apiBaseUrlInput.value) || CUSTOM_PROVIDER;
-    uiPrepared = true;
-    userEditing = false;
+    setProviderEditorMode("", { animate: false });
     renderRegionOptions();
     syncProviderConfiguration();
     syncAiSetupControls();
@@ -82,7 +77,6 @@ export function createAiPermissionController(options) {
     const provider = [...aiProviderPresets("primary"), ...aiProviderPresets("more")]
       .find((item) => item.id === providerId) || CUSTOM_PROVIDER;
     selectedProvider = provider;
-    userEditing = true;
     if (provider.id === CUSTOM_PROVIDER.id) {
       els.apiBaseUrlInput.value = "";
       els.apiStyleSelect.value = CUSTOM_PROVIDER.apiStyle;
@@ -97,11 +91,8 @@ export function createAiPermissionController(options) {
     }
     renderRegionOptions();
     syncProviderConfiguration();
-    setDisclosureVisibility(els.aiProviderCatalog, false);
-    setDisclosureVisibility(els.aiProviderConfiguration, true);
+    setProviderEditorMode("configuration");
     syncAiSetupControls();
-    (els.aiProviderRegionField.hidden ? els.apiBaseUrlInput : els.aiProviderRegionSelect)
-      .focus();
     renderSettingsStatus(t("settings.service.providerSelected", { provider: providerName(provider) }));
   }
 
@@ -118,19 +109,30 @@ export function createAiPermissionController(options) {
     refreshAiSetupPermission();
   }
 
-  function openProviderEditor(showCatalog) {
-    userEditing = true;
+  function setProviderEditorMode(mode, { animate = true } = {}) {
     const editorWasHidden = els.aiProviderEditor.hidden;
-    setDisclosureVisibility(els.aiProviderCatalog, showCatalog, { animate: !editorWasHidden });
-    setDisclosureVisibility(els.aiProviderConfiguration, !showCatalog, { animate: !editorWasHidden });
-    setDisclosureVisibility(els.aiProviderEditor, true);
-    syncAiSetupControls();
-    const focusTarget = showCatalog
-      ? (els.aiProviderCatalog.querySelector("button[aria-pressed='true']")
-        || els.aiProviderPrimaryList.querySelector("button"))
-      : els.apiBaseUrlInput;
-    focusTarget?.focus({ preventScroll: !showCatalog });
-    if (showCatalog) focusTarget?.scrollIntoView({ block: "nearest" });
+    const focusTarget = !mode
+      ? (providerEditorMode === "catalog" ? els.changeAiProvider : els.editAiProvider)
+      : (mode === "catalog"
+        ? (els.aiProviderCatalog.querySelector("button[aria-pressed='true']") || els.aiProviderPrimaryList.querySelector("button"))
+        : (els.aiProviderRegionField.hidden ? els.apiBaseUrlInput : els.aiProviderRegionSelect));
+    providerEditorMode = mode;
+    if (mode || !animate) {
+      const panelOptions = { animate: animate && !editorWasHidden };
+      setDisclosureVisibility(els.aiProviderCatalog, mode === "catalog", panelOptions);
+      setDisclosureVisibility(els.aiProviderConfiguration, mode === "configuration", panelOptions);
+    }
+    setDisclosureVisibility(els.aiProviderEditor, Boolean(mode), { animate });
+    els.editAiProvider.setAttribute("aria-expanded", String(mode === "configuration"));
+    els.changeAiProvider.setAttribute("aria-expanded", String(mode === "catalog"));
+    if (animate) {
+      focusTarget?.focus({ preventScroll: true });
+      focusTarget?.scrollIntoView({ block: "nearest" });
+    }
+  }
+
+  function toggleProviderEditor(mode) {
+    setProviderEditorMode(providerEditorMode === mode ? "" : mode);
   }
 
   function toggleMoreProviders() {
@@ -272,6 +274,7 @@ export function createAiPermissionController(options) {
     els.clearKey.disabled = busy;
     els.editAiProvider.disabled = busy;
     els.changeAiProvider.disabled = busy;
+    els.closeAiProviderConfiguration.disabled = busy;
     els.aiProviderCatalog.querySelectorAll("button").forEach((button) => { button.disabled = busy; });
     els.aiProviderFields.disabled = aiSetupState.protectedFieldsDisabled;
     els.aiProviderFields.hidden = !aiSetupState.formUnlocked;
@@ -284,12 +287,6 @@ export function createAiPermissionController(options) {
       delete els.grantAiOrigin.dataset.disabledReason;
     }
 
-    if (uiPrepared && !userEditing) {
-      const hasSavedConfiguration = Boolean(aiSetupState.origin && savedConfiguration);
-      els.aiProviderEditor.hidden = configured;
-      els.aiProviderCatalog.hidden = configured || hasSavedConfiguration;
-      els.aiProviderConfiguration.hidden = !configured && !els.aiProviderCatalog.hidden;
-    }
     syncProviderConfiguration();
     syncProviderSummary({ configured, readyToTest, credentialReady, modelReady });
     syncAccessStatus();
@@ -476,14 +473,17 @@ export function createAiPermissionController(options) {
 
   function focusAiSetupRequirement() {
     syncAiSetupControls();
+    setProviderEditorMode("configuration");
+    let target = els.apiBaseUrlInput;
     if (aiSetupState.stage === aiSetupStage.INVALID_ORIGIN) {
-      els.apiBaseUrlInput.focus({ preventScroll: true });
       renderSettingsStatus(t("permission.invalidServiceUrl"));
-      return;
+    } else if (aiSetupState.stage === aiSetupStage.NEEDS_CONSENT || aiSetupState.stage === aiSetupStage.NEEDS_PERMISSION) {
+      target = els.grantAiOrigin;
+    } else if (!String(els.modelInput.value || "").trim()) {
+      target = els.modelInput;
     }
-    if (aiSetupState.stage === aiSetupStage.NEEDS_CONSENT || aiSetupState.stage === aiSetupStage.NEEDS_PERMISSION) {
-      els.grantAiOrigin.focus({ preventScroll: true });
-    }
+    target.focus({ preventScroll: true });
+    target.scrollIntoView({ block: "nearest" });
   }
 
   function providerName(provider) {

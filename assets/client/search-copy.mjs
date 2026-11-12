@@ -1,21 +1,17 @@
-export function searchCopyKeys(aiEnabled, browserSearchEnabled = false) {
+import { usesBotChat } from "../../extension/core/bot-mode.mjs";
+
+export function searchCopyKeys(aiEnabled) {
   const mode = aiEnabled === true ? "ai" : "local";
   return {
-    placeholder: browserSearchEnabled ? "search.browser.placeholder" : `search.${mode}.placeholder`,
-    action: browserSearchEnabled ? "search.browser.action" : `search.${mode}.action`,
     dialogMeta: `aiSearch.${mode}.meta`,
     dialogInput: `aiSearch.${mode}.input`,
   };
 }
 
 export function syncSearchCopy({ state, els, t, forceDialog = false }) {
-  const keys = searchCopyKeys(
-    state.data?.ai?.enabled === true,
-    state.settings?.browserSearchEnabled === true,
-  );
-  els.search.placeholder = t(keys.placeholder);
-  els.topAiSearch.setAttribute("aria-label", t(keys.action));
-  els.topAiSearch.title = t(keys.action);
+  const keys = searchCopyKeys(state.data?.ai?.enabled === true);
+  els.aiSearchNav.setAttribute("aria-label", t("search.unified.open"));
+  els.aiSearchNav.title = t("search.unified.open");
 
   const dialogOpen = els.aiSearchOverlay.classList.contains("open");
   if (dialogOpen && !forceDialog) return keys;
@@ -26,5 +22,12 @@ export function syncSearchCopy({ state, els, t, forceDialog = false }) {
   els.aiSearchInput.setAttribute("aria-label", input);
   els.aiSearchSubmit.setAttribute("aria-label", t("aiSearch.send"));
   els.aiSearchSubmit.title = t("aiSearch.send");
+  if (usesBotChat(state.data)) {
+    els.aiSearchMeta.textContent = t("bot.asyncHint");
+    els.aiSearchInput.placeholder = t("bot.messagePlaceholder");
+    els.aiSearchInput.setAttribute("aria-label", t("bot.messagePlaceholder"));
+    els.aiSearchSubmit.setAttribute("aria-label", t("bot.send"));
+    els.aiSearchSubmit.title = t("bot.send");
+  }
   return keys;
 }

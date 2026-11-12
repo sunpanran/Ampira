@@ -240,6 +240,7 @@ function syncCombobox(state) {
   const selectedLabel = selected ? optionTriggerLabel(selected) : "—";
 
   wrapper.hidden = select.hidden;
+  wrapper.dataset.value = select.value;
   wrapper.classList.toggle("is-disabled", disabled);
   trigger.disabled = disabled;
   trigger.setAttribute("aria-disabled", String(disabled));
@@ -272,6 +273,7 @@ function renderListboxOptions(state) {
     option.id = `${listbox.id}-option-${optionIndex}`;
     option.className = "select-combobox-option";
     option.dataset.optionIndex = String(optionIndex);
+    option.dataset.value = nativeOption.value;
     option.setAttribute("role", "option");
     option.setAttribute("aria-selected", String(nativeOption.selected));
     option.setAttribute("aria-disabled", String(optionUnavailable(nativeOption)));
@@ -453,7 +455,10 @@ function positionListbox(state) {
   const requestedWidth = Math.max(0, Number.parseFloat(state.select.dataset.comboboxListboxWidth) || 0);
   const preferredMinimumWidth = Math.max(0, Number.parseFloat(state.select.dataset.comboboxListboxMinWidth) || 0);
   const naturalWidth = Math.max(rect.width, preferredMinimumWidth, 180);
-  const width = Math.min(requestedWidth ? Math.max(requestedWidth, 180) : naturalWidth, viewportWidth - (VIEWPORT_MARGIN * 2));
+  const preferredWidth = state.select.dataset.comboboxListboxWidth === "trigger"
+    ? rect.width
+    : requestedWidth ? Math.max(requestedWidth, 180) : naturalWidth;
+  const width = Math.min(preferredWidth, viewportWidth - (VIEWPORT_MARGIN * 2));
   const left = clamp(rect.left, VIEWPORT_MARGIN, viewportWidth - width - VIEWPORT_MARGIN);
   const spaceBelow = viewportHeight - rect.bottom - VIEWPORT_MARGIN - LISTBOX_GAP;
   const spaceAbove = rect.top - VIEWPORT_MARGIN - LISTBOX_GAP;

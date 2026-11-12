@@ -1,3 +1,5 @@
+import { isAiContentError } from "./card-summary-retry.mjs";
+
 export function createQuotaManager(storage, dateKey = localDateKey) {
   let mutationQueue = Promise.resolve();
 
@@ -9,16 +11,17 @@ export function createQuotaManager(storage, dateKey = localDateKey) {
       const stored = await storage.get(key);
       return normalizeQuota(stored[key], date, limit);
     },
-    reserve(limit) {
+    reserve(limit, requested = 1) {
       return mutate(async () => {
         const date = dateKey();
         const key = quotaKey(date);
         const stored = await storage.get(key);
         const quota = normalizeQuota(stored[key], date, limit);
         if (quota.used >= limit) return null;
-        const next = { date, used: quota.used + 1, generation: quota.generation };
+        const units = Math.min(Math.max(1, Math.floor(Number(requested) || 1)), limit - quota.used);
+        const next = { date, used: quota.used + units, generation: quota.generation };
         await storage.set({ [key]: next });
-        return { key, date, generation: quota.generation };
+        return { key, date, generation: quota.generation, units };
       });
     },
     release(reservation) {
@@ -27,7 +30,7 @@ export function createQuotaManager(storage, dateKey = localDateKey) {
         const stored = await storage.get(reservation.key);
         const quota = normalizeQuota(stored[reservation.key], reservation.date, Number.MAX_SAFE_INTEGER);
         if (quota.date !== reservation.date || quota.generation !== reservation.generation) return;
-        await storage.set({ [reservation.key]: { date: quota.date, used: Math.max(0, quota.used - 1), generation: quota.generation } });
+        await storage.set({ [reservation.key]: { date: quota.date, used: Math.max(0, quota.used - (reservation.units || 1)), generation: quota.generation } });
       });
     },
     reset() {
@@ -51,7 +54,7 @@ export function createQuotaManager(storage, dateKey = localDateKey) {
 }
 
 export function shouldReleaseAutomaticAiQuota(error) {
-  return error?.code !== "AI_WRONG_LANGUAGE";
+  return !isAiContentError(error);
 }
 
 function normalizeQuota(value, date, limit) {

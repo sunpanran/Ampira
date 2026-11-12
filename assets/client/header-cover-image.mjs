@@ -1,11 +1,12 @@
 import {
-  HEADER_COVER_INPUT_MAX_BYTES,
   HEADER_COVER_MAX_DIMENSION,
-  HEADER_COVER_MIN_LONG_EDGE,
-  HEADER_COVER_QUALITIES,
   HEADER_COVER_STORED_MAX_BYTES,
-  nextHeaderCoverDimensions,
 } from "../../extension/core/header-cover.mjs";
+
+const HEADER_COVER_INPUT_MAX_BYTES = 20 * 1024 * 1024;
+const HEADER_COVER_QUALITIES = Object.freeze([0.88, 0.80, 0.72]);
+const HEADER_COVER_RESIZE_FACTOR = 0.85;
+export const HEADER_COVER_MIN_LONG_EDGE = 1280;
 
 export const HEADER_COVER_ACCEPTED_TYPES = Object.freeze([
   "image/jpeg",
@@ -65,6 +66,19 @@ export async function optimizeHeaderCoverFile(file) {
   }
 
   throw imageError("HEADER_COVER_FILE_OPTIMIZE");
+}
+
+export function nextHeaderCoverDimensions(width, height) {
+  const currentWidth = Math.max(1, Math.round(Number(width) || 0));
+  const currentHeight = Math.max(1, Math.round(Number(height) || 0));
+  const longEdge = Math.max(currentWidth, currentHeight);
+  if (longEdge <= HEADER_COVER_MIN_LONG_EDGE) return { width: currentWidth, height: currentHeight };
+  const nextLongEdge = Math.max(HEADER_COVER_MIN_LONG_EDGE, Math.floor(longEdge * HEADER_COVER_RESIZE_FACTOR));
+  const scale = nextLongEdge / longEdge;
+  return {
+    width: Math.max(1, Math.round(currentWidth * scale)),
+    height: Math.max(1, Math.round(currentHeight * scale)),
+  };
 }
 
 export function headerCoverImageErrorKey(error) {

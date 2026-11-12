@@ -18,6 +18,7 @@ export function createConfirmationDialogController(options) {
   let resolvePending = null;
   let previousFocus = null;
   let closing = false;
+  let confirmGesture = null;
 
   cancelButton.addEventListener("click", () => finish(false));
   confirmButton.addEventListener("click", () => finish(true));
@@ -40,6 +41,7 @@ export function createConfirmationDialogController(options) {
     confirmButton.textContent = String(content.confirmLabel || "Continue");
     confirmButton.classList.toggle("danger", content.tone === "danger");
     confirmButton.classList.toggle("primary", content.tone !== "danger");
+    confirmGesture = typeof content.onConfirmGesture === "function" ? content.onConfirmGesture : null;
 
     previousFocus = activeElement();
     pendingPromise = new Promise((resolve) => {
@@ -55,6 +57,10 @@ export function createConfirmationDialogController(options) {
   function finish(confirmed) {
     if (!pendingPromise || !resolvePending || closing) return;
     closing = true;
+    // Gesture-bound browser APIs must run before the asynchronous close animation.
+    if (confirmed && confirmGesture) {
+      try { confirmGesture(); } catch { confirmed = false; }
+    }
     dialog.classList.add("closing");
     const closeDelay = isReducedMotion() ? 0 : closeMotionMs;
     if (closeDelay <= 0) {
@@ -71,6 +77,7 @@ export function createConfirmationDialogController(options) {
     pendingPromise = null;
     resolvePending = null;
     previousFocus = null;
+    confirmGesture = null;
     if (dialog.open) dialog.close();
     dialog.classList.remove("closing");
     closing = false;

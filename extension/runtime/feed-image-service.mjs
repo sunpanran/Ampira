@@ -56,17 +56,17 @@ export function createFeedImageService(options) {
 
   return { enrichMissingFeedImages, updateImageQualityMetrics, imageQualityMetrics };
 
-  async function enrichMissingFeedImages(items, { cacheEpoch, generation = null } = {}) {
+  async function enrichMissingFeedImages(items, { cacheEpoch, generation = null, signal } = {}) {
     if (typeof fetchSourceImageCandidates !== "function" || typeof hasOriginPermission !== "function") return;
     const targets = selectFeedImageEnrichmentTargets(items);
     await mapWithConcurrency(targets, FEED_IMAGE_CONCURRENCY, async (item) => {
       if (!refreshStillCurrent(generation) || !cacheMutations.isCurrent(cacheEpoch)) return;
-      const record = await loadFeedImageRecord(item, { cacheEpoch, generation });
+      const record = await loadFeedImageRecord(item, { cacheEpoch, generation, signal });
       if (record?.outcome === "hit") applyFeedImageRecord(item, record);
-    });
+    }, { signal, isCurrent: () => refreshStillCurrent(generation) && cacheMutations.isCurrent(cacheEpoch) });
   }
 
-  async function loadFeedImageRecord(item, { cacheEpoch, generation = null } = {}) {
+  async function loadFeedImageRecord(item, { cacheEpoch, generation = null, signal } = {}) {
     const requestedUrl = String(item.url || "");
     const sourceOrigin = safeOrigin(item.sourceOrigin || "");
     if (!requestedUrl || !sourceOrigin || !sameOrigin(requestedUrl, sourceOrigin)) return null;
@@ -88,6 +88,7 @@ export function createFeedImageService(options) {
     let outcome = "miss";
     try {
       const fetched = await fetchSourceImageCandidates(requestedUrl, {
+        signal,
         profile: IMAGE_PROFILE_ARTICLE,
         validateResponse: async (response) => {
           const finalUrl = String(response?.url || requestedUrl);
@@ -107,6 +108,7 @@ export function createFeedImageService(options) {
       imageUrls = imageCandidates.map((candidate) => candidate.url);
       outcome = imageUrls.length ? "hit" : "miss";
     } catch {
+      if (signal?.aborted) return null;
       if (!await hasOriginPermission(requestedUrl)) return null;
       outcome = "error";
     }

@@ -1,8 +1,8 @@
 import { formatDateTime } from "./time.mjs";
-import { faviconUrl, hostFromUrl, isReaderUrl } from "./urls.mjs";
+import { faviconUrl, hostFromUrl } from "./urls.mjs";
 import {
-  readerContentKind, readerErrorBodyKey, readerErrorTitleKey, readerLocalFallback,
-  safeReaderOrigin, sameOrigin, shouldUseInAppReader,
+  readerErrorBodyKey, readerErrorTitleKey, readerLocalFallback,
+  safeReaderOrigin, sameOrigin,
 } from "./reader-policy.mjs";
 import { requestOrigins } from "./permission-client.mjs";
 import { createLoadingPhaseController, MOTION_DURATION } from "./motion.mjs";
@@ -24,41 +24,13 @@ export function createReaderController(context) {
     actionKey,
     defaultSeenSource,
     localizedErrorMessage,
+    openExternalWindow,
   } = context;
   let readerRequestGeneration = 0;
   let readerCloseTimer = 0;
   let readerRecoveryTimer = 0;
   let readerTranslation = null;
   let readerLoadingMotion = null;
-
-  function openExternal(url, title = "", item = null, options = {}) {
-    markReadOnOpen(item);
-    if (shouldOpenInFloatingFrame(url, readerContentKind(item, options.contentKind))) {
-      openFloatingWeb(url, title, item);
-      return;
-    }
-    if (item) markOpenedItem(item);
-    openExternalWindow(url);
-  }
-
-  function markReadOnOpen(item) {
-    if (!item) return;
-    const key = actionKey(item);
-    if (!key || state.seen.has(key)) return;
-    toggleSeen(item, true, defaultSeenSource(item));
-  }
-
-  function openExternalWindow(url) {
-    window.open(url, "_blank", "noopener,noreferrer");
-  }
-
-  function shouldOpenInFloatingFrame(url, contentKind) {
-    return shouldUseInAppReader({
-      enabled: state.settings?.floatingWebOpenEnabled,
-      readerUrl: isReaderUrl(url),
-      contentKind,
-    });
-  }
 
   async function openFloatingWeb(url, title = "", item = null, options = {}) {
     let parsed;
@@ -622,8 +594,7 @@ export function createReaderController(context) {
   return {
     backFloatingWeb,
     closeFloatingWeb,
-    openExternal,
-    openExternalWindow,
+    openFloatingWeb,
     reloadFloatingWeb,
   };
 }

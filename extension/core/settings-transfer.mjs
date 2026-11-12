@@ -5,22 +5,29 @@ import {
   providerOrigin,
 } from "./settings.mjs";
 import {
+  DEFAULT_SETTINGS,
   HEADER_IMAGE_HEIGHT_MAX,
   HEADER_IMAGE_HEIGHT_MIN,
   HEADER_IMAGE_HEIGHT_STEP,
 } from "./constants.mjs";
+
+import { validKeyboardShortcutMap } from "./keyboard-shortcuts.mjs";
 
 export const SETTINGS_TRANSFER_FORMAT = "ampira-settings";
 export const SETTINGS_TRANSFER_VERSION = 1;
 export const MAX_SETTINGS_TRANSFER_BYTES = 256 * 1024;
 
 export const PORTABLE_SETTINGS_FIELDS = Object.freeze([
+  "keyboardShortcutsEnabled",
+  "keyboardShortcuts",
   "uiLocale",
   "colorMode",
+  "navPosition",
   "accentTheme",
   "customAccentColor",
   "pointerGlowEnabled",
   "dashboardGlassBlurEnabled",
+  "dashboardCardOrder",
   "headerImageEnabled",
   "headerImageFixed",
   "headerImageFullscreen",
@@ -28,6 +35,7 @@ export const PORTABLE_SETTINGS_FIELDS = Object.freeze([
   "headerImageBlurAmount",
   "headerImageHeightScale",
   "headerImageUrl",
+  "headerImageMediaType",
   "bookmarkSectionEnabled",
   "websiteShortcutsEnabled",
   "websiteShortcuts",
@@ -45,6 +53,8 @@ export const PORTABLE_SETTINGS_FIELDS = Object.freeze([
   "syncReadingQueueEnabled",
   "syncTodosEnabled",
   "syncWeatherLocationEnabled",
+  "syncStockWatchlistEnabled",
+  "syncCountdownsEnabled",
   "personalizedRankingEnabled",
   "publicFeedSupplementEnabled",
   "webImageSearchEnabled",
@@ -59,28 +69,8 @@ export const PORTABLE_SETTINGS_FIELDS = Object.freeze([
   "todayNewsPerPublisherLimit",
 ]);
 
-const BOOLEAN_FIELDS = new Set([
-  "pointerGlowEnabled",
-  "dashboardGlassBlurEnabled",
-  "headerImageEnabled",
-  "headerImageFixed",
-  "headerImageFullscreen",
-  "headerImageBlurEnabled",
-  "bookmarkSectionEnabled",
-  "websiteShortcutsEnabled",
-  "cardSummaryEnabled",
-  "floatingWebOpenEnabled",
-  "readingQueueOpenOnReadAll",
-  "readingQueueReadAllPrompted",
-  "retainSeenArchive",
-  "syncReadingQueueEnabled",
-  "syncTodosEnabled",
-  "syncWeatherLocationEnabled",
-  "personalizedRankingEnabled",
-  "publicFeedSupplementEnabled",
-  "webImageSearchEnabled",
-]);
-const ARRAY_FIELDS = new Set(["websiteShortcuts", "bookmarkOnlyFolders", "hiddenBookmarkCategories", "excludedNewsSources"]);
+const BOOLEAN_FIELDS = new Set(PORTABLE_SETTINGS_FIELDS.filter(field => typeof DEFAULT_SETTINGS[field] === "boolean"));
+const ARRAY_FIELDS = new Set(["dashboardCardOrder", "websiteShortcuts", "bookmarkOnlyFolders", "hiddenBookmarkCategories", "excludedNewsSources"]);
 const NUMBER_RANGES = Object.freeze({
   headerImageBlurAmount: [0, 50],
   headerImageHeightScale: [HEADER_IMAGE_HEIGHT_MIN, HEADER_IMAGE_HEIGHT_MAX],
@@ -93,9 +83,11 @@ const NUMBER_RANGES = Object.freeze({
 const STRING_LIMITS = Object.freeze({
   uiLocale: 20,
   colorMode: 20,
+  navPosition: 20,
   accentTheme: 20,
   customAccentColor: 7,
   headerImageUrl: 2048,
+  headerImageMediaType: 10,
   newsBookmarkFolder: 200,
   newsSourceMode: 20,
   inspirationBookmarkFolder: 200,
@@ -106,6 +98,7 @@ const STRING_LIMITS = Object.freeze({
 });
 const LOCALES = new Set(["", "en", "zh-CN", "zh-Hant"]);
 const COLOR_MODES = new Set(["system", "dark", "light"]);
+const NAV_POSITIONS = new Set(["top", "bottom", "left", "right"]);
 const ACCENT_THEMES = new Set(["violet", "cyan", "emerald", "amber", "rose", "custom"]);
 const API_STYLES = new Set(["responses", "chat_completions"]);
 const NEWS_SOURCE_MODES = new Set(["public", "bookmarks"]);
@@ -190,6 +183,10 @@ function pickPortableSettings(settings) {
 }
 
 function validatePortableValue(field, value) {
+  if (field === "keyboardShortcuts") {
+    if (!validKeyboardShortcutMap(value)) throw invalidValue(field);
+    return;
+  }
   if (BOOLEAN_FIELDS.has(field)) {
     if (typeof value !== "boolean") throw invalidValue(field);
     return;
@@ -210,9 +207,11 @@ function validatePortableValue(field, value) {
   }
   if (field === "uiLocale" && !LOCALES.has(value)) throw invalidValue(field);
   if (field === "colorMode" && !COLOR_MODES.has(value)) throw invalidValue(field);
+  if (field === "navPosition" && !NAV_POSITIONS.has(value)) throw invalidValue(field);
   if (field === "accentTheme" && !ACCENT_THEMES.has(value)) throw invalidValue(field);
   if (field === "customAccentColor" && !/^#[0-9a-f]{6}$/i.test(value)) throw invalidValue(field);
   if (field === "headerImageUrl" && value && !normalizePublicUrl(value)) throw invalidValue(field);
+  if (field === "headerImageMediaType" && !["auto", "image", "video"].includes(value)) throw invalidValue(field);
   if (field === "openaiBaseUrl" && !isValidServiceUrl(value)) throw invalidValue(field);
   if (field === "openaiApiStyle" && !API_STYLES.has(value)) throw invalidValue(field);
   if (field === "newsSourceMode" && !NEWS_SOURCE_MODES.has(value)) throw invalidValue(field);
@@ -220,6 +219,10 @@ function validatePortableValue(field, value) {
 }
 
 function validateCollection(field, value) {
+  if (field === "dashboardCardOrder") {
+    if (value.length > 6 || value.some((id) => typeof id !== "string")) throw invalidValue(field);
+    return;
+  }
   if (field === "bookmarkOnlyFolders") {
     if (value.length > 100 || value.some((item) => typeof item !== "string" || !item.trim() || item.length > 200)) {
       throw invalidValue(field);

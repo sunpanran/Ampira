@@ -3,36 +3,46 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark light">
+  <link rel="icon" type="image/svg+xml" href="../assets/ampira-logo.svg?v=20261112-cyan-flat">
   <title>Ampira · News from bookmarks, organized with AI</title>
-  <meta name="description" content="News from your bookmarks, sorted by time or importance. Optional AI summarizes and answers questions. Data stays local. No sign-up.">
-  <link rel="stylesheet" href="../styles.css">
+  <meta name="description" content="News from your bookmarks, sorted by time or importance. Optional AI summarizes and answers questions. Local by default. No sign-up.">
+  <link rel="stylesheet" href="../styles.css?v=20261112-cyan">
   <link rel="alternate" hreflang="zh-CN" href="../index.html">
   <link rel="alternate" hreflang="zh-TW" href="../zh-TW/index.html">
   <link rel="alternate" hreflang="en" href="index.html">
 </head>
-<body>
-  <div class="mark">
-    <img class="mark-logo" src="../assets/ampira-logo.svg" width="48" height="48" alt="Ampira">
-    <span aria-hidden="true">AMPIRA</span>
-  </div>
-  <nav class="language-nav" aria-label="Language">
-    <a href="../index.html" lang="zh-CN">简体中文</a>
-    <a href="../zh-TW/index.html" lang="zh-Hant">繁體中文</a>
-    <a href="index.html" aria-current="page">English</a>
+<body data-page="home">
+  <a class="skip-link" href="#main-content">Skip to content</a>
+  <header class="site-header">
+    <a class="mark" href="index.html" aria-label="Ampira · Home">
+      <img class="mark-logo" src="../assets/ampira-logo.svg?v=20261112-cyan-flat" width="48" height="48" alt="Ampira">
+      <span aria-hidden="true">AMPIRA</span>
+    </a>
+    <nav class="language-nav" aria-label="Language">
+      <a href="../index.html" lang="zh-CN">简体中文</a>
+      <a href="../zh-TW/index.html" lang="zh-Hant">繁體中文</a>
+      <a href="index.html" aria-current="page">English</a>
+    </nav>
+  </header>
+  <nav class="site-nav" aria-label="Help navigation">
+    <a href="index.html" aria-current="page" aria-label="Home" title="Home"><img class="nav-icon" src="../assets/grid-view.svg" width="18" height="18" alt="" aria-hidden="true"><span class="nav-label">Home</span></a>
+    <a href="support.html" aria-label="Support" title="Support"><img class="nav-icon" src="../assets/message-question-circle.svg" width="18" height="18" alt="" aria-hidden="true"><span class="nav-label">Support</span></a>
+    <a href="privacy.html" aria-label="Privacy" title="Privacy"><img class="nav-icon" src="../assets/key-01.svg" width="18" height="18" alt="" aria-hidden="true"><span class="nav-label">Privacy</span></a>
+    <a href="data-deletion.html" aria-label="Data deletion" title="Data deletion"><img class="nav-icon" src="../assets/trash-01.svg" width="18" height="18" alt="" aria-hidden="true"><span class="nav-label">Data deletion</span></a>
   </nav>
-  <h1>Get news from bookmarked sites, then let AI organize and explain it.</h1>
-  <p class="lead">Bookmarks are easy to save and easy to forget. The sites you follow are scattered across the web, and checking each one every day takes time.</p>
-  <p class="store-action">
-    <a class="store-link" href="https://chromewebstore.google.com/detail/oifmohbnghkaadoeghlemkllegajdajc?utm_source=item-share-cb" target="_blank" rel="noopener noreferrer">Install from the Chrome Web Store <span aria-hidden="true">↗</span></a>
-    <a class="store-link" href="https://microsoftedge.microsoft.com/addons/detail/lnijhbhjljjgdcaehfhihjcdpanojmcb" target="_blank" rel="noopener noreferrer">Install from Microsoft Edge Add-ons <span aria-hidden="true">↗</span></a>
-  </p>
-  <p>Ampira reads the bookmarks you choose, brings saved pages and new posts from those sites into one New Tab page, and sorts them by time or importance. Optional AI creates card summaries and a daily brief. It can also read an article and answer follow-up questions.</p>
-  <p>If you track an industry or research topic over time, put the sources you follow in one bookmark folder. Ampira keeps their updates together, sorts them by importance, and uses AI to create a daily brief. Open any article to ask follow-up questions.</p>
-  <p>Ampira works in Chrome and Microsoft Edge. Data stays local by default, and no account is required. It has no ads, behavioral analytics, or developer-operated backend.</p>
-  <nav class="page-nav" aria-label="Help links">
-    <a href="privacy.html">Privacy policy</a>
-    <a href="support.html">Support</a>
-    <a href="data-deletion.html">Data deletion</a>
-  </nav>
+  <main class="document" id="main-content" tabindex="-1">
+    <p class="page-kicker">News in a new tab</p>
+    <h1>Get news from bookmarked sites, then let AI organize and explain it.</h1>
+    <p class="lead">Bookmarks are easy to save and easy to forget. The sites you follow are scattered across the web, and checking each one every day takes time.</p>
+    <p class="store-action">
+      <a class="store-link" href="https://chromewebstore.google.com/detail/oifmohbnghkaadoeghlemkllegajdajc?utm_source=item-share-cb" target="_blank" rel="noopener noreferrer">Install from the Chrome Web Store <span class="external-link-icon" aria-hidden="true"></span></a>
+      <a class="store-link" href="https://microsoftedge.microsoft.com/addons/detail/lnijhbhjljjgdcaehfhihjcdpanojmcb" target="_blank" rel="noopener noreferrer">Install from Microsoft Edge Add-ons <span class="external-link-icon" aria-hidden="true"></span></a>
+    </p>
+    <p>Ampira reads the bookmarks you choose, brings saved pages and new posts from those sites into one New Tab page, and sorts them by time or importance. Optional AI creates card summaries and a daily brief. It can also read an article and answer follow-up questions.</p>
+    <p>If you track an industry or research topic over time, put the sources you follow in one bookmark folder. Ampira keeps their updates together, sorts them by importance, and uses AI to create a daily brief. Open any article to ask follow-up questions.</p>
+    <p>Ampira works in Chrome and Microsoft Edge. Data stays local by default, and no account is required. It has no ads, behavioral analytics, or developer-operated backend.</p>
+  </main>
+  <footer class="site-footer"><span>Ampira help and support</span><a href="https://github.com/sunpanran/Ampira" target="_blank" rel="noopener noreferrer">GitHub <span class="external-link-icon" aria-hidden="true"></span></a></footer>
 </body>
 </html>

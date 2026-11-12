@@ -2,10 +2,8 @@ import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import {
   HEADER_COVER_MAX_DIMENSION,
-  HEADER_COVER_MIN_LONG_EDGE,
   HEADER_COVER_STORED_MAX_BYTES,
   createHeaderCoverStore,
-  nextHeaderCoverDimensions,
   normalizeHeaderCoverRecord,
   webpDataUrlByteLength,
 } from "../../extension/core/header-cover.mjs";
@@ -18,7 +16,12 @@ import {
 import { normalizeSettings } from "../../extension/core/settings.mjs";
 import { createSettingsTransferDocument, parseSettingsTransferDocument } from "../../extension/core/settings-transfer.mjs";
 import { createSettingsWorkflow } from "../../extension/runtime/settings-workflow.mjs";
-import { HEADER_COVER_ACCEPTED_TYPES } from "../../assets/client/header-cover-image.mjs";
+import {
+  HEADER_COVER_ACCEPTED_TYPES, HEADER_COVER_MIN_LONG_EDGE, nextHeaderCoverDimensions,
+} from "../../assets/client/header-cover-image.mjs";
+import { createHeaderCoverController } from "../../assets/client/header-cover-controller.mjs";
+import { createHeaderCoverRenderer } from "../../assets/client/header-cover-renderer.mjs";
+import { DEFAULT_HEADER_IMAGE_URL } from "../../assets/client/header-cover-model.mjs";
 import { messageRequestForHttp } from "../../assets/client/message-contract.mjs";
 
 const bytes = Buffer.concat([Buffer.from("RIFF"), Buffer.alloc(4), Buffer.from("WEBPfixture")]);
@@ -105,11 +108,13 @@ const saved = await workflow.saveSettings({
   headerImageHeightScale: 200,
   headerImageBlurEnabled: true,
   headerImageBlurAmount: 50,
+  headerImageMediaType: "video",
   headerCoverOperation: { action: "replace", record },
 });
 assert.equal(saved.headerImageHeightScale, HEADER_IMAGE_HEIGHT_MAX);
 assert.equal(saved.headerImageBlurEnabled, true);
 assert.equal(saved.headerImageBlurAmount, 50);
+assert.equal(saved.headerImageMediaType, "video", "media type must survive the settings workflow allowlist");
 assert.equal(workflowSettings.headerImageHeightScale, HEADER_IMAGE_HEIGHT_MAX, "200% cover height must survive the settings write transaction");
 assert.equal(workflowSettings.headerImageBlurAmount, 50, "50 px cover blur must survive the settings write transaction");
 assert.equal(saved.headerCoverChanged, true);
@@ -160,30 +165,161 @@ assert(dashboardAppSource.includes("headerCoverController.markExternalChange()")
 assert(dashboardAppSource.includes("headerCoverController.load().then"), "an external cover change must refresh an idle open settings page");
 assert(dashboardAppSource.includes("void Promise.resolve(globalThis.ampiraLayoutBootstrap?.headerCoverReady).catch(() => {});"), "header cover hydration must remain an explicitly non-blocking visual task");
 assert(!dashboardAppSource.includes("globalThis.ampiraLayoutBootstrap?.headerCoverReady,"), "local cover storage and image decoding must not delay the initial dashboard render group");
-const packagedHeaderImage = await fs.readFile(new URL("../../assets/images/default-header.webp", import.meta.url));
-assert(packagedHeaderImage.length > 0, "the default header image must be packaged locally");
-assert.equal(packagedHeaderImage.subarray(0, 4).toString("ascii"), "RIFF", "the packaged default header image must have a WebP container");
-assert.equal(packagedHeaderImage.subarray(8, 12).toString("ascii"), "WEBP", "the packaged default header image must be WebP");
-assert(packagedHeaderImage.length < 750 * 1024, "the packaged default header image must stay below 750 KiB");
-const appearanceControllerSource = await fs.readFile(new URL("../../assets/client/appearance-controller.mjs", import.meta.url), "utf8");
+await assert.rejects(fs.stat(new URL("../../assets/images/default-header.webp", import.meta.url)), { code: "ENOENT" });
+const appearanceControllerSource = await fs.readFile(new URL("../../assets/client/appearance-controller.mjs", import.meta.url), "utf8") + "\n" + await fs.readFile(new URL("../../assets/client/header-cover-renderer.mjs", import.meta.url), "utf8") + "\n" + await fs.readFile(new URL("../../assets/client/header-cover-model.mjs", import.meta.url), "utf8");
 const themeBootstrapSource = await fs.readFile(new URL("../../assets/client/theme-bootstrap.mjs", import.meta.url), "utf8");
 const shellControllerSource = await fs.readFile(new URL("../../assets/client/shell-controller.mjs", import.meta.url), "utf8");
 const dashboardSectionsCssSource = await fs.readFile(new URL("../../assets/styles/dashboard-sections.css", import.meta.url), "utf8");
 const coverImageRule = dashboardSectionsCssSource.match(/\.dashboard-cover img\s*\{([\s\S]*?)\n\}/)?.[1] || "";
 const loadedCoverRule = dashboardSectionsCssSource.match(/\.dashboard-cover\.is-loaded img\s*\{([\s\S]*?)\n\}/)?.[1] || "";
 const fixedCoverRule = dashboardSectionsCssSource.match(/\.has-fixed-header-cover \.dashboard-cover\s*\{([\s\S]*?)\n\}/)?.[1] || "";
-assert(appearanceControllerSource.includes('DEFAULT_HEADER_IMAGE_ASSET = "/assets/images/default-header.webp"'), "normal rendering must resolve the default cover to the packaged asset");
-assert(themeBootstrapSource.includes('defaultHeaderImageAsset = "/assets/images/default-header.webp"'), "first-frame rendering must resolve the default cover to the packaged asset");
+assert(themeBootstrapSource.includes(`defaultHeaderImageUrl = "${DEFAULT_HEADER_IMAGE_URL}"`), "first-frame and normal rendering must share the default network image");
 assert(themeBootstrapSource.includes('url: ""'), "a new profile must keep the cover URL field empty on its first frame");
-assert(themeBootstrapSource.includes("return source || defaultHeaderImageAsset"), "an empty cover URL must resolve to the packaged default cover on the first frame");
-assert(appearanceControllerSource.includes("if (!url) return DEFAULT_HEADER_IMAGE_ASSET"), "normal rendering must resolve an empty URL to the packaged cover");
+assert(!appearanceControllerSource.includes("/assets/images/default-header.webp") && !themeBootstrapSource.includes("/assets/images/default-header.webp"), "default image loading must not retain the removed local asset");
 assert(coverImageRule.includes("opacity 720ms var(--motion-ease-enter)"), "fast loading must retain the original cover fade duration");
 assert(coverImageRule.includes("transform: scale(1.012);") && coverImageRule.includes("transform 900ms var(--motion-ease-standard)"), "fast loading must retain the original subtle cover settle motion");
 assert(loadedCoverRule.includes("transform: scale(1);"), "the loaded cover state must finish the original settle motion");
 assert(shellControllerSource.includes("window.innerWidth || document.documentElement.clientWidth"), "cover metrics must match CSS viewport units before falling back to client width");
 assert(fixedCoverRule.includes("width: 100vw;"), "fixed and fullscreen covers must not be recropped when page scrollbar metrics settle");
 
+await testLocalCoverSelection();
+await testDefaultNetworkCover();
+
 console.log("header cover tests passed");
+
+async function testDefaultNetworkCover() {
+  const keys = ["document", "location", "navigator", "localStorage", "chrome", "ampiraLayoutBootstrap"];
+  const originals = Object.fromEntries(keys.map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
+  const classes = new Set(), preloads = [], stored = new Map(), attributes = new Map();
+  const classList = { add: value => classes.add(value), remove: (...values) => values.forEach(value => classes.delete(value)), toggle: (value, enabled) => enabled ? classes.add(value) : classes.delete(value), contains: value => classes.has(value) };
+  const image = { complete: false, getAttribute: key => attributes.get(key), removeAttribute: key => attributes.delete(key), addEventListener() {} };
+  Object.defineProperty(image, "src", { get: () => attributes.get("src"), set: value => attributes.set("src", value) });
+  const hero = { hidden: true, dataset: {}, classList, querySelector: () => image };
+  const origin = "https://extension.example";
+  const document = {
+    hidden: true, documentElement: { dataset: {}, classList, style: { setProperty() {} } },
+    querySelector: selector => selector === "#headerImageHero" ? hero : selector === "#headerImage" ? image : null,
+    createElement: () => ({ setAttribute() {} }), head: { append: element => preloads.push(element) },
+  };
+  try {
+    for (const [key, value] of Object.entries({
+      document, location: { origin, protocol: "chrome-extension:" }, navigator: { serviceWorker: { controller: {} } }, chrome: {},
+      localStorage: { getItem: key => stored.get(key) || null, setItem: (key, value) => stored.set(key, value) },
+    })) Object.defineProperty(globalThis, key, { configurable: true, writable: true, value });
+    await import("../../assets/client/theme-bootstrap.mjs");
+    await globalThis.ampiraLayoutBootstrap.headerCoverReady;
+    const resolve = globalThis.ampiraLayoutBootstrap.resolveHeaderCoverSource;
+    const networkSource = url => `${origin}/_header-cover?url=${encodeURIComponent(url)}`;
+    const expected = networkSource(DEFAULT_HEADER_IMAGE_URL);
+    assert.equal(image.src, expected, "first-frame defaults must use the ordinary network-image cache path");
+    assert.equal(preloads[0].href, expected, "preload and visible default image must share the same network request");
+    assert.equal(resolve(DEFAULT_HEADER_IMAGE_URL), expected, "an explicit default URL must follow ordinary image loading");
+    const custom = "https://images.example/custom.webp";
+    assert.equal(resolve(custom), networkSource(custom));
+    const state = { settings: { headerImageEnabled: true, headerImageUrl: "" } };
+    const renderer = createHeaderCoverRenderer({ state, els: { headerImage: image, headerImageHero: hero } });
+    renderer.renderHeaderImage(state.settings);
+    assert.equal(image.src, expected, "normal rendering must keep the first-frame network source");
+    renderer.renderHeaderImage({ ...state.settings, headerImageUrl: custom });
+    assert.equal(image.src, networkSource(custom), "custom image links must retain their normal cache behavior");
+    state.localHeaderCover = { dataUrl };
+    renderer.renderHeaderImage(state.settings);
+    assert.equal(image.src, dataUrl, "user-selected local images must retain priority");
+    renderer.handleHeaderImageError();
+    assert.equal(image.src, expected, "failed local images must fall back to the default network image");
+    renderer.renderHeaderImage({ ...state.settings, headerImageEnabled: false });
+    assert.equal(image.src, undefined);
+    assert.equal(hero.hidden, true);
+    globalThis.location.protocol = "http:";
+    assert.equal(resolve(""), DEFAULT_HEADER_IMAGE_URL, "web previews must load the direct URL");
+  } finally {
+    for (const [key, descriptor] of Object.entries(originals)) {
+      if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+      else delete globalThis[key];
+    }
+  }
+}
+
+async function testLocalCoverSelection() {
+  const originals = Object.fromEntries(["document", "createImageBitmap", "FileReader"].map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
+  const listeners = new Map(), status = [], busy = [], state = {};
+  const replacementBytes = Buffer.concat([bytes, Buffer.from("replacement")]);
+  const replacementDataUrl = `data:image/webp;base64,${replacementBytes.toString("base64")}`;
+  const els = Object.fromEntries([
+    "headerImageLocalChoose", "headerImageLocalInput", "headerImageLocalRemove", "headerImageLocalChooseLabel", "headerImageLocalStatus", "headerImageLocalMeta",
+  ].map(id => [id, { addEventListener: (event, callback) => listeners.set(`${id}:${event}`, callback) }]));
+  let previews = 0, decodes = 0, closed = 0, rejectDecode = false;
+  const controller = createHeaderCoverController({
+    state, els, t: key => key, apiGet: async () => ({ record, available: true }),
+    updatePreview: () => { previews++; }, renderSettingsStatus: key => status.push(key),
+    setSettingsBusy: value => { busy.push(value); controller.setBusy(value); },
+  });
+  const select = file => {
+    els.headerImageLocalInput.files = file ? [file] : [];
+    els.headerImageLocalInput.value = file ? file.name : "";
+    return listeners.get("headerImageLocalInput:change")();
+  };
+  try {
+    globalThis.createImageBitmap = async () => {
+      decodes++;
+      if (rejectDecode) throw new Error("Synthetic decode failure");
+      return { width: 1920, height: 1080, close() { closed++; } };
+    };
+    globalThis.document = { createElement: () => ({
+      getContext: () => ({ drawImage() {} }),
+      toBlob: callback => callback(new Blob([replacementBytes], { type: "image/webp" })),
+    }) };
+    globalThis.FileReader = class {
+      readAsDataURL() { this.result = replacementDataUrl; this.onload(); }
+    };
+    controller.bind();
+    assert.equal(await controller.load(), true);
+    await select(null);
+    assert.deepEqual(busy, [], "cancelling selection must not start processing");
+    const file = { name: "new-cover.webp", type: "image/webp", size: 1024 };
+    controller.setBusy(true);
+    await select(file);
+    assert.equal(decodes, 0, "a busy settings form must ignore file selections");
+    controller.setBusy(false);
+    for (const [candidate, errorKey] of [
+      [{ ...file, type: "text/plain" }, "settings.headerImage.localErrorType"],
+      [{ ...file, size: 21 * 1024 * 1024 }, "settings.headerImage.localErrorSize"],
+    ]) {
+      await select(candidate);
+      assert.equal(status.at(-1), errorKey);
+      assert.deepEqual(controller.savePayload(), {}, "invalid selections must preserve the saved cover");
+      assert.equal(els.headerImageLocalChoose.disabled, false);
+    }
+    assert.equal(decodes, 0, "unsupported and oversized files must not be decoded");
+    rejectDecode = true;
+    await select(file);
+    assert.equal(status.at(-1), "settings.headerImage.localErrorDecode");
+    assert.deepEqual(controller.savePayload(), {});
+    assert.equal(els.headerImageLocalChoose.disabled, false);
+    rejectDecode = false;
+    const selecting = select(file);
+    assert.equal(els.headerImageLocalChoose.disabled, true, "controls must be locked before the module load resolves");
+    assert.equal(els.headerImageLocalInput.value, "", "the same file must be selectable again");
+    await selecting;
+    assert.equal(status.at(-1), "settings.headerImage.localReady");
+    assert.equal(state.localHeaderCover.name, file.name);
+    assert.equal(state.localHeaderCover.width, 1920);
+    assert.equal(closed, 1);
+    assert.equal(previews, 1);
+    assert.equal(els.headerImageLocalChoose.disabled, false);
+    assert.deepEqual(controller.savePayload(), { headerCoverOperation: { action: "replace", record: state.localHeaderCover } });
+    assert.equal(state.localHeaderCover.dataUrl, replacementDataUrl);
+    controller.restore();
+    assert.equal(state.localHeaderCover.dataUrl, record.dataUrl, "discarding an upload must restore the saved cover");
+    assert.deepEqual(controller.savePayload(), {});
+    assert.deepEqual(busy, [true, false, true, false, true, false, true, false]);
+  } finally {
+    for (const [key, descriptor] of Object.entries(originals)) {
+      if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+      else delete globalThis[key];
+    }
+  }
+}
 
 function memoryStorage(initial = {}) {
   const values = structuredClone(initial);
@@ -226,8 +362,10 @@ function workflowOptions({ getSettings, headerCoverStore, writeSettings, broadca
     providerTestConsentAllowed: () => true,
     providerRequiresApiKey: () => true,
     hasOriginPermission: async () => true,
-    updateProviderProfile: async (patch) => Object.assign(state.provider, patch),
-    updateSecrets: async (patch) => Object.assign(state.secrets, patch),
+    updateCredentials: async ({ providerPatch, secretsPatch }) => {
+      Object.assign(state.secrets, secretsPatch);
+      return Object.assign(state.provider, providerPatch);
+    },
     setAiDisclosureConsent: async (accepted, origin) => { state.consent = { accepted, origin }; },
     captureCredentialState: async () => structuredClone({ provider: state.provider, secrets: state.secrets }),
     restoreCredentialState: async (snapshot) => {

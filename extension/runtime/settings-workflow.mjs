@@ -4,7 +4,7 @@ export function createSettingsWorkflow(options) {
     currentBookmarkModel, emptyBookmarkModel, selectedOrigins, currentFeedPermissionState,
     filterSourceQuality, getRecord, emptySourceQuality, defaultSettings, settingsService,
     readProviderProfile, bindProviderPatchToOrigin, isValidServiceUrl, typedError,
-    providerTestConsentAllowed, providerRequiresApiKey, hasOriginPermission, updateProviderProfile, updateSecrets,
+    providerTestConsentAllowed, providerRequiresApiKey, hasOriginPermission, updateCredentials,
     setAiDisclosureConsent, captureCredentialState, restoreCredentialState,
     captureDeviceConsentState, restoreDeviceConsentState, cacheMutations, refreshCoordinator, setRecord,
     contentSyncService,
@@ -27,10 +27,11 @@ async function publicSettings() {
     newTabOverrideEnabled: true,
     browserSearchEnabled: searchEnabled === true,
     hasOpenAIKey: secrets.hasOpenAIKey,
-    keySource: "local-extension-storage",
+    syncAiSettingsEnabled: secrets.syncAiSettingsEnabled === true,
+    keySource: secrets.syncAiSettingsEnabled ? "browser-account-sync" : "local-extension-storage",
     maskedKey: secrets.hasOpenAIKey ? "••••••••" : "",
     hasImageSearchKey: secrets.hasImageSearchKey,
-    imageSearchKeySource: "local-extension-storage",
+    imageSearchKeySource: secrets.syncAiSettingsEnabled ? "browser-account-sync" : "local-extension-storage",
     maskedImageSearchKey: secrets.hasImageSearchKey ? "••••••••" : "",
     baseUrl: settings.openaiBaseUrl,
     baseUrlSource: "saved",
@@ -100,14 +101,16 @@ async function performSaveSettings(body, transaction) {
     ? headerCoverStore.validateOperation(body.headerCoverOperation)
     : null;
   const allowed = [
+    "mcpEnabled", "dashboardMode", "dashboardCardOrder", "botOrganizeNews", "botGenerateBrief", "botAnswerQuestions",
     "webImageSearchEnabled", "dailyAiLimit",
     "cardSummaryEnabled", "hotNewsCacheSize", "hotNewsEntriesPerSource", "newsEntriesPerCategory", "todayNewsPerPublisherLimit",
     "newsBookmarkFolder", "newsSourceMode", "inspirationBookmarkFolder", "inspirationSourceMode", "bookmarkOnlyFolders", "hiddenBookmarkCategories", "floatingWebOpenEnabled",
     "readingQueueOpenOnReadAll", "readingQueueReadAllPrompted", "retainSeenArchive", "personalizedRankingEnabled", "publicFeedSupplementEnabled",
     "syncReadingQueueEnabled", "syncTodosEnabled", "syncWeatherLocationEnabled",
-    "uiLocale", "colorMode", "accentTheme", "customAccentColor", "pointerGlowEnabled", "dashboardGlassBlurEnabled", "headerImageEnabled",
-    "headerImageFixed", "headerImageFullscreen", "headerImageBlurEnabled", "headerImageBlurAmount", "headerImageHeightScale", "headerImageUrl",
-    "bookmarkSectionEnabled", "websiteShortcutsEnabled", "websiteShortcuts",
+    "syncStockWatchlistEnabled", "syncCountdownsEnabled",
+    "uiLocale", "colorMode", "navPosition", "accentTheme", "customAccentColor", "pointerGlowEnabled", "dashboardGlassBlurEnabled", "headerImageEnabled",
+    "headerImageFixed", "headerImageFullscreen", "headerImageBlurEnabled", "headerImageBlurAmount", "headerImageHeightScale", "headerImageUrl", "headerImageMediaType",
+    "bookmarkSectionEnabled", "websiteShortcutsEnabled", "websiteShortcuts", "keyboardShortcutsEnabled", "keyboardShortcuts",
     "excludedNewsSources",
   ];
   for (const key of allowed) if (Object.hasOwn(body, key)) next[key] = body[key];
@@ -151,20 +154,21 @@ async function performSaveSettings(body, transaction) {
   const bravePatch = {};
   if (typeof body.braveSearchApiKey === "string" && body.braveSearchApiKey.trim()) bravePatch.braveSearchApiKey = body.braveSearchApiKey.trim();
   if (body.clearBraveSearchApiKey === true) bravePatch.braveSearchApiKey = "";
+  const credentialsChanged = Object.keys(providerPatch).length || Object.keys(bravePatch).length
+    || typeof body.syncAiSettingsEnabled === "boolean";
 
   let headerCoverMutation = null;
   let credentialSnapshot = null;
   let consentSnapshot = null;
   let normalized;
   try {
-    if (Object.keys(providerPatch).length || Object.keys(bravePatch).length) {
+    if (credentialsChanged) {
       credentialSnapshot = await captureCredentialState();
     }
     if (Object.hasOwn(body, "aiDisclosureAccepted")) consentSnapshot = await captureDeviceConsentState();
-    let provider = Object.keys(providerPatch).length
-      ? await updateProviderProfile(providerPatch, previous)
+    let provider = credentialsChanged
+      ? await updateCredentials({ providerPatch, secretsPatch: bravePatch, syncEnabled: body.syncAiSettingsEnabled }, previous)
       : null;
-    if (Object.keys(bravePatch).length) await updateSecrets(bravePatch);
     if (Object.hasOwn(body, "aiDisclosureAccepted")) {
       provider = provider || await readProviderProfile(previous);
       await setAiDisclosureConsent(body.aiDisclosureAccepted === true, provider.openaiBaseUrl);
@@ -208,6 +212,10 @@ async function performSaveSettings(body, transaction) {
     }
     throw error;
   }
+  if (Object.keys(body).length === 1 && Object.hasOwn(body, "dashboardCardOrder")) {
+    broadcast("settings.changed", { dashboardLayoutOnly: true, dashboardCardOrder: normalized.dashboardCardOrder });
+    return publicSettings();
+  }
   const localeChanged = settingsLocale(previous) !== settingsLocale(normalized);
   const primarySourceChanged = [
     "newsBookmarkFolder", "newsSourceMode", "inspirationBookmarkFolder", "inspirationSourceMode",
@@ -227,6 +235,13 @@ async function performSaveSettings(body, transaction) {
   const automaticAiChanged = aiConfigurationChanged
     || previous.cardSummaryEnabled !== normalized.cardSummaryEnabled
     || previous.dailyAiLimit !== normalized.dailyAiLimit;
+  const mcpSettingsChanged = previous.mcpEnabled !== normalized.mcpEnabled || previous.dashboardMode !== normalized.dashboardMode
+    || previous.botOrganizeNews !== normalized.botOrganizeNews || previous.botGenerateBrief !== normalized.botGenerateBrief
+    || previous.botAnswerQuestions !== normalized.botAnswerQuestions;
+  if (mcpSettingsChanged) {
+    refreshCoordinator.invalidate();
+    cacheMutations.invalidate();
+  }
   if (localeChanged || bookmarkSourceChanged || rankingChanged || aiConfigurationChanged || imageSearchChanged) {
     cacheMutations.invalidate();
     if (bookmarkSourceChanged || rankingChanged) refreshCoordinator.invalidate();
@@ -245,7 +260,7 @@ async function performSaveSettings(body, transaction) {
       if (!sourceRefreshScheduled) startRefresh(true).catch(() => {});
     }
   }
-  broadcast("settings.changed", { primarySourceChanged, sourceRefreshScheduled, bookmarkSourceChanged, rankingChanged, localeChanged, imageSearchChanged, headerCoverChanged, automaticAiChanged, automaticAiStarted });
+  broadcast("settings.changed", { primarySourceChanged, sourceRefreshScheduled, bookmarkSourceChanged, rankingChanged, localeChanged, imageSearchChanged, headerCoverChanged, automaticAiChanged, automaticAiStarted, mcpSettingsChanged });
   return {
     ...(await publicSettings()),
     primarySourceChanged,

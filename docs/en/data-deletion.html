@@ -3,27 +3,46 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark light">
+  <link rel="icon" type="image/svg+xml" href="../assets/ampira-logo.svg?v=20261112-cyan-flat">
   <title>Ampira Data Deletion</title>
-  <link rel="stylesheet" href="../styles.css">
+  <link rel="stylesheet" href="../styles.css?v=20261112-cyan">
   <link rel="alternate" hreflang="zh-CN" href="../data-deletion.html">
   <link rel="alternate" hreflang="zh-TW" href="../zh-TW/data-deletion.html">
   <link rel="alternate" hreflang="en" href="data-deletion.html">
 </head>
-<body>
-  <a class="back" href="index.html">← Ampira</a>
-  <nav class="language-nav" aria-label="Language">
-    <a href="../data-deletion.html" lang="zh-CN">简体中文</a>
-    <a href="../zh-TW/data-deletion.html" lang="zh-Hant">繁體中文</a>
-    <a href="data-deletion.html" aria-current="page">English</a>
+<body data-page="deletion">
+  <a class="skip-link" href="#main-content">Skip to content</a>
+  <header class="site-header">
+    <a class="mark" href="index.html" aria-label="Ampira · Home">
+      <img class="mark-logo" src="../assets/ampira-logo.svg?v=20261112-cyan-flat" width="48" height="48" alt="Ampira">
+      <span aria-hidden="true">AMPIRA</span>
+    </a>
+    <nav class="language-nav" aria-label="Language">
+      <a href="../data-deletion.html" lang="zh-CN">简体中文</a>
+      <a href="../zh-TW/data-deletion.html" lang="zh-Hant">繁體中文</a>
+      <a href="data-deletion.html" aria-current="page">English</a>
+    </nav>
+  </header>
+  <nav class="site-nav" aria-label="Help navigation">
+    <a href="index.html" aria-label="Home" title="Home"><img class="nav-icon" src="../assets/grid-view.svg" width="18" height="18" alt="" aria-hidden="true"><span class="nav-label">Home</span></a>
+    <a href="support.html" aria-label="Support" title="Support"><img class="nav-icon" src="../assets/message-question-circle.svg" width="18" height="18" alt="" aria-hidden="true"><span class="nav-label">Support</span></a>
+    <a href="privacy.html" aria-label="Privacy" title="Privacy"><img class="nav-icon" src="../assets/key-01.svg" width="18" height="18" alt="" aria-hidden="true"><span class="nav-label">Privacy</span></a>
+    <a href="data-deletion.html" aria-current="page" aria-label="Data deletion" title="Data deletion"><img class="nav-icon" src="../assets/trash-01.svg" width="18" height="18" alt="" aria-hidden="true"><span class="nav-label">Data deletion</span></a>
   </nav>
-  <h1>Data deletion</h1>
-  <ol>
-    <li>Under Settings → About → Import &amp; export, select Factory reset to delete Ampira settings, API keys, consent, the local cover, caches, and user content on this device; remove optional permissions; and delete Ampira settings plus opted-in reading queue, to-dos, and weather city from browser account sync. Synced deletions affect other devices on the same account but do not remotely erase local-only data unique to those devices. Browser bookmarks are not changed.</li>
-    <li>On the News page in Settings, select Clear cache to remove news, summaries, search caches, and source-quality records.</li>
-    <li>On the AI page in Settings, select Remove key or Remove image key to delete the corresponding credential from extension-local storage.</li>
-    <li>Uninstall Ampira from <code>chrome://extensions</code> in Chrome or <code>edge://extensions</code> in Microsoft Edge to remove its IndexedDB, API keys, and local extension storage.</li>
-    <li>To keep other Ampira data, turn off an individual category under Settings → Browser → Cross-device content; this removes only that category’s browser account sync copy and preserves its local content.</li>
-  </ol>
-  <p>Ampira has no developer-operated account or server, so there is no cloud user database for the developer to delete.</p>
+  <main class="document" id="main-content" tabindex="-1">
+    <p class="page-kicker">Data management</p>
+    <h1>Data deletion</h1>
+    <ol>
+      <li>Under Settings → About → Import &amp; export, select Factory reset to clear this device's Ampira settings, API keys, consent, local cover, caches and user content, and remove optional permissions. It also deletes Ampira settings and any synced copies of Read later, to-dos, weather city, stock watchlist, countdowns, keys and AI configuration from your browser account. Synced deletions affect other devices on the same account, but do not remotely erase data stored only on those devices. Browser bookmarks are not changed.</li>
+      <li>On the News page in Settings, select Clear cache to remove news, summaries, search caches, and source-quality records.</li>
+      <li>On the AI page in Settings, select Remove key or Remove image key to delete that key from this device. If key sync is on, the key is also deleted from other devices through sync.</li>
+      <li>Uninstall Ampira from <code>chrome://extensions</code> in Chrome or <code>edge://extensions</code> in Microsoft Edge to remove its IndexedDB, API keys, and local extension storage.</li>
+      <li>To stop syncing just one category, turn off its switch under Settings → Browser → Cross-device sync. This removes that category's copy from your browser account. Content or AI settings already received on each device stay there.</li>
+      <li>For Bot board, use Disconnect under Settings → MCP → Connection details, including while MCP is off, to delete the browser’s address and pairing key. Switch to Standard mode and use Factory reset to clear its cached content and delivery records. Stop the companion service before separately deleting its data directory (by default .ampira-mcp under your home directory), which holds board content, messages and deduplication records. Remove or stop MCP configuration and tasks in your AI client separately.</li>
+    </ol>
+    <p>Ampira has no developer-operated account or server, so there is no cloud user database for the developer to delete.</p>
+  </main>
+  <footer class="site-footer"><span>Ampira help and support</span><a href="https://github.com/sunpanran/Ampira" target="_blank" rel="noopener noreferrer">GitHub <span class="external-link-icon" aria-hidden="true"></span></a></footer>
 </body>
 </html>

@@ -5,7 +5,7 @@ export function cardTone(item) {
 }
 
 export function cardIconName(item) {
-  if (cardTone(item) === "inspiration") return "sparkling";
+  if (cardTone(item) === "inspiration") return "lightbulb";
   if (cardTone(item) === "bookmark") return "bookmark-ribbon";
   return "news";
 }

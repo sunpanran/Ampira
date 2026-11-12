@@ -1,6 +1,15 @@
-import { newsTimeScope, publisherIdentity } from "../../extension/core/news-ranking.mjs";
+import { finiteTime, newsTimeScope, publisherIdentity, verifiedTime } from "../../extension/core/news-item-model.mjs";
+import { eventImportance } from "../../extension/core/daily-events.mjs";
 
 const HIGH_CONFIDENCE_SINGLE_MAX_AGE_MS = 12 * 60 * 60 * 1000;
+
+export function localizationPending(item) {
+  return item?.localizationPending === true || item?.feedItem?.localizationPending === true;
+}
+
+export function compareLocalization(left, right) {
+  return Number(localizationPending(left)) - Number(localizationPending(right));
+}
 
 export function createPriorityRanker(options = {}) {
   const digestKeys = typeof options.digestKeys === "function" ? options.digestKeys : () => [];
@@ -27,6 +36,8 @@ export function createPriorityRanker(options = {}) {
   };
 
   const compareImportant = (left, right) => {
+    const languageDelta = compareLocalization(left, right);
+    if (languageDelta) return languageDelta;
     const qualityDelta = Number(itemQuality(right) || 0) - Number(itemQuality(left) || 0);
     if (qualityDelta) return qualityDelta;
     const priorityDelta = priorityScore(right) - priorityScore(left);
@@ -43,7 +54,7 @@ export function createPriorityRanker(options = {}) {
       return order === "time"
         ? (left, right) => {
             const qualityDelta = Number(itemQuality(right) || 0) - Number(itemQuality(left) || 0);
-            return qualityDelta || Number(itemTime(right) || 0) - Number(itemTime(left) || 0);
+            return compareLocalization(left, right) || qualityDelta || Number(itemTime(right) || 0) - Number(itemTime(left) || 0);
           }
         : compareImportant;
     },
@@ -69,52 +80,69 @@ export function selectTodayNewsItems(items, options = {}) {
     return { item, scope };
   }).filter(Boolean);
   const today = eligible.filter((entry) => entry.scope === "today").map((entry) => entry.item).sort(compare);
-  const recent = eligible.filter((entry) => entry.scope === "recent").map((entry) => entry.item).sort(compare).slice(0, recentLimit);
+  const recent = eligible.filter((entry) => entry.scope === "recent").map((entry) => entry.item)
+    .sort((a, b) => compareLocalization(a, b) || compare(a, b)).slice(0, recentLimit);
   return arrangePublisherBatches([...today, ...recent], pageSize, pageCount, publisherLimit);
 }
 
 export function selectDailyEvents(items, options = {}) {
-  const now = options.now ?? Date.now();
-  const limit = Math.max(1, Math.floor(Number(options.limit) || 3));
+  const now = finiteTime(options.now, Date.now());
+  const limit = Math.max(0, Math.floor(options.limit === undefined ? 3 : Number(options.limit) || 0));
   const recentLimit = Math.max(0, Math.floor(options.recentLimit === undefined ? 1 : Number(options.recentLimit) || 0));
   const minSourceCount = Math.max(1, Math.floor(options.minSourceCount === undefined ? 2 : Number(options.minSourceCount) || 1));
-  const sourceCount = (item) => Math.max(1, Number(item?.sourceCount ?? item?.eventSourceCount ?? 1) || 1);
-  const compare = (left, right) => sourceCount(right) - sourceCount(left)
-    || Number(right?.importanceScore || 0) - Number(left?.importanceScore || 0)
-    || Number(right?.localImportanceScore || 0) - Number(left?.localImportanceScore || 0);
+  const sourceCount = (item) => {
+    const count = Number(item?.sourceCount ?? item?.eventSourceCount ?? 1);
+    return Number.isFinite(count) ? Math.max(0, Math.floor(count)) : 0;
+  };
+  const eventKey = (item) => String(item?.eventId || item?.id || item?.url || item?.title || "");
+  const compare = (left, right) => eventImportance(right) - eventImportance(left)
+    || sourceCount(right) - sourceCount(left)
+    || verifiedTime(right) - verifiedTime(left)
+    || eventKey(left).localeCompare(eventKey(right));
+  const scoped = (Array.isArray(items) ? items : []).flatMap((item) => {
+    if (!item || item.eventRepresentative === false || item.rankingEligible === false || !eventKey(item)) return [];
+    const resolvedTimeScope = newsTimeScope(item, now);
+    return resolvedTimeScope ? [{ ...item, resolvedTimeScope }] : [];
+  });
+  const selected = [];
   const seenEvents = new Set();
-  const scoped = (Array.isArray(items) ? items : []).map((item) => {
-    const eventKey = item?.eventId || item?.id || item?.url || item?.title;
-    if (!eventKey || seenEvents.has(eventKey)) return null;
-    const resolvedTimeScope = newsTimeScope(item, now) || item?.timeScope || "";
-    if (!resolvedTimeScope) return null;
-    seenEvents.add(eventKey);
-    return { ...item, resolvedTimeScope };
-  }).filter(Boolean);
-  const corroborated = scoped.filter((item) => sourceCount(item) >= minSourceCount);
-  const today = corroborated.filter((item) => item.resolvedTimeScope === "today").sort(compare);
-  const recent = corroborated.filter((item) => item.resolvedTimeScope === "recent").sort(compare).slice(0, recentLimit);
-  const selected = [...today, ...recent].slice(0, limit);
-  if (selected.length >= limit) return selected;
-  const highConfidenceSingle = scoped
-    .filter((item) => sourceCount(item) < minSourceCount
+  let recentCount = 0;
+  let singleCount = 0;
+  for (const pending of [false, true]) {
+    const group = scoped.filter((item) => localizationPending(item) === pending);
+    const corroborated = group.filter((item) => sourceCount(item) >= minSourceCount);
+    const single = group.filter((item) => sourceCount(item) === 1
       && item.eventConfidence === "high-confidence-single"
       && item.resolvedTimeScope === "today"
-      && isFreshHighConfidenceSingle(item, now))
-    .sort(compare)[0];
-  if (highConfidenceSingle) selected.push(highConfidenceSingle);
+      && isFreshHighConfidenceSingle(item, now));
+    const ordered = [
+      ...corroborated.filter((item) => item.resolvedTimeScope === "today").sort(compare),
+      ...corroborated.filter((item) => item.resolvedTimeScope === "recent").sort(compare),
+      ...single.sort(compare),
+    ];
+    for (const item of ordered) {
+      if (selected.length >= limit) return selected;
+      const key = eventKey(item);
+      const recent = item.resolvedTimeScope === "recent";
+      const fallback = sourceCount(item) < minSourceCount;
+      if (seenEvents.has(key) || recent && recentCount >= recentLimit || fallback && singleCount >= 1) continue;
+      selected.push(item);
+      seenEvents.add(key);
+      if (recent) recentCount += 1;
+      if (fallback) singleCount += 1;
+    }
+  }
   return selected;
 }
 
 function isFreshHighConfidenceSingle(item, nowValue) {
-  const now = nowValue instanceof Date ? nowValue.getTime() : Number(nowValue);
-  const publishedAt = Date.parse(String(item?.publishedAt || ""));
-  const age = (Number.isFinite(now) ? now : Date.now()) - publishedAt;
-  return Number.isFinite(publishedAt) && age >= 0 && age <= HIGH_CONFIDENCE_SINGLE_MAX_AGE_MS;
+  const publishedAt = verifiedTime(item);
+  const age = nowValue - publishedAt;
+  return publishedAt > 0 && age >= 0 && age <= HIGH_CONFIDENCE_SINGLE_MAX_AGE_MS;
 }
 
 function arrangePublisherBatches(items, pageSize, pageCount, publisherLimit) {
-  const remaining = [...items];
+  const remaining = [...items].sort(compareLocalization);
   const output = [];
   const maxItems = pageSize * pageCount;
   while (remaining.length && output.length < maxItems) {
@@ -122,6 +150,7 @@ function arrangePublisherBatches(items, pageSize, pageCount, publisherLimit) {
     const deferred = [];
     const counts = new Map();
     for (const item of remaining) {
+      if (localizationPending(item) && !localizationPending(remaining[0])) break;
       const publisher = publisherIdentity(item?.feedItem || item) || "unknown";
       if (publisherLimit && (counts.get(publisher) || 0) >= publisherLimit) {
         deferred.push(item);
@@ -135,6 +164,13 @@ function arrangePublisherBatches(items, pageSize, pageCount, publisherLimit) {
       for (const item of deferred) {
         if (batch.includes(item)) continue;
         batch.push(item);
+        if (batch.length >= pageSize) break;
+      }
+    }
+    // Only fill with untranslated items once every readable item is selected.
+    if (batch.length < pageSize && !remaining.some((item) => !localizationPending(item) && !batch.includes(item))) {
+      for (const item of remaining.filter(localizationPending)) {
+        if (!batch.includes(item)) batch.push(item);
         if (batch.length >= pageSize) break;
       }
     }
@@ -155,7 +191,11 @@ export function mergeRankedUnique(groups, options = {}) {
   if (limit === 0) return [];
   const selected = [];
   const selectedKeys = new Set();
-  for (const group of Array.isArray(groups) ? groups : []) {
+  const inputGroups = Array.isArray(groups) ? groups : [];
+  const orderedGroups = [false, true].flatMap((pending) => inputGroups.map((group) => (
+    (Array.isArray(group) ? group : []).filter((item) => localizationPending(item) === pending)
+  )));
+  for (const group of orderedGroups) {
     for (const item of [...(Array.isArray(group) ? group : [])].sort(compare)) {
       const key = keyOf(item);
       if (!item || !key || selectedKeys.has(key)) continue;

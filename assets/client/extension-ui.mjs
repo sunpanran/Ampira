@@ -1,6 +1,7 @@
 import { sendExtensionRequest } from "./api.mjs";
+import { createHistoryPermissionController } from "./history-permission-controller.mjs";
 import { getLocale, prepareLocale, setLocale, t, tc, translateDocument } from "./i18n.mjs";
-import { createIcon, hydrateIcons } from "./icons.mjs";
+import { hydrateIcons } from "./icons.mjs";
 import { permissionRowCounts, requiredUngrantedOrigins } from "./permission-ui-model.mjs";
 import { INSPIRATION_PRESET_VALUE, inspirationBookmarkValue, inspirationSelectionValue, parseInspirationSelection } from "./inspiration-source-selection.mjs";
 import { PUBLIC_FEED_VALUE, newsBookmarkValue, newsSelectionValue, parseNewsSelection } from "./news-source-selection.mjs";
@@ -66,6 +67,7 @@ hydrateIcons(document);
 initializeExtensionUi();
 
 async function initializeExtensionUi() {
+  createHistoryPermissionController({ t });
   bindEvents();
   try {
     await hydrateStorage();
@@ -78,7 +80,7 @@ async function initializeExtensionUi() {
     refreshFaviconPermission({ notify: true });
     refreshBrowserSearchPermission({ notify: true });
     syncOnboardingFolderControls();
-    if (settings.onboardingCompleted !== true) showOnboarding(initialOnboardingStep());
+    if (settings.onboardingCompleted !== true && (settings.mcpEnabled === false || settings.dashboardMode !== "bot")) showOnboarding(initialOnboardingStep());
   } catch (error) {
     renderPermissionRows([]);
     setPermissionFeedback(error.message || String(error));
@@ -578,7 +580,6 @@ async function handlePermissionAction(event) {
 
 function renderPermissionRows(rows) {
   permissionRows = Array.isArray(rows) ? rows : [];
-  if (els.permissionDetails && permissionRowCounts(permissionRows).pending > 0) els.permissionDetails.open = true;
   if (!els.permissionList) return;
   if (!permissionRows.length) {
     const empty = document.createElement("div");
@@ -608,7 +609,7 @@ function renderPermissionRows(rows) {
     const buttonLabel = document.createElement("span");
     buttonLabel.className = "btn-label";
     buttonLabel.textContent = t(removable ? "permission.revoke" : "permission.grant");
-    button.append(createIcon(removable ? "trash-01" : "plus", "btn-icon"), buttonLabel);
+    button.append(buttonLabel);
     item.append(copy, button);
     return item;
   }));

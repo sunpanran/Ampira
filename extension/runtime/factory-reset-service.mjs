@@ -1,4 +1,4 @@
-const OPTIONAL_PERMISSIONS = Object.freeze(["favicon", "search"]);
+const OPTIONAL_PERMISSIONS = Object.freeze(["favicon", "search", "history"]);
 
 export function createFactoryResetService(options) {
   const {
@@ -11,6 +11,7 @@ export function createFactoryResetService(options) {
     waitForActiveRequests = async () => {},
     clearSyncStorage = () => chrome.storage.sync.clear(),
     clearRecords,
+    clearImageCache = async () => {},
     setResetting = () => {},
     broadcast = () => {},
     schedule = (callback) => setTimeout(callback, 0),
@@ -46,6 +47,7 @@ export function createFactoryResetService(options) {
         await attempt("session-storage", () => chrome.storage.session.clear(), failedSteps);
       }
       await attempt("indexed-db", () => clearRecords(), failedSteps);
+      await attempt("image-cache", () => clearImageCache(), failedSteps);
       if (grantedPermissions) {
         await attempt("optional-permissions", () => removeOptionalPermissions(chrome, grantedPermissions), failedSteps);
       }

@@ -232,6 +232,7 @@ export async function fetchSourceImageCandidateRecords(url, options = {}) {
   const profile = normalizeImageProfile(options.profile);
   if (!target) throw previewSourceError("SOURCE_INVALID_URL", false);
   const { response, buffer } = await fetchBounded(target, {
+    signal: options.signal,
     redirect: "error",
     credentials: "omit",
     referrerPolicy: "no-referrer",

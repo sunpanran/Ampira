@@ -8,6 +8,7 @@ import {
   selectDistinctEventEvidence, shouldRetainPreviousItemsAfterEmpty, sourceFetchProfile,
 } from "../../extension/runtime/refresh-service.mjs";
 import { selectDailyEvents } from "../../assets/client/dashboard-selectors.mjs";
+import { buildDailyEventCandidates } from "../../extension/core/daily-events.mjs";
 
 const HOUR_MS = 60 * 60 * 1000;
 
@@ -17,6 +18,10 @@ export async function runTodayEventTests() {
   testRefreshSelectionAndRetention(now);
   testEventClusteringAndConfidence(now);
   testDailyEventSelectionAndDigest(now);
+  testEventTimeValidation(now);
+  testSharedSelectionLimits(now);
+  testEventPriorityAndDeduplication(now);
+  testVisibleFeedEventCandidates(now);
   console.log("today event tests passed");
 }
 
@@ -201,6 +206,104 @@ function testDailyEventSelectionAndDigest(now) {
     { articleId: "c", publisherHost: "other.example" },
     { articleId: "d", publisherHost: "third.example" },
   ]).map((item) => item.articleId), ["a", "c", "d"], "digest evidence must use distinct publishers");
+}
+
+function testEventTimeValidation(now) {
+  const event = digestItem("valid", new Date(now - HOUR_MS).toISOString(), 2, "corroborated", 80);
+  const invalid = [
+    { ...event, id: "stale", eventId: "stale", publishedAt: new Date(now - 25 * HOUR_MS).toISOString(), timeScope: "today" },
+    { ...event, id: "future", eventId: "future", publishedAt: new Date(now + HOUR_MS).toISOString(), timeScope: "today" },
+    { ...event, id: "missing", eventId: "missing", publishedAt: "", timeScope: "recent" },
+    { ...event, id: "invalid", eventId: "invalid", publishedAt: "invalid", timeScope: "today" },
+    { ...event, id: "unverified", eventId: "unverified", timeUnverified: true, timeScope: "today" },
+    { ...event, id: "ineligible", eventId: "ineligible", rankingEligible: false },
+    { ...event, id: "nonrepresentative", eventId: "nonrepresentative", eventRepresentative: false },
+  ];
+  assert.deepEqual(selectDailyEvents([...invalid, event], { now, limit: 10 }).map((item) => item.id), ["valid"],
+    "cached time labels and ranking metadata must not restore expired, future or unverifiable events");
+  const midnight = new Date(2026, 6, 15, 0, 10).getTime();
+  const yesterday = { ...event, publishedAt: new Date(midnight - HOUR_MS).toISOString(), timeScope: "today" };
+  assert.equal(selectDailyEvents([yesterday], { now: new Date(midnight) })[0].resolvedTimeScope, "recent");
+  assert.equal(selectDailyEvents([yesterday], { now: midnight + 24 * HOUR_MS }).length, 0,
+    "an event must expire even if a dashboard snapshot still calls it today's news");
+  assert.equal(selectDailyEvents([event], { now: new Date(now).toISOString() }).length, 1);
+  assert.deepEqual(selectDailyEvents([event], { now, limit: 0 }), []);
+}
+
+function testSharedSelectionLimits(now) {
+  const today = new Date(now - HOUR_MS).toISOString();
+  const recent = new Date(now - 18 * HOUR_MS).toISOString();
+  const readableRecent = digestItem("readable-recent", recent, 2, "corroborated", 80);
+  const pendingRecent = { ...digestItem("pending-recent", recent, 3, "corroborated", 90), localizationPending: true };
+  const readableSingle = digestItem("readable-single", today, 1, "high-confidence-single", 90);
+  const pendingSingle = { ...digestItem("pending-single", today, 1, "high-confidence-single", 99), localizationPending: true };
+  const pendingToday = { ...digestItem("pending-today", today, 2, "corroborated", 85), localizationPending: true };
+  const selected = selectDailyEvents([pendingSingle, pendingRecent, readableSingle, readableRecent, pendingToday], { now, limit: 8 });
+  assert.deepEqual(selected.map((item) => item.id), ["readable-recent", "readable-single", "pending-today"],
+    "readable and untranslated groups must share one recent slot and one single-source slot");
+  assert.equal(selectDailyEvents([readableRecent, pendingRecent], { now, recentLimit: 0 }).length, 0);
+  const duplicate = { ...pendingToday, id: "translated-copy", localizationPending: false, importanceScore: 40 };
+  assert.deepEqual(selectDailyEvents([pendingToday, duplicate], { now }).map((item) => item.id), ["translated-copy"],
+    "the same event must not be selected twice across language groups");
+  const expiredSingle = { ...readableSingle, publishedAt: new Date(now - 13 * HOUR_MS).toISOString() };
+  assert.equal(selectDailyEvents([expiredSingle], { now }).length, 0);
+}
+
+function testEventPriorityAndDeduplication(now) {
+  const publishedAt = new Date(now - HOUR_MS).toISOString();
+  const important = digestItem("important", publishedAt, 2, "corroborated", 95);
+  const repeated = digestItem("repeated", publishedAt, 8, "corroborated", 50);
+  const lowerDuplicate = { ...important, id: "weaker-copy", importanceScore: 30 };
+  assert.deepEqual(selectDailyEvents([lowerDuplicate, repeated, important], { now }).map((item) => item.id), ["important", "repeated"],
+    "importance must outrank raw coverage volume, and input order must not hide the strongest duplicate");
+  const tied = [digestItem("b", publishedAt, 2, "corroborated", 80), digestItem("a", publishedAt, 2, "corroborated", 80)];
+  assert.deepEqual(selectDailyEvents(tied, { now }), selectDailyEvents([...tied].reverse(), { now }), "ties must not flicker with Feed ordering");
+  const recent = digestItem("recent", new Date(now - 18 * HOUR_MS).toISOString(), 9, "corroborated", 100);
+  assert.equal(selectDailyEvents([recent, important], { now, limit: 1 })[0].id, "important");
+}
+
+function testVisibleFeedEventCandidates(now) {
+  const ordinary = Array.from({ length: 12 }, (_, index) => article(now, {
+    articleId: `ordinary-${index}`, title: `普通单源资讯 ${index}`, eventId: `ordinary-${index}`,
+    eventConfidence: "single-source", rankingEligible: true, publicImportanceScore: 100,
+  }));
+  const reports = ["a", "b"].map((suffix, index) => article(now - HOUR_MS, {
+    articleId: `report-${suffix}`, publisherHost: `${suffix}.example`, eventId: "important-event",
+    eventRepresentative: index === 0, rankingEligible: true, eventSourceCount: 9,
+    eventConfidence: "corroborated", publicImportanceScore: 80,
+  }));
+  const digestOnly = digestItem("digest-only", reports[0].publishedAt, 5, "corroborated", 100);
+  const digest = [digestOnly, { ...digestItem("report-a", reports[0].publishedAt, 9, "corroborated", 92),
+    url: reports[0].url, title: "整理后的精炼事件标题" }];
+  const pool = buildDailyEventCandidates([...ordinary, ...reports], digest, now);
+  const selected = selectDailyEvents(pool, { now });
+  assert.deepEqual(selected.map((item) => item.id), ["report-a"], "events outside a twelve-item brief shortlist must remain discoverable");
+  assert.equal(selected[0].title, "整理后的精炼事件标题", "matching native digest titles must remain available");
+  assert.equal(selected[0].importanceScore, 92);
+  assert.equal(selected[0].sourceCount, 2, "source counts must describe current distinct publishers, not old cluster totals");
+  assert.deepEqual(buildDailyEventCandidates([], digest, now), [], "a retained digest cannot restore inaccessible Feed events");
+  assert.equal(buildDailyEventCandidates(reports, [{ ...digest[1], publishedAt: new Date(now - 2 * HOUR_MS).toISOString() }], now)[0].title,
+    reports[0].title, "stale per-article metadata must not replace the current title");
+
+  const extra = [
+    { ...reports[1], articleId: "duplicate-url", publisherHost: "fake.example" },
+    { ...reports[0], articleId: "same-publisher", url: "https://www.a.example/another", publisherHost: "www.a.example" },
+    { ...reports[0], articleId: "stale", url: "https://old.example/old", publisherHost: "old.example", publishedAt: new Date(now - 25 * HOUR_MS).toISOString() },
+    { ...reports[0], articleId: "unverified", url: "https://unknown.example/news", publisherHost: "unknown.example", timeUnverified: true },
+    { ...reports[0], articleId: "ineligible", url: "https://promo.example/news", publisherHost: "promo.example", rankingEligible: false },
+  ];
+  const counted = buildDailyEventCandidates([...reports, ...extra], [], now)[0];
+  assert.equal(counted.sourceCount, 2, "duplicate URLs, publisher aliases and invalid evidence must not inflate corroboration");
+  assert.equal(counted.articleCount, 3);
+  assert.equal(selectDailyEvents(buildDailyEventCandidates(reports.slice(1), digest, now), { now }).length, 0,
+    "a removed publisher must not leave a stale multi-source event behind");
+  const withoutRepresentative = [reports[1], { ...reports[0], articleId: "replacement", eventRepresentative: false }];
+  assert.equal(selectDailyEvents(buildDailyEventCandidates(withoutRepresentative, [], now), { now }).length, 1,
+    "remaining independent evidence can supply a new representative after the old one disappears");
+  const oldRepresentative = { ...reports[0], publishedAt: new Date(now - 18 * HOUR_MS).toISOString() };
+  assert.equal(buildDailyEventCandidates([oldRepresentative, reports[1]], [], now)[0].id, "report-b",
+    "today's report must represent an event with an older cached headline");
+  assert.deepEqual(reports.map((item) => item.eventSourceCount), [9, 9], "candidate building must not mutate cached Feed records");
 }
 
 function article(publishedAt, overrides = {}) {

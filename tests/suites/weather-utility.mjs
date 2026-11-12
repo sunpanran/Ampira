@@ -24,7 +24,7 @@ import {
   TODO_ITEM_LIMIT,
   TODO_TEXT_LIMIT,
   createTodoItem,
-  nextUtilityMode,
+  UTILITY_MODES,
   normalizeTodoItems,
   normalizeUtilityMode,
   normalizeWeatherLocation,
@@ -39,10 +39,7 @@ export async function runWeatherUtilityTests() {
   ));
   assert.equal(normalizeUtilityMode("weather"), "weather");
   assert.equal(normalizeUtilityMode("invalid"), "events");
-  assert.equal(nextUtilityMode("events"), "weather");
-  assert.equal(nextUtilityMode("weather"), "todo");
-  assert.equal(nextUtilityMode("todo"), "events");
-  assert.equal(nextUtilityMode("invalid"), "weather");
+  assert.deepEqual(UTILITY_MODES.map(normalizeUtilityMode), ["events", "weather", "todo"]);
   assert.deepEqual(
     ["clear", "partlyCloudy", "overcast", "fog", "drizzle", "rain", "snow", "thunderstorm", "unknown", "invalid"]
       .map(weatherConditionIconName),
@@ -55,8 +52,8 @@ export async function runWeatherUtilityTests() {
   assert.equal(weatherLocationFingerprint(31.230416, 121.473701), "31.2304,121.4737");
   assert.equal(weatherLocationFingerprint(91, 0), "");
   assert.deepEqual(
-    [0, 2, 3, 45, 53, 63, 73, 95, 20].map(weatherConditionKey),
-    ["clear", "partlyCloudy", "overcast", "fog", "drizzle", "rain", "snow", "thunderstorm", "unknown"],
+    [0, 2, 3, 45, 53, 63, 73, 95, 97, 20].map(weatherConditionKey),
+    ["clear", "partlyCloudy", "overcast", "fog", "drizzle", "rain", "snow", "thunderstorm", "thunderstorm", "unknown"],
   );
 
   const cixiLocations = searchChinaLocationRecords(chinaLocationRecords, "慈溪", "zh-CN");
@@ -119,11 +116,12 @@ export async function runWeatherUtilityTests() {
   assert.deepEqual(
     normalizedForecast.daily.map((day) => day.weatherCode),
     [61, 0],
-    "future daily labels must use Open-Meteo's native best-match daily weather code",
+    "daily peak conditions must retain the provider's native weather code for secondary warnings",
   );
   assert.equal(normalizeWeatherForecastResponse({ ...forecastPayload, daily: { ...forecastPayload.daily, time: ["2026-07-14"] } }), null);
   assert.equal(normalizeWeatherForecastResponse({ ...forecastPayload, current: { ...forecastPayload.current, temperature_2m: "hot" } }), null);
   assert.equal(normalizeWeatherForecastResponse({ ...forecastPayload, current: { ...forecastPayload.current, temperature_2m: null } }), null);
+  testDailyWeatherSummary();
 
   const permissionGateway = createPermissionGateway({
     chrome: {
@@ -262,16 +260,23 @@ async function testWeatherService(forecastPayload, chinaLocationRecords) {
   assert.equal(new URL(failedLocalIndexRequests[0]).origin, WEATHER_GEOCODING_ORIGIN, "a failed packaged index must fall back to the authorized geocoder");
 
   const location = { latitude: 48.8566, longitude: 2.3522 };
+  const legacyForecast = normalizeWeatherForecastResponse(forecastPayload);
+  records.set("weather-forecast-v3", {
+    ...legacyForecast,
+    daily: legacyForecast.daily.map(({ dominantWeatherCode, ...day }) => day),
+    locationFingerprint: weatherLocationFingerprint(location.latitude, location.longitude),
+    fetchedAt: new Date(currentTime).toISOString(),
+  });
   const first = await service.getForecast(location);
   assert.equal(first.stale, false);
-  assert.equal(requests.length, 2);
+  assert.equal(requests.length, 2, "the old peak-only cache must not bypass the new hourly summary request");
   const forecastUrl = new URL(requests[1].url);
   assert.equal(forecastUrl.origin, WEATHER_FORECAST_ORIGIN);
   assert.equal(forecastUrl.pathname, "/v1/forecast");
   assert.equal(forecastUrl.searchParams.get("forecast_days"), "3");
   assert.equal(forecastUrl.searchParams.get("temperature_unit"), "celsius");
   assert.equal(forecastUrl.searchParams.get("current"), "temperature_2m,apparent_temperature,weather_code");
-  assert.equal(forecastUrl.searchParams.get("hourly"), "precipitation_probability");
+  assert.equal(forecastUrl.searchParams.get("hourly"), "precipitation_probability,weather_code");
   assert.equal(forecastUrl.searchParams.get("daily"), "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max");
   assert.equal(forecastUrl.searchParams.has("models"), false, "Open-Meteo must select its native best-match model");
   assert.equal(records.get(WEATHER_CACHE_KEY).capability, "weather");
@@ -322,6 +327,39 @@ async function testWeatherService(forecastPayload, chinaLocationRecords) {
     },
   });
   await assert.rejects(() => wrongOrigin.searchLocations({ query: "Paris" }), (error) => error.code === "WEATHER_ORIGIN_MISMATCH");
+}
+
+function testDailyWeatherSummary() {
+  const summarize = (codes, peak, edit = () => {}) => {
+    const payload = weatherFixture();
+    payload.daily.weather_code[1] = peak;
+    payload.hourly.weather_code.splice(24, 24, ...codes);
+    edit(payload.hourly);
+    return normalizeWeatherForecastResponse(payload).daily[0];
+  };
+  const intermittent = summarize([...Array(13).fill(3), ...Array(11).fill(51)], 53);
+  assert.equal(intermittent.dominantWeatherCode, 3, "mostly overcast hours must not become an all-day drizzle label");
+  assert.equal(intermittent.weatherCode, 51, "intermittent drizzle must remain available in the daily description");
+  const persistent = summarize([...Array(16).fill(51), ...Array(8).fill(3)], 53);
+  assert.equal(persistent.dominantWeatherCode, 51, "sustained drizzle must not be suppressed to match a dry forecast");
+  const changingIntensity = summarize([...Array(9).fill(3), ...Array(8).fill(61), ...Array(7).fill(51)], 61);
+  assert.equal(changingIntensity.dominantWeatherCode, 61, "rain and drizzle must count together when wet weather dominates");
+  const storm = summarize([...Array(23).fill(3), 97], 97);
+  assert.equal(storm.dominantWeatherCode, 3);
+  assert.equal(storm.weatherCode, 95, "a short heavy thunderstorm must remain in the secondary condition");
+  assert.equal(summarize([...Array(12).fill(3), ...Array(12).fill(61)], 61).dominantWeatherCode, 61, "ties retain the wetter condition");
+  assert.equal(summarize([...Array(12).fill(95), ...Array(12).fill(61)], 95).dominantWeatherCode, 95, "rain must not win a tie against thunderstorms");
+  assert.equal(summarize(Array(24).fill(0), 0).dominantWeatherCode, 0);
+  for (const edit of [
+    hourly => { delete hourly.weather_code; },
+    hourly => { hourly.weather_code[24] = null; },
+    hourly => { hourly.weather_code[24] = 20; },
+    hourly => { hourly.time[24] = hourly.time[25]; },
+    hourly => { hourly.time[24] = "2026-07-16T00:00"; },
+  ]) {
+    assert.equal(summarize(Array(24).fill(3), 53, edit).dominantWeatherCode, 51,
+      "missing, invalid, duplicate or wrong-date hours must not turn the daily peak into a dry summary");
+  }
 }
 
 async function testChinaLocationLoader(sampleRecord) {
@@ -401,11 +439,12 @@ function weatherFixture() {
       precipitation_probability_max: [10, 80, 0],
     },
     hourly: {
-      time: dates.flatMap((date) => Array.from({ length: 11 }, (_, index) => `${date}T${String(index + 8).padStart(2, "0")}:00`)),
+      time: dates.flatMap((date) => Array.from({ length: 24 }, (_, index) => `${date}T${String(index).padStart(2, "0")}:00`)),
+      weather_code: [...Array(24).fill(2), ...Array(24).fill(61), ...Array(24).fill(0)],
       precipitation_probability: [
-        ...Array(11).fill(10),
-        ...Array(11).fill(80),
-        ...Array(11).fill(0),
+        ...Array(24).fill(10),
+        ...Array(24).fill(80),
+        ...Array(24).fill(0),
       ],
     },
   };

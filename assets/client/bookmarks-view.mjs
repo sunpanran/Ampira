@@ -10,11 +10,11 @@ export function belongsInArchiveIndex(entry) {
 export function createBookmarksView(options) {
   const {
     state, els, t, itemUrl, faviconUrl, createIcon, createThemedIcon, srOnly,
-    groupItemsByKey, matchesQuery, createEmptyState, cardIconName, cardTone,
+    groupItemsByKey, createEmptyState, cardIconName, cardTone,
     setIconLabel, syncSegmentedIndicator, openExternal, contextAttachGroup,
     contextAttachLink, contextAttachActions, openBookmarkSettings, hideBookmarkCategory,
     toggleSeen, defaultSeenSource, isQueued, actionKey,
-    toggleReadingQueue, refreshSummaryItem, allFilter, restartMotionClass, prefersReducedMotion,
+    toggleReadingQueue, refreshSummaryItem, allFilter,
   } = options;
 
   return {
@@ -129,7 +129,6 @@ function renderCategories() {
   const bookmarksByCategory = groupItemsByKey(
     archiveIndexBookmarks(),
     (item) => `${item.section}\u0000${item.category}`,
-    matchesQuery,
   );
   const sections = archiveIndexSections();
   for (const section of sections) {
@@ -150,7 +149,7 @@ function renderCategories() {
         isBookmarkCategoryHidden(state.settings, selectedSection.name, category.name, selectedSection.sectionKey, category.categoryKey)
       ));
     const noEntries = archiveIndexBookmarks().length === 0;
-    const emptyKind = bookmarkEmptyStateKind({ query: state.query, allCategoriesHidden, noEntries });
+    const emptyKind = bookmarkEmptyStateKind({ allCategoriesHidden, noEntries });
     const titleKey = `empty.${emptyKind}.title`;
     const bodyKey = `empty.${emptyKind}.body`;
     const hasAction = emptyKind === "hiddenCategories" || emptyKind === "noEntries";
@@ -300,16 +299,16 @@ function createReadingActions(item, options = {}) {
   return actions;
 }
 
-function createManualSummaryButton(item, isRefreshing) {
+function createManualSummaryButton(item, isRefreshing, phase = "") {
   const button = document.createElement("button");
-  const label = t(isRefreshing ? "action.organizing" : "action.manualSummary");
-  button.className = `action-toggle ${isRefreshing ? "is-active is-loading" : ""}`.trim();
+  const label = t(isRefreshing ? (phase === "queued" ? "aiTask.queued" : "aiTask.running") : "action.manualSummary");
+  button.className = "action-toggle";
   button.type = "button";
   button.disabled = isRefreshing;
   button.title = label;
   button.setAttribute("aria-label", label);
   button.append(
-    createThemedIcon(isRefreshing ? "synchronize" : "sparkling", `action-toggle-icon ${isRefreshing ? "is-loading-icon" : ""}`.trim()),
+    createThemedIcon("sparkling", "action-toggle-icon"),
     srOnly(label),
   );
   button.addEventListener("click", (event) => {

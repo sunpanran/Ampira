@@ -29,7 +29,7 @@ function finiteCount(primary, fallback) {
 
 export function createStatusView(options) {
   const {
-    state, els, t, formatDateTime, localizedStatusMessage, localizedErrorMessage,
+    state, els, dashboardLayout, t, formatDateTime, localizedStatusMessage, localizedErrorMessage,
     setIconLabel, createEmptyState,
   } = options;
 
@@ -46,12 +46,12 @@ function renderInitialLoadingState() {
   els.dailyBoard.dataset.loading = "true";
   els.summaryGrid.setAttribute("aria-busy", "true");
   els.efficiencyPanel.dataset.loading = "true";
-  els.efficiencyPanel.replaceChildren(...Array.from({ length: 3 }, () => createLoadingPlaceholder("efficiency-skeleton")));
-  els.dailyBoard.replaceChildren(...["news", "inspiration", "archive"].map((columnId) => {
+  for (const id of ["utility", "digest", "archive", "queue"]) dashboardLayout.mount(id, createLoadingPlaceholder("efficiency-skeleton"));
+  for (const columnId of ["news", "inspiration"]) {
     const column = createLoadingPlaceholder("board-column-skeleton");
     column.dataset.columnId = columnId;
-    return column;
-  }));
+    dashboardLayout.mount(columnId, column);
+  }
   els.summaryGrid.replaceChildren(...Array.from({ length: 8 }, () => createLoadingPlaceholder("summary-skeleton")));
   return createLoadingPhaseController([
     els.websiteShortcuts,
@@ -122,19 +122,32 @@ function renderStatus() {
       ? "settings.overview.aiNeedsAttention"
       : "settings.overview.aiNotConfigured";
   renderOverviewStatus(t("settings.overview.aiService"), t(overviewMetaKey));
-  els.settingsOverviewAction.textContent = t(ai.configured ? "settings.overview.manage" : "settings.overview.configure");
   renderQuotaOverview(ai);
   renderCacheOverview(status, refreshState);
-  renderAutoAiStatus(ai);
+  const organization = state.data?.organization;
+  renderAutoAiStatus(organization?.provider === "bot" ? { ...ai, enabled: organization.available, autoStatus: organization } : ai);
   renderCacheStatus();
   renderRefreshButtons(refreshState);
+  if (els.organizeNews) {
+    const running = state.newsOrganizeRequest || organization?.running;
+    els.organizeNews.disabled = Boolean(running || !(organization?.available ?? ai.enabled));
+    els.organizeNews.classList.toggle("is-loading", Boolean(running));
+    els.organizeNews.setAttribute("aria-busy", String(Boolean(running)));
+    const icon = running ? "refresh-cw-01" : "stars-01";
+    const label = t(running ? "action.organizing" : "action.organizeNews");
+    const currentLabel = els.organizeNews.querySelector(".btn-label");
+    // Keep the live icon so progress updates do not restart its loading or animation.
+    if (!currentLabel || !els.organizeNews.querySelector(`.icon-${icon}`)) setIconLabel(els.organizeNews, icon, label);
+    else if (currentLabel.textContent !== label) currentLabel.textContent = label;
+    els.organizeNews.title = t(organization?.provider === "bot" && !organization.available ? "bot.connectFirst" : "action.organizeNews");
+  }
 }
 
 function renderQuotaOverview(ai = {}) {
   const usedValue = Number(ai.usedToday);
   const limitValue = Number(ai.dailyLimit);
   const used = Number.isFinite(usedValue) ? Math.max(0, Math.floor(usedValue)) : 0;
-  const limit = Number.isFinite(limitValue) ? Math.max(1, Math.floor(limitValue)) : 50;
+  const limit = Number.isFinite(limitValue) ? Math.max(1, Math.floor(limitValue)) : 160;
   const remaining = Math.max(0, limit - used);
   els.settingsQuotaStatus.textContent = `${used} / ${limit}`;
   els.settingsQuotaDetail.removeAttribute("data-i18n");
@@ -185,6 +198,7 @@ function renderAutoAiStatus(ai) {
     "running-digest": "settings.auto.runningDigest",
     "running-cards": "settings.auto.runningCards",
     completed: "settings.auto.completed",
+    partial: "settings.auto.partial",
     "no-candidates": "settings.auto.noCandidates",
     quota: "settings.auto.quota",
     "not-ready": "settings.auto.notReady",
@@ -198,8 +212,11 @@ function renderAutoAiStatus(ai) {
   els.settingsAutoAiStatus.closest(".settings-overview-auto")?.setAttribute("data-phase", phase);
   const processed = Math.max(0, Number(auto.processed || 0));
   const total = Math.max(0, Number(auto.total || 0));
+  const attempted = Math.max(0, Number(auto.attempted ?? processed));
+  const failed = Math.max(0, Number(auto.failed || 0));
+  const deferred = Math.max(0, Number(auto.deferred || 0));
   const used = Math.max(0, Number(ai.usedToday || 0));
-  const limit = Math.max(1, Number(ai.dailyLimit || 50));
+  const limit = Math.max(1, Number(ai.dailyLimit || 160));
   if (["never", "missing-key", "missing-consent", "missing-permission", "not-ready"].includes(phase)) {
     const detailKeys = {
       "missing-key": "settings.auto.missingKeyDetail",
@@ -225,6 +242,7 @@ function renderAutoAiStatus(ai) {
       reason,
       processed,
       total,
+      attempted, failed, deferred,
       time: auto.lastRunAt ? formatDateTime(auto.lastRunAt) : t("settings.auto.noTime"),
     });
     return;
@@ -232,6 +250,7 @@ function renderAutoAiStatus(ai) {
   els.settingsAutoAiDetail.textContent = t(auto.running ? "settings.auto.runningDetail" : "settings.auto.detail", {
     processed,
     total,
+    attempted, failed, deferred,
     used,
     limit,
     time: auto.lastRunAt ? formatDateTime(auto.lastRunAt) : t("settings.auto.noTime"),
@@ -239,6 +258,8 @@ function renderAutoAiStatus(ai) {
 }
 
 function renderOverviewStatus(title, meta) {
+  els.settingsOverviewTitle.removeAttribute("data-i18n");
+  els.settingsOverviewMeta.removeAttribute("data-i18n");
   els.settingsOverviewTitle.textContent = title || t("status.waitingUpdate");
   els.settingsOverviewMeta.textContent = meta || t("status.noRecord");
 }
@@ -269,12 +290,12 @@ function renderRefreshButton(button, refreshState) {
     spinningIcon.addEventListener("animationiteration", () => {
       if (!button.classList.contains("is-spinner-stopping")) return;
       button.classList.remove("is-loading", "is-spinner-stopping");
-      setIconLabel(button, "refresh-cw-01", t("action.cache"));
+      setIconLabel(button, "refresh-cw-01", t("action.refreshNews"));
     }, { once: true });
     return;
   }
   button.classList.toggle("is-loading", false);
-  setIconLabel(button, "refresh-cw-01", t("action.cache"));
+  setIconLabel(button, "refresh-cw-01", t("action.refreshNews"));
 }
 
 function renderCacheStatus() {
@@ -300,11 +321,19 @@ function renderConnectionError(error) {
   els.settingsAutoAiStatus.textContent = t("settings.auto.notReady");
   els.settingsAutoAiDetail.textContent = t("settings.auto.neverDetail");
   els.settingsAutoAiStatus.closest(".settings-overview-auto")?.setAttribute("data-phase", "not-ready");
-  els.dailyBoard.replaceChildren(createEmptyState({
-    title: t("connection.recoveringTitle"),
-    body: t("connection.recoveringBody"),
-    variant: "error",
-  }));
+  dashboardLayout.cancelDrag();
+  for (const id of ["utility", "digest", "queue", "news", "inspiration", "archive"]) {
+    const current = dashboardLayout.getCard(id);
+    if (current && !current.matches(".card-skeleton, .dashboard-unavailable")) continue;
+    const unavailableCard = document.createElement("div");
+    unavailableCard.className = "dashboard-unavailable";
+    unavailableCard.append(createEmptyState({
+      title: t("connection.recoveringTitle"),
+      body: t("connection.recoveringBody"),
+      variant: "error",
+    }));
+    dashboardLayout.mount(id, unavailableCard);
+  }
   els.summaryGrid.replaceChildren(createEmptyState({
     title: t("connection.cacheTitle"),
     body: t("connection.cacheBody"),

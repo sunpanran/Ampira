@@ -7,7 +7,9 @@ const lateRunnerCoordinator = createRefreshCoordinator();
 lateRunnerCoordinator.setRun((generation, options) => lateRunnerCalls.push({ generation, options }));
 await lateRunnerCoordinator.start(true);
 await Promise.resolve();
-assert.deepEqual(lateRunnerCalls, [{ generation: 1, options: { force: true } }]);
+assert.equal(lateRunnerCalls[0].generation, 1);
+assert.equal(lateRunnerCalls[0].options.force, true);
+assert(lateRunnerCalls[0].options.signal instanceof AbortSignal);
 
 let releaseInitialStatus;
 let releaseFirstRun;
@@ -40,7 +42,8 @@ releaseInitialStatus({ running: false });
 assert.equal((await firstStart).started, true);
 await Promise.resolve();
 assert.equal(runCount, 1, "concurrent starts must not create duplicate refresh operations");
-assert.deepEqual(firstRunContext, { force: true }, "forced refreshes must expose their user-initiated context to the refresh pipeline");
+assert.equal(firstRunContext.force, true, "forced refreshes must expose their user-initiated context to the refresh pipeline");
+assert.equal(firstRunContext.signal.aborted, false);
 
 releaseFirstRun();
 await new Promise((resolve) => setTimeout(resolve, 0));

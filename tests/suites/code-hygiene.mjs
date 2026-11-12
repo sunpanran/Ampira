@@ -45,6 +45,21 @@ const REMOVED_IDENTIFIERS = [
   "currentPipelineStage",
   "setMeter",
   "isBookmarkCard",
+  "DEFAULT_BOT_SCOPES",
+  "normalizeBotScopes",
+  "botOwnsScope",
+  "selectedBotModules",
+  "createBotUtilityView",
+  "submitBotAction",
+  "botGenerated",
+  "botScopesChanged",
+  "extractDirectAnswer",
+  "apiStyleLabel",
+  "colorModeLabel",
+  "themeLabel",
+  "structuredImageCandidates",
+  "updateProviderProfile",
+  "updateSecrets",
 ];
 
 export async function runCodeHygieneTests(root) {

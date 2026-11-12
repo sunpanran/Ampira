@@ -1,6 +1,8 @@
 import { normalizeReadingQueueRecords } from "./reading-queue.mjs";
 import { normalizeTodoItems } from "./todo.mjs";
 import { normalizeWeatherLocation } from "./weather.mjs";
+import { STOCK_LIMIT, STOCK_WATCHLIST_KEY, normalizeStockWatchlist } from "./stocks.mjs";
+import { COUNTDOWN_ITEM_LIMIT, COUNTDOWN_ITEMS_KEY, normalizeCountdownItems } from "./countdown.mjs";
 import { assertSyncStorageBudget } from "./sync-budget.mjs";
 
 export const CONTENT_SYNC_META_KEY = "content-sync-meta";
@@ -31,6 +33,20 @@ export const CONTENT_SYNC_DATASETS = Object.freeze({
     prefix: "ampira.content.weather.v1.",
     maxItems: 1,
     maxBytes: 3 * 1024,
+  }),
+  stockWatchlist: Object.freeze({
+    flag: "syncStockWatchlistEnabled",
+    localKey: STOCK_WATCHLIST_KEY,
+    prefix: "ampira.content.stocks.v1.",
+    maxItems: STOCK_LIMIT,
+    maxBytes: 4 * 1024,
+  }),
+  countdowns: Object.freeze({
+    flag: "syncCountdownsEnabled",
+    localKey: COUNTDOWN_ITEMS_KEY,
+    prefix: "ampira.content.countdowns.v1.",
+    maxItems: COUNTDOWN_ITEM_LIMIT,
+    maxBytes: 12 * 1024,
   }),
 });
 
@@ -269,6 +285,12 @@ export function parseLocalEntries(name, serialized) {
   if (name === "todos") {
     return normalizeTodoItems(value).map((item) => ({ id: item.id, value: item }));
   }
+  if (name === "stockWatchlist") {
+    return normalizeStockWatchlist(value).map((symbol) => ({ id: symbol, value: symbol }));
+  }
+  if (name === "countdowns") {
+    return normalizeCountdownItems(value).map((item) => ({ id: item.id, value: item }));
+  }
   if (name === "weatherLocation") {
     const location = normalizeWeatherLocation(value);
     return location ? [{ id: "selected", value: location }] : [];
@@ -287,6 +309,8 @@ export function serializeLocalEntries(name, entries) {
     values.sort((left, right) => timestamp(right.createdAt) - timestamp(left.createdAt));
     return JSON.stringify(normalizeTodoItems(values));
   }
+  if (name === "stockWatchlist") return JSON.stringify(normalizeStockWatchlist(values));
+  if (name === "countdowns") return JSON.stringify(normalizeCountdownItems(values));
   return "[]";
 }
 

@@ -5,7 +5,7 @@ import { webcrypto } from "node:crypto";
 import { inspirationPreviewSourceUrls, inspirationPreviewTargets } from "../extension/core/bookmarks.mjs";
 import { providerEndpoint, requestAiCompletion, searchImagePreview, testImageSearchConnection } from "../extension/core/ai.mjs";
 import { DEFAULT_SETTINGS, SETTINGS_KEY } from "../extension/core/constants.mjs";
-import { recordsToPrune } from "../extension/core/db.mjs";
+import { cacheEntryShouldPrune } from "../extension/core/db.mjs";
 import { buildFallbackDigest, feedCacheOrEmpty, fetchSourceArticles, isDisplayableFeedItem, parseFeedDocument } from "../extension/core/feed.mjs";
 import {
   buildDailyCandidates, dailyCandidateFingerprint, newsTimeScope, rankNewsItems, scoreNewsArticle,
@@ -68,8 +68,17 @@ import { runManifestSecurityTests } from "./suites/manifest-security.mjs";
 import { runActivityStoreTests } from "./suites/activity-store.mjs";
 import { runActivityControllerTests } from "./suites/activity-controller.mjs";
 import { runDashboardControllerTests } from "./suites/dashboard-controller.mjs";
+import { runStatusViewTests } from "./suites/status-view.mjs";
+import { runRuntimeOptimizationTests } from "./suites/runtime-optimizations.mjs";
+import { runStartupLoadingTests } from "./suites/startup-loading.mjs";
 import { runBookmarkFeedPolicyTests } from "./suites/bookmark-feed-policy.mjs";
 import { runWeatherUtilityTests } from "./suites/weather-utility.mjs";
+import { runUtilityCardPickerTests } from "./suites/utility-card-picker.mjs";
+import { runCardContextMenuTests } from "./suites/card-context-menu.mjs";
+import { runDashboardCardTypeTests } from "./suites/dashboard-card-types.mjs";
+import { runStockTests } from "./suites/stocks.mjs";
+import { runCountdownTests } from "./suites/countdown.mjs";
+import { runDatePickerTests } from "./suites/date-picker.mjs";
 import { runSettingsTransferTests } from "./suites/settings-transfer.mjs";
 import { runFactoryResetTests } from "./suites/factory-reset.mjs";
 import { runInspirationPresetTests } from "./suites/inspiration-preset.mjs";
@@ -78,6 +87,10 @@ import { runClientStateStoreTests } from "./suites/client-state-store.mjs";
 import { runClientStorageTests } from "./suites/client-storage.mjs";
 import { runSummaryBatchTransitionTests } from "./suites/summary-batch-transition.mjs";
 import { runDailyCardReconciliationTests } from "./suites/daily-card-reconciliation.mjs";
+import { runBatchActionMotionTests } from "./suites/batch-action-motion.mjs";
+import { runDashboardLayoutTests } from "./suites/dashboard-layout.mjs";
+import { runWebsiteShortcutLayoutTests } from "./suites/website-shortcut-layout.mjs";
+import { runNavigationPositionTests } from "./suites/navigation-position.mjs";
 import { runAsyncImageRevealTests } from "./suites/async-image-reveal.mjs";
 import { createReaderPreviewService } from "../extension/runtime/reader-preview-service.mjs";
 import { createRefreshService } from "../extension/runtime/refresh-service.mjs";
@@ -108,19 +121,15 @@ assert.equal(await copyText("   ", { clipboard: { writeText: async () => {} } })
 
 const todayMetaFixture = new Date(2026, 6, 14, 19, 51, 42);
 assert.deepEqual(searchCopyKeys(false), {
-  placeholder: "search.local.placeholder",
-  action: "search.local.action",
   dialogMeta: "aiSearch.local.meta",
   dialogInput: "aiSearch.local.input",
 });
 assert.equal(searchCopyKeys(true).dialogInput, "aiSearch.ai.input");
 assert.equal(searchCopyKeys(undefined).dialogInput, "aiSearch.local.input", "partial AI setup must retain local-search copy");
-assert.deepEqual(searchCopyKeys(true, true), {
-  placeholder: "search.browser.placeholder",
-  action: "search.browser.action",
+assert.deepEqual(searchCopyKeys(true), {
   dialogMeta: "aiSearch.ai.meta",
   dialogInput: "aiSearch.ai.input",
-}, "browser mode must change only the top search copy while preserving the navigation search dialog");
+}, "AI conversation copy is independent of browser-search permission");
 const emptyAiSearchSession = createAiSearchSession();
 assert.deepEqual(emptyAiSearchSession, {
   kind: "empty", context: null, messages: [], nextMessageId: 1, meta: "",
@@ -148,9 +157,9 @@ assert.equal(todayMetaValue.dateTime, todayMetaFixture.toISOString());
 assert(!todayMetaValue.label.includes("42"), "the accessible date label must match the visible minute precision");
 
 const expectedPublicFeedPacks = {
-  "zh-CN": ["google-news", "chinanews", "36kr", "ithome", "sspai", "ifanr"],
-  "zh-Hant": ["google-news", "cna-world", "pts-news", "technews-tw", "ithome-tw", "pansci"],
-  en: ["google-news", "bbc-world", "npr-world", "the-verge", "ars-technica", "macrumors"],
+  "zh-CN": ["google-news", "chinanews", "36kr", "ithome", "sspai", "ifanr", "jiemian", "tmtpost", "solidot", "sciencenet", "appinn", "gcores", "yystv", "toodaylab"],
+  "zh-Hant": ["google-news", "cna-world", "pts-news", "technews-tw", "ithome-tw", "pansci", "twreporter", "dq", "money-udn", "managertoday", "techbang", "techorange", "shoppingdesign", "greenpeace-tw"],
+  en: ["google-news", "bbc-world", "npr-world", "the-verge", "ars-technica", "macrumors", "guardian-business", "engadget", "nasa", "sciencedaily", "quanta", "conversation", "colossal", "smithsonian"],
 };
 const expectedAiPublicFeedPacks = {
   "zh-CN": ["cna-world", "bbc-world", "npr-world"],
@@ -158,26 +167,29 @@ const expectedAiPublicFeedPacks = {
   en: ["chinanews", "cna-world", "pts-news"],
 };
 const expectedResolvedPublicFeedIds = {
-  "zh-CN": ["google-news-zh-cn", "chinanews", "36kr", "ithome", "sspai", "ifanr"],
-  "zh-Hant": ["google-news-zh-hant", "cna-world", "pts-news", "technews-tw", "ithome-tw", "pansci"],
-  en: ["google-news-en", "bbc-world", "npr-world", "the-verge", "ars-technica", "macrumors"],
+  "zh-CN": ["google-news-zh-cn", ...expectedPublicFeedPacks["zh-CN"].slice(1)],
+  "zh-Hant": ["google-news-zh-hant", ...expectedPublicFeedPacks["zh-Hant"].slice(1)],
+  en: ["google-news-en", ...expectedPublicFeedPacks.en.slice(1)],
 };
 assert.deepEqual(PUBLIC_FEED_PACKS, expectedPublicFeedPacks, "public Feed packs must stay explicit and reviewable");
 assert.deepEqual(PUBLIC_FEED_AI_PACKS, expectedAiPublicFeedPacks, "AI-only public Feed packs must stay explicit and reviewable");
 for (const [locale, expectedIds] of Object.entries(expectedResolvedPublicFeedIds)) {
   const feeds = publicFeedsForLocale(locale);
   assert.deepEqual(feeds.map((feed) => feed.id), expectedIds, `${locale} must receive its intended public Feed pack`);
-  assert.equal(feeds.length, 6, `${locale} must expose exactly six native public Feeds`);
+  assert.equal(feeds.length, 14, `${locale} must expose fourteen native public Feeds without AI setup`);
   assert.equal(new Set(feeds.map((feed) => feed.key)).size, feeds.length, "public Feed keys must be stable and unique");
   assert(feeds.every((feed) => feed.key === `public-${feed.id}` && feed.url.startsWith("https://") && feed.accessTier === "native"), "native public Feeds must use stable IDs, HTTPS URLs, and an explicit tier");
   assert(feeds.every((feed) => feed.contentLocale === locale), "native public Feeds must explicitly declare the current interface language");
-  assert.equal(feeds.filter((feed) => feed.coverageGroup === "headlines").length, 3, "each locale must keep three headline sources");
-  assert.equal(feeds.filter((feed) => feed.coverageGroup === "technology").length, 3, "each locale must keep three technology sources");
+  assert(feeds.filter((feed) => feed.coverageGroup === "headlines").length >= 3, "each locale must keep multiple independent headline sources");
+  assert(feeds.filter((feed) => feed.coverageGroup === "technology").length >= 3, "each locale must keep multiple technology sources");
+  assert(feeds.some((feed) => feed.categoryKey === "science"), "every native pack must include science without requiring translation");
+  assert(feeds.some((feed) => feed.categoryKey === "business"), "every native pack must include business without requiring translation");
+  assert(feeds.some((feed) => feed.coverageGroup === "culture"), "every native pack must extend beyond news and technology");
   const expanded = publicFeedsForLocale(locale, { includeAiOnly: true });
-  assert.equal(expanded.length, 9, `${locale} must add exactly three AI-only public Feeds`);
-  assert.deepEqual(expanded.slice(6).map((feed) => feed.id), expectedAiPublicFeedPacks[locale]);
-  assert(expanded.slice(6).every((feed) => feed.accessTier === "ai" && feed.contentLocale !== locale));
-  assert.equal(new Set(expanded.map((feed) => feed.key)).size, 9, "native and AI-only Feed cache keys must remain unique");
+  assert.equal(expanded.length, feeds.length + 3, `${locale} must add exactly three AI-only public Feeds`);
+  assert.deepEqual(expanded.slice(feeds.length).map((feed) => feed.id), expectedAiPublicFeedPacks[locale]);
+  assert(expanded.slice(feeds.length).every((feed) => feed.accessTier === "ai" && feed.contentLocale !== locale));
+  assert.equal(new Set(expanded.map((feed) => feed.key)).size, expanded.length, "native and AI-only Feed cache keys must remain unique");
 }
 assert.equal(publicFeedsForLocale("zh-TW")[0].url, "https://news.google.com/rss?hl=zh-TW&gl=TW&ceid=TW:zh-Hant");
 assert.equal(publicFeedsForLocale("en-US")[0].url, "https://news.google.com/rss?hl=en-US&gl=US&ceid=US:en");
@@ -282,21 +294,21 @@ const initialPublicPermissionRows = await permissionGatewayFixture.selectedOrigi
 assert.deepEqual(
   initialPublicPermissionRows.filter((row) => expectedZhCnPublicOrigins.includes(row.origin)).map((row) => row.origin).sort(),
   expectedZhCnPublicOrigins,
-  "the first public Feed permission flow must request all six native and three reserved cross-language origins",
+  "the first public Feed permission flow must request the complete native pack and three reserved cross-language sources",
 );
 aiFeedGrantedOrigins = [expectedZhCnPublicOrigins[0]];
 assert.equal(
   (await permissionGatewayFixture.selectedOrigins({ bookmarks: [] }, aiFeedPermissionSettings))
     .filter((row) => expectedZhCnPublicOrigins.includes(row.origin) && row.granted).length,
   1,
-  "all nine public Feed origins must remain exact and independently revocable in the shared permission list",
+  "all public Feed origins must remain exact and independently revocable in the shared permission list",
 );
 aiFeedPermissionSettings = { ...aiFeedPermissionSettings, aiDisclosureAccepted: true };
 aiFeedCredentialAvailable = false;
 assert.equal(
   (await permissionGatewayFixture.selectedOrigins({ bookmarks: [] }, aiFeedPermissionSettings))
     .filter((row) => expectedZhCnPublicOrigins.includes(row.origin)).length,
-  9,
+  expectedZhCnPublicOrigins.length,
   "partial AI configuration must not remove the three already requested reserved origins",
 );
 aiFeedCredentialAvailable = true;
@@ -363,12 +375,12 @@ const servicePanelStart = dashboardSource.indexOf('data-settings-panel="service"
 const browserPanelStart = dashboardSource.indexOf('data-settings-panel="browser"');
 const imageSearchSettingsStart = dashboardSource.indexOf('id="imageSearchSettingsGroup"');
 const topSearchSettingsStart = dashboardSource.indexOf('aria-labelledby="browserSearchTitle"');
-assert(servicePanelStart >= 0 && topSearchSettingsStart > imageSearchSettingsStart && topSearchSettingsStart < browserPanelStart,
-  "top search mode must follow image-search fallback inside AI settings");
+assert(servicePanelStart >= 0 && imageSearchSettingsStart > servicePanelStart && topSearchSettingsStart > browserPanelStart,
+  "unified browser and history search controls belong to Browser settings");
 assert(dashboardSource.includes('<section class="ai-service-group" aria-labelledby="browserSearchTitle">')
   && dashboardSource.includes('<label class="switch-field ai-image-switch" for="toggleBrowserSearchPermission">')
   && dashboardSource.includes('<span class="toggle"><input id="toggleBrowserSearchPermission" type="checkbox">'),
-"top search must reuse the image-search fallback group and control-row styling");
+"unified search permissions reuse the existing settings control styling");
 const settingsWorkflowSource = await fs.readFile(path.join(root, "extension", "runtime", "settings-workflow.mjs"), "utf8");
 const websiteShortcutsControllerSource = await fs.readFile(path.join(root, "assets", "client", "website-shortcuts-controller.mjs"), "utf8");
 assert.match(settingsWorkflowSource, /"websiteShortcutsEnabled", "websiteShortcuts"/, "settings saves must allow the shortcut switch and ordered list");
@@ -420,7 +432,7 @@ assert(transferRuntimeSource.includes('"settings:export": () => exportSettings()
   && transferRuntimeSource.includes('"settings:factory-reset": () => factoryReset()'), "settings transfer must remain behind background message routes");
 assert(transferRuntimeSource.includes('request?.type !== "settings:factory-reset"')
   && transferRuntimeSource.includes('"FACTORY_RESET_IN_PROGRESS"'), "factory reset must reject competing requests while storage is being cleared");
-assert(transferControllerSource.includes("file.size > maxSettingsTransferBytes")
+assert(transferControllerSource.includes("file.size > MAX_SETTINGS_TRANSFER_BYTES")
   && transferControllerSource.includes('input.value = ""')
   && transferControllerSource.includes("URL.revokeObjectURL(url)"), "settings transfer must bound file reads, allow retrying the same file, and release download URLs");
 assert(transferControllerSource.includes('tone: "danger"')
@@ -428,14 +440,27 @@ assert(transferControllerSource.includes('tone: "danger"')
 runActivityStoreTests();
 await runActivityControllerTests();
 await runDashboardControllerTests();
+runStatusViewTests();
+await runRuntimeOptimizationTests();
+await runStartupLoadingTests(root);
 runBookmarkFeedPolicyTests();
 await runWeatherUtilityTests();
+runUtilityCardPickerTests();
+await runCardContextMenuTests();
+await runDashboardCardTypeTests();
+await runStockTests();
+runCountdownTests();
+runDatePickerTests();
 runSettingsTransferTests();
 await runFactoryResetTests();
 await runInspirationPresetTests();
 await runTodayEventTests();
 await runSummaryBatchTransitionTests();
 runDailyCardReconciliationTests();
+runBatchActionMotionTests();
+await runDashboardLayoutTests();
+runWebsiteShortcutLayoutTests();
+await runNavigationPositionTests();
 const originalFetch = globalThis.fetch;
 try {
   const manyItems = Array.from({ length: 15 }, (_, index) => ({ id: String(index), url: `https://example.com/${index}`, title: `Item ${index}`, content_text: `Summary ${index}` }));
@@ -831,8 +856,8 @@ const normalizedSettings = normalizeSettings({
 });
 assert.equal(Object.hasOwn(normalizedSettings, "unknownSetting"), false);
 assert.equal(normalizedSettings.openaiApiStyle, "responses");
-assert.equal(normalizedSettings.accentTheme, "violet");
-assert.equal(normalizedSettings.customAccentColor, "#9152FF");
+assert.equal(normalizedSettings.accentTheme, "cyan");
+assert.equal(normalizedSettings.customAccentColor, "#06B6D4");
 assert.equal(normalizedSettings.dailyAiLimit, 500);
 assert.equal(normalizedSettings.hotNewsEntriesPerSource, 0);
 assert.equal(DEFAULT_SETTINGS.newsSourceMode, "public", "new installs must default to the Ampira public Feed");
@@ -1581,7 +1606,7 @@ const selectedEvents = selectDailyEvents([
   ...todayCandidates.filter((item) => item.timeScope === "recent").map((item, index) => ({ ...item, eventId: `recent-${index}`, sourceCount: 4, importanceScore: 99 - index })),
 ], { now: rankingNow, limit: 3, recentLimit: 1 });
 assert(selectedEvents.every((item) => Number(item.sourceCount || 1) >= 2), "Today events must not duplicate single-source news merely to fill three rows");
-assert.equal(selectedEvents[0].sourceCount, 3, "Today events must prioritize independent corroboration before importance within today's scope");
+assert.equal(selectedEvents[0].importanceScore, 90, "corroborated events must prioritize importance before raw source volume within today's scope");
 assert.equal(selectedEvents.filter((item) => newsTimeScope(item, rankingNow) === "recent").length, 1, "Today events must admit at most one cross-day fallback even when AI scores it highest");
 const validAiRanking = parseGeneratedDailyDigest("OVERVIEW: 第一段。\nOVERVIEW: 第二段。\nRANK 1: 92\nTITLE 1: 事件一\nRANK 2: 71\nTITLE 2: 事件二", 2);
 assert.equal(validAiRanking.rankingValid, true);
@@ -1973,11 +1998,16 @@ assert.equal(readerErrorBodyKey("READER_HTTP_ERROR"), "reader.error.httpBody");
 assert.equal(safeReaderOrigin("http://example.com/article"), "");
 assert.equal(safeReaderOrigin("http://localhost:3000/article"), "http://localhost:3000");
 assert.equal(sameOrigin("https://example.com/a", "https://example.com/b"), true);
-assert.equal(normalizeAccentTheme("unknown"), "violet");
-assert.equal(normalizeColorMode("unknown"), "dark");
+assert.equal(normalizeAccentTheme("unknown"), "cyan");
+assert.equal(normalizeAccentTheme(), "cyan", "missing appearance settings must use the cyan preset");
+assert.equal(normalizeColorMode("unknown"), "system");
+assert.equal(normalizeColorMode(), "system", "missing appearance settings must follow the system preference");
+assert.equal(normalizeColorMode("dark"), "dark", "an explicit dark preference must be preserved");
+assert.equal(normalizeColorMode("light"), "light", "an explicit light preference must be preserved");
 assert.equal(normalizeColorMode("system"), "system", "system mode must remain explicitly selectable");
 assert.equal(normalizeHexColor("9152ff"), "#9152FF");
 assert.deepEqual(paletteFromAccent("#06B6D4"), { accent: "#06B6D4", accentRgb: [6, 182, 212] });
+assert.deepEqual(paletteFromAccent("invalid"), { accent: "#06B6D4", accentRgb: [6, 182, 212] }, "an invalid accent must fall back to the default preset");
 
 assert.equal(readerTextFromBlocks([{ type: "video", title: "" }]), "", "untitled video blocks must defer to localized UI copy");
 const cachedReader = { url: "https://example.com/article", blocks: [{ type: "paragraph", text: "Cached article" }] };
@@ -2005,18 +2035,22 @@ const serviceWorkerSource = (await Promise.all(
     .filter((file) => file.endsWith(".mjs"))
     .map((file) => fs.readFile(file, "utf8")),
 )).join("\n");
+const refreshServiceSource = await fs.readFile(path.join(root, "extension/runtime/refresh-service.mjs"), "utf8");
 assert(serviceWorkerSource.includes("{ includeAiOnly: true }")
-  && serviceWorkerSource.includes("includeAiOnly: await aiConfigured(settings)"), "the shared permission flow must request all nine public Feed origins while runtime source activation remains gated by complete AI configuration");
+  && serviceWorkerSource.includes("includeAiOnly: botOrganizesNews(settings) || await aiConfigured(settings)"), "the shared permission flow must request the complete public Feed pack while cross-language source activation requires configured AI or explicitly selected Bot translation");
 assert(!serviceWorkerSource.includes('"permissions:ai-feeds"'), "cross-language public Feeds must not introduce a second permission route");
 const aiCoreSource = await fs.readFile(path.join(root, "extension/core/ai.mjs"), "utf8");
 const aiSearchCoreSource = await fs.readFile(path.join(root, "extension/core/ai-search.mjs"), "utf8");
 const weatherCoreSource = await fs.readFile(path.join(root, "extension/core/weather.mjs"), "utf8");
 const readerPolicySource = await fs.readFile(path.join(root, "assets/client/reader-policy.mjs"), "utf8");
 const readerUiSource = await fs.readFile(path.join(root, "assets/client/reader-ui.mjs"), "utf8");
+const readerLauncherSource = await fs.readFile(path.join(root, "assets/client/reader-launcher.mjs"), "utf8");
 assert(readerUiSource.includes('className = "reader-header-actions"') && readerUiSource.includes('"ghost reader-translate"'), "the in-app reader must place translation with article-level actions");
 assert(readerUiSource.includes('state.data?.ai?.enabled === true') && !dashboardSource.includes('id="translateWebFrame"'), "reader translation must stay absent until AI is fully configured");
 assert(readerUiSource.includes('apiPost("/api/reader/translate"') && readerUiSource.includes('reader.showOriginal'), "reader translation must use the extension AI route and preserve an original-text toggle");
-assert(readerUiSource.includes("openFloatingWeb(url, title, item);")
+assert(readerLauncherSource.includes("reader.open(url, title, item)")
+  && readerUiSource.includes('apiGet(`/api/reader?url=')
+  && !readerLauncherSource.includes("requestOrigins")
   && !readerUiSource.includes("requestPermission: true"), "reader entry must try the runtime's permissionless path before offering website access");
 assert(readerUiSource.includes('button.textContent = t("reader.requestingPermission")')
   && readerUiSource.includes('await requestOrigins([`${origin}/*`])'), "the reader permission prompt must remain behind its explicit authorization action");
@@ -2032,11 +2066,13 @@ const aiSearchUiSource = await fs.readFile(path.join(root, "assets/client/ai-sea
 const settingsControllerSource = await fs.readFile(path.join(root, "assets/client/settings-controller.mjs"), "utf8");
 const savedSourcePermissionControllerSource = await fs.readFile(path.join(root, "assets/client/saved-source-permission-controller.mjs"), "utf8");
 const settingsTransferControllerSource = await fs.readFile(path.join(root, "assets/client/settings-transfer-controller.mjs"), "utf8");
-const appearanceControllerSource = await fs.readFile(path.join(root, "assets/client/appearance-controller.mjs"), "utf8");
+const appearanceControllerSource = await fs.readFile(path.join(root, "assets/client/appearance-controller.mjs"), "utf8") + "\n" + await fs.readFile(path.join(root, "assets/client/header-cover-renderer.mjs"), "utf8") + "\n" + await fs.readFile(path.join(root, "assets/client/header-cover-model.mjs"), "utf8");
 const coverBlurPreviewSource = await fs.readFile(path.join(root, "assets/client/cover-blur-preview-controller.mjs"), "utf8");
 const contextMenuSource = await fs.readFile(path.join(root, "assets/client/context-menu-controller.mjs"), "utf8");
 const confirmationDialogSource = await fs.readFile(path.join(root, "assets/client/confirmation-dialog.mjs"), "utf8");
 const efficiencyViewSource = await fs.readFile(path.join(root, "assets/client/efficiency-view.mjs"), "utf8");
+const digestViewSource = await fs.readFile(path.join(root, "assets/client/digest-card-view.mjs"), "utf8");
+const switchableCardViewSource = await fs.readFile(path.join(root, "assets/client/switchable-card-view.mjs"), "utf8");
 const dailyViewSource = await fs.readFile(path.join(root, "assets/client/daily-view.mjs"), "utf8");
 const summaryViewSource = await fs.readFile(path.join(root, "assets/client/summary-view.mjs"), "utf8");
 const bookmarksViewSource = await fs.readFile(path.join(root, "assets/client/bookmarks-view.mjs"), "utf8");
@@ -2082,9 +2118,9 @@ assert(confirmationDialogSource.includes('dialog.classList.add("closing")')
   && confirmationDialogSource.includes("isReducedMotion() ? 0 : closeMotionMs")
   && confirmationDialogSource.includes('dialog.classList.remove("closing")'),
   "the shared confirmation must remain open for its close motion and skip that delay for reduced motion");
-assert(primitivesCssSource.includes("select {\n  --select-arrow-color: var(--muted-2);")
+assert(primitivesCssSource.includes("select {\n")
   && primitivesCssSource.includes("min-height: 38px;")
-  && primitivesCssSource.includes("linear-gradient(45deg, transparent 50%, var(--select-arrow-color) 50%)")
+  && primitivesCssSource.includes("background-image: var(--select-arrow-image);")
   && primitivesCssSource.includes("select:not(:disabled):hover")
   && primitivesCssSource.includes("select:not(:disabled):focus")
   && primitivesCssSource.includes("select:focus-visible")
@@ -2094,9 +2130,10 @@ assert(primitivesCssSource.includes("select {\n  --select-arrow-color: var(--mut
   && primitivesCssSource.includes("appearance: auto;"), "native select fallbacks must retain the themed control and forced-colors behavior");
 assert(!primitivesCssSource.includes("select:not(:disabled):active"), "native selects must not shift when the system popup opens");
 assert(!settingsCssSource.includes(".field select"), "settings must not duplicate the shared native select primitive");
-assert((dashboardSource.match(/<select\b/g) || []).length === 10
-  && dashboardSource.includes('id="aiResearchFolder"'),
-"every shipped single-value select, including the research folder scope, must remain accounted for by the shared enhancement");
+assert((dashboardSource.match(/<select\b/g) || []).length === 12
+  && dashboardSource.includes('id="aiResearchFolder"') && dashboardSource.includes('id="headerImageMediaTypeInput"')
+  && dashboardSource.includes('id="summaryOrder" data-combobox-listbox-width="trigger"'),
+"every shipped single-value select, including news ordering and the research folder scope, must remain accounted for by the shared enhancement");
 assert(selectComboboxSource.includes('trigger.setAttribute("role", "combobox")')
   && selectComboboxSource.includes('listbox.setAttribute("role", "listbox")')
   && selectComboboxSource.includes('option.setAttribute("role", "option")')
@@ -2127,7 +2164,7 @@ assert(serviceWorkerSource.includes("digest?.date !== localDateKey()")
   && serviceWorkerSource.includes("digest?.candidateFingerprint !== expectedFingerprint"), "daily digest cache reuse must require the current schema, policy, local date, and candidate fingerprint");
 assert(serviceWorkerSource.includes('originPattern(digest.providerOrigin || "") === originPattern(settings.openaiBaseUrl)'), "AI digest cache reuse must remain bound to the configured Provider origin");
 assert(readerPolicySource.includes('READER_HTTP_ERROR: "reader.error.httpTitle"'));
-assert(readerUiSource.includes("markReadOnOpen(item);"), "opening a bookmark or news card must mark it as read");
+assert(readerLauncherSource.includes("toggleSeen(item, true, defaultSeenSource(item))"), "opening a bookmark or news card must mark it as read");
 assert(serviceWorkerSource.includes('record.value?.capability === "feed-image"')
   && serviceWorkerSource.includes('expectedOrigin === originPattern(record.value?.sourceOrigin || "")'), "Feed image caches must be removed when their exact source permission no longer matches");
 assert(readerUiSource.includes("Array.isArray(block.imageUrls)") && readerUiSource.includes("imageIndex += 1"), "Reader images must exhaust safe original candidates before showing the source fallback");
@@ -2179,7 +2216,7 @@ assert(!overlaysCssSource.includes(".ai-search-form:focus-within"), "the always-
 assert(overlaysCssSource.includes(":root:has(.search-overlay.open) {\n  overflow: hidden !important;"), "the open search surface must lock root scrolling so mobile fullscreen has no exposed scrollbar strip");
 assert(baseLayoutCssSource.includes("html {\n  overflow-x: hidden;\n  scrollbar-gutter: stable;"),
   "the dashboard must reserve its root scrollbar gutter so opening search cannot shift centered content");
-assert(overlaysCssSource.includes(".ai-conversation-message.ai-loading-surface::after {\n  display: none;"),
+assert(!overlaysCssSource.includes(".ai-loading-surface") && aiSearchUiSource.includes("createLoadingPhaseController([target])"),
   "AI search loading rows must keep their skeleton without the accent scan overlay");
 assert(overlaysCssSource.includes("scrollbar-gutter: stable;")
   && !overlaysCssSource.includes("scrollbar-gutter: stable both-edges;"),
@@ -2194,7 +2231,7 @@ assert((tokensCssSource.match(/--search-overlay-bg: color-mix\(in srgb, var\(--b
   && (tokensCssSource.match(/--search-overlay-backdrop: var\(--card-backdrop-blur\);/g) || []).length === 2,
   "explicit and system light themes must retain a neutral translucent search backdrop with the shared card blur");
 assert(overlaysCssSource.includes("width: min(720px, 100%);")
-  && overlaysCssSource.includes(".ai-search-panel.has-conversation {")
+  && overlaysCssSource.includes(".ai-search-panel.has-conversation:not(.is-searching) {")
   && overlaysCssSource.includes("width: min(960px, 100%);")
   && overlaysCssSource.includes("height: calc(100dvh - 32px);")
   && overlaysCssSource.includes("border-radius: var(--radius-panel);")
@@ -2216,7 +2253,7 @@ assert(overlaysCssSource.includes("width: min(720px, 100%);")
   && overlaysCssSource.includes(".ai-research-sources[hidden] {")
   && overlaysCssSource.includes("@supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px)))")
   && overlaysCssSource.includes("@media (forced-colors: active)")
-  && motionCssSource.includes(".ai-search-panel.has-conversation {")
+  && motionCssSource.includes(".ai-search-panel.has-conversation:not(.is-searching) {")
   && motionCssSource.includes("height: 100dvh;")
   && motionCssSource.includes(".search-overlay {\n    width: 100vw;\n    height: 100dvh;")
   && motionCssSource.includes("max-width: 86%;"),
@@ -2261,13 +2298,13 @@ assert(readerUiSource.includes('els.webFrame.setAttribute("aria-busy", "true")')
   && overlaysCssSource.includes(".reader-loading-paragraph"), "the reader skeleton must expose loading semantics and mirror the article structure");
 assert(settingsControllerSource.includes('classList.add("is-entering")') && settingsControllerSource.includes('event.animationName !== "settingsPanelIn"'), "settings panels must use a guarded entrance animation cleanup");
 assert(settingsCssSource.includes(".settings-panel.active.is-entering") && motionCssSource.includes("@keyframes settingsPanelIn"), "settings tab changes must define a restrained incoming transition");
-assert(settingsCssSource.includes(".source-health-list.settings-compact-list:not(:empty)")
-  && settingsCssSource.includes("overflow-y: hidden;")
-  && settingsCssSource.includes(".source-health-list.settings-compact-list:not(:empty):focus-within")
-  && settingsCssSource.includes("overscroll-behavior: auto;")
+assert(settingsCssSource.includes(".settings-compact-list.settings-scroll-list")
+  && settingsCssSource.includes("height: clamp(148px, 32dvh, 280px);")
+  && settingsCssSource.includes("overflow-y: auto;")
+  && settingsCssSource.includes(".settings-scroll-list:focus-within")
   && settingsCssSource.includes("outline: 1px solid var(--active-line);")
   && settingsCssSource.includes("overscroll-behavior: contain;")
-  && dashboardSource.includes('id="sourceCoverageList" tabindex="0" aria-labelledby="sourceCoverageTitle"'), "source coverage diagnostics must require focus before taking over scrolling and retain a visible keyboard-accessible focus state");
+  && dashboardSource.includes('class="source-health-list settings-compact-list settings-scroll-list" id="sourceCoverageList" tabindex="0" aria-labelledby="sourceCoverageTitle"'), "source coverage diagnostics must use the documented stable-height scroll surface and retain visible keyboard focus");
 assert(appSource.includes("const CARD_EXIT_MS = 120")
   && appSource.includes("enterMs: MOTION_DURATION.emphasis"), "card replacement must use its dedicated exit and the shared emphasis settle duration");
 assert(appSource.includes("Math.min(index * 32, 96)"), "card replacement stagger must use 32ms steps capped at 96ms");
@@ -2278,21 +2315,20 @@ assert(navLabelSource.includes(".sidebar:has(:focus-visible) .nav-label")
   && !baseLayoutCssSource.includes(".sidebar:focus-within")
   && !motionCssSource.includes(".sidebar:focus-within"), "desktop navigation must expand for visible keyboard focus without remaining open after a pointer click leaves focus behind");
 const navStaticActiveSource = baseLayoutCssSource.slice(baseLayoutCssSource.indexOf(".nav-btn.active {"), baseLayoutCssSource.indexOf(".nav-btn.active:hover"));
-assert(navStaticActiveSource.includes("border-color: var(--active-line);")
-  && navStaticActiveSource.includes("border-radius: var(--radius-button);")
+assert(navStaticActiveSource.includes("border-color: transparent;")
+  && navStaticActiveSource.includes("border-radius: var(--radius-nav-item);")
   && navStaticActiveSource.includes("background: var(--active-bg);")
   && navStaticActiveSource.includes("color: var(--text-strong);")
-  && navStaticActiveSource.includes("box-shadow: var(--active-shadow);"), "navigation reduction must preserve the static selected style");
+  && navStaticActiveSource.includes("box-shadow: none;"), "soft navigation must use the product accent surface without the old ring or inset highlight");
 const navSizeSource = baseLayoutCssSource.slice(baseLayoutCssSource.indexOf(".nav-logo,"), baseLayoutCssSource.indexOf(".nav-logo {"));
-assert(navSizeSource.includes("width: 42px;") && navSizeSource.includes("height: 42px;")
-  && motionCssSource.includes("width: 48px;") && motionCssSource.includes("height: 48px;"), "navigation reduction must preserve standard and wide-screen button sizes");
+assert(navSizeSource.includes("width: 44px;") && navSizeSource.includes("height: 44px;"), "soft navigation must retain 44px targets across desktop sizes");
 assert((tokensCssSource.match(/--nav-panel-bg:/g) || []).length === 3
   && (tokensCssSource.match(/--nav-panel-bg-expanded:/g) || []).length === 3
   && (tokensCssSource.match(/--nav-panel-shadow:/g) || []).length === 3, "navigation must use dedicated dark, light, and system-light surface tokens");
 assert(!dashboardSectionsCssSource.includes(".nav-btn::before"), "navigation hover must stay free of the dashboard pointer glow");
 const mobileNavSource = motionCssSource.slice(motionCssSource.indexOf("@media (max-width: 1120px)"));
-assert(mobileNavSource.includes("width: 42px;") && mobileNavSource.includes("height: 42px;")
-  && mobileNavSource.includes(".nav-label {") && mobileNavSource.includes("display: none;"), "mobile navigation must retain 42px icon-only targets");
+assert(mobileNavSource.includes("width: 44px;") && mobileNavSource.includes("height: 44px;")
+  && mobileNavSource.includes(".nav-label {") && mobileNavSource.includes("display: none;"), "mobile navigation must retain 44px icon-only targets");
 assert(contextMenuSource.includes('setProperty("--context-menu-origin-x"') && contextMenuSource.includes('setProperty("--context-menu-origin-y"'), "context menus must derive their entrance origin from the pointer");
 assert(contextMenuSource.includes("interactiveTarget !== element"), "context menus must support rows whose root element is a button");
 assert(contextMenuSource.includes("function attachActions") && contextMenuSource.includes("attachActions, hide"), "context menus must support action-only targets");
@@ -2329,17 +2365,20 @@ assert(appSource.includes("exactPermissionOrigins(origins)")
   && appSource.includes("chrome.permissions.request({ origins: requested })"), "saved-source permission confirmation must reject broad or insecure origins before invoking Chrome");
 assert(savedSourcePermissionControllerSource.includes("await triggerRefresh(true)")
   && savedSourcePermissionControllerSource.includes('t("settings.status.sourcePermissionDeclined")'), "grant success must refresh automatically while refusal keeps a clear unavailable state");
-assert(settingsCssSource.includes(".hidden-bookmark-category-list.settings-compact-list:not(:empty)")
-  && settingsCssSource.includes("max-height: min(320px, 36vh)"), "long hidden-category lists must scroll inside the settings panel");
+assert(dashboardSource.includes('class="exclude-list hidden-bookmark-category-list settings-compact-list settings-scroll-list"')
+  && settingsCssSource.includes(".settings-compact-list.settings-scroll-list")
+  && settingsCssSource.includes("height: clamp(148px, 32dvh, 280px);"), "hidden-category lists must use the documented stable-height scroll surface inside settings");
 assert(dashboardSource.includes('id="libraryFeedback" role="status" aria-live="polite"')
   && appSource.includes('apiPost("/api/settings", { hiddenBookmarkCategories })'), "immediate visibility saves must report accessible success or failure feedback");
 assert(contextMenuSource.includes("getLeadingActions") && contextMenuSource.includes("actions.push("), "link context menus must accept shortcut-specific leading actions without replacing standard link actions");
 assert(overlaysCssSource.includes("animation: contextMenuIn var(--motion-state-duration) var(--motion-ease-enter)") && motionCssSource.includes("@keyframes contextMenuIn"), "context menus must use the semantic state entrance");
 assert(tokensCssSource.includes("--motion-first-frame-duration: 420ms;")
-  && motionCssSource.includes("from { opacity: 0; transform: translate3d(-4px, -50%, 0); }")
+  && motionCssSource.includes("from { opacity: 0; transform: translate3d(var(--nav-enter-x, -4px), -50%, 0); }")
+  && motionCssSource.includes("--nav-enter-x: 4px;")
+  && motionCssSource.includes("--nav-enter-y: -6px;")
   && motionCssSource.includes("animation: firstFrameNavIn var(--motion-first-frame-duration) 24ms var(--motion-ease-standard) backwards;")
   && motionCssSource.includes("animation: firstFrameMobileNavIn 300ms 24ms var(--motion-ease-enter) backwards;"),
-  "the desktop sidebar must use the panel-speed left fade while the mobile bottom navigation keeps its original entrance");
+  "navigation must enter from its selected edge while preserving the default left and mobile bottom timing");
 const dashboardHeaderMotionSource = motionCssSource.slice(
   motionCssSource.indexOf("@keyframes firstFrameDashboardHeaderIn"),
   motionCssSource.indexOf(".website-shortcuts.is-first-frame-entering"),
@@ -2347,10 +2386,8 @@ const dashboardHeaderMotionSource = motionCssSource.slice(
 assert(dashboardHeaderMotionSource.includes("from { opacity: 0; transform: translate3d(0, 4px, 0); }")
   && dashboardHeaderMotionSource.includes("to { opacity: 1; transform: translate3d(0, 0, 0); }")
   && dashboardHeaderMotionSource.includes("animation: firstFrameDashboardHeaderIn var(--motion-first-frame-duration) 40ms var(--motion-ease-standard) backwards;")
-  && dashboardHeaderMotionSource.includes(".has-first-frame-motion #daily .search-ai")
-  && dashboardHeaderMotionSource.includes("animation: firstFrameSearchActionIn var(--motion-first-frame-duration) 88ms var(--motion-ease-standard) backwards;")
   && !dashboardHeaderMotionSource.includes(".has-first-frame-motion #daily .dashboard-actions"),
-  "the dashboard heading may enter as a panel, while the search glass stays live and only its non-glass action fades in");
+  "the dashboard heading retains its entrance without the removed top search control");
 assert(motionCssSource.includes("@media (prefers-reduced-motion: reduce)")
   && motionCssSource.includes("animation-duration: .01ms !important")
   && motionCssSource.includes("animation-delay: 0ms !important")
@@ -2394,7 +2431,7 @@ assert(appSource.includes('label: t("shortcuts.edit")')
   && appSource.includes("openWebsiteShortcutEditor(shortcut.url)")
   && contextMenuSource.includes("getLeadingActions"), "shortcut context menus must open the matching URL in settings before the standard open and copy actions");
 assert(dashboardSource.includes('id="websiteShortcutFeedback" role="status" aria-live="polite"')
-  && dashboardSectionsCssSource.includes(".website-shortcut.is-drop-before::after")
+  && dashboardSectionsCssSource.includes(".website-shortcut.is-dragging")
   && settingsCssSource.includes(".website-shortcut-settings-row.is-drop-before::after"), "shortcut drag state and immediate-save failures must remain visible and accessible in both list layouts");
 assert(primitivesCssSource.includes(".empty-state.is-compact .empty-state-copy") && primitivesCssSource.includes(".empty-state.is-compact .empty-state-body") && primitivesCssSource.includes("max-width: none;"), "every compact empty state must use its available surface width instead of orphaning Chinese characters");
 assert(primitivesCssSource.includes(".empty-state.is-plain {")
@@ -2534,31 +2571,29 @@ assert(appearanceControllerSource.includes('headerImageBlurEnabled: syncBlurAmou
   && appearanceControllerSource.includes("els.headerImageBlurAmountInput.disabled = disabled;")
   && appearanceControllerSource.includes("els.headerImageHeightInput.disabled = !enabled || busy;")
   && !appearanceControllerSource.includes('setAttribute("aria-hidden"')
-  && settingsCssSource.includes("height: 32px;")
-  && settingsCssSource.includes('.cover-blur-range input[type="range"] {\n  width: 100%;\n  height: 18px;\n  display: block;')
+  && settingsCssSource.includes("height: 24px;")
+  && settingsCssSource.includes('.cover-blur-range input[type="range"] {\n  width: 100%;\n  height: 24px;\n  display: block;')
   && settingsCssSource.includes('input[type="range"]:disabled::-webkit-slider-runnable-track')
   && settingsCssSource.includes('input[type="range"]:disabled::-webkit-slider-thumb'), "cover adjustment sliders must remain visible after their labels and become gray, native-disabled controls when the cover is off");
 assert(themeBootstrapSource.includes("applyHeaderCoverBlur(cover?.enabled === true && cover?.blurEnabled === true")
   && dashboardSectionsCssSource.includes("filter: blur(var(--header-cover-blur, 0px))")
   && dashboardSectionsCssSource.includes("--header-cover-size-adjustment"), "cover blur must restore on the first frame and overscan the image to protect its edges");
-assert(dailyViewSource.includes('if (board.dataset.loading === "true")')
-  && dailyViewSource.includes("board.replaceChildren(...nodes);")
-  && dailyViewSource.includes("animatePanelEntrance(nodes);")
-  && dailyViewSource.includes("currentColumn.className = nextColumn.className;")
-  && dailyViewSource.includes("syncDailyBoardColumns(board, nodes, token, prefersReducedMotion() ? { immediate: true } : {});"), "initial daily column shells must use the same entrance primitive as efficiency cards while later updates preserve existing roots");
-assert(dailyViewSource.includes("animateDailyBoardColumns(board);")
-  && dailyViewSource.includes("Array.from(board.children).forEach((column) => animateCardsIn(dailyBoardCards(column)))"), "later empty-to-content updates must retain per-column card motion");
+assert(efficiencyViewSource.includes('const isInitialEntrance = els.efficiencyPanel.dataset.loading === "true"')
+  && efficiencyViewSource.includes("animatePanelEntrance(renderedCards)")
+  && dailyViewSource.includes("dashboardLayout.getCard(columnId)")
+  && switchableCardViewSource.includes("options.reconcileContent?.(type, current, view.content, settings)"), "initial daily shells must animate while later updates preserve the card at its assigned slot");
+assert(dailyViewSource.includes("animateCardsIn(directDailyCards(currentList))"), "later empty-to-content updates must retain per-column card motion");
 assert(appSource.includes('els.efficiencyPanel.dataset.loading = "true"')
   && appSource.includes('createLoadingPlaceholder("efficiency-skeleton")')
   && appSource.includes('createLoadingPlaceholder("board-column-skeleton")'), "both workbench regions must use lightweight card skeletons before their final panels enter");
-assert(efficiencyViewSource.includes("function syncEfficiencyCards(panel, nextCards)")
+assert(efficiencyViewSource.includes("dashboardLayout.mount(id, card)")
   && efficiencyViewSource.includes("animatePanelEntrance(renderedCards);"), "efficiency cards must restore the original first-render entrance without skeleton-root hydration");
 assert(!appSource.includes("animateInitialWorkbenchEntrance")
   && !motionCssSource.includes("firstFrameWorkbench")
   && !motionCssSource.includes("workbench-entrance")
   && !motionCssSource.includes('.efficiency-panel[data-loading-phase="pending"] .efficiency-skeleton'), "the rolled-back unified workbench entrance and its loading override must stay removed");
 assert(dashboardSectionsCssSource.includes('.inspiration-thumb {\n  position: absolute;\n  inset: 0;'), "inspiration media must restore its original card-edge geometry");
-assert(appSource.includes("currentHead && nextHead && !nodesEqualIgnoringIconLoadState(currentHead, nextHead)"), "unchanged daily column headers must keep their loaded icon nodes and entrance animation targets");
+assert(switchableCardViewSource.includes("signature !== titleSignature") && switchableCardViewSource.includes("nodesEqualIgnoringIconLoadState(current, node)"), "unchanged daily column headers must keep their loaded icon nodes and entrance animation targets");
 assert(appSource.includes('dailyInspirationCount * dailyInspirationBatchLimit'), "daily preload must include all configured cards across reshuffle batches");
 assert(appSource.includes('img.loading = "eager"'), "preloaded daily inspiration images must not be deferred again by lazy loading");
 assert(appSource.includes("newsPreviews.request(item)")
@@ -2599,7 +2634,7 @@ assert.equal([...cleanPresentedSummaryTitle("标题".repeat(80))].length, 64, "c
 assert.equal(isCorrectlySummarized({ summary: { summaryStatus: "ai", summaryTitle: "有效摘要", summary: ["第一段。", "第二段。"] } }), true, "valid AI card summaries remain reusable without policy-version metadata");
 assert.equal(isCorrectlySummarized({ summary: { summaryStatus: "ai", summaryTitle: "完整摘要", summary: ["第一段。", "第二段。", "第三段。"] } }), true, "complete compact card summaries must not be reorganized again");
 assert(serviceWorkerSource.includes('const summaryText = await callProvider('), "manual card organization must invoke the configured AI provider");
-assert(serviceWorkerSource.includes(".map(cleanGeneratedSummaryLine)"), "new AI card summaries must discard Markdown and structural headings before caching");
+assert(serviceWorkerSource.includes("return normalizeCardSummary({ title, summary: rawLines })"), "native summaries must use the shared card formatter before caching");
 assert(serviceWorkerSource.includes('summaryStatus: "ai"'), "manual card organization must persist AI summary status in the feed cache");
 assert(serviceWorkerSource.includes("summaryTitle: organized.title"), "automatic and manual card organization must persist the generated AI title separately");
 assert(serviceWorkerSource.includes('translateAiPrompt(locale, "background.prompt.cardSummary")'), "card organization must request a localized structured AI title and summary");
@@ -2614,9 +2649,16 @@ assert(serviceWorkerSource.includes("originalTitle: item.title, title: aiTitle, 
 assert(serviceWorkerSource.includes("const excerptText = automaticCardSummaryContext(target).text"), "manual summaries must use the shared bounded feed-excerpt policy");
 assert(serviceWorkerSource.includes("AI_CONNECTION_TEST_MAX_TOKENS = 900"), "AI connection tests must match the proven search budget so reasoning models can emit visible text");
 assert(serviceWorkerSource.includes("AI_DIGEST_MAX_TOKENS = 2400"), "automatic daily briefs must leave enough output budget for ranking and visible text");
-assert(serviceWorkerSource.includes("preferVisibleOutput: true") && aiCoreSource.includes("isOfficialDeepSeekEndpoint(endpoint)"), "automatic DeepSeek briefs must disable thinking without changing manual AI calls");
+assert(serviceWorkerSource.includes("preferVisibleOutput: true") && aiCoreSource.includes("isOfficialDeepSeekEndpoint(endpoint)"), "DeepSeek briefs must disable avoidable thinking before requesting visible text");
 assert(serviceWorkerSource.includes("AI_ARTICLE_SUMMARY_MAX_TOKENS = 1200"), "article organization must leave enough output budget after processing long source text");
-assert(serviceWorkerSource.includes("CARD_SUMMARY_MAX_CHARS = 200") && serviceWorkerSource.includes("limitGeneratedSummaryLines(summaryLines, CARD_SUMMARY_MAX_CHARS, 3)"), "organized card summaries must enforce the compact 200-character cache boundary");
+const automaticCardProviderSource = refreshServiceSource.slice(
+  refreshServiceSource.indexOf("async function automaticallySummarizeCards"),
+  refreshServiceSource.indexOf("async function refreshDailyDigest"),
+);
+const manualSummarySource = refreshServiceSource.slice(refreshServiceSource.indexOf("async function refreshSingleSummary"));
+assert(automaticCardProviderSource.includes("preferVisibleOutput: true")
+  && manualSummarySource.includes("preferVisibleOutput: true"),
+  "automatic and manual card summaries must reserve the DeepSeek output budget for visible text");
 assert(appSource.includes("SUMMARY_DETAIL_MAX_LENGTH = 200"), "summary cards must enforce the compact detail budget");
 assert(appSource.includes('meta.className = "summary-meta summary-time"')
   && appSource.includes('sourceRow.className = "summary-source-row"')
@@ -2629,17 +2671,11 @@ assert(summarySectionCssSource.includes(".summary-card-actions .action-toggle {\
   && summarySectionCssSource.includes(".summary-lines:empty {\n  display: none;\n}"), "summary cards must retain the compact action rail and structured content rhythm");
 assert(summarySectionCssSource.includes(".summary-line {\n  display: -webkit-box;\n  overflow: hidden;\n  -webkit-box-orient: vertical;\n  -webkit-line-clamp: 6;"), "favicon summary cards must retain their six-line detail allowance");
 assert(summarySectionCssSource.includes(".summary-card:not(.has-favicon-thumb) .summary-line {\n  -webkit-line-clamp: 5;\n}"), "image summary cards must expose five lines without changing card geometry");
-assert(serviceWorkerSource.includes("const remainingQuota = Math.max(0, settings.dailyAiLimit - quota.used)"), "automatic card summaries must use the remaining shared daily quota");
-assert(serviceWorkerSource.includes("Math.min(optionalCandidates.length, remainingAfterDigest)"), "optional same-language summaries must process every eligible card that fits after required localization and the daily brief");
-const requiredLocalizationIndex = serviceWorkerSource.indexOf('{ mode: "required" }');
-const automaticDigestIndex = serviceWorkerSource.indexOf("await refreshDailyDigest({ automatic: true })", requiredLocalizationIndex);
-const optionalSummaryIndex = serviceWorkerSource.indexOf('{ mode: "optional" }', automaticDigestIndex);
-assert(requiredLocalizationIndex >= 0 && automaticDigestIndex > requiredLocalizationIndex && optionalSummaryIndex > automaticDigestIndex, "automatic AI work must run required cross-language localization before the daily brief and optional same-language summaries");
+// Quota, phase ordering and per-item recovery are exercised by automatic-ai-language.mjs.
 assert(serviceWorkerSource.includes('mode !== "required" && !latestSettings.cardSummaryEnabled'), "turning off ordinary card summaries must not disable required cross-language localization");
 assert(serviceWorkerSource.includes("result = await runAiWithinQuota(settings"), "automatic card summaries must reserve the shared daily AI quota");
 assert(serviceWorkerSource.includes("preserveCardAiSummary(item"), "fresh feed reads must preserve compatible AI card summaries");
 assert(serviceWorkerSource.includes("sanitizeCardAiSummaries(permittedFeedItems, settings, configuredForAi)"), "card AI summaries must be hidden after provider consent, key, or permission becomes invalid");
-assert(serviceWorkerSource.includes("await refreshDailyDigest({ automatic: true })"), "a missing daily AI brief must be generated automatically after feed refresh");
 assert(serviceWorkerSource.includes("? await runAiWithinQuota(settings, operation)"), "only automatic daily briefs may consume the automatic AI quota");
 assert(serviceWorkerSource.includes("AI_SEARCH_MAX_TOKENS = 4096"), "ordinary AI search must use the general text answer budget");
 assert(serviceWorkerSource.includes("AI_ARTICLE_MAX_TOKENS = 4096"), "article explanations and follow-ups must use the general text answer budget");
@@ -2649,34 +2685,25 @@ assert(serviceWorkerSource.includes("readCachedArticle(context.url, { signal: ru
 assert(serviceWorkerSource.includes("const context = await automaticCardSummaryContext(candidate)"), "automatic summaries must build a bounded excerpt-only context");
 const automaticSummaryContextSource = serviceWorkerSource.slice(serviceWorkerSource.indexOf("function automaticCardSummaryContext"), serviceWorkerSource.indexOf("function preserveCardAiSummary"));
 assert(!automaticSummaryContextSource.includes("readArticle") && !automaticSummaryContextSource.includes("hasOriginPermission"), "automatic card summaries must never fetch article bodies");
-const manualSummarySource = serviceWorkerSource.slice(serviceWorkerSource.indexOf("async function refreshSingleSummary"), serviceWorkerSource.indexOf("function generatedCardSummary"));
 assert(!manualSummarySource.includes("readArticle") && !manualSummarySource.includes("readerTextFromBlocks"), "manual card summaries must never fetch article bodies");
 assert(searchQueryTerms("人工智能发布").includes("人工"), "dashboard AI search must segment CJK queries before selecting context");
 assert(!serviceWorkerSource.includes("result = candidates.length\n      ? await answerWithOptionalAi"), "dashboard questions without a local keyword match must still invoke the configured AI provider");
 assert(serviceWorkerSource.includes("content: candidates.length"), "dashboard AI search must explicitly tell the provider when no matching local context exists");
 assert(appSource.includes('summary.className = "ai-digest-summary"'), "the daily brief must render provider-generated overview text instead of hiding it behind local lanes");
-assert(appSource.includes('summary.type = "button"') && appSource.includes('summary.addEventListener("click", refreshDailyDigest)'), "organized daily brief text must be the refresh trigger");
-assert(!appSource.includes('retry.className = "ai-digest-refresh-mini"'), "the organized daily brief must not keep a separate refresh button visible");
 assert(appSource.includes("function dailyDigestParagraphs(lines)"), "single-line daily briefs must be split into balanced text paragraphs when punctuation allows");
-assert(efficiencyViewSource.includes('card.classList.toggle("is-refreshing", state.dailyDigestRefreshing)')
-  && efficiencyViewSource.includes('card.setAttribute("aria-busy", String(state.dailyDigestRefreshing))')
-  && efficiencyViewSource.includes('summary.disabled = state.dailyDigestRefreshing'), "daily brief refresh must preserve readable content, expose busy semantics, and prevent duplicate requests");
-assert(efficiencyViewSource.includes("function createDailyDigestLoadingState()")
-  && efficiencyViewSource.includes("createAiLoadingState({")
-  && efficiencyViewSource.includes("paragraphCount: 3")
-  && efficiencyViewSource.includes('statusText: `${t("digest.refreshing.title")} ${t("digest.refreshing.body")}`'), "a first daily brief generation must use the shared accessible three-paragraph skeleton instead of a generic empty state");
-assert(dashboardSectionsCssSource.includes(".ai-loading-paragraph:nth-child(3)")
-  && motionCssSource.includes("@keyframes digestTextScan")
-  && motionCssSource.includes("@keyframes digestContentIn")
-  && dashboardSectionsCssSource.includes(".efficiency-card.digest-card {\n  grid-template-rows: auto minmax(0, 1fr);\n  overflow: hidden;")
-  && motionCssSource.includes('.ai-loading-surface[data-loading-phase="ambient"]::after'), "AI loading must preserve final geometry and use a continuous shared surface scan clipped to each boundary");
+assert(switchableCardViewSource.includes('card.setAttribute("aria-busy", String(Boolean(view.busy)))')
+  && efficiencyViewSource.includes("briefTaskPhase(state)"), "daily brief refresh must preserve readable content, expose busy semantics, and prevent duplicate requests");
+assert(digestViewSource.includes("createAiTaskStatus(phase, statusLabel)")
+  && !digestViewSource.includes("createAiLoadingState"), "brief generation must show compact task feedback without hiding existing text");
+assert(!motionCssSource.includes("digestTextScan") && !motionCssSource.includes("digestParagraphPulse")
+  && !motionCssSource.includes(".ai-loading-surface")
+  && motionCssSource.includes("@keyframes skeletonSweep"), "AI cards must omit the decorative scan and pulse while retaining conversation skeletons");
 assert(aiSearchUiSource.includes("appendConversationRequest(query, researchScope, runOptions)")
   && aiSearchUiSource.includes('status: "pending"')
   && aiSearchUiSource.includes('variant: "compact"')
   && dashboardSource.includes('id="aiSearchMeta" role="status" aria-live="polite"'), "the first answer and every follow-up must append the shared skeleton beside a live processing label");
-assert(summaryViewSource.includes('isRefreshing ? "is-refreshing ai-loading-surface"')
-  && summaryViewSource.includes("createLoadingSurfaceController(card)")
-  && motionCssSource.includes(".summary-card.is-ai-resolving .summary-body"), "manual card summaries must retain their content, share the card scan, and reveal the completed result in place");
+assert(summaryViewSource.includes("createAiTaskStatus(phase, t(aiTaskLabelKey(phase)))")
+  && motionCssSource.includes(".summary-card.is-ai-resolving .summary-body"), "manual card summaries must retain their content, show compact status, and reveal completed results in place");
 assert(appSource.includes("digest.errorKey") && appSource.includes("messageKey: digest.errorKey"), "failed daily brief cards must show the localized provider reason");
 assert(appSource.includes("state.data?.ai?.enabled !== true")
   && appSource.includes('actionLabel: t("action.configureAi")')
@@ -2688,17 +2715,17 @@ assert(appSource.includes('allTranslations("action.configureAi")'), "the localiz
 assert(dashboardSource.includes('id="settingsAutoAiStatus"') && dashboardSource.includes('id="settingsAutoAiDetail"'), "AI settings must expose automatic organization phase and progress");
 assert(dashboardSource.includes('id="settingsQuotaDetail"') && dashboardSource.includes('id="settingsCacheOverviewDetail"'), "AI settings must expose quota meaning and cache timing details");
 assert(dashboardSource.includes('id="settingsCacheLoadingIcon" data-icon="synchronize" alt="" aria-hidden="true" hidden'), "the cache loading icon must be local, decorative, and hidden while idle");
-assert(dashboardSource.indexOf('id="settingsRefresh"') < dashboardSource.indexOf('id="settingsOverviewAction"'), "AI settings must place the shared cache retry action before provider configuration");
+assert(dashboardSource.indexOf('id="settingsRefresh"') < dashboardSource.indexOf('id="aiProviderEditor"'), "AI settings must keep the shared cache retry action outside the provider editor");
 assert(appSource.includes('els.settingsRefresh.addEventListener("click", () => triggerRefresh(true))'), "the settings cache action must use the same forced refresh path as the dashboard action");
 assert(appSource.includes("renderRefreshButton(els.refresh, refreshState)") && appSource.includes("renderRefreshButton(els.settingsRefresh, refreshState)"), "both cache actions must share availability, loading, and disabled state");
 assert(appSource.includes("if (state.data) renderStatus();") && !appSource.includes("els.refresh.disabled = isRunning"), "refresh completion must restore prerequisite-aware button state instead of enabling unavailable actions");
 assert(serviceWorkerSource.includes('getRecord("ai-auto-status", null)'), "automatic AI status must persist across service-worker suspension");
-assert(serviceWorkerSource.includes('"running-digest"') && serviceWorkerSource.includes('phase: "no-candidates"'), "automatic AI status must distinguish active work from an empty candidate queue");
+assert(serviceWorkerSource.includes('"running-digest"') && serviceWorkerSource.includes('"no-candidates"'), "automatic AI status must distinguish active work from an empty candidate queue");
 assert(appSource.includes("function renderAutoAiStatus(ai)"), "the AI settings overview must render persisted automatic organization status");
 assert(appSource.includes('localizedErrorMessage({ messageKey: auto.errorKey, messageParams: auto.errorParams || {} })'), "automatic organization errors must render their localized persisted reason");
 assert(serviceWorkerSource.includes('errorParams: error?.messageParams || {}'), "automatic organization status must retain safe error translation parameters such as HTTP status");
 assert(appSource.includes('digest: "settings.auto.stageDigest"') && serviceWorkerSource.includes('errorStage = "digest"'), "automatic organization errors must identify the failed stage");
-assert(serviceWorkerSource.includes('if ((!errorKey || errorStage === "digest")') && serviceWorkerSource.includes('&& optionalLimit'), "daily brief failures must not block optional same-language card organization after required localization has completed");
+// The recovery suite verifies that digest content failures continue, while service failures pause.
 assert(appSource.includes("function renderQuotaOverview(ai = {})") && appSource.includes('t("settings.overview.quotaDetail", { used, remaining })'), "the runtime overview must explain used and remaining automatic quota");
 assert(appSource.includes("function renderCacheOverview(status = {}, refreshState") && appSource.includes("status.finishedAt") && appSource.includes("status.progress"), "the runtime overview must show cache availability, progress, and the last completed refresh");
 assert(appSource.includes('classList.toggle("is-loading", isLoading)') && appSource.includes("els.settingsCacheLoadingIcon.hidden = !isLoading"), "the cache spinner must only appear while background caching is active");
@@ -2707,12 +2734,13 @@ assert(appSource.includes('"missing-key": "settings.auto.missingKey"'), "automat
 assert(appSource.includes("settings.test.successSaveHint"), "a successful draft connection test must tell the user to save settings before automation can run");
 assert(serviceWorkerSource.includes("automaticAiStarted = true") && serviceWorkerSource.includes("startRefresh(true).catch"), "saving a ready AI configuration must start an automatic refresh immediately");
 assert(serviceWorkerSource.includes("const aiAutoReady = aiOriginAdded"), "granting the saved provider origin must start automatic work when the remaining configuration is ready");
-assert(!serviceWorkerSource.includes("prioritizeAutomaticAi") && !serviceWorkerSource.includes("runAutomaticAiFromCache"), "a user-forced refresh must fetch and commit the background cache before automatic AI organization runs");
-assert(serviceWorkerSource.includes("await runAutomaticAiAfterFailedRefresh(generation)")
+assert(serviceWorkerSource.includes("{ organize: payload.automatic === true }"), "manual refresh must explicitly skip AI organization");
+assert(serviceWorkerSource.includes("options.organize === false ? null : await organization.start({ allowDigest: true })")
   && serviceWorkerSource.includes('broadcast("dashboard.updated", { reason: "refresh-failed-ai-fallback" })')
   && serviceWorkerSource.includes("const permittedItems = filterFeedItemsBySources(rawFeed.items, feedPermissions.permitted, feedPermissions.grantedOrigins)"), "a failed source refresh must retry automatic AI from the current-schema, still-permitted background cache");
 assert(!appSource.includes("createDigestLanes"), "the daily brief must not restore the important, follow, and skip card lanes");
-assert(appSource.includes("createUtilityCardView") && appSource.includes("utilityCardView.render(dailyEvents)"), "the first efficiency card must retain one stable root while its utility mode changes");
+assert(efficiencyViewSource.includes("createSwitchableCardView") && efficiencyViewSource.includes("view.render(dailyEvents,")
+  && switchableCardViewSource.includes("card.dataset.dashboardCard = id"), "all switchable cards must retain their instance identity while their type changes");
 assert(appSource.includes('UTILITY_MODES = Object.freeze(["events", "weather", "todo"])')
   && appSource.includes('UTILITY_MODE_KEY = "dash.utility.mode"')
   && appSource.includes('TODO_ITEMS_KEY = "dash.utility.todos.v1"'), "utility mode and to-do data must use bounded extension-local client-state keys");
@@ -2735,67 +2763,57 @@ assert(appSource.includes("let composerOpen = false;")
   && appSource.includes('if (event.key !== "Escape") return;')
   && appSource.includes('getContentRoot().querySelector(".todo-entry-form input")?.focus')
   && appSource.includes('addButton.disabled ? getFocusFallback() : addButton'), "the to-do composer must stay collapsed by default, support focused disclosure and Escape, and restore keyboard focus after closing");
-assert(appSource.includes("tools.append(meta, locationButton, todoView.addButton, switchButton)")
-  && dashboardSectionsCssSource.includes(".utility-switch {")
-  && dashboardSectionsCssSource.includes("flex: 0 0 auto;"), "the utility switch must remain the fixed right-edge action while mode-specific tools change to its left");
-assert(appSource.includes("MODE_SWITCH_OUT_MS = MOTION_DURATION.press")
-  && appSource.includes("MODE_SWITCH_IN_MS = MOTION_DURATION.state")
-  && motionCssSource.includes("@keyframes utilityModeOut")
-  && motionCssSource.includes("translateX(-8px)")
-  && motionCssSource.includes("translateX(10px)")
-  && appSource.includes("prefersReducedMotion()"), "utility modes must use a bounded directional transition with a reduced-motion fallback");
+assert(switchableCardViewSource.includes('label: t("context.switchCard")')
+  && !switchableCardViewSource.includes("switchButton")
+  && switchableCardViewSource.includes("getFocusTarget: getFocusFallback"), "card switching must use the context menu and return focus to the title without a header switch button");
+assert(!motionCssSource.includes("@keyframes utilityModeOut")
+  && !motionCssSource.includes("@keyframes utilityHeaderIn"),
+"direct utility selection must not retain the old cyclic slide transitions");
 assert(appSource.includes('toggle.setAttribute("role", "checkbox")')
   && appSource.includes('toggle.setAttribute("aria-checked", String(item.completed))'), "to-do completion controls must expose checkbox semantics and state");
 assert(dashboardSectionsCssSource.includes(".todo-content.is-composing")
   && dashboardSectionsCssSource.includes("min-height: 28px;")
   && dashboardSectionsCssSource.includes(".todo-row:focus-within .todo-remove")
   && dashboardSectionsCssSource.includes("@media (hover: none), (pointer: coarse)"), "to-do rows must be compact while retaining keyboard and touch access to delete controls");
-assert(motionCssSource.includes(".utility-card .weather-forecast-list")
-  && motionCssSource.includes("grid-template-rows: repeat(3, minmax(0, 1fr));")
-  && motionCssSource.includes(".utility-card .weather-row:not(.is-current) .efficiency-row-main"), "wide desktop weather rows must expand into three readable two-line forecasts");
-assert(dashboardSectionsCssSource.includes("grid-template-columns: minmax(0, 1fr) 66px;")
-  && appSource.includes("weatherConditionIconName(weatherConditionKey(weatherForecast.current.weatherCode))")
+assert(appSource.includes("weatherConditionIconName(weatherConditionKey(forecast.current.weatherCode))")
   && appSource.includes('drizzle: "cloud-drizzle"')
-  && appSource.includes('thunderstorm: "cloud-lightning"'), "weather rows must share a fixed temperature column and the header icon must reflect the current condition");
+  && appSource.includes('thunderstorm: "cloud-lightning"'), "weather icons must reflect the condition using the shared local icon mapping");
 assert(appSource.includes('attributionGroup.className = "weather-attribution-group"')
   && appSource.includes('attributionGroup.append(separator, createLocationAttribution({ compact: true }))')
   && appSource.includes('t("weather.attributionShort")')
   && dashboardSectionsCssSource.includes(".weather-attribution-group"), "weather and conditional GeoNames credits must share one compact source line");
 assert(serviceWorkerSource.includes('record.value?.capability === "weather"')
   && serviceWorkerSource.includes("weatherCachePermitted(record.value)"), "revoking a weather origin must remove the dedicated forecast cache during permission reconciliation");
-assert(appSource.includes("selectDailyEvents(state.data?.dailyDigest?.items") && appSource.includes("minSourceCount: 2"), "today's events must prioritize independent corroboration instead of mirroring the first three stories");
+assert(appSource.includes("buildDailyEventCandidates(state.data?.feed?.items")
+  && appSource.includes("state.data?.nativeDailyDigest || state.data?.dailyDigest") && appSource.includes("minSourceCount: 2"),
+"events must use the full visible Feed and only use their native digest for presentation when Bot owns the brief");
 assert(appSource.includes('row.className = "efficiency-row topic-row"'), "today's event rows must preserve the former topic card styling hook");
 assert(appSource.includes('item.publisher || item.source || item.host || ""')
   && appSource.includes('item.eventConfidence === "high-confidence-single"')
   && appSource.includes('t("events.singlePending")'), "today's event rows must distinguish corroborated source counts from pending single-source fallbacks");
 
 const now = Date.now();
-const tooLarge = [
-  { key: "old", updatedAt: now - 31 * 86400000, size: 100 },
-  { key: "large-a", updatedAt: now - 1000, size: 20 * 1024 * 1024 },
-  { key: "large-b", updatedAt: now, size: 10 * 1024 * 1024 },
-];
-const pruning = recordsToPrune(tooLarge, now);
-assert(pruning.remove.some((record) => record.key === "old"));
-assert(pruning.remainingSize <= 25 * 1024 * 1024);
+assert(cacheEntryShouldPrune({ updatedAt: now - 31 * 86400000 }, 100, now));
+assert(!cacheEntryShouldPrune({ updatedAt: now - 30 * 86400000 }, 25 * 1024 * 1024, now));
+assert(cacheEntryShouldPrune({ updatedAt: now }, 25 * 1024 * 1024 + 1, now));
 
 globalThis.chrome = { storage: { local: memoryStorage(), session: memoryStorage(), sync: memoryStorage() } };
-const { readSecrets, secretStatus, updateSecrets } = await import("../extension/core/secrets.mjs");
-await updateSecrets({ openaiApiKey: "secret-test-key" });
+const { readSecrets, secretStatus, updateCredentials } = await import("../extension/core/secrets.mjs");
+await updateCredentials({ providerPatch: { openaiApiKey: "secret-test-key" } });
 assert.equal((await readSecrets()).openaiApiKey, "secret-test-key");
 assert.equal((await secretStatus()).hasOpenAIKey, true);
-assert(!JSON.stringify(await chrome.storage.sync.get(null)).includes("secret-test-key"), "API keys must never enter Chrome Sync");
-await updateSecrets({ openaiApiKey: "" });
+assert(!JSON.stringify(await chrome.storage.sync.get(null)).includes("secret-test-key"), "API keys must stay out of Chrome Sync until explicitly enabled");
+await updateCredentials({ providerPatch: { openaiApiKey: "" } });
 assert.equal((await secretStatus()).hasOpenAIKey, false);
 await Promise.all([
-  updateSecrets({ openaiApiKey: "concurrent-openai-key" }),
-  updateSecrets({ braveSearchApiKey: "concurrent-brave-key" }),
+  updateCredentials({ providerPatch: { openaiApiKey: "concurrent-openai-key" } }),
+  updateCredentials({ secretsPatch: { braveSearchApiKey: "concurrent-brave-key" } }),
 ]);
 assert.deepEqual(await readSecrets(), {
   openaiApiKey: "concurrent-openai-key",
   braveSearchApiKey: "concurrent-brave-key",
 }, "concurrent secret updates must merge instead of overwriting each other");
-await updateSecrets({ openaiApiKey: "", braveSearchApiKey: "" });
+await updateCredentials({ providerPatch: { openaiApiKey: "" }, secretsPatch: { braveSearchApiKey: "" } });
 await runClientStateStoreTests();
 
 const quotaStorage = memoryStorage();
@@ -2859,14 +2877,33 @@ const bookmarkRuntimeSource = await Promise.all(sourceFiles.filter((file) => fil
 assert(!/chrome\.bookmarks\.(?:create|update|move|remove|removeTree)\s*\(/.test(bookmarkRuntimeSource.join("\n")), "bookmark access must remain read-only");
 
 for (const suite of [
+  "keyboard-shortcuts.mjs",
+  "bot-board.mjs",
+  "bot-display.mjs",
+  "bot-mode-copy.mjs",
+  "bot-board-copy.mjs",
+  "bot-takeover.mjs",
+  "local-mcp.mjs",
+  "bot-runner.mjs",
+  "codex-executable.mjs",
+  "mcp-setup.mjs",
+  "bot-summaries.mjs",
+  "card-summary-display.mjs",
+  "bot-token-policy.mjs",
+  "bot-native-tasks.mjs",
+  "api-routing.mjs",
   "action-reading-queue.mjs",
   "reading-queue.mjs",
   "mutation-queue.mjs",
   "permission-state.mjs",
   "provider-consent.mjs",
+  "credential-sync.mjs",
   "provider-policy.mjs",
   "ai-provider-presets.mjs",
+  "ai-provider-disclosure.mjs",
+  "settings-disclosure.mjs",
   "ai-output-language.mjs",
+  "automatic-ai-language.mjs",
   "ai-search.mjs",
   "ai-markdown.mjs",
   "ai-stream.mjs",
@@ -2875,6 +2912,7 @@ for (const suite of [
   "research-search.mjs",
   "reader.mjs",
   "feed-coverage.mjs",
+  "public-feeds.mjs",
   "image-candidates.mjs",
   "redirect-policy.mjs",
   "refresh-coordinator.mjs",
@@ -2882,9 +2920,19 @@ for (const suite of [
   "content-sync.mjs",
   "content-sync-settings.mjs",
   "header-cover.mjs",
+  "header-cover-cache.mjs",
+  "header-cover-video.mjs",
   "browser-search.mjs",
+  "unified-search.mjs",
+  "history-invalidation.mjs",
   "client-i18n.mjs",
   "manual-ai-usage-notice.mjs",
+  "manual-summary-action.mjs",
+  "summary-order.mjs",
+  "ai-task-state.mjs",
+  "digest-refresh.mjs",
+  "news-organization.mjs",
+  "organization-retry.mjs",
   "select-combobox.mjs",
   "accent-color-picker.mjs",
 ]) {

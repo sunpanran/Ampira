@@ -5,14 +5,16 @@ import {
   CONTENT_SYNC_DATASETS,
   CONTENT_SYNC_META_KEY,
   createContentSyncService,
+  contentSyncStorageKey,
   parseLocalEntries,
   selectSyncEntries,
 } from "../../extension/core/content-sync.mjs";
 import { normalizeSettings } from "../../extension/core/settings.mjs";
 
-for (const field of ["syncReadingQueueEnabled", "syncTodosEnabled", "syncWeatherLocationEnabled"]) {
+for (const field of ["syncReadingQueueEnabled", "syncTodosEnabled", "syncWeatherLocationEnabled", "syncStockWatchlistEnabled", "syncCountdownsEnabled"]) {
   assert.equal(DEFAULT_SETTINGS[field], false, `${field} must remain opt-in`);
   assert.equal(normalizeSettings({})[field], false, `${field} must normalize to disabled by default`);
+  assert.equal(normalizeSettings({ [field]: true })[field], true, `${field} must preserve explicit opt-in`);
 }
 
 const disabledStorage = memoryStorage();
@@ -20,7 +22,11 @@ await device({
   syncStorage: disabledStorage,
   now: 500,
   settings: disabledSettings,
-  state: { "dash.readingQueue": JSON.stringify([readingRecord("local-only", "2026-07-14T07:00:00.000Z")]) },
+  state: {
+    "dash.readingQueue": JSON.stringify([readingRecord("local-only", "2026-07-14T07:00:00.000Z")]),
+    "dash.stocks.watchlist.v1": '["usAAPL"]',
+    "dash.countdown.items.v1": JSON.stringify([countdownRecord("local-only")]),
+  },
 }).service.initialize();
 assert(!Object.keys(await disabledStorage.get(null)).some((key) => key.startsWith("ampira.content.")), "default-off content sync must not upload local content");
 
@@ -66,6 +72,10 @@ const first = device({
     "dash.readingQueue": JSON.stringify([readingRecord("reading-a", "2026-07-14T08:00:00.000Z")]),
     "dash.utility.todos.v1": JSON.stringify([todoRecord("todo-a", false)]),
     "dash.utility.weather.location.v1": JSON.stringify(weatherLocation("Shanghai", 31.2304, 121.4737)),
+    "dash.stocks.watchlist.v1": '["AAPL", "00700", "AAPL", "javascript:invalid"]',
+    "dash.countdown.items.v1": JSON.stringify([countdownRecord("countdown-a"), countdownRecord("countdown-b")]),
+    "dash.stocks.optedIn": "true",
+    "dash.stocks.quotes": '{"price":123}',
   },
 });
 await first.service.initialize();
@@ -74,6 +84,9 @@ const firstSyncValues = await syncStorage.get(null);
 assert(Object.keys(firstSyncValues).some((key) => key.startsWith(CONTENT_SYNC_DATASETS.readingQueue.prefix)));
 assert(Object.keys(firstSyncValues).some((key) => key.startsWith(CONTENT_SYNC_DATASETS.todos.prefix)));
 assert(Object.keys(firstSyncValues).some((key) => key.startsWith(CONTENT_SYNC_DATASETS.weatherLocation.prefix)));
+assert.equal(Object.values(firstSyncValues).filter(value => value.dataset === "stockWatchlist").length, 2);
+assert.equal(Object.values(firstSyncValues).filter(value => value.dataset === "countdowns").length, 2);
+assert(!JSON.stringify(firstSyncValues).includes("price"), "quote caches must not enter sync");
 for (const [key, value] of Object.entries(firstSyncValues)) {
   if (!key.startsWith("ampira.content.")) continue;
   assert(new TextEncoder().encode(JSON.stringify(value)).byteLength <= 7000, `${key} must fit Chrome Sync's per-item budget`);
@@ -84,6 +97,16 @@ await second.service.initialize();
 assert.equal(JSON.parse(second.state["dash.readingQueue"])[0].key, "reading-a");
 assert.equal(JSON.parse(second.state["dash.utility.todos.v1"])[0].text, "Task todo-a");
 assert.equal(JSON.parse(second.state["dash.utility.weather.location.v1"]).name, "Shanghai");
+assert.deepEqual(JSON.parse(second.state["dash.stocks.watchlist.v1"]), ["usAAPL", "hk00700"]);
+assert.equal(JSON.parse(second.state["dash.countdown.items.v1"])[0].title, "Event countdown-a");
+assert.equal(second.state["dash.stocks.optedIn"], undefined, "sync must not grant device-local provider consent");
+
+const cardPatch = {
+  "dash.stocks.watchlist.v1": '["usMSFT", "hk00700"]',
+  "dash.countdown.items.v1": JSON.stringify([{ ...countdownRecord("countdown-a"), title: "Updated event", date: "2027-02-01" }]),
+};
+await second.clientStateStore.save({ values: cardPatch });
+await second.service.handleLocalPatch(cardPatch);
 
 second.state["dash.utility.todos.v1"] = JSON.stringify([{ ...todoRecord("todo-a", true), text: "Updated on device two" }]);
 await second.clientStateStore.save({ values: { "dash.utility.todos.v1": second.state["dash.utility.todos.v1"] } });
@@ -102,6 +125,42 @@ await firstRestarted.service.initialize();
 assert.deepEqual(JSON.parse(firstRestarted.state["dash.readingQueue"]), [], "a newer remote tombstone must remove a queued item");
 assert.equal(JSON.parse(firstRestarted.state["dash.utility.todos.v1"])[0].text, "Updated on device two");
 assert.equal(JSON.parse(firstRestarted.state["dash.utility.todos.v1"])[0].completed, true);
+assert.deepEqual(JSON.parse(firstRestarted.state["dash.stocks.watchlist.v1"]).sort(), ["hk00700", "usMSFT"]);
+assert.deepEqual(JSON.parse(firstRestarted.state["dash.countdown.items.v1"]), JSON.parse(cardPatch["dash.countdown.items.v1"]));
+const deletedCards = await syncStorage.get(null);
+for (const [dataset, id] of [["stockWatchlist", "usAAPL"], ["countdowns", "countdown-b"]]) {
+  assert.equal(deletedCards[await contentSyncStorageKey(dataset, id)].deleted, true, "removed card entries use versioned tombstones");
+}
+
+const mixedStorage = memoryStorage();
+const mixed = device({ syncStorage: mixedStorage, now: 3500,
+  settings: () => ({ syncStockWatchlistEnabled: true }), state: structuredClone(first.state) });
+await mixed.service.initialize();
+assert(Object.values(await mixedStorage.get(null)).every(record => record.dataset === "stockWatchlist"), "new content switches stay independent");
+const stockOff = { ...enabledSettings(), syncStockWatchlistEnabled: false };
+await firstRestarted.service.applySettings(enabledSettings(), stockOff);
+assert(!Object.keys(await syncStorage.get(null)).some(key => key.startsWith(CONTENT_SYNC_DATASETS.stockWatchlist.prefix)));
+assert(Object.keys(await syncStorage.get(null)).some(key => key.startsWith(CONTENT_SYNC_DATASETS.countdowns.prefix)));
+assert.deepEqual(JSON.parse(firstRestarted.state["dash.stocks.watchlist.v1"]).sort(), ["hk00700", "usMSFT"], "disabling stocks preserves the local watchlist");
+
+for (const [name, input, limit] of [
+  ["stockWatchlist", Array.from({ length: 30 }, (_, i) => `sh${String(600000 + i)}`), 12],
+  ["countdowns", Array.from({ length: 30 }, (_, i) => ({ ...countdownRecord(`event-${i}`), title: "测".repeat(80) })), 20],
+]) {
+  const entries = selectSyncEntries(name, parseLocalEntries(name, input));
+  assert.equal(entries.length, limit, `${name} sync must fit its full supported capacity`);
+}
+assert.deepEqual(parseLocalEntries("countdowns", [{ ...countdownRecord("bad"), date: "2026-02-30" }]), []);
+assert.deepEqual(parseLocalEntries("stockWatchlist", ["https://example.com/", {}]), []);
+
+const malformedStorage = memoryStorage();
+await malformedStorage.set({
+  [await contentSyncStorageKey("countdowns", "bad")]: { version: 1, dataset: "countdowns", id: "bad", updatedAt: 10, revision: "bad", value: { ...countdownRecord("bad"), date: "invalid" } },
+  [await contentSyncStorageKey("stockWatchlist", "usAAPL")]: { version: 1, dataset: "stockWatchlist", id: "usAAPL", updatedAt: 10, revision: "bad", value: "usMSFT" },
+});
+const malformed = device({ syncStorage: malformedStorage, now: 3600, state: {} });
+await malformed.service.initialize();
+assert.deepEqual(malformed.state, {}, "invalid remote dates and mismatched symbol identities must be ignored");
 
 const localQueue = Array.from({ length: 80 }, (_, index) => readingRecord(`reading-${index}`, new Date(2026, 6, 14, 0, index).toISOString()));
 const selectedQueue = selectSyncEntries("readingQueue", parseLocalEntries("readingQueue", JSON.stringify(localQueue)));
@@ -151,19 +210,15 @@ function device({ syncStorage, now, state, records = new Map(), settings = enabl
 }
 
 function enabledSettings() {
-  return {
-    syncReadingQueueEnabled: true,
-    syncTodosEnabled: true,
-    syncWeatherLocationEnabled: true,
-  };
+  return Object.fromEntries(Object.values(CONTENT_SYNC_DATASETS).map(({ flag }) => [flag, true]));
 }
 
 function disabledSettings() {
-  return {
-    syncReadingQueueEnabled: false,
-    syncTodosEnabled: false,
-    syncWeatherLocationEnabled: false,
-  };
+  return Object.fromEntries(Object.values(CONTENT_SYNC_DATASETS).map(({ flag }) => [flag, false]));
+}
+
+function countdownRecord(id) {
+  return { id, title: `Event ${id}`, date: "2027-01-01" };
 }
 
 function readingRecord(key, addedAt) {

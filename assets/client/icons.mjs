@@ -1,25 +1,9 @@
-const FILLED_BOOKMARK_ICON = `data:image/svg+xml,${encodeURIComponent(`
-  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
-    <path fill="#000" d="M6.5 2A2.5 2.5 0 0 0 4 4.5v16.25a1 1 0 0 0 1.57.82L12 17l6.43 4.57a1 1 0 0 0 1.57-.82V4.5A2.5 2.5 0 0 0 17.5 2h-11Z"/>
-  </svg>
-`)}`;
-
-const OUTLINE_BOOKMARK_ICON = `data:image/svg+xml,${encodeURIComponent(`
-  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
-    <path fill="none" stroke="#000" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M6.5 3h11A1.5 1.5 0 0 1 19 4.5v16L12 16l-7 4.5v-16A1.5 1.5 0 0 1 6.5 3Z"/>
-  </svg>
-`)}`;
-
-const CHECKMARK_ICON = `data:image/svg+xml,${encodeURIComponent(`
-  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
-    <path fill="none" stroke="#000" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m5 12.5 4.2 4.2L19 7"/>
-  </svg>
-`)}`;
-
 const ICON_URLS = {
+  stocks: "/assets/icons/trending-up.svg",
+  "arrow-down": "/assets/icons/arrow-down.svg",
   "arrow-up-right": "/assets/icons/arrow-up-right.svg",
   bookmark: "/assets/icons/bookmark.svg",
-  "bookmark-filled": FILLED_BOOKMARK_ICON,
+  "bookmark-filled": "/assets/icons/bookmark-filled.svg",
   calendar: "/assets/icons/calendar.svg",
   check: "/assets/icons/check.svg",
   clock: "/assets/icons/clock.svg",
@@ -38,12 +22,19 @@ const ICON_URLS = {
   "file-search-01": "/assets/icons/file-search-01.svg",
   "edit-05": "/assets/icons/edit-05.svg",
   "filter-lines": "/assets/icons/filter-lines.svg",
+  flag: "/assets/icons/flag.svg",
   folder: "/assets/icons/folder.svg",
   github: "/assets/icons/github.svg",
+  "grid-view": "/assets/icons/grid-view.svg",
   "info-circle": "/assets/icons/info-circle.svg",
   "key-01": "/assets/icons/key-01.svg",
+  "keyboard-return": "/assets/icons/keyboard-return.svg",
+  lightbulb: "/assets/icons/lightbulb.svg",
   "link-external-01": "/assets/icons/link-external-01.svg",
+  loader: "/assets/icons/loader.svg",
+  "list-check": "/assets/icons/list-check.svg",
   "message-question-circle": "/assets/icons/message-question-circle.svg",
+  mcp: "/assets/icons/mcp.svg",
   minus: "/assets/icons/minus.svg",
   "monitor-01": "/assets/icons/monitor-01.svg",
   "moon-01": "/assets/icons/moon-01.svg",
@@ -98,12 +89,6 @@ const ICON_ALIASES = {
   video: "rss-01",
 };
 
-const THEMED_ICON_URLS = {
-  bookmark: OUTLINE_BOOKMARK_ICON,
-  "bookmark-filled": FILLED_BOOKMARK_ICON,
-  check: CHECKMARK_ICON,
-};
-
 function iconKey(name) {
   const normalized = String(name || "info-circle").toLowerCase().replace(/[^a-z0-9-]+/g, "-");
   const key = ICON_ALIASES[normalized] || normalized || "info-circle";
@@ -135,7 +120,7 @@ function setIconSource(icon, source) {
 export function createIcon(name, className) {
   const key = iconKey(name);
   const icon = document.createElement("img");
-  icon.className = `${className || "inline-icon"} industrial-icon untitled-icon icon-${key}`;
+  icon.className = `${className || "inline-icon"} industrial-icon icon-${key}`;
   icon.alt = "";
   icon.decoding = "async";
   icon.loading = "eager";
@@ -149,7 +134,7 @@ export function createThemedIcon(name, className) {
   const key = iconKey(name);
   const icon = document.createElement("span");
   icon.className = `${className || "inline-icon"} industrial-icon themed-icon icon-${key}`;
-  icon.style.setProperty("--themed-icon-mask", `url("${THEMED_ICON_URLS[key] || ICON_URLS[key]}")`);
+  icon.style.setProperty("--themed-icon-mask", `url("${ICON_URLS[key]}")`);
   icon.setAttribute("aria-hidden", "true");
   return icon;
 }
@@ -161,7 +146,7 @@ export function hydrateIcons(root = document) {
     icon.decoding = "async";
     icon.loading = "eager";
     icon.referrerPolicy = "no-referrer";
-    icon.classList.add("industrial-icon", "untitled-icon", `icon-${key}`);
+    icon.classList.add("industrial-icon", `icon-${key}`);
     icon.setAttribute("aria-hidden", "true");
     setIconSource(icon, ICON_URLS[key]);
   });

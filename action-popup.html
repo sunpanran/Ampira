@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="zh-CN" data-color-mode="dark">
+<html lang="zh-CN" data-color-mode="system">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -10,18 +10,17 @@
 <body>
   <main class="action-popup" data-state="loading">
     <header class="popup-header">
+      <strong class="popup-section-title" id="popupKicker">稍后读</strong>
       <div class="popup-brand">
-        <img src="assets/icons/ampira-logo.svg" alt="" width="24" height="24">
-        <div>
-          <strong>AMPIRA</strong>
-          <span id="popupKicker">稍后读</span>
-        </div>
+        <img src="assets/icons/ampira-logo.svg" alt="" width="18" height="18">
+        <strong>AMPIRA</strong>
       </div>
     </header>
 
     <section class="capture-result" role="status" aria-live="polite" aria-atomic="true">
-      <div class="status-track" aria-hidden="true">
-        <span class="status-node" id="statusIcon"></span>
+      <div class="status-track">
+        <span class="status-node" id="statusIcon" aria-hidden="true"></span>
+        <span id="statusLabel">处理中</span>
       </div>
       <div class="capture-copy">
         <h1 id="statusTitle">正在保存</h1>
@@ -34,11 +33,11 @@
     </section>
 
     <footer class="popup-footer">
-      <span id="localNote">默认保存在本机</span>
       <button type="button" id="openDashboard">
-        <span id="openDashboardLabel">打开</span>
+        <span id="openDashboardLabel">打开 Ampira</span>
         <span id="openDashboardIcon" aria-hidden="true"></span>
       </button>
+      <span id="localNote">默认保存在本机</span>
     </footer>
   </main>
   <script type="module" src="assets/client/action-popup.mjs"></script>

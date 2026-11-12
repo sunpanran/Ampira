@@ -57,7 +57,7 @@ export function isCorrectlySummarized(item) {
   if (!summary || summary.error || summary.hidden || summary.advertisement || summary.stale) return false;
   if (summary.newsStatus && summary.newsStatus !== "hot") return false;
   if (summary.summaryStatus !== "ai" || !cleanSummaryTitle(summary.summaryTitle)) return false;
-  return cleanSummaryLines(Array.isArray(summary.summary) ? summary.summary : []).length >= 2;
+  return cleanSummaryLines(Array.isArray(summary.summary) ? summary.summary : []).length >= 1;
 }
 
 export function cleanSummaryLines(lines) {
@@ -89,6 +89,12 @@ function isRepeatedSummaryLine(line, title) {
   if (lineKey === titleKey) return true;
   if (titleKey.length >= 8 && lineKey.includes(titleKey)) return true;
   if (lineKey.length >= 8 && titleKey.includes(lineKey)) return true;
+  if (!/\p{Script=Han}/u.test(line + title)) {
+    const words = value => new Set(String(value).toLocaleLowerCase().match(/[\p{L}\p{N}]+/gu) || []);
+    const lineWords = words(line), titleWords = words(title);
+    const common = [...lineWords].filter(word => titleWords.has(word)).length;
+    return common / Math.max(lineWords.size, titleWords.size) >= .8;
+  }
   return similarityScore(lineKey, titleKey) >= .72;
 }
 

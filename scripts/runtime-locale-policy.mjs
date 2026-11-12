@@ -4,12 +4,21 @@ export const RUNTIME_LOCALE_PREFIXES = Object.freeze([
   "bookmarkFolder.default",
   "category.inspiration.",
   "inspirationPreset.",
-  "reader.",
   "settings.transfer.error.",
 ]);
 
 export const RUNTIME_LOCALE_KEYS = Object.freeze([
   "summary.status.noContent",
+  "reader.translationEmpty",
+  "reader.error.notFoundBody",
+  "reader.error.deniedBody",
+  "reader.error.timeoutBody",
+  "reader.error.tooLargeBody",
+  "reader.error.unsupportedBody",
+  "reader.error.emptyBody",
+  "reader.error.networkBody",
+  "reader.error.httpBody",
+  "reader.error.genericBody",
 ]);
 
 export function isRuntimeLocaleKey(key) {

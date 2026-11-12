@@ -1,6 +1,7 @@
 (() => {
   const maxWebsiteShortcuts = 16;
   const storageKey = "ampira.colorMode";
+  const navPositionStorageKey = "ampira.navPosition";
   const accentPaletteStorageKey = "ampira.accentPalette";
   const dashboardGlassBlurStorageKey = "ampira.dashboardGlassBlur";
   const coverStorageKey = "ampira.headerCover";
@@ -12,21 +13,30 @@
   const headerImageHeightMin = 70;
   const headerImageHeightMax = 200;
   const headerImageHeightStep = 5;
-  const defaultHeaderImageAsset = "/assets/images/default-header.webp";
+  const defaultHeaderImageUrl = "https://images.unsplash.com/photo-1589063550334-968dce01e968?q=80&w=3648&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=NHwxMjA3fDA%3D";
   const allowedModes = new Set(["system", "dark", "light"]);
   const allowedAccentThemes = new Set(["violet", "cyan", "emerald", "amber", "rose", "custom"]);
   const headerCoverRevealState = new WeakMap();
+  const headerCoverSources = new WeakMap();
+  const headerVideos = new WeakMap();
+  let headerCoverControllerReady;
   let dashboardStylesReadyPromise;
-  let colorMode = "dark";
+  let colorMode = "system";
 
   try {
     const storedMode = localStorage.getItem(storageKey);
     if (allowedModes.has(storedMode)) colorMode = storedMode;
   } catch {
-    // The dark default prevents an unstyled light first frame when storage is unavailable.
+    // Follow the system preference when the saved appearance hint is unavailable.
   }
 
   document.documentElement.dataset.colorMode = colorMode;
+  try {
+    const position = localStorage.getItem(navPositionStorageKey);
+    document.documentElement.dataset.navPosition = ["top", "bottom", "left", "right"].includes(position) ? position : "left";
+  } catch {
+    document.documentElement.dataset.navPosition = "left";
+  }
   try {
     const cachedAccentPalette = JSON.parse(localStorage.getItem(accentPaletteStorageKey) || "null");
     const cachedAccentTheme = String(cachedAccentPalette?.theme || "").trim().toLowerCase();
@@ -68,6 +78,10 @@
       : hydrateWebsiteShortcutLayout(),
     headerCoverReady: Promise.resolve(),
     revealHeaderCover,
+    resolveHeaderCoverSource: resolveHeaderImageSource,
+    rejectHeaderCover,
+    setHeaderCoverSource,
+    setHeaderCoverVideo,
   };
 
   try {
@@ -93,35 +107,44 @@
         const values = await chrome.storage.local.get(localCoverStorageKey);
         const record = values?.[localCoverStorageKey];
         if (isSafeLocalCoverRecord(record)) {
-          restoreHeaderCover(record.dataUrl, cover.url);
+          restoreHeaderCover(record.dataUrl, cover.url, false, cover.video);
           return;
         }
       } catch {
         // The synced URL remains the safe fallback below.
       }
     }
-    restoreHeaderCover(cover?.url);
+    restoreHeaderCover(cover?.url, "", cover?.video);
   }
 
-  function restoreHeaderCover(imageUrl, fallbackUrl = "") {
+  function restoreHeaderCover(imageUrl, fallbackUrl = "", video = false, fallbackVideo = false) {
     const resolvedImageUrl = resolveHeaderImageSource(imageUrl);
     const resolvedFallbackUrl = resolveHeaderImageSource(fallbackUrl);
-    preloadHeaderCover(resolvedImageUrl);
+    if (!video) preloadHeaderCover(resolvedImageUrl);
     const apply = () => {
       const hero = document.querySelector("#headerImageHero");
       const image = document.querySelector("#headerImage");
       if (!hero || !image) return false;
       hero.hidden = false;
+      if (video && isSafeImageUrl(imageUrl)) {
+        setHeaderCoverVideo(hero, imageUrl);
+        return true;
+      }
       if (isSafeCoverSource(resolvedImageUrl)) {
         const source = resolvedImageUrl;
         const reveal = () => revealHeaderCover(hero, image);
         image.addEventListener("load", reveal, { once: true });
         image.addEventListener("error", () => {
-          if (image.getAttribute("src") === source && isSafeCoverSource(resolvedFallbackUrl)) image.src = resolvedFallbackUrl;
+          if (image.getAttribute("src") !== source) return;
+          rejectHeaderCover(source);
+          if (image.getAttribute("src") === source && fallbackVideo && isSafeImageUrl(fallbackUrl)) {
+            setHeaderCoverSource(image, "");
+            setHeaderCoverVideo(hero, fallbackUrl);
+          } else if (image.getAttribute("src") === source && isSafeCoverSource(resolvedFallbackUrl)) setHeaderCoverSource(image, resolvedFallbackUrl);
         }, { once: true });
         image.loading = "eager";
         image.fetchPriority = "high";
-        image.src = source;
+        setHeaderCoverSource(image, source);
         reveal();
       }
       return true;
@@ -134,10 +157,46 @@
     observer.observe(document.documentElement, { childList: true, subtree: true });
   }
 
+  function setHeaderCoverVideo(hero, value) {
+    const source = isSafeImageUrl(value) ? value : "";
+    const image = hero.querySelector("img");
+    if (source && hero.dataset.headerVideoSource !== source) setHeaderCoverSource(image, "");
+    hero.dataset.headerVideoSource = source;
+    const controller = headerVideos.get(hero);
+    if (controller) { controller.setSource(source); return; }
+    if (!source) { image.hidden = false; return; }
+    image.hidden = true;
+    hero.classList.remove("is-loaded");
+    import("./header-cover-video.mjs").then(({ createHeaderVideoController }) => {
+      if (hero.dataset.headerVideoSource !== source) return;
+      let current = headerVideos.get(hero);
+      if (!current) {
+        current = createHeaderVideoController(hero, {
+          reveal: revealHeaderCover,
+          fallback: () => restoreVideoFallback(hero),
+        });
+        headerVideos.set(hero, current);
+      }
+      current.setSource(source);
+    }).catch(() => { if (hero.dataset.headerVideoSource === source) restoreVideoFallback(hero); });
+  }
+
+  function restoreVideoFallback(hero) {
+    const image = hero.querySelector("img");
+    image.hidden = false;
+    image.addEventListener("load", () => revealHeaderCover(hero, image), { once: true });
+    setHeaderCoverSource(image, resolveHeaderImageSource(""));
+    revealHeaderCover(hero, image);
+  }
+
   function preloadHeaderCover(source) {
     const value = String(source || "");
     if (!value || value.startsWith("data:")) return;
-    if (!isSafeImageUrl(value) && !isSafePackagedHeaderImage(value)) return;
+    if (!isSafeImageUrl(value) && !cachedHeaderCoverUrl(value)) return;
+    if (cachedHeaderCoverUrl(value) && !navigator.serviceWorker?.controller) {
+      prepareHeaderCoverController().then((ready) => { if (ready) preloadHeaderCover(value); });
+      return;
+    }
     const preload = document.createElement("link");
     preload.rel = "preload";
     preload.as = "image";
@@ -148,7 +207,7 @@
   }
 
   function revealHeaderCover(hero, image) {
-    if (!hero || !image?.complete || image.naturalWidth <= 0) return;
+    if (!hero || !coverMediaReady(image)) return;
     const source = currentHeaderCoverSource(image);
     if (!source) return;
     const current = headerCoverRevealState.get(hero);
@@ -162,7 +221,7 @@
         nextAnimationFrame(() => {
           if (headerCoverRevealState.get(hero) !== state) return;
           state.pending = false;
-          if (hero.hidden || !image.complete || image.naturalWidth <= 0 || currentHeaderCoverSource(image) !== source) {
+          if (hero.hidden || image.hidden || !coverMediaReady(image) || currentHeaderCoverSource(image) !== source) {
             headerCoverRevealState.delete(hero);
             return;
           }
@@ -170,6 +229,10 @@
         });
       });
     });
+  }
+
+  function coverMediaReady(media) {
+    return media?.tagName === "VIDEO" ? media.readyState >= 2 && media.videoWidth > 0 : media?.complete && media.naturalWidth > 0;
   }
 
   function dashboardStylesReady() {
@@ -216,8 +279,62 @@
   }
 
   function resolveHeaderImageSource(value) {
-    const source = String(value || "");
-    return source || defaultHeaderImageAsset;
+    const source = String(value || defaultHeaderImageUrl);
+    if (isSafeImageUrl(source) && location.protocol === "chrome-extension:") {
+      const url = new URL(source);
+      url.hash = "";
+      return `${location.origin}/_header-cover?url=${encodeURIComponent(url.href)}`;
+    }
+    return source;
+  }
+
+  function cachedHeaderCoverUrl(value) {
+    try {
+      const url = new URL(value);
+      const source = url.searchParams.get("url");
+      return location.protocol === "chrome-extension:" && url.origin === location.origin
+        && url.pathname === "/_header-cover" && isSafeImageUrl(source) ? source : "";
+    } catch { return ""; }
+  }
+
+  function rejectHeaderCover(value) {
+    const url = cachedHeaderCoverUrl(value);
+    if (!url) return;
+    chrome.runtime.sendMessage({
+      type: "header-cover:reject", requestId: crypto.randomUUID(), payload: { url },
+    }).catch(() => {});
+  }
+
+  function setHeaderCoverSource(image, source) {
+    headerCoverSources.set(image, source);
+    const apply = (ready = true) => {
+      if (headerCoverSources.get(image) !== source) return;
+      const resolved = ready ? source : cachedHeaderCoverUrl(source) || source;
+      if (!resolved) image.removeAttribute("src");
+      else if (image.getAttribute("src") !== resolved) image.src = resolved;
+    };
+    if (cachedHeaderCoverUrl(source) && !navigator.serviceWorker?.controller) prepareHeaderCoverController().then(apply);
+    else apply();
+  }
+
+  function prepareHeaderCoverController() {
+    if (headerCoverControllerReady) return headerCoverControllerReady;
+    headerCoverControllerReady = (async () => {
+      await navigator.serviceWorker.ready;
+      if (navigator.serviceWorker.controller) return true;
+      await chrome.runtime.sendMessage({ type: "header-cover:prepare", requestId: crypto.randomUUID(), payload: {} });
+      if (navigator.serviceWorker.controller) return true;
+      return new Promise((resolve) => {
+        const finish = () => {
+          clearTimeout(timer);
+          navigator.serviceWorker.removeEventListener("controllerchange", finish);
+          resolve(Boolean(navigator.serviceWorker.controller));
+        };
+        const timer = setTimeout(finish, 2000);
+        navigator.serviceWorker.addEventListener("controllerchange", finish);
+      });
+    })().catch(() => false);
+    return headerCoverControllerReady;
   }
 
   function applyHeaderCoverBlur(value) {
@@ -297,15 +414,11 @@
   function isSafeImageUrl(value) {
     try {
       const url = new URL(String(value || ""));
-      return url.protocol === "https:"
-        || (url.protocol === "http:" && ["localhost", "127.0.0.1", "::1"].includes(url.hostname));
+      return !url.username && !url.password && (url.protocol === "https:"
+        || (url.protocol === "http:" && ["localhost", "127.0.0.1"].includes(url.hostname)));
     } catch {
       return false;
     }
-  }
-
-  function isSafePackagedHeaderImage(value) {
-    return value === defaultHeaderImageAsset && location.protocol === "chrome-extension:";
   }
 
   function isSafeLocalCover(value) {
@@ -335,6 +448,6 @@
   }
 
   function isSafeCoverSource(value) {
-    return isSafeImageUrl(value) || isSafeLocalCover(value) || isSafePackagedHeaderImage(value);
+    return isSafeImageUrl(value) || isSafeLocalCover(value) || Boolean(cachedHeaderCoverUrl(value));
   }
 })();

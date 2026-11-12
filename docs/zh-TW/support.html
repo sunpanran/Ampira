@@ -3,27 +3,57 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark light">
+  <link rel="icon" type="image/svg+xml" href="../assets/ampira-logo.svg?v=20261112-cyan-flat">
   <title>Ampira 支援</title>
-  <link rel="stylesheet" href="../styles.css">
+  <link rel="stylesheet" href="../styles.css?v=20261112-cyan">
   <link rel="alternate" hreflang="zh-CN" href="../support.html">
   <link rel="alternate" hreflang="zh-TW" href="support.html">
   <link rel="alternate" hreflang="en" href="../en/support.html">
 </head>
-<body>
-  <a class="back" href="index.html">← Ampira</a>
-  <nav class="language-nav" aria-label="語言">
-    <a href="../support.html" lang="zh-CN">简体中文</a>
-    <a href="support.html" aria-current="page">繁體中文</a>
-    <a href="../en/support.html" lang="en">English</a>
+<body data-page="support">
+  <a class="skip-link" href="#main-content">跳至內文</a>
+  <header class="site-header">
+    <a class="mark" href="index.html" aria-label="Ampira · 首頁">
+      <img class="mark-logo" src="../assets/ampira-logo.svg?v=20261112-cyan-flat" width="48" height="48" alt="Ampira">
+      <span aria-hidden="true">AMPIRA</span>
+    </a>
+    <nav class="language-nav" aria-label="語言">
+      <a href="../support.html" lang="zh-CN">简体中文</a>
+      <a href="support.html" aria-current="page">繁體中文</a>
+      <a href="../en/support.html" lang="en">English</a>
+    </nav>
+  </header>
+  <nav class="site-nav" aria-label="說明導覽">
+    <a href="index.html" aria-label="首頁" title="首頁"><img class="nav-icon" src="../assets/grid-view.svg" width="18" height="18" alt="" aria-hidden="true"><span class="nav-label">首頁</span></a>
+    <a href="support.html" aria-current="page" aria-label="支援" title="支援"><img class="nav-icon" src="../assets/message-question-circle.svg" width="18" height="18" alt="" aria-hidden="true"><span class="nav-label">支援</span></a>
+    <a href="privacy.html" aria-label="隱私權政策" title="隱私權政策"><img class="nav-icon" src="../assets/key-01.svg" width="18" height="18" alt="" aria-hidden="true"><span class="nav-label">隱私權政策</span></a>
+    <a href="data-deletion.html" aria-label="資料刪除" title="資料刪除"><img class="nav-icon" src="../assets/trash-01.svg" width="18" height="18" alt="" aria-hidden="true"><span class="nav-label">資料刪除</span></a>
   </nav>
-  <h1>支援</h1>
-  <h2>恢復預設新分頁</h2>
-  <p>在 Chrome 開啟 <code>chrome://extensions</code>，或在 Microsoft Edge 開啟 <code>edge://extensions</code>，找到 Ampira 後停用或解除安裝。瀏覽器不允許擴充功能透過頁面內設定動態取消新分頁覆寫。</p>
-  <h2>資訊來源沒有內容</h2>
-  <p>先在「資訊」頁查看來源覆蓋率與逐源診斷，再到「瀏覽器」頁檢查對應來源網域是否已授權。若來源頁宣告了另一個網域上的 Feed，Ampira 會列出該精確網域並等待你點擊授權；授權前不會請求它。未授權時書籤仍可使用。</p>
-  <h2>AI 無法使用</h2>
-  <p>確認已儲存 API 金鑰、已同意資料傳輸說明、已授權 AI 服務網域，並在設定中測試連線。Ampira 不提供或代理 API 金鑰。</p>
-  <h2>問題回報</h2>
-  <p>請透過<a href="https://github.com/sunpanran/Ampira/issues">專案支援入口</a>提交重現步驟、瀏覽器名稱與版本，以及不含金鑰或私人書籤的螢幕截圖。</p>
+  <main class="document" id="main-content" tabindex="-1">
+    <p class="page-kicker">說明與支援</p>
+    <h1>支援</h1>
+
+    <section class="doc-section" id="support-1">
+      <h2>恢復預設新分頁</h2>
+      <p>在 Chrome 開啟 <code>chrome://extensions</code>，或在 Microsoft Edge 開啟 <code>edge://extensions</code>，找到 Ampira 後停用或解除安裝。瀏覽器不允許擴充功能透過頁面內設定動態取消新分頁覆寫。</p>
+    </section>
+
+    <section class="doc-section" id="support-2">
+      <h2>資訊來源沒有內容</h2>
+      <p>先在「資訊」頁查看來源覆蓋率與逐源診斷，再到「瀏覽器」頁檢查對應來源網域是否已授權。若來源頁宣告了另一個網域上的 Feed，Ampira 會列出該精確網域並等待你點擊授權；授權前不會請求它。未授權時書籤仍可使用。</p>
+    </section>
+
+    <section class="doc-section" id="support-3">
+      <h2>AI 無法使用</h2>
+      <p>確認已儲存 API 金鑰、已同意資料傳輸說明、已授權 AI 服務網域，並在設定中測試連線。Ampira 不提供或代理 API 金鑰。</p>
+    </section>
+
+    <section class="doc-section" id="support-4">
+      <h2>問題回報</h2>
+      <p>請透過<a href="https://github.com/sunpanran/Ampira/issues">專案支援入口</a>提交重現步驟、瀏覽器名稱與版本，以及不含金鑰或私人書籤的螢幕截圖。</p>
+    </section>
+  </main>
+  <footer class="site-footer"><span>Ampira 說明與支援</span><a href="https://github.com/sunpanran/Ampira" target="_blank" rel="noopener noreferrer">GitHub <span class="external-link-icon" aria-hidden="true"></span></a></footer>
 </body>
 </html>

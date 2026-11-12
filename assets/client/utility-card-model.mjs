@@ -26,11 +26,6 @@ export function normalizeUtilityMode(value) {
   return UTILITY_MODES.includes(mode) ? mode : "events";
 }
 
-export function nextUtilityMode(value) {
-  const index = UTILITY_MODES.indexOf(normalizeUtilityMode(value));
-  return UTILITY_MODES[(index + 1) % UTILITY_MODES.length];
-}
-
 export function weatherConditionIconName(value) {
   return WEATHER_CONDITION_ICONS[String(value || "")] || "cloud-sun";
 }

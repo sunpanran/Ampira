@@ -16,6 +16,8 @@ export function runSettingsTransferTests() {
     colorMode: "light",
     dashboardGlassBlurEnabled: false,
     bookmarkSectionEnabled: false,
+    syncStockWatchlistEnabled: true,
+    syncCountdownsEnabled: true,
     websiteShortcuts: [{ title: "Ampira", url: "https://example.com/" }],
     openaiApiKey: "sk-private",
     braveSearchApiKey: "BSA-private",
@@ -47,6 +49,8 @@ export function runSettingsTransferTests() {
   assert.equal(full.patch.colorMode, "light");
   assert.equal(full.patch.dashboardGlassBlurEnabled, false);
   assert.equal(full.patch.bookmarkSectionEnabled, false);
+  assert.equal(full.patch.syncStockWatchlistEnabled, true);
+  assert.equal(full.patch.syncCountdownsEnabled, true);
   assert.equal(full.providerOriginChanged, false);
 
   const partial = transferDocument({ colorMode: "light", unknownFutureField: "ignored" });

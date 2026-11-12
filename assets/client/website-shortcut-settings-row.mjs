@@ -18,17 +18,14 @@ export function createWebsiteShortcutSettingsRow(options) {
 
   const actions = document.createElement("div");
   actions.className = "website-shortcut-settings-actions";
-  const edit = textButton(t("settings.shortcuts.edit"), () => onEdit(index));
+  const edit = iconButton("edit-05", t("settings.shortcuts.edit"), () => onEdit(index), setIconLabel);
   edit.classList.add("shortcut-edit-action");
-  const up = orderButton("↑", t("settings.shortcuts.moveUp", { title: shortcut.title }), () => onMove(index, -1));
-  const down = orderButton("↓", t("settings.shortcuts.moveDown", { title: shortcut.title }), () => onMove(index, 1));
+  const up = iconButton("send-up", t("settings.shortcuts.moveUp", { title: shortcut.title }), () => onMove(index, -1), setIconLabel);
+  const down = iconButton("arrow-down", t("settings.shortcuts.moveDown", { title: shortcut.title }), () => onMove(index, 1), setIconLabel);
   up.disabled = busy || index === 0;
   down.disabled = busy || index === count - 1;
-  const remove = document.createElement("button");
-  remove.type = "button";
-  remove.className = "btn website-shortcut-remove";
-  setIconLabel(remove, "trash-01", t("settings.shortcuts.remove"));
-  remove.addEventListener("click", () => onRemove(index));
+  const remove = iconButton("trash-01", t("settings.shortcuts.remove"), () => onRemove(index), setIconLabel);
+  remove.classList.add("website-shortcut-remove");
   edit.disabled = busy;
   remove.disabled = busy;
   actions.append(edit, up, down, remove);
@@ -36,19 +33,13 @@ export function createWebsiteShortcutSettingsRow(options) {
   return row;
 }
 
-function textButton(label, onClick) {
+function iconButton(icon, label, onClick, setIconLabel) {
   const button = document.createElement("button");
   button.type = "button";
   button.className = "btn";
-  button.textContent = label;
-  button.addEventListener("click", onClick);
-  return button;
-}
-
-function orderButton(glyph, label, onClick) {
-  const button = textButton(glyph, onClick);
-  button.classList.add("website-shortcut-order");
+  setIconLabel(button, icon, label, "btn-icon", "sr-only");
   button.setAttribute("aria-label", label);
   button.title = label;
+  button.addEventListener("click", onClick);
   return button;
 }

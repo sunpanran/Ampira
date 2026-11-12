@@ -229,8 +229,8 @@ assert(/id="aiResearchFolder"[^>]+hidden/.test(dashboardSource)
   && aiSearchUiSource.includes("folderLabel.hidden = !researchScopesAvailable")
   && aiSearchUiSource.includes("els.aiResearchFolder.hidden = !researchScopesAvailable")
   && aiSearchUiSource.includes("els.aiWebSearchToggle.hidden = !webSearchSupported")
-  && aiSearchUiSource.includes("if (!aiResearchScopesAvailable(state.data?.ai)) return")
-  && aiSearchUiSource.includes("if (!aiWebSearchSupported(state.data?.ai)) return")
+  && aiSearchUiSource.includes('if (usesBotChat(state.data) || !aiResearchScopesAvailable(state.data?.ai)) return')
+  && aiSearchUiSource.includes('if (usesBotChat(state.data) || !aiWebSearchSupported(state.data?.ai)) return')
   && dashboardContentSource.includes("webSearchSupported: providerConfigured && Boolean(nativeWebSearchCapability(settings))")
   && overlaysSource.includes(".ai-search-scope-toggle[hidden]"),
 "research controls must start hidden; configuration reveals folders and provider capability additionally reveals web search");

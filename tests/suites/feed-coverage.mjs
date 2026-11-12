@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { fetchSourceArticles, parseFeedDocument } from "../../extension/core/feed.mjs";
 import { decodeResponseBuffer } from "../../extension/core/network.mjs";
-import { filterFeedItemsBySources } from "../../extension/core/permission-state.mjs";
+import { buildPermissionRows, filterFeedItemsBySources, originPattern } from "../../extension/core/permission-state.mjs";
+import { publicFeedsForLocale } from "../../extension/core/public-feeds.mjs";
 import { sourceStatusForFetch } from "../../extension/runtime/refresh-service.mjs";
 import { summarizeQuality, updateSourceQualityRecord } from "../../extension/runtime/runtime-utils.mjs";
 
@@ -19,6 +20,30 @@ assert(decodeResponseBuffer(latin1.buffer, "application/xml").includes("Café"),
 
 const originalFetch = globalThis.fetch;
 try {
+  const krSource = publicFeedsForLocale("zh-CN").find((item) => item.id === "36kr");
+  assert.deepEqual(buildPermissionRows([krSource.url], ["https://36kr.com/*"]), [
+    { origin: "https://www.36kr.com/*", granted: false },
+  ], "the repaired RSS origin must require its own exact permission instead of inheriting the old host grant");
+  const krRequests = [];
+  globalThis.fetch = async (url) => {
+    krRequests.push(String(url));
+    return new Response(rss, { headers: { "content-type": "application/rss+xml" } });
+  };
+  const krResult = await fetchSourceArticles(krSource, {
+    profile: { resolvedUrl: "https://36kr.com/feed" },
+    validateUrl: async (url) => {
+      if (originPattern(url) === "https://www.36kr.com/*") return;
+      throw Object.assign(new Error("Origin not granted"), { code: "ORIGIN_PERMISSION_REQUIRED", details: { url } });
+    },
+  });
+  assert.deepEqual(krRequests, ["https://www.36kr.com/feed"], "a cached old endpoint must not prevent fetching the repaired public feed");
+  assert.equal(krResult.length, 1);
+  assert.equal(krResult[0].sourceKey, "public-36kr", "the repaired feed must retain its stable source identity");
+  assert.equal(krResult[0].sourceOrigin, "https://www.36kr.com");
+  assert.equal(krResult.resolvedUrl, "https://www.36kr.com/feed");
+  assert.deepEqual(filterFeedItemsBySources([{ sourceKey: "public-36kr", sourceOrigin: "https://36kr.com" }], [krSource]), [],
+    "records bound to the old origin must not be presented as freshly fetched from the replacement");
+
   let calls = [];
   globalThis.fetch = async (url) => {
     calls.push(String(url));

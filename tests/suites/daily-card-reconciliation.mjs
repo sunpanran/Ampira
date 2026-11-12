@@ -12,6 +12,40 @@ export function runDailyCardReconciliationTests() {
   testTransientIconLoadStateDoesNotPreventReuse();
   testTransientPreviewImageLoadStateDoesNotPreventReuse();
   testActionStateRerenderKeepsLoadedPreviewThumbs();
+  testClippedBatchSnapshots();
+}
+
+function testClippedBatchSnapshots() {
+  const style = () => {
+    const values = new Map();
+    return { setProperty: (key, value) => values.set(key, value), removeProperty: key => values.delete(key), get: key => values.get(key) };
+  };
+  for (const [size, overflow, bounded] of [["compact", false, true], ["tall", true, true], ["tall", false, false]]) {
+    const cards = Array.from({ length: 3 }, () => ({ style: style(), querySelector: () => null, querySelectorAll: () => [] }));
+    const list = { children: cards, style: style(), clientHeight: 180, scrollHeight: overflow ? 400 : 180,
+      closest: () => ({ dataset: { slotSize: size } }) };
+    const column = { querySelector: () => list, querySelectorAll: () => cards };
+    const classes = new Set();
+    let context;
+    const transition = createDailyBatchTransition({
+      documentNode: { visibilityState: "visible", documentElement: { classList: { add: value => classes.add(value), remove: value => classes.delete(value) } },
+        startViewTransition(update) { update(); return { skipTransition() {} }; } },
+      getColumn: () => column, dailyColumns: () => [{ id: "utility", items: [1, 2, 3] }], directDailyCards: node => node.children,
+      prefersReducedMotion: () => false, renderColumn: (_id, value) => { context = value; },
+    });
+    transition.run("utility");
+    assert.equal(Boolean(context.bounded), bounded, "compact or scrollable content needs a clipped viewport snapshot");
+    if (bounded) {
+      assert.equal(list.style.get("view-transition-name"), "today-utility-viewport");
+      assert(cards.every(card => !card.style.get("view-transition-name")), "offscreen rows must not escape clipping in independent page-level snapshots");
+    } else {
+      assert(cards.every(card => card.style.get("view-transition-name")), "fully visible tall cards retain their existing item transition");
+    }
+    transition.cancel();
+    assert(!list.style.get("view-transition-name"), "cancelling or switching card types clears the viewport snapshot name");
+    assert(cards.every(card => !card.style.get("view-transition-name")));
+    assert(!classes.size);
+  }
 }
 
 function testStableCardStaysConnected() {
@@ -190,7 +224,7 @@ function createDailyTransition({ animateCardsIn = () => {}, canReuseCard }) {
     dailyBoardCardSelector: ".news-list-card, .daily-card, .archive-card",
     dailyColumns: () => [],
     directDailyCards: (list) => Array.from(list.children),
-    els: { dailyBoard: { children: [], querySelectorAll: () => [] } },
+    getColumn: () => null,
     prefersReducedMotion: () => true,
     renderColumn: () => {},
   });

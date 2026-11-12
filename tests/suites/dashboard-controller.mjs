@@ -50,10 +50,14 @@ export async function runDashboardControllerTests() {
   });
 
   const first = controller.loadDashboard({ render: false });
+  await Promise.resolve();
   const second = controller.loadDashboard({ render: false });
+  assert.equal(pending.length, 1, "overlapping requests must wait for the active request");
+  pending[0]({ marker: "stale" });
+  await Promise.resolve();
+  assert.notEqual(state.data?.marker, "stale", "a superseded response must never be rendered");
   pending[1]({ marker: "newer" });
   await second;
-  pending[0]({ marker: "stale" });
   await first;
   assert.equal(state.data.marker, "newer", "a stale dashboard response must not replace a newer generation");
 }

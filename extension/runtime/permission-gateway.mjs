@@ -3,6 +3,8 @@ import { applyInspirationSource } from "../core/inspiration-preset.mjs";
 import { buildPermissionRows, normalizeOriginPattern, originPattern } from "../core/permission-state.mjs";
 import { publicFeedsForLocale } from "../core/public-feeds.mjs";
 import { WEATHER_ORIGINS } from "../core/weather.mjs";
+import { STOCK_ORIGIN, STOCK_OPTED_IN_KEY } from "../core/stocks.mjs";
+import { createBookmarkModelCache } from "../core/bookmark-model-cache.mjs";
 
 export function createPermissionGateway({
   chrome,
@@ -11,9 +13,13 @@ export function createPermissionGateway({
   getRecord,
   providerCredentialAvailable = (_baseUrl, available) => Boolean(available),
 }) {
+  const bookmarkModels = createBookmarkModelCache({
+    readTree: () => chrome.bookmarks.getTree(),
+    buildModel: (tree, settings, locale) => applyInspirationSource(buildBookmarkModel(tree, settings), settings, locale),
+  });
   async function currentBookmarkModel(settings) {
-    const model = buildBookmarkModel(await chrome.bookmarks.getTree(), settings);
-    return applyInspirationSource(model, settings, settings.uiLocale || chrome.i18n?.getUILanguage?.());
+    if (settings.bookmarkConsentGranted !== true) return emptyBookmarkModel();
+    return bookmarkModels.get(settings, settings.uiLocale || chrome.i18n?.getUILanguage?.());
   }
 
   function emptyBookmarkModel() {
@@ -61,6 +67,7 @@ export function createPermissionGateway({
       urls.push("https://api.search.brave.com/");
     }
     const clientState = typeof getRecord === "function" ? await getRecord("client-state", {}) : {};
+    if (clientState?.[STOCK_OPTED_IN_KEY] === "true" || grantedOrigins.includes(originPattern(STOCK_ORIGIN))) urls.push(STOCK_ORIGIN);
     const weatherOptedIn = clientState?.["dash.utility.weather.optedIn"] === "true"
       || Boolean(clientState?.["dash.utility.weather.location.v1"]);
     if (weatherOptedIn || WEATHER_ORIGINS.some((origin) => grantedOrigins.includes(originPattern(origin)))) {
@@ -93,6 +100,8 @@ export function createPermissionGateway({
 
   return {
     currentBookmarkModel,
+    currentBookmarkTree: settings => settings.bookmarkConsentGranted === true ? bookmarkModels.currentTree() : Promise.resolve([]),
+    invalidateBookmarkModel: bookmarkModels.invalidate,
     emptyBookmarkModel,
     selectedOrigins,
     permissionStatus,

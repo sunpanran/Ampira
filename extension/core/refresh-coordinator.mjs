@@ -4,6 +4,7 @@ export function createRefreshCoordinator(options = {}) {
   const isFresh = typeof options.isFresh === "function" ? options.isFresh : () => false;
   let active = null;
   let queuedForce = false;
+  let queuedOptions = {};
   let generation = 0;
 
   function complete(state) {
@@ -11,19 +12,23 @@ export function createRefreshCoordinator(options = {}) {
     active = null;
     if (!queuedForce) return;
     queuedForce = false;
-    start(true).catch(() => {});
+    start(true, queuedOptions).catch(() => {});
   }
 
-  async function start(force = false) {
+  async function start(force = false, runOptions = {}) {
     if (active) {
-      if (force) queuedForce = true;
+      if (force) { queuedForce = true; queuedOptions = runOptions; }
       return { started: false, queued: queuedForce, status: await getStatus() };
     }
 
-    const state = { operation: null };
+    const state = { operation: null, controller: new AbortController() };
     active = state;
     try {
       const previous = await getStatus();
+      if (state.controller.signal.aborted) {
+        complete(state);
+        return { started: false, status: previous };
+      }
       if (!force && isFresh(previous)) {
         complete(state);
         return { started: false, status: previous };
@@ -31,7 +36,7 @@ export function createRefreshCoordinator(options = {}) {
 
       const currentGeneration = ++generation;
       const operation = Promise.resolve()
-        .then(() => run(currentGeneration, { force }))
+        .then(() => run(currentGeneration, { ...runOptions, force, signal: state.controller.signal }))
         .catch(() => {});
       state.operation = operation;
       operation.then(() => complete(state));
@@ -51,6 +56,7 @@ export function createRefreshCoordinator(options = {}) {
     invalidate() {
       generation += 1;
       queuedForce = false;
+      active?.controller.abort();
     },
     isCurrent(value) {
       return value === generation;

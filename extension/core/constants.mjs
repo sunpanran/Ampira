@@ -1,10 +1,14 @@
+import { DASHBOARD_CARD_IDS } from "./dashboard-layout.mjs";
+import { DEFAULT_KEYBOARD_SHORTCUTS } from "./keyboard-shortcuts.mjs";
+
 export const SETTINGS_KEY = "ampira.settings.v1";
 export const LOCAL_SECRETS_KEY = "ampira.secrets.local.v1";
+export const SYNC_CREDENTIALS_KEY = "ampira.credentials.sync.v1";
 export const LOCAL_PROVIDER_KEY = "ampira.provider.local.v1";
 export const LOCAL_DEVICE_CONSENT_KEY = "ampira.device-consent.local.v1";
 export const LOCAL_HEADER_COVER_KEY = "ampira.header-cover.local.v1";
 export const DB_NAME = "ampira-extension";
-export const DB_VERSION = 1;
+export const DB_VERSION = 2;
 export const CACHE_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 export const CACHE_LIMIT_BYTES = 25 * 1024 * 1024;
 export const REFRESH_ALARM = "ampira-refresh";
@@ -35,9 +39,16 @@ export const DEFAULT_SETTINGS = Object.freeze({
   onboardingCompleted: false,
   aiDisclosureAccepted: false,
   uiLocale: "",
-  colorMode: "dark",
-  accentTheme: "violet",
-  customAccentColor: "#9152FF",
+  colorMode: "system",
+  navPosition: "left",
+  mcpEnabled: false,
+  botGenerateBrief: true,
+  botAnswerQuestions: true,
+  botOrganizeNews: false,
+  dashboardMode: "standard",
+  dashboardCardOrder: DASHBOARD_CARD_IDS,
+  accentTheme: "cyan",
+  customAccentColor: "#06B6D4",
   pointerGlowEnabled: true,
   dashboardGlassBlurEnabled: true,
   headerImageEnabled: true,
@@ -47,7 +58,10 @@ export const DEFAULT_SETTINGS = Object.freeze({
   headerImageBlurAmount: 12,
   headerImageHeightScale: 100,
   headerImageUrl: "",
+  headerImageMediaType: "auto",
   bookmarkSectionEnabled: true,
+  keyboardShortcutsEnabled: true,
+  keyboardShortcuts: DEFAULT_KEYBOARD_SHORTCUTS,
   websiteShortcutsEnabled: false,
   websiteShortcuts: [],
   newsBookmarkFolder: "",
@@ -60,10 +74,12 @@ export const DEFAULT_SETTINGS = Object.freeze({
   floatingWebOpenEnabled: false,
   readingQueueOpenOnReadAll: true,
   readingQueueReadAllPrompted: false,
-  retainSeenArchive: true,
+  retainSeenArchive: false,
   syncReadingQueueEnabled: false,
   syncTodosEnabled: false,
   syncWeatherLocationEnabled: false,
+  syncStockWatchlistEnabled: false,
+  syncCountdownsEnabled: false,
   personalizedRankingEnabled: false,
   publicFeedSupplementEnabled: true,
   webImageSearchEnabled: false,
@@ -72,7 +88,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   openaiApiStyle: "responses",
   openaiSummaryModel: "gpt-5.4-mini",
   credentialGeneration: 0,
-  dailyAiLimit: 50,
+  dailyAiLimit: 160,
   hotNewsCacheSize: 192,
   hotNewsEntriesPerSource: 5,
   newsEntriesPerCategory: 12,
