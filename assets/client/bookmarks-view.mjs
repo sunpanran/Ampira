@@ -189,10 +189,7 @@ function createCategoryBlock(group) {
   pill.className = `pill ${cardTone(groupCard)}`;
   pill.textContent = group.section;
   title.append(createIcon(cardIconName(groupCard), "card-icon"), name, pill);
-  const count = document.createElement("span");
-  count.className = "category-count";
-  count.textContent = String(group.items.length);
-  header.append(title, count);
+  header.append(title);
   contextAttachGroup(header, () => group);
   const list = document.createElement("div");
   list.className = "link-list";

@@ -2134,8 +2134,9 @@ assert(primitivesCssSource.includes("select {\n")
   && primitivesCssSource.includes("appearance: auto;"), "native select fallbacks must retain the themed control and forced-colors behavior");
 assert(!primitivesCssSource.includes("select:not(:disabled):active"), "native selects must not shift when the system popup opens");
 assert(!settingsCssSource.includes(".field select"), "settings must not duplicate the shared native select primitive");
-assert((dashboardSource.match(/<select\b/g) || []).length === 12
+assert((dashboardSource.match(/<select\b/g) || []).length === 13
   && dashboardSource.includes('id="aiResearchFolder"') && dashboardSource.includes('id="headerImageMediaTypeInput"')
+  && dashboardSource.includes('id="headerImageFitInput"')
   && dashboardSource.includes('id="summaryOrder" data-combobox-listbox-width="trigger"'),
 "every shipped single-value select, including news ordering and the research folder scope, must remain accounted for by the shared enhancement");
 assert(selectComboboxSource.includes('trigger.setAttribute("role", "combobox")')
@@ -2522,15 +2523,15 @@ assert(appearanceControllerSource.includes("const enabled = els.headerImageEnabl
   && !appearanceControllerSource.includes("HEADER_IMAGE_FULLSCREEN_HEIGHT_MIN")
   && appearanceControllerSource.includes('els.headerImageHeightInput.min = String(HEADER_IMAGE_HEIGHT_MIN)')
   && appearanceControllerSource.includes('els.headerImageHeightInput.max = String(HEADER_IMAGE_HEIGHT_MAX)')
-  && dashboardSource.includes('id="headerImageHeightInput" type="range" min="70" max="200" step="5" value="100"')
-  && appearanceControllerSource.includes("const HEADER_IMAGE_HEIGHT_MAX = 200;")
-  && themeBootstrapSource.includes("const headerImageHeightMax = 200;")
-  && appearanceControllerSource.includes("const value = Math.max(min, normalizeHeaderImageHeightScale")
+  && dashboardSource.includes('id="headerImageHeightInput" type="range" min="70" max="300" step="5" value="100"')
+  && appearanceControllerSource.includes("const HEADER_IMAGE_HEIGHT_MAX = 300;")
+  && themeBootstrapSource.includes("const headerImageHeightMax = 300;")
+  && appearanceControllerSource.includes("const value = normalizeHeaderImageHeightScale(els.headerImageHeightInput.value)")
   && appearanceControllerSource.includes('setProperty("--header-cover-fullscreen-height", `${scale}dvh`)')
   && themeBootstrapSource.includes('setProperty("--header-cover-fullscreen-height", `${scale}dvh`)')
   && dashboardSectionsCssSource.includes("height: var(--header-cover-fullscreen-height);")
   && dashboardSectionsCssSource.includes("calc(100dvh + var(--header-cover-size-adjustment, 0px))")
-  && dashboardSectionsCssSource.includes("object-position: center top;"), "cover height must remain adjustable from 70% to 200% in fullscreen mode while its image stays viewport-sized, top-anchored, and restored before the first frame");
+  && dashboardSectionsCssSource.includes("object-position: center top;"), "cover height must remain adjustable from 70% to 300% in fullscreen mode while its image stays viewport-sized, top-anchored, and restored before the first frame");
 assert(!dashboardSectionsCssSource.includes(".has-fullscreen-header-cover .today-meta")
   && !dashboardSectionsCssSource.includes(".has-fullscreen-header-cover .summary-batch-meta")
   && !dashboardSectionsCssSource.includes(".has-fullscreen-header-cover #library .controls .segmented button:not(.active)"),
@@ -2554,9 +2555,6 @@ assert(dashboardSectionsCssSource.includes("transition: opacity 720ms var(--moti
   "header cover loading must keep the original entrance timing while preload and first-frame work make the image available sooner");
 assert(appSource.includes("createCoverBlurPreviewController")
   && dashboardSource.includes('class="settings-section header-image-settings"')
-  && dashboardSource.includes('class="settings-field-grid header-image-primary-settings"')
-  && dashboardSource.indexOf('id="headerImageLayoutGroup"') < dashboardSource.indexOf('id="headerImageUrlInput"')
-  && dashboardSource.indexOf('id="headerImageUrlInput"') < dashboardSource.indexOf('id="headerImageBlurSetting"')
   && coverBlurPreviewSource.includes('classList.add("is-cover-previewing")')
   && coverBlurPreviewSource.includes('window.scrollTo({ top: 0, left: 0, behavior: "smooth" })')
   && coverBlurPreviewSource.includes('if (!modal.classList.contains(previewClass))')
@@ -2921,11 +2919,14 @@ for (const suite of [
   "redirect-policy.mjs",
   "refresh-coordinator.mjs",
   "settings-store.mjs",
+  "title-opacity.mjs",
   "content-sync.mjs",
   "content-sync-settings.mjs",
   "header-cover.mjs",
   "header-cover-cache.mjs",
   "header-cover-video.mjs",
+  "header-cover-media.mjs",
+  "header-cover-fit.mjs",
   "browser-search.mjs",
   "unified-search.mjs",
   "history-invalidation.mjs",

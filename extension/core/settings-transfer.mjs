@@ -25,6 +25,7 @@ export const PORTABLE_SETTINGS_FIELDS = Object.freeze([
   "navPosition",
   "accentTheme",
   "customAccentColor",
+  "sectionTitleOpacity",
   "pointerGlowEnabled",
   "dashboardGlassBlurEnabled",
   "dashboardCardOrder",
@@ -36,6 +37,7 @@ export const PORTABLE_SETTINGS_FIELDS = Object.freeze([
   "headerImageHeightScale",
   "headerImageUrl",
   "headerImageMediaType",
+  "headerImageFit",
   "bookmarkSectionEnabled",
   "websiteShortcutsEnabled",
   "websiteShortcuts",
@@ -72,6 +74,7 @@ export const PORTABLE_SETTINGS_FIELDS = Object.freeze([
 const BOOLEAN_FIELDS = new Set(PORTABLE_SETTINGS_FIELDS.filter(field => typeof DEFAULT_SETTINGS[field] === "boolean"));
 const ARRAY_FIELDS = new Set(["dashboardCardOrder", "websiteShortcuts", "bookmarkOnlyFolders", "hiddenBookmarkCategories", "excludedNewsSources"]);
 const NUMBER_RANGES = Object.freeze({
+  sectionTitleOpacity: [0, 100],
   headerImageBlurAmount: [0, 50],
   headerImageHeightScale: [HEADER_IMAGE_HEIGHT_MIN, HEADER_IMAGE_HEIGHT_MAX],
   dailyAiLimit: [1, 500],
@@ -88,6 +91,7 @@ const STRING_LIMITS = Object.freeze({
   customAccentColor: 7,
   headerImageUrl: 2048,
   headerImageMediaType: 10,
+  headerImageFit: 10,
   newsBookmarkFolder: 200,
   newsSourceMode: 20,
   inspirationBookmarkFolder: 200,
@@ -212,6 +216,7 @@ function validatePortableValue(field, value) {
   if (field === "customAccentColor" && !/^#[0-9a-f]{6}$/i.test(value)) throw invalidValue(field);
   if (field === "headerImageUrl" && value && !normalizePublicUrl(value)) throw invalidValue(field);
   if (field === "headerImageMediaType" && !["auto", "image", "video"].includes(value)) throw invalidValue(field);
+  if (field === "headerImageFit" && !["cover", "contain", "fill", "height"].includes(value)) throw invalidValue(field);
   if (field === "openaiBaseUrl" && !isValidServiceUrl(value)) throw invalidValue(field);
   if (field === "openaiApiStyle" && !API_STYLES.has(value)) throw invalidValue(field);
   if (field === "newsSourceMode" && !NEWS_SOURCE_MODES.has(value)) throw invalidValue(field);

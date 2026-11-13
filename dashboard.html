@@ -493,23 +493,23 @@
           </div>
           <section class="settings-section" aria-labelledby="bookmarkPrimaryTitle">
             <div class="settings-section-head"><div><h4 id="bookmarkPrimaryTitle" data-i18n="settings.section.primarySources">主要来源</h4></div></div>
-            <div class="settings-field-grid">
+            <div class="settings-field-grid settings-field-grid-balanced">
               <div class="field">
                 <label for="newsBookmarkFolderSelect" data-i18n="settings.bookmarks.newsFolder">资讯文件夹</label>
                 <select id="newsBookmarkFolderSelect"></select>
-                <div class="help" data-i18n="settings.bookmarks.newsFolderHelp">公共来源不读取资讯书签；选择文件夹后读取该文件夹。</div>
+                <div class="help" data-i18n="settings.bookmarks.newsFolderHelp">使用公共来源或书签文件夹。</div>
               </div>
               <div class="field">
                 <label for="inspirationBookmarkFolderSelect" data-i18n="settings.bookmarks.inspirationFolder">灵感文件夹</label>
                 <select id="inspirationBookmarkFolderSelect"></select>
-                <div class="help" data-i18n="settings.bookmarks.inspirationFolderHelp">可使用灵感预设或个人书签；不会修改浏览器书签。</div>
+                <div class="help" data-i18n="settings.bookmarks.inspirationFolderHelp">使用预设或个人书签，不修改原书签。</div>
               </div>
             </div>
           </section>
           <section class="settings-section" aria-labelledby="bookmarkExtraTitle">
             <details class="settings-disclosure" id="bookmarkExtraDetails">
               <summary class="settings-disclosure-summary">
-                <span class="settings-disclosure-copy"><strong id="bookmarkExtraTitle" data-i18n="settings.section.extraSources">附加来源</strong><small data-i18n="settings.section.extraSourcesHelp">添加只在书签面板显示的补充文件夹。</small></span>
+                <span class="settings-disclosure-copy"><strong id="bookmarkExtraTitle" data-i18n="settings.section.extraSources">附加来源</strong><small data-i18n="settings.section.extraSourcesHelp">仅在书签面板显示。</small></span>
                 <span class="settings-disclosure-meta" id="bookmarkExtraCount">0</span>
                 <span class="settings-disclosure-chevron" aria-hidden="true"></span>
               </summary>
@@ -577,101 +577,144 @@
           <div class="settings-panel-intro">
             <h3 data-i18n="settings.appearance.title">外观</h3>
           </div>
-          <section class="settings-section" aria-labelledby="appearanceModeTitle">
-            <div class="settings-section-head"><div><h4 id="appearanceModeTitle" data-i18n="settings.section.languageMode">语言与模式</h4></div></div>
-            <div class="settings-field-grid settings-field-grid-balanced">
-          <div class="field">
-            <label for="uiLocaleSelect" data-i18n="settings.language.label">界面语言</label>
-            <select id="uiLocaleSelect">
-              <option value="en">English</option>
-              <option value="zh-CN">简体中文</option>
-              <option value="zh-Hant">繁體中文</option>
-            </select>
-            <div class="help" data-i18n="settings.language.help">切换导航、设置、状态提示和日期格式；书签与网站名称保持原文。</div>
-          </div>
-          <div class="field">
-            <div class="field-label" data-i18n="settings.colorMode.label">颜色模式</div>
-            <div class="segmented appearance-segmented" id="colorModeGroup" role="group" aria-label="颜色模式" data-i18n-aria-label="settings.colorMode.label">
-              <button class="active" type="button" data-color-mode="system" aria-pressed="true"><img class="segment-icon" data-icon="monitor-01" alt="" aria-hidden="true"><span data-i18n="settings.colorMode.system">跟随系统</span></button>
-              <button type="button" data-color-mode="dark" aria-pressed="false"><img class="segment-icon" data-icon="moon-01" alt="" aria-hidden="true"><span data-i18n="settings.colorMode.dark">深色</span></button>
-              <button type="button" data-color-mode="light" aria-pressed="false"><img class="segment-icon" data-icon="sun" alt="" aria-hidden="true"><span data-i18n="settings.colorMode.light">浅色</span></button>
-            </div>
-            <div class="help" data-i18n="settings.colorMode.help">手动选择会覆盖系统深浅色偏好。</div>
-          </div>
-            </div>
-          </section>
-          <section class="settings-section" aria-labelledby="appearanceNavigationTitle">
-            <div class="settings-section-head"><div><h4 id="appearanceNavigationTitle" data-i18n="settings.navPosition.label">导航位置</h4></div></div>
-            <div class="segmented appearance-segmented" id="navPositionGroup" role="group" aria-labelledby="appearanceNavigationTitle" aria-describedby="navPositionHelp">
-              <button type="button" data-nav-position="top" aria-pressed="false"><span data-i18n="settings.navPosition.top">顶部</span></button>
-              <button type="button" data-nav-position="bottom" aria-pressed="false"><span data-i18n="settings.navPosition.bottom">底部</span></button>
-              <button class="active" type="button" data-nav-position="left" aria-pressed="true"><span data-i18n="settings.navPosition.left">左侧</span></button>
-              <button type="button" data-nav-position="right" aria-pressed="false"><span data-i18n="settings.navPosition.right">右侧</span></button>
-            </div>
-            <div class="help" id="navPositionHelp" data-i18n="settings.navPosition.help">页面随导航位置调整；窄屏时，左右导航自动移到底部。</div>
-          </section>
-          <section class="settings-section" aria-labelledby="appearanceAccentTitle">
-            <div class="settings-section-head"><div><h4 id="appearanceAccentTitle" data-i18n="settings.section.accent">主题色</h4></div></div>
-          <div class="field">
-            <div class="theme-swatches" id="accentThemeGroup" role="group" aria-label="主题色" data-i18n-aria-label="settings.accent.label">
-              <button class="theme-swatch active" type="button" data-accent-theme="cyan" aria-pressed="true" title="青色" data-i18n-title="settings.accent.cyan">
-                <span class="theme-dot theme-cyan" aria-hidden="true"></span>
-                <span class="sr-only" data-i18n="settings.accent.cyan">青色</span>
-              </button>
-              <button class="theme-swatch" type="button" data-accent-theme="emerald" aria-pressed="false" title="绿色" data-i18n-title="settings.accent.emerald">
-                <span class="theme-dot theme-emerald" aria-hidden="true"></span>
-                <span class="sr-only" data-i18n="settings.accent.emerald">绿色</span>
-              </button>
-              <button class="theme-swatch" type="button" data-accent-theme="amber" aria-pressed="false" title="琥珀" data-i18n-title="settings.accent.amber">
-                <span class="theme-dot theme-amber" aria-hidden="true"></span>
-                <span class="sr-only" data-i18n="settings.accent.amber">琥珀</span>
-              </button>
-              <button class="theme-swatch" type="button" data-accent-theme="rose" aria-pressed="false" title="玫瑰" data-i18n-title="settings.accent.rose">
-                <span class="theme-dot theme-rose" aria-hidden="true"></span>
-                <span class="sr-only" data-i18n="settings.accent.rose">玫瑰</span>
-              </button>
-              <button class="theme-swatch" type="button" data-accent-theme="violet" aria-pressed="false" title="紫色" data-i18n-title="settings.accent.violet">
-                <span class="theme-dot theme-violet" aria-hidden="true"></span>
-                <span class="sr-only" data-i18n="settings.accent.violet">紫色</span>
-              </button>
-              <button class="theme-swatch theme-custom-swatch" id="customAccentTrigger" type="button" data-accent-theme="custom" aria-pressed="false" aria-haspopup="dialog" aria-expanded="false" aria-controls="customAccentPicker" title="自定义主题色" data-i18n-title="settings.accent.customLabel">
-                <span class="theme-dot theme-custom-dot" id="customAccentDot" aria-hidden="true"></span>
-                <span class="sr-only" data-i18n="settings.accent.custom">自定义</span>
-              </button>
-            </div>
-            <div class="color-picker-popover" id="customAccentPicker" popover="auto" role="dialog" aria-labelledby="customAccentPickerTitle">
-              <div class="color-picker-head">
-                <div class="color-picker-heading">
-                  <strong id="customAccentPickerTitle" data-i18n="settings.accent.pickerTitle">自定义主题色</strong>
-                </div>
-                <button class="btn ghost icon-btn color-picker-close" id="closeCustomAccentPicker" type="button" aria-label="关闭" title="关闭" data-i18n-aria-label="action.close" data-i18n-title="action.close">
-                  <img class="btn-icon" data-icon="x-close" alt="" aria-hidden="true">
+          <section class="settings-section" aria-labelledby="appearanceThemeTitle">
+            <div class="settings-section-head"><div><h4 id="appearanceThemeTitle" data-i18n="settings.section.themeLanguage">主题与语言</h4></div></div>
+            <div class="field">
+              <div class="field-label" data-i18n="settings.accent.label">主题色</div>
+              <div class="theme-swatches" id="accentThemeGroup" role="group" aria-label="主题色" data-i18n-aria-label="settings.accent.label">
+                <button class="theme-swatch active" type="button" data-accent-theme="cyan" aria-pressed="true" title="青色" data-i18n-title="settings.accent.cyan">
+                  <span class="theme-dot theme-cyan" aria-hidden="true"></span>
+                  <span class="sr-only" data-i18n="settings.accent.cyan">青色</span>
+                </button>
+                <button class="theme-swatch" type="button" data-accent-theme="emerald" aria-pressed="false" title="绿色" data-i18n-title="settings.accent.emerald">
+                  <span class="theme-dot theme-emerald" aria-hidden="true"></span>
+                  <span class="sr-only" data-i18n="settings.accent.emerald">绿色</span>
+                </button>
+                <button class="theme-swatch" type="button" data-accent-theme="amber" aria-pressed="false" title="琥珀" data-i18n-title="settings.accent.amber">
+                  <span class="theme-dot theme-amber" aria-hidden="true"></span>
+                  <span class="sr-only" data-i18n="settings.accent.amber">琥珀</span>
+                </button>
+                <button class="theme-swatch" type="button" data-accent-theme="rose" aria-pressed="false" title="玫瑰" data-i18n-title="settings.accent.rose">
+                  <span class="theme-dot theme-rose" aria-hidden="true"></span>
+                  <span class="sr-only" data-i18n="settings.accent.rose">玫瑰</span>
+                </button>
+                <button class="theme-swatch" type="button" data-accent-theme="violet" aria-pressed="false" title="紫色" data-i18n-title="settings.accent.violet">
+                  <span class="theme-dot theme-violet" aria-hidden="true"></span>
+                  <span class="sr-only" data-i18n="settings.accent.violet">紫色</span>
+                </button>
+                <button class="theme-swatch theme-custom-swatch" id="customAccentTrigger" type="button" data-accent-theme="custom" aria-pressed="false" aria-haspopup="dialog" aria-expanded="false" aria-controls="customAccentPicker" title="自定义主题色" data-i18n-title="settings.accent.customLabel">
+                  <span class="theme-dot theme-custom-dot" id="customAccentDot" aria-hidden="true"></span>
+                  <span class="sr-only" data-i18n="settings.accent.custom">自定义</span>
                 </button>
               </div>
-              <div class="color-picker-plane" id="customAccentField" role="slider" tabindex="0" aria-valuemin="0" aria-valuemax="100" aria-valuenow="97" aria-valuetext="#06B6D4" aria-label="颜色区域：左右调整饱和度，上下调整亮度" data-i18n-aria-label="settings.accent.pickerField">
-                <span class="color-picker-marker" id="customAccentMarker" aria-hidden="true"></span>
-              </div>
-              <div class="color-picker-controls">
-                <label class="color-picker-control-row" for="customAccentHue">
-                  <span data-i18n="settings.accent.pickerHue">色相</span>
-                  <input class="color-picker-hue" id="customAccentHue" type="range" min="0" max="360" step="1" value="189" aria-label="色相" data-i18n-aria-label="settings.accent.pickerHue">
-                </label>
-                <label class="color-picker-control-row color-picker-hex-row" for="customAccentInput">
-                  <span>HEX</span>
-                  <span class="color-picker-hex-control">
-                    <span class="color-picker-value-dot" aria-hidden="true"></span>
-                    <input class="color-picker-hex-input" id="customAccentInput" type="text" value="#06B6D4" maxlength="7" inputmode="text" autocomplete="off" autocapitalize="characters" spellcheck="false" aria-label="自定义主题色" aria-describedby="customAccentInputError" data-i18n-aria-label="settings.accent.customLabel">
-                  </span>
-                </label>
-                <span class="color-picker-error" id="customAccentInputError" role="status" aria-live="polite" hidden data-i18n="settings.accent.pickerInvalid">请输入 6 位 HEX 色值。</span>
+              <div class="color-picker-popover" id="customAccentPicker" popover="auto" role="dialog" aria-labelledby="customAccentPickerTitle">
+                <div class="color-picker-head">
+                  <div class="color-picker-heading">
+                    <strong id="customAccentPickerTitle" data-i18n="settings.accent.pickerTitle">自定义主题色</strong>
+                  </div>
+                  <button class="btn ghost icon-btn color-picker-close" id="closeCustomAccentPicker" type="button" aria-label="关闭" title="关闭" data-i18n-aria-label="action.close" data-i18n-title="action.close">
+                    <img class="btn-icon" data-icon="x-close" alt="" aria-hidden="true">
+                  </button>
+                </div>
+                <div class="color-picker-plane" id="customAccentField" role="slider" tabindex="0" aria-valuemin="0" aria-valuemax="100" aria-valuenow="97" aria-valuetext="#06B6D4" aria-label="颜色区域：左右调整饱和度，上下调整亮度" data-i18n-aria-label="settings.accent.pickerField">
+                  <span class="color-picker-marker" id="customAccentMarker" aria-hidden="true"></span>
+                </div>
+                <div class="color-picker-controls">
+                  <label class="color-picker-control-row" for="customAccentHue">
+                    <span data-i18n="settings.accent.pickerHue">色相</span>
+                    <input class="color-picker-hue" id="customAccentHue" type="range" min="0" max="360" step="1" value="189" aria-label="色相" data-i18n-aria-label="settings.accent.pickerHue">
+                  </label>
+                  <label class="color-picker-control-row color-picker-hex-row" for="customAccentInput">
+                    <span>HEX</span>
+                    <span class="color-picker-hex-control">
+                      <span class="color-picker-value-dot" aria-hidden="true"></span>
+                      <input class="color-picker-hex-input" id="customAccentInput" type="text" value="#06B6D4" maxlength="7" inputmode="text" autocomplete="off" autocapitalize="characters" spellcheck="false" aria-label="自定义主题色" aria-describedby="customAccentInputError" data-i18n-aria-label="settings.accent.customLabel">
+                    </span>
+                  </label>
+                  <span class="color-picker-error" id="customAccentInputError" role="status" aria-live="polite" hidden data-i18n="settings.accent.pickerInvalid">请输入 6 位 HEX 色值。</span>
+                </div>
               </div>
             </div>
-          </div>
+            <div class="settings-field-grid settings-field-grid-balanced">
+              <div class="field">
+                <div class="field-label" data-i18n="settings.colorMode.label">颜色模式</div>
+                <div class="segmented appearance-segmented" id="colorModeGroup" role="group" aria-label="颜色模式" data-i18n-aria-label="settings.colorMode.label">
+                  <button class="active" type="button" data-color-mode="system" aria-pressed="true"><img class="segment-icon" data-icon="monitor-01" alt="" aria-hidden="true"><span data-i18n="settings.colorMode.system">跟随系统</span></button>
+                  <button type="button" data-color-mode="dark" aria-pressed="false"><img class="segment-icon" data-icon="moon-01" alt="" aria-hidden="true"><span data-i18n="settings.colorMode.dark">深色</span></button>
+                  <button type="button" data-color-mode="light" aria-pressed="false"><img class="segment-icon" data-icon="sun" alt="" aria-hidden="true"><span data-i18n="settings.colorMode.light">浅色</span></button>
+                </div>
+                <div class="help" data-i18n="settings.colorMode.help">手动选择会覆盖系统深浅色偏好。</div>
+              </div>
+              <div class="field">
+                <label for="uiLocaleSelect" data-i18n="settings.language.label">界面语言</label>
+                <select id="uiLocaleSelect">
+                  <option value="en">English</option>
+                  <option value="zh-CN">简体中文</option>
+                  <option value="zh-Hant">繁體中文</option>
+                </select>
+                <div class="help" data-i18n="settings.language.help">切换导航、设置、状态提示和日期格式；书签与网站名称保持原文。</div>
+              </div>
+            </div>
+          </section>
+          <section class="settings-section" aria-labelledby="appearanceLayoutTitle">
+            <div class="settings-section-head"><div><h4 id="appearanceLayoutTitle" data-i18n="settings.section.pageLayout">页面布局</h4></div></div>
+            <div class="settings-field-grid settings-field-grid-balanced">
+              <div class="field">
+                <div class="field-label" id="appearanceNavigationTitle" data-i18n="settings.navPosition.label">导航位置</div>
+                <div class="segmented appearance-segmented" id="navPositionGroup" role="group" aria-labelledby="appearanceNavigationTitle" aria-describedby="navPositionHelp">
+                  <button type="button" data-nav-position="top" aria-pressed="false"><span data-i18n="settings.navPosition.top">顶部</span></button>
+                  <button type="button" data-nav-position="bottom" aria-pressed="false"><span data-i18n="settings.navPosition.bottom">底部</span></button>
+                  <button class="active" type="button" data-nav-position="left" aria-pressed="true"><span data-i18n="settings.navPosition.left">左侧</span></button>
+                  <button type="button" data-nav-position="right" aria-pressed="false"><span data-i18n="settings.navPosition.right">右侧</span></button>
+                </div>
+                <div class="help" id="navPositionHelp" data-i18n="settings.navPosition.help">页面随导航位置调整；窄屏时，左右导航自动移到底部。</div>
+              </div>
+              <div class="field">
+                <div class="field-label" id="sectionTitleOpacityLabel" data-i18n="settings.titleOpacity.title">标题透明度</div>
+                <div class="segmented appearance-segmented" id="sectionTitleOpacityGroup" role="group" aria-labelledby="sectionTitleOpacityLabel" aria-describedby="sectionTitleOpacityHelp">
+                  <button type="button" data-title-opacity="0" aria-pressed="false">0%</button>
+                  <button type="button" data-title-opacity="25" aria-pressed="false">25%</button>
+                  <button type="button" data-title-opacity="50" aria-pressed="false">50%</button>
+                  <button type="button" data-title-opacity="75" aria-pressed="false">75%</button>
+                  <button class="active" type="button" data-title-opacity="100" aria-pressed="true">100%</button>
+                </div>
+                <div class="help" id="sectionTitleOpacityHelp" data-i18n="settings.titleOpacity.help">首页、资讯和归档统一调整</div>
+              </div>
+            </div>
           </section>
           <section class="settings-section header-image-settings" aria-labelledby="appearanceHeaderTitle">
             <div class="settings-section-head"><div><h4 id="appearanceHeaderTitle" data-i18n="settings.section.headerImage">首页头图</h4></div></div>
-            <div class="settings-field-grid header-image-primary-settings">
-              <div class="field header-image-layout-field">
+            <div class="field">
+              <label for="headerImageUrlInput" data-i18n="settings.headerImage.url">背景来源</label>
+              <div class="header-cover-source-entry">
+                <div class="header-cover-source-picker">
+                  <select id="headerImageMediaTypeInput" aria-label="链接类型" data-i18n-aria-label="settings.headerImage.mediaType">
+                    <option value="auto" data-i18n="settings.headerImage.mediaAuto">自动</option>
+                    <option value="image" data-i18n="settings.headerImage.mediaImage">图片</option>
+                    <option value="video" data-i18n="settings.headerImage.mediaVideo">视频</option>
+                  </select>
+                  <input id="headerImageUrlInput" type="url" placeholder="https://example.com/image.jpg / video.mp4" inputmode="url" aria-describedby="headerImageUrlHelp">
+                  <div class="header-cover-local-actions">
+                    <button class="btn" id="headerImageLocalChoose" type="button">
+                      <img class="btn-icon" data-icon="folder" alt="" aria-hidden="true">
+                      <span class="btn-label" id="headerImageLocalChooseLabel" data-i18n="settings.headerImage.localChoose">本地</span>
+                    </button>
+                    <button class="btn danger" id="headerImageLocalRemove" type="button" hidden>
+                      <img class="btn-icon" data-icon="trash-01" alt="" aria-hidden="true">
+                      <span class="btn-label" data-i18n="settings.headerImage.localRemove">移除本地背景</span>
+                    </button>
+                    <input id="headerImageLocalInput" type="file" accept="image/jpeg,image/png,image/webp,image/avif,video/mp4,video/webm,.mp4,.webm" aria-label="选择本地图片或视频" data-i18n-aria-label="settings.headerImage.localFileLabel" hidden>
+                  </div>
+                </div>
+                <span class="field-help" id="headerImageUrlHelp" data-i18n="settings.headerImage.urlHelp">支持图片和 MP4/WebM 视频链接。无后缀选“视频”，本地视频最大 100 MB。</span>
+                <div class="header-cover-local-copy" aria-live="polite">
+                  <span class="header-cover-local-status" id="headerImageLocalStatus" data-i18n="settings.headerImage.localEmpty">未设置本地背景</span>
+                  <span class="header-cover-local-meta" id="headerImageLocalMeta" hidden></span>
+                </div>
+              </div>
+            </div>
+            <div class="settings-field-grid settings-field-grid-balanced">
+              <div class="field">
                 <div class="field-label" id="headerImageLayoutLabel" data-i18n="settings.headerImage.layoutTitle">头图样式</div>
                 <div class="segmented appearance-segmented" id="headerImageLayoutGroup" role="group" aria-labelledby="headerImageLayoutLabel">
                   <button type="button" data-header-image-layout="off" aria-pressed="false" data-i18n="settings.headerImage.offOption">关闭</button>
@@ -683,35 +726,15 @@
                 <input id="headerImageFixedInput" type="checkbox" hidden>
                 <span id="headerImageFullscreenField" hidden><input id="headerImageFullscreenInput" type="checkbox"></span>
               </div>
-              <div class="field header-image-source-field">
-                <div class="header-cover-source-control">
-                  <label for="headerImageUrlInput" data-i18n="settings.headerImage.url">背景来源</label>
-                  <div class="header-cover-source-entry">
-                    <div class="header-cover-source-picker">
-                      <select id="headerImageMediaTypeInput" aria-label="链接类型" data-i18n-aria-label="settings.headerImage.mediaType">
-                        <option value="auto" data-i18n="settings.headerImage.mediaAuto">自动</option>
-                        <option value="image" data-i18n="settings.headerImage.mediaImage">图片</option>
-                        <option value="video" data-i18n="settings.headerImage.mediaVideo">视频</option>
-                      </select>
-                      <input id="headerImageUrlInput" type="url" placeholder="https://example.com/image.jpg / video.mp4" inputmode="url" aria-describedby="headerImageUrlHelp">
-                      <div class="header-cover-local-actions">
-                        <button class="btn" id="headerImageLocalChoose" type="button">
-                          <img class="btn-icon" data-icon="folder" alt="" aria-hidden="true">
-                          <span class="btn-label" id="headerImageLocalChooseLabel" data-i18n="settings.headerImage.localChoose">本地</span>
-                        </button>
-                        <button class="btn danger" id="headerImageLocalRemove" type="button" hidden>
-                          <img class="btn-icon" data-icon="trash-01" alt="" aria-hidden="true">
-                          <span class="btn-label" data-i18n="settings.headerImage.localRemove">移除本地图片</span>
-                        </button>
-                        <input id="headerImageLocalInput" type="file" accept="image/jpeg,image/png,image/webp,image/avif" aria-label="选择本地头图" data-i18n-aria-label="settings.headerImage.localFileLabel" hidden>
-                      </div>
-                    </div>
-                    <span class="field-help" id="headerImageUrlHelp" data-i18n="settings.headerImage.urlHelp">支持图片和 MP4、WebM 视频直链；视频需允许跨域播放，不支持视频网页链接。</span>
-                    <div class="header-cover-local-copy" aria-live="polite">
-                      <span class="header-cover-local-status" id="headerImageLocalStatus" data-i18n="settings.headerImage.localEmpty">未设置本地图片</span>
-                      <span class="header-cover-local-meta" id="headerImageLocalMeta" hidden></span>
-                    </div>
-                  </div>
+              <div class="field">
+                <label for="headerImageFitInput" data-i18n="settings.headerImage.fitTitle">填充方式</label>
+                <div class="header-cover-source-entry">
+                  <select id="headerImageFitInput">
+                    <option value="cover" data-i18n="settings.headerImage.fitCover">铺满（允许裁切）</option>
+                    <option value="contain" data-i18n="settings.headerImage.fitContain">完整显示（可能留边）</option>
+                    <option value="fill" data-i18n="settings.headerImage.fitFill">拉伸铺满</option>
+                    <option value="height" data-i18n="settings.headerImage.fitHeight">随高度缩放</option>
+                  </select>
                 </div>
               </div>
             </div>
@@ -721,11 +744,11 @@
                   <span class="switch-copy">
                     <label class="switch-title" for="headerImageHeightInput" data-i18n="settings.headerImage.heightTitle">显示高度</label>
                   </span>
-                  <output id="headerImageHeightOutput" for="headerImageHeightInput" aria-hidden="true">100%</output>
+                  <output id="headerImageHeightOutput" for="headerImageHeightInput" aria-hidden="true">13%</output>
                 </div>
                 <div class="cover-adjustment-range cover-height-range" id="headerImageHeightField" aria-disabled="false">
                   <div class="cover-adjustment-meter">
-                    <input id="headerImageHeightInput" type="range" min="70" max="200" step="5" value="100">
+                    <input id="headerImageHeightInput" type="range" min="70" max="300" step="5" value="100" aria-valuetext="13%">
                   </div>
                 </div>
               </div>
@@ -744,8 +767,8 @@
               </div>
             </div>
           </section>
-          <section class="settings-section" aria-labelledby="appearanceInteractionTitle">
-            <div class="settings-section-head"><div><h4 id="appearanceInteractionTitle" data-i18n="settings.section.interaction">交互效果</h4></div></div>
+          <section class="settings-section" aria-labelledby="appearanceEffectsTitle">
+            <div class="settings-section-head"><div><h4 id="appearanceEffectsTitle" data-i18n="settings.section.visualEffects">视觉效果</h4></div></div>
             <div class="settings-row-list">
               <label class="switch-field" for="dashboardGlassBlurEnabledInput">
                 <span class="switch-copy">

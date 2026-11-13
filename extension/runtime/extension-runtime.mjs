@@ -125,7 +125,7 @@ const chrome = deps.chrome || globalThis.chrome;
 const cacheMutations = createEpochMutationQueue();
 const clientStateStore = createClientStateStore({ getRecord, setRecord });
 const quotaManager = createQuotaManager(chrome.storage.local, localDateKey);
-const headerCoverStore = createHeaderCoverStore(chrome.storage.local);
+const headerCoverStore = createHeaderCoverStore(chrome.storage.local, { records: { getRecord, setRecord, deleteRecord, listRecords } });
 const headerCoverCache = createHeaderCoverCache({ getRecord, setRecord, deleteRecord });
 const settingsStore = createSettingsStore(chrome.storage.sync);
 const settingsService = createRuntimeSettingsService({ store: settingsStore, readProviderProfile, readDeviceConsent });
@@ -605,6 +605,8 @@ const routeMessage = createMessageRouter({
 
 globalThis.addEventListener?.("fetch", createHeaderCoverFetchHandler({
   cache: headerCoverCache,
+  headerCoverStore,
+  saveSettings: (payload) => saveSettings(payload),
   origin: new URL(chrome.runtime.getURL("/")).origin,
   clients: globalThis.clients,
   isResetting: () => factoryResetting,
@@ -773,6 +775,7 @@ async function ensureRuntime() {
   });
   await pruneCache();
   await headerCoverCache.prune().catch(() => {});
+  await settingsService.mutate(() => headerCoverStore.prune()).catch(() => {});
   await pruneResearchCaches().catch(() => {});
   await reconcilePermissionCache().catch(() => {});
 }

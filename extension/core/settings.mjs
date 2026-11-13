@@ -68,10 +68,16 @@ export function normalizeSettings(value = {}) {
   settings.navPosition = enumValue(input.navPosition, NAV_POSITIONS, DEFAULT_SETTINGS.navPosition);
   settings.accentTheme = enumValue(input.accentTheme, ACCENT_THEMES, DEFAULT_SETTINGS.accentTheme);
   settings.customAccentColor = normalizeColor(input.customAccentColor, DEFAULT_SETTINGS.customAccentColor);
+  settings.sectionTitleOpacity = boundedStepInteger(
+    typeof input.sectionTitleOpacity === "number" || typeof input.sectionTitleOpacity === "string" && input.sectionTitleOpacity.trim()
+      ? input.sectionTitleOpacity : undefined,
+    0, 100, 25, DEFAULT_SETTINGS.sectionTitleOpacity,
+  );
   settings.headerImageUrl = normalizePublicUrl(
     Object.hasOwn(input, "headerImageUrl") ? input.headerImageUrl : DEFAULT_SETTINGS.headerImageUrl,
   );
   settings.headerImageMediaType = ["image", "video"].includes(input.headerImageMediaType) ? input.headerImageMediaType : "auto";
+  settings.headerImageFit = ["contain", "fill", "height"].includes(input.headerImageFit) ? input.headerImageFit : "cover";
   settings.headerImageBlurAmount = boundedInteger(input.headerImageBlurAmount, 0, 50, DEFAULT_SETTINGS.headerImageBlurAmount);
   settings.headerImageHeightScale = boundedStepInteger(
     input.headerImageHeightScale,

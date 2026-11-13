@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { createStatusView } from "../../assets/client/status-view.mjs";
+import { createHeaderCoverController } from "../../assets/client/header-cover-controller.mjs";
+import { createSettingsFeedback } from "../../assets/client/settings-feedback.mjs";
 
 const originalDescriptors = Object.fromEntries([
   "chrome",
@@ -78,6 +80,40 @@ try {
     statusView.renderOverviewStatus(i18n.t("status.waitingUpdate"), i18n.t("status.noRecord"));
     i18n.translateDocument(statusRoot);
     assert.equal(statusNodes[0].textContent, i18n.t("status.waitingUpdate"), "translation must preserve the runtime loading title");
+  }
+
+  const coverElements = Object.fromEntries([
+    "headerImageLocalChooseLabel", "headerImageLocalStatus", "headerImageLocalMeta",
+    "headerImageLocalRemove", "headerImageLocalInput", "headerImageLocalChoose", "settingsStatus",
+  ].map(id => [id, {
+    dataset: {}, textContent: "", removeAttribute(name) { if (name === "data-i18n") delete this.dataset.i18n; },
+  }]));
+  coverElements.headerImageLocalChooseLabel.dataset.i18n = "settings.headerImage.localChoose";
+  coverElements.headerImageLocalStatus.dataset.i18n = "settings.headerImage.localEmpty";
+  coverElements.settingsStatus.dataset.i18n = "settings.status.loading";
+  const coverRoot = { querySelectorAll: selector => selector === "[data-i18n]"
+    ? Object.values(coverElements).filter(node => node.dataset.i18n) : [] };
+  let coverRecord = null;
+  const cover = createHeaderCoverController({
+    state: {}, els: coverElements, t: i18n.t,
+    apiGet: async () => ({ record: coverRecord, available: Boolean(coverRecord) }),
+  });
+  const feedback = createSettingsFeedback({ els: { ...coverElements, settingsForm: {} }, t: i18n.t });
+  for (const locale of ["zh-CN", "zh-Hant", "en"]) {
+    i18n.setLocale(locale, { persist: false });
+    for (const [record, statusKey] of [
+      [{ name: "synthetic.webp", width: 640, height: 360, byteLength: 1024 }, "localActive"],
+      [{ videoId: "synthetic-video", name: "synthetic.mp4", width: 640, height: 360, byteLength: 2048 }, "localVideoActive"],
+      [null, "localEmpty"],
+    ]) {
+      coverRecord = record;
+      await cover.load();
+      feedback.renderSettingsStatus(i18n.t("settings.status.saved"));
+      i18n.translateDocument(coverRoot);
+      assert.equal(coverElements.headerImageLocalStatus.textContent, i18n.t(`settings.headerImage.${statusKey}`), "deferred document translation must preserve the current cover state");
+      assert.equal(coverElements.headerImageLocalChooseLabel.textContent, i18n.t(record ? "settings.headerImage.localReplace" : "settings.headerImage.localChoose"));
+      assert.equal(coverElements.settingsStatus.textContent, i18n.t("settings.status.saved"), "translation must not restore the loading hint after settings have saved");
+    }
   }
 
   const popupI18n = await import(`../../assets/client/popup-i18n.mjs?client-i18n-test=${Date.now()}`);

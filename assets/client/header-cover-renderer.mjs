@@ -1,7 +1,7 @@
 import { isReaderUrl } from "./urls.mjs";
 import {
   HEADER_COVER_STORAGE_KEY, DEFAULT_HEADER_IMAGE_URL, HEADER_IMAGE_BLUR_BLEED_MULTIPLIER,
-  isHeaderVideoUrl, normalizeHeaderImageBlurAmount, normalizeHeaderImageHeightScale,
+  isHeaderVideoUrl, normalizeHeaderImageBlurAmount, normalizeHeaderImageHeightScale, normalizeHeaderImageFit,
 } from "./header-cover-model.mjs";
 
 export function createHeaderCoverRenderer({ state, els }) {
@@ -9,7 +9,10 @@ export function createHeaderCoverRenderer({ state, els }) {
 
   function renderHeaderImage(settings = {}) {
     const url = String(settings.headerImageUrl || "").trim();
-    const localUrl = String(state.localHeaderCover?.dataUrl || "");
+    const localVideo = Boolean(state.localHeaderCover?.videoId);
+    const localUrl = localVideo
+      ? state.localHeaderCover.objectUrl || `${location.origin}/_header-video?local=${encodeURIComponent(state.localHeaderCover.videoId)}`
+      : String(state.localHeaderCover?.dataUrl || "");
     const enabled = settings.headerImageEnabled === true;
     const fixed = settings.headerImageFixed === true;
     const fullscreen = fixed && settings.headerImageFullscreen === true;
@@ -19,8 +22,11 @@ export function createHeaderCoverRenderer({ state, els }) {
     const preferredLocalUrl = localUrl && localUrl !== failedLocalCoverDataUrl ? localUrl : "";
     const video = isHeaderVideoUrl(url, settings.headerImageMediaType || "auto");
     const source = preferredLocalUrl || resolveHeaderImageSource(url, video);
-    const useVideo = Boolean(!preferredLocalUrl && url && video);
+    const useVideo = Boolean(preferredLocalUrl ? localVideo : url && video);
     const root = document.documentElement;
+    const fit = normalizeHeaderImageFit(settings.headerImageFit);
+    root.dataset.headerImageFit = fit;
+    root.style.setProperty("--header-cover-object-fit", fit === "height" ? "cover" : fit);
     cache(HEADER_COVER_STORAGE_KEY, JSON.stringify({
       enabled: enabled && Boolean(source),
       fixed,
@@ -30,6 +36,7 @@ export function createHeaderCoverRenderer({ state, els }) {
       heightScale,
       local: Boolean(localUrl),
       video,
+      fit,
       url: enabled ? url : "",
     }));
     applyHeaderImageBlur(root, enabled && blurEnabled ? blurAmount : 0);

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
+import vm from "node:vm";
 import {
   HEADER_COVER_MAX_DIMENSION,
   HEADER_COVER_STORED_MAX_BYTES,
@@ -21,7 +22,9 @@ import {
 } from "../../assets/client/header-cover-image.mjs";
 import { createHeaderCoverController } from "../../assets/client/header-cover-controller.mjs";
 import { createHeaderCoverRenderer } from "../../assets/client/header-cover-renderer.mjs";
-import { DEFAULT_HEADER_IMAGE_URL } from "../../assets/client/header-cover-model.mjs";
+import { DEFAULT_HEADER_IMAGE_URL, normalizeHeaderImageHeightScale } from "../../assets/client/header-cover-model.mjs";
+import { createAppearanceController } from "../../assets/client/appearance-controller.mjs";
+import { t } from "../../assets/client/i18n.mjs";
 import { messageRequestForHttp } from "../../assets/client/message-contract.mjs";
 
 const bytes = Buffer.concat([Buffer.from("RIFF"), Buffer.alloc(4), Buffer.from("WEBPfixture")]);
@@ -56,17 +59,26 @@ assert.equal(normalizeSettings({}).headerImageHeightScale, DEFAULT_SETTINGS.head
 assert.equal(normalizeSettings({ headerImageHeightScale: 62 }).headerImageHeightScale, HEADER_IMAGE_HEIGHT_MIN);
 assert.equal(normalizeSettings({ headerImageHeightScale: 147 }).headerImageHeightScale, 145);
 assert.equal(normalizeSettings({ headerImageHeightScale: 117 }).headerImageHeightScale, 115);
-assert.equal(normalizeSettings({ headerImageHeightScale: 200 }).headerImageHeightScale, HEADER_IMAGE_HEIGHT_MAX);
-assert.equal(normalizeSettings({ headerImageHeightScale: 207 }).headerImageHeightScale, HEADER_IMAGE_HEIGHT_MAX);
+for (const [value, expected] of [[200, 200], [207, 205], [300, 300], [307, 300]]) {
+  assert.equal(normalizeSettings({ headerImageHeightScale: value }).headerImageHeightScale, expected);
+  assert.equal(normalizeHeaderImageHeightScale(value), expected, "preview and saved heights must use the same extended range");
+}
 assert.equal(normalizeSettings({ headerImageBlurAmount: 99 }).headerImageBlurAmount, 50);
 
-const transfer = createSettingsTransferDocument({ ...DEFAULT_SETTINGS, headerImageHeightScale: 200, headerCoverOperation: record });
+const oldTransfer = createSettingsTransferDocument({ ...DEFAULT_SETTINGS, headerImageHeightScale: 200 });
+assert.equal(parseSettingsTransferDocument(oldTransfer, DEFAULT_SETTINGS).patch.headerImageHeightScale, 200,
+  "existing heights must retain their physical scale instead of being reinterpreted as UI percentages");
+const transfer = createSettingsTransferDocument({ ...DEFAULT_SETTINGS, headerImageHeightScale: 300, headerCoverOperation: record });
 assert.equal(transfer.settings.headerImageHeightScale, HEADER_IMAGE_HEIGHT_MAX);
 assert.equal(Object.hasOwn(transfer.settings, "headerCoverOperation"), false);
 assert.equal(parseSettingsTransferDocument(transfer, DEFAULT_SETTINGS).patch.headerImageHeightScale, HEADER_IMAGE_HEIGHT_MAX);
 assert.throws(() => parseSettingsTransferDocument({
   ...transfer,
-  settings: { ...transfer.settings, headerImageHeightScale: 205 },
+  settings: { ...transfer.settings, headerImageHeightScale: 305 },
+}, DEFAULT_SETTINGS), (error) => error?.code === "SETTINGS_IMPORT_INVALID_VALUE");
+assert.throws(() => parseSettingsTransferDocument({
+  ...transfer,
+  settings: { ...transfer.settings, headerImageHeightScale: 297 },
 }, DEFAULT_SETTINGS), (error) => error?.code === "SETTINGS_IMPORT_INVALID_VALUE");
 const blurTransfer = createSettingsTransferDocument({ ...DEFAULT_SETTINGS, headerImageBlurAmount: 50 });
 assert.equal(parseSettingsTransferDocument(blurTransfer, DEFAULT_SETTINGS).patch.headerImageBlurAmount, 50);
@@ -105,7 +117,7 @@ const workflow = createSettingsWorkflow(workflowOptions({
   writeSettings: async (value) => { workflowSettings = normalizeSettings(value); },
 }));
 const saved = await workflow.saveSettings({
-  headerImageHeightScale: 200,
+  headerImageHeightScale: 300,
   headerImageBlurEnabled: true,
   headerImageBlurAmount: 50,
   headerImageMediaType: "video",
@@ -115,7 +127,7 @@ assert.equal(saved.headerImageHeightScale, HEADER_IMAGE_HEIGHT_MAX);
 assert.equal(saved.headerImageBlurEnabled, true);
 assert.equal(saved.headerImageBlurAmount, 50);
 assert.equal(saved.headerImageMediaType, "video", "media type must survive the settings workflow allowlist");
-assert.equal(workflowSettings.headerImageHeightScale, HEADER_IMAGE_HEIGHT_MAX, "200% cover height must survive the settings write transaction");
+assert.equal(workflowSettings.headerImageHeightScale, HEADER_IMAGE_HEIGHT_MAX, "300% cover height must survive the settings write transaction");
 assert.equal(workflowSettings.headerImageBlurAmount, 50, "50 px cover blur must survive the settings write transaction");
 assert.equal(saved.headerCoverChanged, true);
 assert.equal((await workflowStore.read()).record.name, record.name);
@@ -168,6 +180,16 @@ assert(!dashboardAppSource.includes("globalThis.ampiraLayoutBootstrap?.headerCov
 await assert.rejects(fs.stat(new URL("../../assets/images/default-header.webp", import.meta.url)), { code: "ENOENT" });
 const appearanceControllerSource = await fs.readFile(new URL("../../assets/client/appearance-controller.mjs", import.meta.url), "utf8") + "\n" + await fs.readFile(new URL("../../assets/client/header-cover-renderer.mjs", import.meta.url), "utf8") + "\n" + await fs.readFile(new URL("../../assets/client/header-cover-model.mjs", import.meta.url), "utf8");
 const themeBootstrapSource = await fs.readFile(new URL("../../assets/client/theme-bootstrap.mjs", import.meta.url), "utf8");
+for (const scale of [70, 100, 200, 250, 300, 305]) {
+  const styles = new Map();
+  vm.runInNewContext(themeBootstrapSource, {
+    document: { hidden: true, documentElement: { dataset: {}, classList: { toggle() {} }, style: { setProperty: (name, value) => styles.set(name, value) } } },
+    location: { protocol: "https:" },
+    localStorage: { getItem: key => key === "ampira.headerCover" ? JSON.stringify({ enabled: false, heightScale: scale }) : null },
+  });
+  assert.equal(styles.get("--header-cover-height-scale"), String(Math.min(scale, 300) / 100), "first-frame restoration must retain extended and existing height scales");
+  assert.equal(styles.get("--header-cover-fullscreen-height"), `${Math.min(scale, 300)}dvh`);
+}
 const shellControllerSource = await fs.readFile(new URL("../../assets/client/shell-controller.mjs", import.meta.url), "utf8");
 const dashboardSectionsCssSource = await fs.readFile(new URL("../../assets/styles/dashboard-sections.css", import.meta.url), "utf8");
 const coverImageRule = dashboardSectionsCssSource.match(/\.dashboard-cover img\s*\{([\s\S]*?)\n\}/)?.[1] || "";
@@ -184,8 +206,43 @@ assert(fixedCoverRule.includes("width: 100vw;"), "fixed and fullscreen covers mu
 
 await testLocalCoverSelection();
 await testDefaultNetworkCover();
+testHeaderHeightControl();
 
 console.log("header cover tests passed");
+
+function testHeaderHeightControl() {
+  const attributes = new Map(), styles = new Map(), fieldAttributes = new Map();
+  const els = {
+    saveSettings: { disabled: false },
+    headerImageEnabledInput: { checked: true },
+    headerImageHeightInput: { value: "100", setAttribute: (key, value) => attributes.set(key, value), style: { setProperty: (key, value) => styles.set(key, value) } },
+    headerImageHeightOutput: {},
+    headerImageHeightField: { setAttribute: (key, value) => fieldAttributes.set(key, value) },
+  };
+  const controller = createAppearanceController({ state: {}, els });
+  for (const [scale, label] of [
+    [70, "0%"], [100, t("settings.defaultValue", { value: "13%" })], [105, "15%"],
+    [185, "50%"], [200, "57%"], [250, "78%"], [300, "100%"],
+    [100, t("settings.defaultValue", { value: "13%" })],
+  ]) {
+    els.headerImageHeightInput.value = String(scale);
+    controller.syncHeightControl();
+    assert.equal(els.headerImageHeightInput.value, String(scale), "display normalization must not change the stored or previewed height");
+    assert.equal(els.headerImageHeightOutput.value, label);
+    assert.equal(attributes.get("aria-valuetext"), label, "assistive text must match the visible percentage");
+    assert.equal(styles.get("--range-progress"), `${(scale - 70) / 230 * 100}%`);
+  }
+  assert.equal(els.headerImageHeightInput.min, "70");
+  assert.equal(els.headerImageHeightInput.max, "300");
+  assert.equal(els.headerImageHeightInput.step, "5");
+  assert.equal(els.headerImageHeightInput.disabled, false);
+  controller.syncHeightControl(true);
+  assert.equal(els.headerImageHeightInput.disabled, true);
+  assert.equal(fieldAttributes.get("aria-disabled"), "true");
+  els.headerImageEnabledInput.checked = false;
+  controller.syncHeightControl(false);
+  assert.equal(els.headerImageHeightInput.disabled, true);
+}
 
 async function testDefaultNetworkCover() {
   const keys = ["document", "location", "navigator", "localStorage", "chrome", "ampiraLayoutBootstrap"];
@@ -247,7 +304,7 @@ async function testLocalCoverSelection() {
   const replacementDataUrl = `data:image/webp;base64,${replacementBytes.toString("base64")}`;
   const els = Object.fromEntries([
     "headerImageLocalChoose", "headerImageLocalInput", "headerImageLocalRemove", "headerImageLocalChooseLabel", "headerImageLocalStatus", "headerImageLocalMeta",
-  ].map(id => [id, { addEventListener: (event, callback) => listeners.set(`${id}:${event}`, callback) }]));
+  ].map(id => [id, { removeAttribute() {}, addEventListener: (event, callback) => listeners.set(`${id}:${event}`, callback) }]));
   let previews = 0, decodes = 0, closed = 0, rejectDecode = false;
   const controller = createHeaderCoverController({
     state, els, t: key => key, apiGet: async () => ({ record, available: true }),

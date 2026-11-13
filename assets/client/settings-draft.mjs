@@ -2,7 +2,7 @@ import { normalizeKeyboardShortcuts } from "../../extension/core/keyboard-shortc
 
 const NUMERIC_FIELDS = new Set([
   "dailyAiLimit", "hotNewsCacheSize", "hotNewsEntriesPerSource", "newsEntriesPerCategory", "todayNewsPerPublisherLimit",
-  "headerImageBlurAmount", "headerImageHeightScale",
+  "headerImageBlurAmount", "headerImageHeightScale", "sectionTitleOpacity",
 ]);
 const SECRET_FIELDS = new Set(["openaiApiKey", "braveSearchApiKey"]);
 

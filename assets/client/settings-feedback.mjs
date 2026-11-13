@@ -10,6 +10,7 @@ export function createSettingsFeedback({ els, t, isBusy, hasUnsavedChanges }) {
   }
 
   function renderSettingsStatus(extra, stateName = extra ? "notice" : "pending") {
+    els.settingsStatus.removeAttribute("data-i18n");
     els.settingsStatus.textContent = extra || t("settings.status.unsaved");
     els.settingsStatus.dataset.state = stateName;
   }

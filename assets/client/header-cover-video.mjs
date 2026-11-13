@@ -14,7 +14,6 @@ export function createHeaderVideoController(hero, { reveal, fallback }) {
   video.loop = true;
   video.playsInline = true;
   video.preload = "auto";
-  video.crossOrigin = "anonymous";
   video.disablePictureInPicture = true;
   video.setAttribute("aria-hidden", "true");
   video.setAttribute("tabindex", "-1");
@@ -37,6 +36,11 @@ export function createHeaderVideoController(hero, { reveal, fallback }) {
     hero.classList.remove("is-loaded");
     image.hidden = Boolean(source);
     if (!source) { setStatus(""); return; }
+    const url = new URL(source);
+    // A controlling extension worker strips remote credentials while preserving
+    // the browser's original media request, including its Range header.
+    const controlled = globalThis.location?.protocol === "chrome-extension:" && globalThis.navigator?.serviceWorker?.controller;
+    video.crossOrigin = controlled || url.protocol === "blob:" || url.origin === globalThis.location?.origin ? null : "anonymous";
     video.hidden = false;
     video.src = source;
     setStatus("loading");

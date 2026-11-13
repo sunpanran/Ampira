@@ -125,7 +125,7 @@ async function saveSettings() {
     Object.assign(payload, headerCoverController.savePayload());
     const sourcePermissionScope = personalSourcePermissionScope(draft, payload);
     const previousSourcePermissions = settingsSnapshot?.sourcePermissions || [];
-    const savedSettings = await apiPost("/api/settings", payload);
+    const savedSettings = await headerCoverController.saveSettings(payload);
     if (session !== settingsSession) return;
     state.settings = savedSettings;
     syncAiSetupControls();
@@ -449,7 +449,7 @@ function setSettingsBusy(busy) {
   els.factoryResetSettings.disabled = busy;
   els.settingsImportFile.disabled = busy;
   setWebsiteShortcutControlsBusy(busy);
-  for (const group of [els.colorModeGroup, els.navPositionGroup, els.accentThemeGroup]) {
+  for (const group of [els.colorModeGroup, els.navPositionGroup, els.accentThemeGroup, els.sectionTitleOpacityGroup]) {
     group.querySelectorAll("button").forEach((button) => { button.disabled = busy; });
   }
   els.excludeInput.disabled = busy;
@@ -509,7 +509,7 @@ function selectSettingsTab(tab) {
     nextPanel.addEventListener("animationend", finishPanelEntrance);
     nextPanel.addEventListener("animationcancel", finishPanelEntrance);
   }
-  if (tab === "appearance") { syncSegmentedIndicator(els.colorModeGroup); syncSegmentedIndicator(els.navPositionGroup); syncSegmentedIndicator(els.headerImageLayoutGroup); }
+  if (tab === "appearance") { syncSegmentedIndicator(els.colorModeGroup); syncSegmentedIndicator(els.navPositionGroup); syncSegmentedIndicator(els.headerImageLayoutGroup); syncSegmentedIndicator(els.sectionTitleOpacityGroup); }
   syncSettingsFooter();
 }
 

@@ -7,6 +7,7 @@ export function createHeaderCoverController(options) {
   let externalBusy = false;
   let loadGeneration = 0;
   let externalReloadPending = false;
+  let selectionGeneration = 0;
 
   function bind() {
     hero?.addEventListener("headermediastatechange", syncControls);
@@ -17,14 +18,14 @@ export function createHeaderCoverController(options) {
 
   async function load() {
     const generation = ++loadGeneration;
+    selectionGeneration += 1;
     try {
       const result = await apiGet("/api/settings/header-cover");
       if (generation !== loadGeneration) return false;
       savedRecord = result?.record || null;
       savedExists = result?.available === true || result?.invalid === true;
       savedInvalid = result?.invalid === true;
-      draftRecord = savedRecord;
-      state.localHeaderCover = draftRecord;
+      setDraft(savedRecord);
       externalReloadPending = false;
       syncControls();
       return true;
@@ -36,8 +37,9 @@ export function createHeaderCoverController(options) {
   }
 
   function operation() {
-    if (draftRecord && (!savedRecord || draftRecord.dataUrl !== savedRecord.dataUrl)) {
-      return { action: "replace", record: draftRecord };
+    if (draftRecord && (!savedRecord || (draftRecord.videoId || draftRecord.dataUrl) !== (savedRecord.videoId || savedRecord.dataUrl))) {
+      const { blob, objectUrl, ...record } = draftRecord;
+      return { action: "replace", record };
     }
     if (!draftRecord && savedExists) return { action: "remove" };
     return null;
@@ -52,8 +54,20 @@ export function createHeaderCoverController(options) {
     return Boolean(operation());
   }
 
+  async function saveSettings(payload) {
+    if (!draftRecord?.blob || payload.headerCoverOperation?.action !== "replace") return options.apiPost("/api/settings", payload);
+    try {
+      const { saveHeaderVideoSettings } = await import("./header-cover-local-video.mjs");
+      return await saveHeaderVideoSettings(payload, draftRecord.blob);
+    } catch (error) {
+      if (error.messageKey) error.message = t(error.messageKey, error.messageParams);
+      throw error;
+    }
+  }
+
   function commit() {
-    savedRecord = draftRecord;
+    savedRecord = draftRecord ? operation()?.record || savedRecord : null;
+    setDraft(savedRecord);
     savedExists = Boolean(draftRecord);
     savedInvalid = false;
     externalReloadPending = false;
@@ -61,6 +75,7 @@ export function createHeaderCoverController(options) {
   }
 
   function restore() {
+    selectionGeneration += 1;
     if (externalReloadPending) {
       externalReloadPending = false;
       load().then((loaded) => {
@@ -69,8 +84,7 @@ export function createHeaderCoverController(options) {
       });
       return;
     }
-    draftRecord = savedRecord;
-    state.localHeaderCover = draftRecord;
+    setDraft(savedRecord);
     syncControls();
   }
 
@@ -85,8 +99,8 @@ export function createHeaderCoverController(options) {
 
   function remove() {
     if (externalBusy || (!draftRecord && !savedInvalid)) return;
-    draftRecord = null;
-    state.localHeaderCover = null;
+    selectionGeneration += 1;
+    setDraft(null);
     savedInvalid = false;
     syncControls();
     options.updatePreview();
@@ -97,33 +111,49 @@ export function createHeaderCoverController(options) {
     const file = els.headerImageLocalInput.files?.[0];
     els.headerImageLocalInput.value = "";
     if (!file || externalBusy) return;
+    const generation = ++selectionGeneration;
+    const video = String(file.type || "").startsWith("video/") || /\.(mp4|webm)$/i.test(file.name || "");
     options.setSettingsBusy(true);
-    options.renderSettingsStatus(t("settings.headerImage.localProcessing"));
+    options.renderSettingsStatus(t(video ? "settings.headerImage.localVideoProcessing" : "settings.headerImage.localProcessing"));
     let imageTools;
     try {
-      imageTools = await import("./header-cover-image.mjs");
-      const record = await imageTools.optimizeHeaderCoverFile(file);
-      draftRecord = record;
-      state.localHeaderCover = record;
+      let record;
+      if (video) {
+        const { prepareHeaderVideoFile } = await import("./header-cover-local-video.mjs");
+        record = await prepareHeaderVideoFile(file);
+      } else {
+        imageTools = await import("./header-cover-image.mjs");
+        record = await imageTools.optimizeHeaderCoverFile(file);
+      }
+      if (generation !== selectionGeneration) { if (record.objectUrl) URL.revokeObjectURL(record.objectUrl); return; }
+      setDraft(record);
       savedInvalid = false;
       syncControls();
       options.updatePreview();
-      options.renderSettingsStatus(t("settings.headerImage.localReady"));
+      options.renderSettingsStatus(t(video ? "settings.headerImage.localVideoReady" : "settings.headerImage.localReady"));
     } catch (error) {
-      options.renderSettingsStatus(t(imageTools?.headerCoverImageErrorKey(error) || "settings.headerImage.localErrorDecode"));
+      if (generation === selectionGeneration) options.renderSettingsStatus(t(error.messageKey || imageTools?.headerCoverImageErrorKey(error) || "settings.headerImage.localErrorDecode"));
     } finally {
       options.setSettingsBusy(false);
     }
   }
 
+  function setDraft(record) {
+    if (draftRecord?.objectUrl && draftRecord.objectUrl !== record?.objectUrl) URL.revokeObjectURL(draftRecord.objectUrl);
+    draftRecord = record;
+    state.localHeaderCover = record;
+  }
+
   function syncControls() {
     const record = draftRecord;
     const videoStatus = { loading: "videoLoading", ready: "videoActive", error: "videoFailed" }[hero?.dataset.headerVideoState];
+    els.headerImageLocalChooseLabel.removeAttribute("data-i18n");
+    els.headerImageLocalStatus.removeAttribute("data-i18n");
     els.headerImageLocalChooseLabel.textContent = t(record
       ? "settings.headerImage.localReplace"
       : "settings.headerImage.localChoose");
     els.headerImageLocalStatus.textContent = record
-      ? t("settings.headerImage.localActive")
+      ? t(record.videoId ? "settings.headerImage.localVideoActive" : "settings.headerImage.localActive")
       : savedInvalid
         ? t("settings.headerImage.localInvalid")
         : t(videoStatus ? `settings.headerImage.${videoStatus}` : "settings.headerImage.localEmpty");
@@ -142,7 +172,7 @@ export function createHeaderCoverController(options) {
     els.headerImageLocalRemove.disabled = externalBusy;
   }
 
-  return { bind, load, operation, savePayload, hasChanges, commit, restore, markExternalChange, setBusy, syncControls };
+  return { bind, load, operation, savePayload, saveSettings, hasChanges, commit, restore, markExternalChange, setBusy, syncControls };
 }
 
 function formatBytes(value) {

@@ -457,6 +457,7 @@ img[data-icon]:not([src]),
 }
 
 .section-head h2 {
+  opacity: var(--section-title-opacity, 1);
   max-width: 12ch;
   margin: 0;
   color: color-mix(in srgb, var(--text-strong) 84%, var(--muted));

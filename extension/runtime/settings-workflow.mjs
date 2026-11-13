@@ -98,7 +98,7 @@ async function performSaveSettings(body, transaction) {
   const previous = await getSettings();
   const next = { ...previous };
   const headerCoverOperation = Object.hasOwn(body, "headerCoverOperation")
-    ? headerCoverStore.validateOperation(body.headerCoverOperation)
+    ? await headerCoverStore.validateOperation(body.headerCoverOperation)
     : null;
   const allowed = [
     "mcpEnabled", "dashboardMode", "dashboardCardOrder", "botOrganizeNews", "botGenerateBrief", "botAnswerQuestions",
@@ -108,8 +108,9 @@ async function performSaveSettings(body, transaction) {
     "readingQueueOpenOnReadAll", "readingQueueReadAllPrompted", "retainSeenArchive", "personalizedRankingEnabled", "publicFeedSupplementEnabled",
     "syncReadingQueueEnabled", "syncTodosEnabled", "syncWeatherLocationEnabled",
     "syncStockWatchlistEnabled", "syncCountdownsEnabled",
+    "sectionTitleOpacity",
     "uiLocale", "colorMode", "navPosition", "accentTheme", "customAccentColor", "pointerGlowEnabled", "dashboardGlassBlurEnabled", "headerImageEnabled",
-    "headerImageFixed", "headerImageFullscreen", "headerImageBlurEnabled", "headerImageBlurAmount", "headerImageHeightScale", "headerImageUrl", "headerImageMediaType",
+    "headerImageFixed", "headerImageFullscreen", "headerImageBlurEnabled", "headerImageBlurAmount", "headerImageHeightScale", "headerImageUrl", "headerImageMediaType", "headerImageFit",
     "bookmarkSectionEnabled", "websiteShortcutsEnabled", "websiteShortcuts", "keyboardShortcutsEnabled", "keyboardShortcuts",
     "excludedNewsSources",
   ];
@@ -212,6 +213,7 @@ async function performSaveSettings(body, transaction) {
     }
     throw error;
   }
+  if (headerCoverMutation) await headerCoverStore.finalize?.(headerCoverMutation).catch(() => {});
   if (Object.keys(body).length === 1 && Object.hasOwn(body, "dashboardCardOrder")) {
     broadcast("settings.changed", { dashboardLayoutOnly: true, dashboardCardOrder: normalized.dashboardCardOrder });
     return publicSettings();

@@ -7,12 +7,13 @@ import {
   normalizeColorMode,
   normalizeHexColor,
   normalizeNavPosition,
+  normalizeSectionTitleOpacity,
   paletteFromAccent,
 } from "./appearance-model.mjs";
 
 import {
-  HEADER_IMAGE_BLUR_MAX, HEADER_IMAGE_HEIGHT_MIN, HEADER_IMAGE_HEIGHT_MAX, HEADER_IMAGE_HEIGHT_STEP,
-  normalizeHeaderImageBlurAmount, normalizeHeaderImageHeightScale,
+  HEADER_IMAGE_BLUR_MAX, HEADER_IMAGE_HEIGHT_MIN, HEADER_IMAGE_HEIGHT_MAX, HEADER_IMAGE_HEIGHT_STEP, HEADER_IMAGE_HEIGHT_DEFAULT,
+  normalizeHeaderImageBlurAmount, normalizeHeaderImageHeightScale, normalizeHeaderImageFit,
 } from "./header-cover-model.mjs";
 
 const COLOR_MODE_STORAGE_KEY = "ampira.colorMode";
@@ -32,6 +33,7 @@ export function createAppearanceController(options) {
     els.customAccentInput.value = custom;
     options.syncCustomAccentColor?.(custom);
     applyCustomAccentPreview(custom);
+    syncTitleOpacityButtons(settings.sectionTitleOpacity);
     els.pointerGlowEnabledInput.checked = settings.pointerGlowEnabled !== false;
     els.dashboardGlassBlurEnabledInput.checked = settings.dashboardGlassBlurEnabled !== false;
     els.headerImageEnabledInput.checked = settings.headerImageEnabled === true;
@@ -46,10 +48,12 @@ export function createAppearanceController(options) {
     syncBlurControl();
     els.headerImageUrlInput.value = settings.headerImageUrl || "";
     els.headerImageMediaTypeInput.value = settings.headerImageMediaType || "auto";
+    els.headerImageFitInput.value = normalizeHeaderImageFit(settings.headerImageFit);
   }
 
   function syncFullscreenControl(busy = els.saveSettings.disabled) {
     for (const button of els.headerImageLayoutGroup.querySelectorAll("[data-header-image-layout]")) button.disabled = busy;
+    els.headerImageFitInput.disabled = busy || !els.headerImageEnabledInput.checked;
   }
 
   function syncBlurControl(busy = els.saveSettings.disabled) {
@@ -71,15 +75,25 @@ export function createAppearanceController(options) {
   }
 
   function syncHeightLabel() {
-    const min = Number(els.headerImageHeightInput.min) || HEADER_IMAGE_HEIGHT_MIN;
-    const max = Number(els.headerImageHeightInput.max) || HEADER_IMAGE_HEIGHT_MAX;
-    const value = Math.max(min, normalizeHeaderImageHeightScale(els.headerImageHeightInput.value));
-    const progress = max > min ? ((value - min) / (max - min)) * 100 : 0;
+    const value = normalizeHeaderImageHeightScale(els.headerImageHeightInput.value);
+    const progress = ((value - HEADER_IMAGE_HEIGHT_MIN) / (HEADER_IMAGE_HEIGHT_MAX - HEADER_IMAGE_HEIGHT_MIN)) * 100;
+    let text = `${Math.round(progress)}%`;
+    if (value === HEADER_IMAGE_HEIGHT_DEFAULT) text = t("settings.defaultValue", { value: text });
     els.headerImageHeightInput.value = String(value);
-    els.headerImageHeightInput.setAttribute("aria-valuetext", `${value}%`);
+    els.headerImageHeightInput.setAttribute("aria-valuetext", text);
     els.headerImageHeightInput.style.setProperty("--range-progress", `${progress}%`);
-    els.headerImageHeightOutput.value = `${value}%`;
+    els.headerImageHeightOutput.value = text;
     return value;
+  }
+
+  function syncTitleOpacityButtons(value) {
+    const opacity = normalizeSectionTitleOpacity(value);
+    for (const button of els.sectionTitleOpacityGroup.querySelectorAll("[data-title-opacity]")) {
+      const active = Number(button.dataset.titleOpacity) === opacity;
+      button.classList.toggle("active", active);
+      button.setAttribute("aria-pressed", String(active));
+    }
+    options.syncSegmentedIndicator(els.sectionTitleOpacityGroup);
   }
 
   function syncBlurAmountLabel() {
@@ -99,6 +113,7 @@ export function createAppearanceController(options) {
     if (overrides.colorMode) syncColorModeButtons(overrides.colorMode);
     if (overrides.navPosition) syncNavPositionButtons(overrides.navPosition);
     if (overrides.accentTheme) syncAccentThemeButtons(overrides.accentTheme);
+    if (Object.hasOwn(overrides, "sectionTitleOpacity")) syncTitleOpacityButtons(overrides.sectionTitleOpacity);
     applySettings(state.settings);
     options.renderSettingsStatus();
   }
@@ -113,6 +128,7 @@ export function createAppearanceController(options) {
   }
 
   function syncHeaderImageLayoutButtons() {
+    els.headerImageFitInput.disabled = els.saveSettings.disabled || !els.headerImageEnabledInput.checked;
     const layout = !els.headerImageEnabledInput.checked ? "off" : els.headerImageFullscreenInput.checked ? "fullscreen" : els.headerImageFixedInput.checked ? "fixed" : "standard";
     for (const button of els.headerImageLayoutGroup.querySelectorAll("[data-header-image-layout]")) {
       const active = button.dataset.headerImageLayout === layout;
@@ -129,6 +145,7 @@ export function createAppearanceController(options) {
       navPosition: normalizeNavPosition(els.navPositionGroup.querySelector(".active[data-nav-position]")?.dataset.navPosition || state.settings?.navPosition),
       accentTheme: selectedAccentTheme(),
       customAccentColor: normalizeHexColor(els.customAccentInput.value) || DEFAULT_CUSTOM_ACCENT_COLOR,
+      sectionTitleOpacity: normalizeSectionTitleOpacity(els.sectionTitleOpacityGroup.querySelector(".active[data-title-opacity]")?.dataset.titleOpacity ?? state.settings?.sectionTitleOpacity),
       pointerGlowEnabled: els.pointerGlowEnabledInput.checked,
       dashboardGlassBlurEnabled: els.dashboardGlassBlurEnabledInput.checked,
       headerImageEnabled: els.headerImageEnabledInput.checked,
@@ -139,6 +156,7 @@ export function createAppearanceController(options) {
       headerImageFullscreen: els.headerImageFixedInput.checked && els.headerImageFullscreenInput.checked,
       headerImageUrl: els.headerImageUrlInput.value.trim(),
       headerImageMediaType: els.headerImageMediaTypeInput.value,
+      headerImageFit: normalizeHeaderImageFit(els.headerImageFitInput.value),
     };
   }
 
@@ -157,6 +175,7 @@ export function createAppearanceController(options) {
     const locale = setLocale(value, { persist, translate: false });
     els.uiLocaleSelect.value = locale;
     translateDocument(document);
+    syncHeightLabel();
     options.syncAiSearchLocale?.();
     options.syncHeaderCoverControls?.();
     if (els.currentUiLanguage) els.currentUiLanguage.textContent = t("language.name");
@@ -223,6 +242,9 @@ export function createAppearanceController(options) {
     root.dataset.pointerGlow = settings.pointerGlowEnabled === false ? "off" : "on";
     root.dataset.dashboardGlassBlur = settings.dashboardGlassBlurEnabled === false ? "off" : "on";
     cache(DASHBOARD_GLASS_BLUR_STORAGE_KEY, root.dataset.dashboardGlassBlur);
+    const titleOpacity = normalizeSectionTitleOpacity(settings.sectionTitleOpacity);
+    root.style.setProperty("--section-title-opacity", String(titleOpacity / 100));
+    cache("ampira.sectionTitleOpacity", String(titleOpacity));
     root.style.setProperty("--accent", palette.accent);
     root.style.setProperty("--accent-rgb", palette.accentRgb.join(", "));
     applyCustomAccentPreview(custom);

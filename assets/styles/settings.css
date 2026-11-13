@@ -914,18 +914,6 @@
   border-top: 0;
 }
 
-[data-settings-panel="appearance"] .settings-section {
-  gap: 12px;
-}
-
-[data-settings-panel="appearance"] .settings-section + .settings-section {
-  padding-top: 16px;
-}
-
-[data-settings-panel="appearance"] .settings-field-grid-balanced {
-  gap: 20px;
-}
-
 [data-settings-panel="appearance"] .field {
   min-width: 0;
 }
@@ -957,33 +945,6 @@
   padding-inline: 8px;
   font-size: 12px;
   font-weight: 650;
-}
-
-.settings-field-grid.header-image-primary-settings {
-  grid-template-columns: minmax(0, 1fr);
-  gap: 14px;
-}
-
-.field.header-image-layout-field {
-  grid-template-columns: 104px minmax(0, 1fr);
-  align-items: center;
-  gap: 16px;
-}
-
-.header-image-source-field {
-  display: block;
-}
-
-.header-cover-source-control {
-  min-width: 0;
-  display: grid;
-  grid-template-columns: 104px minmax(0, 1fr);
-  align-items: start;
-  gap: 16px;
-}
-
-.header-cover-source-control > label {
-  padding-top: 10px;
 }
 
 .header-cover-source-entry {
@@ -1264,16 +1225,6 @@
     width: min(100%, 280px);
     grid-template-columns: minmax(0, 1fr);
     gap: 12px;
-  }
-
-  .field.header-image-layout-field,
-  .header-cover-source-control {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 7px;
-  }
-
-  .header-cover-source-control > label {
-    padding-top: 0;
   }
 }
 

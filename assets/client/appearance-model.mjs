@@ -23,6 +23,11 @@ export function normalizeNavPosition(value) {
   return ["top", "bottom", "left", "right"].includes(value) ? value : "left";
 }
 
+export function normalizeSectionTitleOpacity(value) {
+  const number = typeof value === "number" || typeof value === "string" && value.trim() ? Number(value) : NaN;
+  return Number.isFinite(number) ? Math.round(Math.max(0, Math.min(100, number)) / 25) * 25 : 100;
+}
+
 export function normalizeHexColor(value) {
   const match = String(value || "").trim().match(/^#?([a-f0-9]{6})$/i);
   return match ? `#${match[1].toUpperCase()}` : "";

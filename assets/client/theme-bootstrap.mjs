@@ -4,6 +4,7 @@
   const navPositionStorageKey = "ampira.navPosition";
   const accentPaletteStorageKey = "ampira.accentPalette";
   const dashboardGlassBlurStorageKey = "ampira.dashboardGlassBlur";
+  const sectionTitleOpacityStorageKey = "ampira.sectionTitleOpacity";
   const coverStorageKey = "ampira.headerCover";
   const localCoverStorageKey = "ampira.header-cover.local.v1";
   const shortcutLayoutStorageKey = "ampira.websiteShortcutsLayout";
@@ -11,7 +12,7 @@
   const headerCoverBlurMax = 50;
   const headerCoverBlurBleedMultiplier = 1.5;
   const headerImageHeightMin = 70;
-  const headerImageHeightMax = 200;
+  const headerImageHeightMax = 300;
   const headerImageHeightStep = 5;
   const defaultHeaderImageUrl = "https://images.unsplash.com/photo-1589063550334-968dce01e968?q=80&w=3648&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=NHwxMjA3fDA%3D";
   const allowedModes = new Set(["system", "dark", "light"]);
@@ -62,6 +63,16 @@
   } catch {
     document.documentElement.dataset.dashboardGlassBlur = "on";
   }
+  try {
+    const storedOpacity = localStorage.getItem(sectionTitleOpacityStorageKey);
+    const opacity = storedOpacity?.trim() ? Number(storedOpacity) : 100;
+    if (Number.isFinite(opacity)) {
+      const preset = Math.round(Math.max(0, Math.min(100, opacity)) / 25) * 25;
+      document.documentElement.style.setProperty("--section-title-opacity", String(preset / 100));
+    }
+  } catch {
+    // Keep the default title visibility when the appearance hint is unavailable.
+  }
   const firstFrameMotionEnabled = document.hidden !== true
     && globalThis.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches !== true;
   if (firstFrameMotionEnabled) {
@@ -82,6 +93,7 @@
     rejectHeaderCover,
     setHeaderCoverSource,
     setHeaderCoverVideo,
+    prepareHeaderCoverController,
   };
 
   try {
@@ -89,6 +101,9 @@
     const cover = cachedCover
       ? JSON.parse(cachedCover)
       : { enabled: true, fixed: false, fullscreen: false, blurEnabled: false, blurAmount: 12, heightScale: 100, url: "" };
+    const fit = ["contain", "fill", "height"].includes(cover?.fit) ? cover.fit : "cover";
+    document.documentElement.dataset.headerImageFit = fit;
+    document.documentElement.style.setProperty("--header-cover-object-fit", fit === "height" ? "cover" : fit);
     applyHeaderCoverBlur(cover?.enabled === true && cover?.blurEnabled === true ? cover.blurAmount : 0);
     applyHeaderCoverHeight(cover?.heightScale);
     if (cover?.enabled === true) {
@@ -110,6 +125,13 @@
           restoreHeaderCover(record.dataUrl, cover.url, false, cover.video);
           return;
         }
+        if (record?.schemaVersion === 2) {
+          const { normalizeHeaderVideoRecord } = await import("../../extension/core/header-video.mjs");
+          if (normalizeHeaderVideoRecord(record)) {
+            restoreHeaderCover(`${location.origin}/_header-video?local=${encodeURIComponent(record.videoId)}`, "", true);
+            return;
+          }
+        }
       } catch {
         // The synced URL remains the safe fallback below.
       }
@@ -126,7 +148,7 @@
       const image = document.querySelector("#headerImage");
       if (!hero || !image) return false;
       hero.hidden = false;
-      if (video && isSafeImageUrl(imageUrl)) {
+      if (video && isSafeVideoSource(imageUrl)) {
         setHeaderCoverVideo(hero, imageUrl);
         return true;
       }
@@ -158,17 +180,22 @@
   }
 
   function setHeaderCoverVideo(hero, value) {
-    const source = isSafeImageUrl(value) ? value : "";
+    const source = isSafeVideoSource(value) ? value : "";
+    const unchanged = hero.dataset.headerVideoSource === source;
     const image = hero.querySelector("img");
     if (source && hero.dataset.headerVideoSource !== source) setHeaderCoverSource(image, "");
     hero.dataset.headerVideoSource = source;
     const controller = headerVideos.get(hero);
-    if (controller) { controller.setSource(source); return; }
+    if (controller && unchanged) { controller.setSource(source); return; }
+    controller?.setSource("");
     if (!source) { image.hidden = false; return; }
     image.hidden = true;
     hero.classList.remove("is-loaded");
-    import("./header-cover-video.mjs").then(({ createHeaderVideoController }) => {
+    const prepared = location.protocol === "chrome-extension:" && !source.startsWith("blob:")
+      ? prepareHeaderCoverController() : Promise.resolve(true);
+    Promise.all([import("./header-cover-video.mjs"), prepared]).then(([{ createHeaderVideoController }, ready]) => {
       if (hero.dataset.headerVideoSource !== source) return;
+      if (!ready) { restoreVideoFallback(hero); return; }
       let current = headerVideos.get(hero);
       if (!current) {
         current = createHeaderVideoController(hero, {
@@ -179,6 +206,16 @@
       }
       current.setSource(source);
     }).catch(() => { if (hero.dataset.headerVideoSource === source) restoreVideoFallback(hero); });
+  }
+
+  function isSafeVideoSource(value) {
+    if (isSafeImageUrl(value)) return true;
+    try {
+      const url = new URL(value);
+      if (url.protocol === "blob:") return url.origin === location.origin;
+      return location.protocol === "chrome-extension:" && url.origin === location.origin && url.pathname === "/_header-video"
+        && /^[a-f0-9-]{36}$/.test(url.searchParams.get("local") || "");
+    } catch { return false; }
   }
 
   function restoreVideoFallback(hero) {

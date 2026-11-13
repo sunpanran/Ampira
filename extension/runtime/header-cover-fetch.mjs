@@ -1,10 +1,16 @@
 import { HEADER_COVER_CACHE_PATH, normalizeNetworkHeaderCoverUrl } from "../core/header-cover-cache.mjs";
+import { handleHeaderVideoFetch } from "./header-video-fetch.mjs";
 
-export function createHeaderCoverFetchHandler({ cache, origin, clients, isResetting = () => false, track = (task) => task }) {
+export function createHeaderCoverFetchHandler({ cache, origin, clients, headerCoverStore, saveSettings, isResetting = () => false, track = (task) => task }) {
   return function handleFetch(event) {
     const request = event.request;
     const target = new URL(request.url);
-    if (target.origin !== origin || target.pathname !== HEADER_COVER_CACHE_PATH) return;
+    if (target.origin !== origin && request.destination !== "video") return;
+    if (target.origin !== origin || ["/_header-video", "/_header-cover-save"].includes(target.pathname)) {
+      event.respondWith(track(handleHeaderVideoFetch(event, { origin, clients, headerCoverStore, saveSettings, isResetting })));
+      return;
+    }
+    if (target.pathname !== HEADER_COVER_CACHE_PATH) return;
     event.respondWith(track(resolve(event, target)));
   };
 

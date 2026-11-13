@@ -546,6 +546,7 @@ export async function createDashboardApp() {
     hero: els.headerImageHero,
     t,
     apiGet,
+    apiPost,
     updatePreview: updateAppearancePreview,
     renderSettingsStatus: (...args) => settingsController.renderSettingsStatus(...args),
     setSettingsBusy: (...args) => settingsController.setSettingsBusy(...args),
@@ -1066,6 +1067,11 @@ export async function createDashboardApp() {
     });
     els.pointerGlowEnabledInput.addEventListener("change", () => updateAppearancePreview());
     els.dashboardGlassBlurEnabledInput.addEventListener("change", () => updateAppearancePreview());
+    els.sectionTitleOpacityGroup.addEventListener("click", (event) => {
+      const button = event.target.closest("[data-title-opacity]");
+      if (!button || button.disabled) return;
+      updateAppearancePreview({ sectionTitleOpacity: Number(button.dataset.titleOpacity) });
+    });
     els.headerImageEnabledInput.addEventListener("change", () => updateAppearancePreview());
     els.headerImageBlurAmountInput.addEventListener("input", () => updateAppearancePreview());
     els.headerImageHeightInput.addEventListener("input", () => updateAppearancePreview());
@@ -1077,6 +1083,7 @@ export async function createDashboardApp() {
     });
     els.headerImageUrlInput.addEventListener("input", () => updateAppearancePreview());
     els.headerImageMediaTypeInput.addEventListener("change", () => updateAppearancePreview());
+    els.headerImageFitInput.addEventListener("change", () => updateAppearancePreview());
     els.headerImage.addEventListener("load", handleHeaderImageLoad);
     els.headerImage.addEventListener("error", handleHeaderImageError);
     syncHeaderImageLoadState();

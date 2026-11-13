@@ -1,18 +1,20 @@
 import { LOCAL_HEADER_COVER_KEY } from "./constants.mjs";
+import { HEADER_VIDEO_RECORD_PREFIX, HEADER_VIDEO_RECORD_KIND, normalizeHeaderVideoRecord, isHeaderVideoBlob } from "./header-video.mjs";
 
 export const HEADER_COVER_STORED_MAX_BYTES = Math.floor(2.5 * 1024 * 1024);
 export const HEADER_COVER_MAX_DIMENSION = 2560;
 
 const WEBP_DATA_URL_PREFIX = "data:image/webp;base64,";
 
-export function createHeaderCoverStore(storage, { now = () => new Date().toISOString() } = {}) {
+export function createHeaderCoverStore(storage, { now = () => new Date().toISOString(), records } = {}) {
   if (!storage?.get || !storage?.set || !storage?.remove) throw new TypeError("Header cover storage is unavailable");
 
-  return { read, apply, restore, validateOperation };
+  return { read, apply, restore, validateOperation, finalize, readVideo, prune };
 
   async function read() {
     const snapshot = await readSnapshot();
-    const record = normalizeHeaderCoverRecord(snapshot.value);
+    let record = normalizeHeaderCoverRecord(snapshot.value);
+    if (record?.videoId && !await readVideo(record.videoId)) record = null;
     return {
       available: Boolean(record),
       invalid: snapshot.exists && !record,
@@ -24,18 +26,28 @@ export function createHeaderCoverStore(storage, { now = () => new Date().toISOSt
     if (!value || typeof value !== "object" || Array.isArray(value)) throw headerCoverError("HEADER_COVER_INVALID");
     if (value.action === "remove") return { action: "remove" };
     if (value.action !== "replace") throw headerCoverError("HEADER_COVER_INVALID");
-    const record = normalizeHeaderCoverRecord({ ...value.record, schemaVersion: 1, updatedAt: now() });
+    const record = normalizeHeaderCoverRecord({ ...value.record, schemaVersion: value.record?.videoId ? 2 : 1, updatedAt: now() });
     if (!record) throw headerCoverError("HEADER_COVER_INVALID");
-    return { action: "replace", record };
+    if (record.videoId && (!(value.blob instanceof Blob) || value.blob.size !== record.byteLength || value.blob.type !== record.mimeType)) {
+      throw headerCoverError("HEADER_COVER_INVALID");
+    }
+    return { action: "replace", record, ...(record.videoId ? { blob: value.blob } : {}) };
   }
 
   async function apply(value) {
     const operation = validateOperation(value);
     const previous = await readSnapshot();
+    if (operation.record?.videoId && (!records || !await isHeaderVideoBlob(operation.blob, operation.record)
+      || await records.getRecord(HEADER_VIDEO_RECORD_PREFIX + operation.record.videoId))) throw headerCoverError("HEADER_COVER_INVALID");
     try {
+      if (operation.record?.videoId) {
+        previous.createdVideoId = operation.record.videoId;
+        await records.setRecord(HEADER_VIDEO_RECORD_PREFIX + operation.record.videoId, operation.blob, HEADER_VIDEO_RECORD_KIND);
+      }
       if (operation.action === "remove") await storage.remove(LOCAL_HEADER_COVER_KEY);
       else await storage.set({ [LOCAL_HEADER_COVER_KEY]: operation.record });
     } catch (error) {
+      if (previous.createdVideoId) await records.deleteRecord(HEADER_VIDEO_RECORD_PREFIX + previous.createdVideoId).catch(() => {});
       throw headerCoverError("HEADER_COVER_STORAGE_FAILED", error);
     }
     return { previous, operation };
@@ -45,8 +57,30 @@ export function createHeaderCoverStore(storage, { now = () => new Date().toISOSt
     try {
       if (snapshot?.exists) await storage.set({ [LOCAL_HEADER_COVER_KEY]: snapshot.value });
       else await storage.remove(LOCAL_HEADER_COVER_KEY);
+      if (snapshot?.createdVideoId) await records.deleteRecord(HEADER_VIDEO_RECORD_PREFIX + snapshot.createdVideoId);
     } catch (error) {
       throw headerCoverError("HEADER_COVER_STORAGE_FAILED", error);
+    }
+  }
+
+  async function finalize(mutation) {
+    const oldId = normalizeHeaderCoverRecord(mutation?.previous?.value)?.videoId;
+    if (oldId && oldId !== mutation.operation.record?.videoId) await records.deleteRecord(HEADER_VIDEO_RECORD_PREFIX + oldId);
+  }
+
+  async function readVideo(id) {
+    const snapshot = await readSnapshot();
+    const record = normalizeHeaderVideoRecord(snapshot.value);
+    if (!record || record.videoId !== id || !records) return null;
+    const blob = await records.getRecord(HEADER_VIDEO_RECORD_PREFIX + id);
+    return blob instanceof Blob && blob.size === record.byteLength && blob.type === record.mimeType ? blob : null;
+  }
+
+  async function prune() {
+    if (!records) return;
+    const currentId = normalizeHeaderCoverRecord((await readSnapshot()).value)?.videoId;
+    for (const entry of await records.listRecords(HEADER_VIDEO_RECORD_KIND)) {
+      if (entry.key !== HEADER_VIDEO_RECORD_PREFIX + currentId) await records.deleteRecord(entry.key);
     }
   }
 
@@ -61,6 +95,7 @@ export function createHeaderCoverStore(storage, { now = () => new Date().toISOSt
 
 export function normalizeHeaderCoverRecord(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  if (Number(value.schemaVersion) === 2) return normalizeHeaderVideoRecord(value);
   if (Number(value.schemaVersion) !== 1) return null;
   const dataUrl = String(value.dataUrl || "");
   const byteLength = webpDataUrlByteLength(dataUrl);

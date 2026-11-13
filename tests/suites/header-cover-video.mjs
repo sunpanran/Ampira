@@ -108,6 +108,6 @@ try {
 
 const manifest = JSON.parse(await fs.readFile(new URL("../../manifest.json", import.meta.url), "utf8"));
 const csp = manifest.content_security_policy.extension_pages;
-assert(csp.includes("media-src 'self' https: http://localhost:* http://127.0.0.1:*"));
+assert(csp.includes("media-src 'self' blob: https: http://localhost:* http://127.0.0.1:*"));
 assert(csp.includes("frame-src 'none'"), "video backgrounds must not enable embedded remote webpages");
 console.log("header cover video tests passed");

@@ -15,7 +15,7 @@ export const REFRESH_ALARM = "ampira-refresh";
 export const REFRESH_PERIOD_MINUTES = 15;
 export const CONSENT_VERSION = 1;
 export const HEADER_IMAGE_HEIGHT_MIN = 70;
-export const HEADER_IMAGE_HEIGHT_MAX = 200;
+export const HEADER_IMAGE_HEIGHT_MAX = 300;
 export const HEADER_IMAGE_HEIGHT_STEP = 5;
 
 export const LOCAL_ONLY_SETTINGS_FIELDS = Object.freeze([
@@ -49,6 +49,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   dashboardCardOrder: DASHBOARD_CARD_IDS,
   accentTheme: "cyan",
   customAccentColor: "#06B6D4",
+  sectionTitleOpacity: 100,
   pointerGlowEnabled: true,
   dashboardGlassBlurEnabled: true,
   headerImageEnabled: true,
@@ -59,6 +60,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   headerImageHeightScale: 100,
   headerImageUrl: "",
   headerImageMediaType: "auto",
+  headerImageFit: "cover",
   bookmarkSectionEnabled: true,
   keyboardShortcutsEnabled: true,
   keyboardShortcuts: DEFAULT_KEYBOARD_SHORTCUTS,
