@@ -181,7 +181,7 @@ function createQueueContent() {
   } else {
     list.append(...items.map(createQueuePanelRow));
   }
-  return { content: list, meta: spanText(tc("queue.pending", items.length), "efficiency-meta"), actions: readAll ? [readAll] : [] };
+  return { content: list, meta: items.length ? spanText(String(items.length), "count") : null, actions: readAll ? [readAll] : [] };
 }
 
 function createDailyEventsContent(items) {

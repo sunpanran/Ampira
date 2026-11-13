@@ -1,6 +1,7 @@
 import { aiOutputPartsMatchLocale } from "../core/ai-output-language.mjs";
 import { nativeWebSearchCapability } from "../core/ai.mjs";
 import { botGeneratesBrief, botOrganizesNews } from "../core/bot-mode.mjs";
+import { annotateTodayNewsGroups } from "../core/news-ranking.mjs";
 
 export function createDashboardContentService(options) {
   const {
@@ -56,7 +57,9 @@ async function buildDashboardPayload(attempt = 0, scope = "all") {
     && providerConfigured
     && aiPermissionGranted;
   const sanitizedFeedItems = sanitizeCardAiSummaries(permittedFeedItems, settings, configuredForAi);
-  const visibleFeedItems = presentableFeedItems(sanitizedFeedItems, settings, configuredForAi);
+  const visibleFeedItems = annotateTodayNewsGroups(presentableFeedItems(sanitizedFeedItems, settings, configuredForAi), {
+    originalItems: sanitizedFeedItems,
+  });
   feed = {
     ...feed,
     items: visibleFeedItems,

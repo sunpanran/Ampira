@@ -15,7 +15,7 @@ export function botRunnerStatusKey(board, { messageId = "", brief = false } = {}
 
 export function botBriefStatusKey(board, digest) {
   if (!board.connection) return "mcp.unpaired";
-  if (digest?.taskStatus !== "pending") return "bot.agent";
+  if (digest?.taskStatus !== "pending") return "digest.status.ai";
   if (board.runner?.status === "failed") return "bot.runner.paused";
   return board.runner?.mode === "codex" ? botRunnerStatusKey(board, { brief: true }) : "bot.brief.pending";
 }

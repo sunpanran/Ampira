@@ -83,11 +83,11 @@ function renderSummaryGrid(nodes, token, { batchTransition = null, immediate = f
     renderSummaryBatchGrid(grid, nodes, currentCards, nextCards, batchTransition);
     return;
   }
-  if (immediate) {
+  if (immediate || (!nextCards.length && prefersReducedMotion())) {
     grid.replaceChildren(...nodes);
     return;
   }
-  if (!currentCards.length || prefersReducedMotion()) {
+  if (!currentCards.length) {
     grid.replaceChildren(...nodes);
     animateCardsIn(directSummaryCards(grid));
     return;

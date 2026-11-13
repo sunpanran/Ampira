@@ -60,6 +60,7 @@ export function createSummaryImageThumbs({ els, faviconUrl, itemUrl, newsPreview
   }
 
   function renderImage(thumb, imageUrl, onError, { forceReveal = false } = {}) {
+    if (!thumb.classList.contains("is-favicon-thumb") && thumb.querySelector("img")?.getAttribute("src") === imageUrl) return;
     thumb.className = "thumb";
     activeThumbCard(thumb)?.classList.remove("has-favicon-thumb");
     const img = document.createElement("img");

@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/icons/ampira-logo.svg?v=20261112-cyan-flat" width="128" height="128" alt="Ampira logo">
+  <img src="assets/icons/ampira-logo.svg?v=20261113-revised" width="128" height="128" alt="Ampira logo">
 </p>
 
 # Ampira 资讯新标签页

@@ -24,6 +24,7 @@ try {
     };
     const view = createDigestCardView(options);
     const initial = view.render(), button = initial.actions[0];
+    assert.equal(text(initial.meta), "digest.status.ai", "completed briefs share a neutral status label in both modes");
     assert.equal(initial.content.tabIndex, 0, "both modes retain keyboard access to the scrollable brief");
     assert.equal(initial.content.attributes.role, "region");
     assert.equal(button.tag, "button");

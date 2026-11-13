@@ -828,7 +828,7 @@
 .countdown-notice { flex: 0 0 auto; padding-inline: 2px; }
 .countdown-list, .countdown-empty { flex: 1 1 auto; min-height: 0; }
 .countdown-list { display: grid; align-content: start; gap: 4px; padding: 2px 4px; overflow: auto; }
-.countdown-empty { display: grid; }
+.countdown-empty { display: grid; align-content: start; }
 .countdown-row {
   display: flex; align-items: center; gap: 3px; padding: 0 6px;
   border-radius: var(--radius-row); corner-shape: var(--corner-shape-surface);
@@ -2524,6 +2524,11 @@
 
 .category-title {
   max-width: 100%;
+}
+
+.category-count {
+  color: var(--muted);
+  font-size: 11px;
 }
 
 .category-title > span:first-of-type {

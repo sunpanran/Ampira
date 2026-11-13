@@ -71,14 +71,21 @@ export function selectTodayNewsItems(items, options = {}) {
   const seenEvents = new Set();
   const eligible = (Array.isArray(items) ? items : []).map((item) => {
     const article = item?.feedItem || item;
-    if (article?.eventRepresentative === false || article?.rankingEligible === false) return null;
-    const eventKey = article?.eventId || article?.articleId || article?.entryKey || item?.key || item?.url;
-    if (!eventKey || seenEvents.has(eventKey)) return null;
+    if (article?.rankingEligible === false) return null;
+    const eventKey = article?.todayNewsId || article?.eventId || article?.articleId || article?.entryKey || item?.key || item?.url;
+    if (!eventKey) return null;
     const scope = newsTimeScope(article, now);
     if (!scope) return null;
-    seenEvents.add(eventKey);
-    return { item, scope };
-  }).filter(Boolean);
+    return { item, scope, eventKey };
+  }).filter(Boolean).sort((left, right) => compareLocalization(left.item, right.item)
+    || Number(right.scope === "today") - Number(left.scope === "today")
+    || compare(left.item, right.item)
+    || verifiedTime(right.item?.feedItem || right.item) - verifiedTime(left.item?.feedItem || left.item))
+    .filter(({ eventKey }) => {
+      if (seenEvents.has(eventKey)) return false;
+      seenEvents.add(eventKey);
+      return true;
+    });
   const today = eligible.filter((entry) => entry.scope === "today").map((entry) => entry.item).sort(compare);
   const recent = eligible.filter((entry) => entry.scope === "recent").map((entry) => entry.item)
     .sort((a, b) => compareLocalization(a, b) || compare(a, b)).slice(0, recentLimit);

@@ -171,7 +171,7 @@ $allowedPatterns = @(
   '^extension/core/runtime-locales/(?:en|zh-CN|zh-Hant|keys)\.mjs$',
   '^extension/data/china-locations\.json$',
   '^extension/runtime/(?:[a-z0-9-]+/)*[a-z0-9-]+\.mjs$',
-  '^extension/icons/icon-(?:16|32|48|128)\.png$',
+  '^extension/icons/icon-(?:16|24|32|48|128)\.png$',
   '^_locales/(?:en|zh_CN|zh_TW)/messages\.json$'
 )
 $localAbsolutePathPattern = '(?im)(?:\b[A-Z]:[\\/]|file:(?:/{2,3}|\\\\)|\\\\[A-Za-z0-9._-]+\\[A-Za-z0-9._-]+(?:\\|$)|(?:^|[\s"''])/(?:Users|home|private|tmp|var/folders|mnt/[A-Za-z]|Volumes|etc|opt|root|srv|usr|workspace)(?:/|$))'

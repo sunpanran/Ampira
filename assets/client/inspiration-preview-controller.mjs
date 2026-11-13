@@ -229,8 +229,9 @@ function isTransientPreviewFailure(preview) {
 export function sitePreviewFingerprint(item, normalizeUrl = (value) => String(value || "").trim(), profile = "visual") {
   const key = String(item?.key || "").trim();
   const url = normalizeUrl(item?.url || "");
-  const title = String(item?.title || "").replace(/\s+/g, " ").trim();
   const normalizedProfile = profile === "article" ? "article" : "visual";
+  // Article previews come from the URL; only visual searches depend on a title.
+  const title = normalizedProfile === "article" ? "" : String(item?.title || "").replace(/\s+/g, " ").trim();
   return key && url ? `${normalizedProfile}|${key}|${url}|${title}` : "";
 }
 

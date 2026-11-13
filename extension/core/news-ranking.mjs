@@ -1,4 +1,5 @@
 import { HOUR_MS, DAY_MS, FUTURE_SKEW_MS, finiteTime, localDateKey, newsTimeScope, publisherIdentity, verifiedTime } from "./news-item-model.mjs";
+import { normalizeUrl } from "./feed-utils.mjs";
 
 export { localDateKey, newsTimeScope, publisherIdentity } from "./news-item-model.mjs";
 
@@ -138,6 +139,48 @@ export function publicImportance(item) {
   return Number.isFinite(score) ? score : 0;
 }
 
+// Recheck visible headlines after localization without removing source articles
+// or changing the cached event evidence used by the brief and Reader.
+export function annotateTodayNewsGroups(items, options = {}) {
+  const now = finiteTime(options.now, Date.now());
+  const originals = new Map((options.originalItems || []).map((item) => [item.articleId || item.entryKey || item.url, item]));
+  const groups = [];
+  const entries = (Array.isArray(items) ? items : []).map((item) => {
+    if (!item || item.rankingEligible === false || !newsTimeScope(item, now)) return { item };
+    const key = item.articleId || item.entryKey || item.url;
+    if (!key) return { item };
+    const title = String(item.title || "");
+    const signature = eventSignature(title);
+    const facts = materialNumericFacts(String(originals.get(key)?.title || title).normalize("NFKC").toLowerCase());
+    const url = normalizeUrl(item.url);
+    const qualifiers = (title.toLowerCase().match(/取消|终止|終止|否认|否認|澄清|撤回|暂停|暫停|停止|关闭|關閉|不再|尚未|\b(?:not|denies|denied|rejected|cancelled|canceled|halts?|stops?|closes?)\b/gu) || []).sort().join("|");
+    const identityGroups = groups.filter((group) => group.entries.some((entry) => (
+      url && entry.url === url || item.eventId && entry.item.eventId === item.eventId
+    )));
+    let group = identityGroups[0];
+    // Exact identities may connect translations that have no shared wording.
+    for (const duplicate of identityGroups.slice(1)) {
+      for (const entry of duplicate.entries) entry.group = group;
+      group.entries.push(...duplicate.entries);
+      groups.splice(groups.indexOf(duplicate), 1);
+    }
+    if (!group && signature.terms.size >= 3) {
+      group = groups.find((candidate) => candidate.qualifiers === qualifiers
+        && candidate.entries.every((entry) => !numbersConflict(entry.signature.numericFacts, signature.numericFacts)
+          && !numbersConflict(entry.facts, facts))
+        && signatureMatchScore(candidate.signature, signature) >= .75);
+    }
+    if (!group) {
+      group = { id: item.eventId || key, signature, qualifiers, entries: [] };
+      groups.push(group);
+    }
+    const entry = { item, url, signature, facts, group };
+    group.entries.push(entry);
+    return entry;
+  });
+  return entries.map(({ item, group }) => group ? { ...item, todayNewsId: group.id } : item);
+}
+
 function localImportance(item) {
   const score = Number(item?.localImportanceScore ?? item?.baseImportanceScore ?? item?.score ?? 0);
   return Number.isFinite(score) ? score : 0;
@@ -253,8 +296,9 @@ function contentQuality(item) {
 }
 
 function eventSignature(value) {
-  const normalized = String(value || "").normalize("NFKC").toLowerCase()
-    .replace(/\s*(?:[|｜·•»]|-{1,2}|–|—)\s*([^|｜·•»–—-]{1,40})$/u, (match, suffix) => (/\d/.test(suffix) ? match : " "))
+  const title = String(value || "").normalize("NFKC").toLowerCase()
+    .replace(/\s*(?:[|｜·•»]|-{1,2}|–|—)\s*([^|｜·•»–—-]{1,40})$/u, (match, suffix) => (/\d/.test(suffix) ? match : " "));
+  const normalized = title
     .replace(/[^\p{L}\p{N}]+/gu, " ")
     .trim();
   const terms = new Set(normalized.split(/\s+/).filter((term) => (
@@ -279,7 +323,7 @@ function eventSignature(value) {
       if (!GENERIC_EVENT_TERMS.has(term)) terms.add(term);
     }
   }
-  return { core: [...terms].sort().join(" "), terms, numericFacts: materialNumericFacts(normalized) };
+  return { core: [...terms].sort().join(" "), terms, numericFacts: materialNumericFacts(title) };
 }
 
 function signatureMatchScore(left, right) {
@@ -309,7 +353,6 @@ function materialNumericFacts(value) {
     .replace(/\b(?:19|20)\d{2}\s*年(?:\s*\d{1,2}\s*月(?:\s*\d{1,2}\s*日)?)?/gu, " ")
     .replace(/\b(?:19|20)\d{2}[./-]\d{1,2}(?:[./-]\d{1,2})?\b/gu, " ")
     .replace(/\b\d{1,2}\s*月\s*\d{1,2}\s*日\b/gu, " ")
-    .replace(/\b\d{1,2}[./-]\d{1,2}\b/gu, " ")
     .replace(/\b\d{1,2}:\d{2}\b/gu, " ");
   const facts = new Map();
   for (const match of text.matchAll(/([a-z]{2,24})[-_.]?(\d+(?:\.\d+)*)/giu)) {

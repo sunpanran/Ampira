@@ -28,6 +28,7 @@ const manifest = JSON.parse(await fs.readFile(path.join(root, "manifest.json"), 
 const dashboardHtml = await fs.readFile(path.join(root, "dashboard.html"), "utf8");
 const logoSource = await fs.readFile(path.join(root, "assets", "icons", "ampira-logo.svg"), "utf8");
 const toolbarIcon16Png = await fs.readFile(path.join(root, "extension", "icons", "icon-16.png"));
+const toolbarIcon24Png = await fs.readFile(path.join(root, "extension", "icons", "icon-24.png"));
 const toolbarIcon32Png = await fs.readFile(path.join(root, "extension", "icons", "icon-32.png"));
 const storeIconPng = await fs.readFile(path.join(root, "extension", "icons", "icon-128.png"));
 const managerIconPng = await fs.readFile(path.join(root, "extension", "icons", "icon-48.png"));
@@ -53,13 +54,15 @@ assert(versionDashboardAppSource.includes("globalThis.chrome?.runtime?.getManife
   && versionDashboardAppSource.includes("els.aboutVersion.textContent = `v${appVersion}`"), "the About panel version must come from the runtime manifest with a local-preview manifest fallback");
 assert(!dashboardHtml.includes(manifest.version), "dashboard HTML must not hard-code the manifest version");
 assert.equal(manifest.chrome_url_overrides.newtab, "dashboard.html");
-assert(logoSource.includes('viewBox="0 0 104 104"')
+assert(logoSource.includes('viewBox="0 0 128 128"')
   && logoSource.includes('fill="#06B6D4"')
   && logoSource.includes('fill="#F4FBFD"')
   && !/(?:linear|radial)Gradient|filter=/.test(logoSource), "the canonical logo must use the reviewed flat, crisp geometry and Ampira palette");
 assert.deepEqual([storeIconPng.readUInt32BE(16), storeIconPng.readUInt32BE(20)], [128, 128], "the Chrome Web Store icon must remain 128x128");
 assert.deepEqual([managerIconPng.readUInt32BE(16), managerIconPng.readUInt32BE(20)], [48, 48], "the extension-management icon must remain 48x48");
 assert.deepEqual([toolbarIcon16Png.readUInt32BE(16), toolbarIcon16Png.readUInt32BE(20)], [16, 16], "the compact toolbar icon must remain 16x16");
+assert.deepEqual([toolbarIcon24Png.readUInt32BE(16), toolbarIcon24Png.readUInt32BE(20)], [24, 24], "the toolbar icon at 150% display scaling must be 24x24");
+assert.equal(manifest.action.default_icon["24"], "extension/icons/icon-24.png", "the toolbar must select its native 150% raster");
 assert.deepEqual([toolbarIcon32Png.readUInt32BE(16), toolbarIcon32Png.readUInt32BE(20)], [32, 32], "the high-density toolbar icon must remain 32x32");
 assert.equal(manifest.action.default_popup, "action-popup.html", "the toolbar action must open a visible capture confirmation popup");
 assert.deepEqual(manifest.permissions.sort(), ["activeTab", "alarms", "bookmarks", "storage"]);
