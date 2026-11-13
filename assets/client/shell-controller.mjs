@@ -194,7 +194,7 @@ function initializeScrollSpy() {
 
 function observeScrollSections() {
   scrollObserver?.disconnect();
-  const activationY = sectionActivationY();
+  const activationY = sectionActivationY() - 1;
   const bottomMargin = Math.max(0, window.innerHeight - activationY - 1);
   scrollObserver = new IntersectionObserver(syncNavToCurrentSection, {
     root: null,
@@ -232,7 +232,7 @@ function navigateToSection(id, { focus = false } = {}) {
     const title = entry.section.querySelector("h2");
     if (title) { title.tabIndex = -1; title.focus({ preventScroll: true }); }
   }
-  setActiveNavButton(entry.button);
+  syncNavToCurrentSection();
   return true;
 }
 

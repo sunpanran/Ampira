@@ -93,6 +93,7 @@ import { runBatchActionMotionTests } from "./suites/batch-action-motion.mjs";
 import { runDashboardLayoutTests } from "./suites/dashboard-layout.mjs";
 import { runWebsiteShortcutLayoutTests } from "./suites/website-shortcut-layout.mjs";
 import { runNavigationPositionTests } from "./suites/navigation-position.mjs";
+import { runNavigationScrollTests } from "./suites/navigation-scroll.mjs";
 import { runAsyncImageRevealTests } from "./suites/async-image-reveal.mjs";
 import { createReaderPreviewService } from "../extension/runtime/reader-preview-service.mjs";
 import { createRefreshService } from "../extension/runtime/refresh-service.mjs";
@@ -465,6 +466,7 @@ runBatchActionMotionTests();
 await runDashboardLayoutTests();
 runWebsiteShortcutLayoutTests();
 await runNavigationPositionTests();
+runNavigationScrollTests();
 const originalFetch = globalThis.fetch;
 try {
   const manyItems = Array.from({ length: 15 }, (_, index) => ({ id: String(index), url: `https://example.com/${index}`, title: `Item ${index}`, content_text: `Summary ${index}` }));
@@ -2325,7 +2327,7 @@ assert(navStaticActiveSource.includes("border-color: transparent;")
   && navStaticActiveSource.includes("background: var(--active-bg);")
   && navStaticActiveSource.includes("color: var(--text-strong);")
   && navStaticActiveSource.includes("box-shadow: none;"), "soft navigation must use the product accent surface without the old ring or inset highlight");
-const navSizeSource = baseLayoutCssSource.slice(baseLayoutCssSource.indexOf(".nav-logo,"), baseLayoutCssSource.indexOf(".nav-logo {"));
+const navSizeSource = baseLayoutCssSource.slice(baseLayoutCssSource.indexOf(".nav-logo,"), baseLayoutCssSource.indexOf(".nav-logo.is-returning img {"));
 assert(navSizeSource.includes("width: 44px;") && navSizeSource.includes("height: 44px;"), "soft navigation must retain 44px targets across desktop sizes");
 assert((tokensCssSource.match(/--nav-panel-bg:/g) || []).length === 3
   && (tokensCssSource.match(/--nav-panel-bg-expanded:/g) || []).length === 3

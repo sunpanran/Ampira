@@ -446,7 +446,7 @@ assert(shellControllerSource.includes("new IntersectionObserver(syncNavToCurrent
   && shellControllerSource.includes("if (activeNavButton === nextActiveButton) return;"),
   "navigation scroll selection must observe section crossings and avoid per-frame layout reads or unchanged active-state writes");
 const navClickBindingSource = dashboardAppSource.slice(dashboardAppSource.indexOf('document.querySelector("#navLogo")'), dashboardAppSource.indexOf("els.settingsNav.addEventListener"));
-assert(!navClickBindingSource.includes("setActiveNavButton("), "smooth section navigation must let the scroll observer select once instead of flashing back to the previous section");
+assert(!navClickBindingSource.includes("setActiveNavButton("), "section click bindings must delegate selection to the shell controller");
 assert(settingsWorkflowSource.includes('"bookmarkSectionEnabled", "websiteShortcutsEnabled"'), "the runtime settings workflow must accept bookmark-section visibility without treating it as a source change");
 assert(!cacheFetchSource.includes('id="personalizedRankingEnabledInput"'), "fetch settings must not expose the advanced personalization switch");
 assert(cacheAdvancedSource.includes('<input id="personalizedRankingEnabledInput" type="checkbox">'), "advanced settings must expose personalized ranking with an unchecked first-frame default");
