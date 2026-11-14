@@ -12,13 +12,16 @@ import { translate } from "./full-i18n.mjs";
 export const GOOD_CARD = "标题：Apple Vision Pro 推出更新\n这次更新改善了显示效果，并向现有用户开放。\n具体适用设备以官方公布的名单为准。";
 export const WRONG_CARD = "Title: A new product update\nThe update improves display quality for existing users.\nThe official list describes supported devices.";
 
+// Default fixture articles share a publication time so recency ties preserve input order.
+const SYNTHETIC_PUBLISHED_AT = new Date().toISOString();
+
 export function syntheticArticle(id, extra = {}) {
   return {
     articleId: id, entryKey: id, sourceKey: "fixture", source: "Synthetic News",
     sourceOrigin: "https://news.example", fetchOrigin: "https://news.example",
     url: `https://news.example/${id}`, title: `Product update ${id}`,
     excerpt: "The product update improves the display quality and supports existing devices.",
-    contentLocale: "en", publishedAt: new Date().toISOString(), rankingEligible: true,
+    contentLocale: "en", publishedAt: SYNTHETIC_PUBLISHED_AT, rankingEligible: true,
     score: 50, ...extra,
   };
 }
