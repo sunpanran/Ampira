@@ -25,7 +25,7 @@ import { createHeaderCoverRenderer } from "../../assets/client/header-cover-rend
 import { DEFAULT_HEADER_IMAGE_URL, normalizeHeaderImageHeightScale } from "../../assets/client/header-cover-model.mjs";
 import { createAppearanceController } from "../../assets/client/appearance-controller.mjs";
 import { t } from "../../assets/client/i18n.mjs";
-import { messageRequestForHttp } from "../../assets/client/message-contract.mjs";
+
 
 const bytes = Buffer.concat([Buffer.from("RIFF"), Buffer.alloc(4), Buffer.from("WEBPfixture")]);
 const dataUrl = `data:image/webp;base64,${bytes.toString("base64")}`;
@@ -162,10 +162,7 @@ assert.equal(workflowSettings.headerImageHeightScale, HEADER_IMAGE_HEIGHT_MAX);
 assert.equal((await workflowStore.read()).record.name, record.name);
 assert.deepEqual(localState, previousLocalState, "a failed settings transaction must restore credentials and device consent");
 
-assert.deepEqual(messageRequestForHttp("GET", "/api/settings/header-cover").request, {
-  type: "header-cover:get",
-  payload: {},
-});
+
 
 const workflowSource = await fs.readFile(new URL("../../extension/runtime/settings-workflow.mjs", import.meta.url), "utf8");
 assert(workflowSource.includes("headerCoverStore.restore(headerCoverMutation.previous)"), "a failed settings transaction must restore the previous local cover");
@@ -307,7 +304,7 @@ async function testLocalCoverSelection() {
   ].map(id => [id, { removeAttribute() {}, addEventListener: (event, callback) => listeners.set(`${id}:${event}`, callback) }]));
   let previews = 0, decodes = 0, closed = 0, rejectDecode = false;
   const controller = createHeaderCoverController({
-    state, els, t: key => key, apiGet: async () => ({ record, available: true }),
+    state, els, t: key => key, request: async () => ({ record, available: true }),
     updatePreview: () => { previews++; }, renderSettingsStatus: key => status.push(key),
     setSettingsBusy: value => { busy.push(value); controller.setBusy(value); },
   });

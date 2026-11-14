@@ -26,10 +26,10 @@ export function searchRecommendationRows(query, results, { historyStatus, browse
   if (text) {
     rows.push({ id: "web", kind: "web", titleKey: browserEnabled ? "search.unified.web" : "search.unified.enableWeb", detail: text, icon: "search" });
   }
-  rows.push({ id: "ai", kind: "ai", titleKey: aiEnabled ? "search.unified.ask" : "search.unified.configureAi", detail: text, icon: "spark" });
+  if (aiEnabled) rows.push({ id: "ai", kind: "ai", titleKey: "search.unified.ask", detail: text, icon: "spark" });
   if (hasConversation) rows.push({ id: "resume", kind: "resume", titleKey: "search.unified.resume", icon: "message-question-circle" });
   rows.push(...groups.bookmark, ...groups.ampira, ...groups.history);
-  if (historyStatus === "permission") rows.push({ id: "history", kind: "history", titleKey: "search.unified.enableHistory", icon: "clock" });
+  if (text && historyStatus === "permission") rows.push({ id: "history", kind: "history", titleKey: "search.unified.enableHistory", icon: "clock" });
   return rows;
 }
 
@@ -37,8 +37,8 @@ export function defaultSearchRecommendation(rows) {
   return rows.find(row => ["direct", "result", "web"].includes(row.kind))?.id || "";
 }
 
-export function createUnifiedSearchController({ state, els, t, apiPost, aiSearch, openResult, openExternalWindow,
-  openAiSettings, setActiveNavButton, syncNavToCurrentSection, localizedErrorMessage,
+export function createUnifiedSearchController({ state, els, t, request, aiSearch, openResult, openExternalWindow,
+  setActiveNavButton, syncNavToCurrentSection, localizedErrorMessage,
   requestPermission = requestPermissions, doc = globalThis.document, view = globalThis.window }) {
   let mode = "search";
   let generation = 0;
@@ -47,7 +47,7 @@ export function createUnifiedSearchController({ state, els, t, apiPost, aiSearch
   let loadingTimer = 0;
   let loadingVisible = false;
   let resultQuery = "";
-  let listAnimation = null;
+  let sizeAnimation = null;
   let layoutKey = "";
   let closeTimer = 0;
   let results = [];
@@ -64,6 +64,9 @@ export function createUnifiedSearchController({ state, els, t, apiPost, aiSearch
   let composing = false;
   const input = els.unifiedSearchInput;
   const list = els.unifiedSearchResults;
+  const surface = els.unifiedSearch;
+  const footer = els.unifiedSearchStatus.parentElement;
+  const canAsk = () => state.data?.ai?.enabled === true || usesBotChat(state.data);
   const isOpen = () => els.aiSearchOverlay.classList.contains("open") && !els.aiSearchOverlay.classList.contains("closing");
   const currentQuery = () => normalizeSearchQuery(input.value);
   const resultsView = createSearchResultsView({ list, t, doc, onSelect: row => {
@@ -86,12 +89,12 @@ export function createUnifiedSearchController({ state, els, t, apiPost, aiSearch
   function setMode(next) {
     mode = next;
     els.aiSearchOverlay.classList.add("has-continuous-motion");
-    els.unifiedSearch.hidden = next !== "search";
+    surface.hidden = next !== "search";
     els.aiSearchPanel.classList.toggle("is-searching", next === "search");
     els.aiSearchPanel.classList.toggle("is-conversing", next === "conversation");
     els.aiSearchOverlay.setAttribute("aria-labelledby", next === "search" ? "unifiedSearchTitle" : "aiSearchTitleText");
     // Establish the hidden state once; interrupted transitions keep their current frame.
-    if (!els.aiSearchOverlay.classList.contains("open")) view.getComputedStyle(els.aiSearchOverlay).opacity;
+    if (!els.aiSearchOverlay.classList.contains("open")) view.getComputedStyle(els.aiSearchOverlay).backgroundColor;
   }
 
   function open(text) {
@@ -103,7 +106,7 @@ export function createUnifiedSearchController({ state, els, t, apiPost, aiSearch
     setMode("search");
     els.aiSearchOverlay.classList.remove("closing");
     els.aiSearchOverlay.classList.add("open");
-    if (listAnimation?.playState === "paused") listAnimation.play();
+    if (sizeAnimation?.playState === "paused") sizeAnimation.play();
     setActiveNavButton(els.aiSearchNav);
     if (typeof text === "string") input.value = text;
     input.focus({ preventScroll: true });
@@ -118,8 +121,8 @@ export function createUnifiedSearchController({ state, els, t, apiPost, aiSearch
     view.clearTimeout(timer);
     view.clearTimeout(loadingTimer);
     view.clearTimeout(closeTimer);
-    listAnimation?.cancel();
-    listAnimation = null;
+    sizeAnimation?.cancel();
+    sizeAnimation = null;
     setMode("conversation");
     hasConversation = true;
     const token = generation;
@@ -142,7 +145,7 @@ export function createUnifiedSearchController({ state, els, t, apiPost, aiSearch
     // Cancel pending conversation work without handing this overlay to its close timer.
     aiSearch.close();
     aiSearch.call("suspend");
-    listAnimation?.pause();
+    sizeAnimation?.pause();
     els.aiSearchOverlay.classList.add("closing");
     closeTimer = view.setTimeout(() => {
       closeTimer = 0;
@@ -159,8 +162,8 @@ export function createUnifiedSearchController({ state, els, t, apiPost, aiSearch
     resultQuery = "";
     rows = [];
     activeId = "";
-    listAnimation?.cancel();
-    listAnimation = null;
+    sizeAnimation?.cancel();
+    sizeAnimation = null;
     layoutKey = "";
     resultsView.clear();
     list.hidden = true;
@@ -184,14 +187,14 @@ export function createUnifiedSearchController({ state, els, t, apiPost, aiSearch
     notice = "";
     render();
     loadingTimer = view.setTimeout(() => {
-      if (token === generation && loading) { loadingVisible = true; renderStatus(); }
+      if (token === generation && loading) { loadingVisible = true; render(); }
     }, 300);
     timer = view.setTimeout(() => void retrieve(token, query), delay);
   }
 
   async function retrieve(token, query) {
     try {
-      const response = await apiPost("/api/search", { query });
+      const response = await request({ type: "search:query", payload: { query } });
       if (token !== generation || mode !== "search" || !isOpen() || query !== currentQuery()) return;
       if (response.stale) { refresh(); return; }
       if (resultQuery !== query) list.scrollTop = 0;
@@ -222,14 +225,15 @@ export function createUnifiedSearchController({ state, els, t, apiPost, aiSearch
     const rowQuery = loading && !resultQuery ? "" : query;
     rows = searchRecommendationRows(rowQuery, results, {
       historyStatus: sources.history, browserEnabled, hasConversation,
-      aiEnabled: state.data?.ai?.enabled === true || usesBotChat(state.data),
+      aiEnabled: canAsk(),
     });
     if (!loading && (!manuallySelected || !rows.some(row => row.id === activeId))) activeId = defaultSearchRecommendation(rows);
     else if (!rows.some(row => row.id === activeId)) activeId = "";
-    const nextLayoutKey = rows.map(row => `${row.id}:${Boolean(row.detail)}`).join("\n");
+    const showFooter = Boolean(rowQuery || (query && loadingVisible));
+    const nextLayoutKey = `${showFooter}\n${rows.map(row => `${row.id}:${Boolean(row.detail)}`).join("\n")}`;
     const layoutChanged = layoutKey !== nextLayoutKey;
-    const previousHeight = layoutChanged && layoutKey ? Number.parseFloat(view.getComputedStyle(list).height) : 0;
-    if (layoutChanged) { listAnimation?.cancel(); listAnimation = null; }
+    const previousHeight = layoutChanged && layoutKey ? Number.parseFloat(view.getComputedStyle(surface).height) : 0;
+    if (layoutChanged) { sizeAnimation?.cancel(); sizeAnimation = null; }
     const entering = resultsView.render(rows, { activeId, stale: loading || composing || resultQuery !== query });
     if (!loading && isOpen()) {
       for (const node of entering) animateElement(node, [{ opacity: 0 }, { opacity: 1 }], {
@@ -237,16 +241,17 @@ export function createUnifiedSearchController({ state, els, t, apiPost, aiSearch
       });
     }
     list.hidden = rows.length === 0;
+    footer.hidden = !showFooter;
     if (layoutChanged) {
-      const height = Number.parseFloat(view.getComputedStyle(list).height);
+      const height = Number.parseFloat(view.getComputedStyle(surface).height);
       if (previousHeight && Math.abs(previousHeight - height) > 1 && isOpen()
         && !doc.hidden && !view.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-        const animation = list.animate([{ height: `${previousHeight}px` }, { height: `${height}px` }], {
+        const animation = surface.animate([{ height: `${previousHeight}px` }, { height: `${height}px` }], {
           duration: SEARCH_RESIZE_DURATION, easing: MOTION_EASING.move,
         });
-        listAnimation = animation;
+        sizeAnimation = animation;
         animation.addEventListener("finish", () => {
-          if (listAnimation === animation) listAnimation = null;
+          if (sizeAnimation === animation) sizeAnimation = null;
           animation.cancel();
         }, { once: true });
       }
@@ -264,7 +269,7 @@ export function createUnifiedSearchController({ state, els, t, apiPost, aiSearch
       : results.length ? t("search.unified.count", { count: results.length }) : "");
     if (els.unifiedSearchStatus.textContent !== text) els.unifiedSearchStatus.textContent = text;
     els.unifiedSearchStatus.title = text;
-    els.unifiedSearch.classList.toggle("has-notice", Boolean(notice));
+    surface.classList.toggle("has-notice", Boolean(notice));
   }
 
   function syncSelection(scroll = false) {
@@ -304,10 +309,9 @@ export function createUnifiedSearchController({ state, els, t, apiPost, aiSearch
           if (!granted) { notice = t("search.unified.permissionDeclined"); render(); return; }
           browserEnabled = true;
         }
-        await apiPost("/api/browser/search", { query });
+        await request({ type: "browser:search", payload: { query } });
       } else if (row.kind === "ai") {
-        if (state.data?.ai?.enabled === true || usesBotChat(state.data)) await openConversation(query, true);
-        else { close({ restore: false }); await openAiSettings(); }
+        if (canAsk()) await openConversation(query, true);
       } else if (row.kind === "resume") {
         await openConversation();
       } else {
@@ -349,7 +353,7 @@ export function createUnifiedSearchController({ state, els, t, apiPost, aiSearch
   function trapFocus(event) {
     if (mode !== "search") { aiSearch.call("trapFocus", event); return; }
     if (event.key !== "Tab") return;
-    const focusable = [...els.unifiedSearch.querySelectorAll("input, button:not([disabled])")];
+    const focusable = [...surface.querySelectorAll("input, button:not([disabled])")];
     const first = focusable[0];
     const last = focusable.at(-1);
     if (event.shiftKey && doc.activeElement === first) { event.preventDefault(); last?.focus(); }

@@ -1,8 +1,12 @@
+import { itemUrl } from "./item-presenter.mjs";
 import { browserImageMeetsProfileDimensions } from "./card-image-quality.mjs";
 import { loadImageWithReveal } from "./async-image-reveal.mjs";
-import { activeSummaryThumbSelector } from "./summary-thumb-transition.mjs";
+import { summaryThumbTransition } from "./thumb-transition.mjs";
 
-export function createSummaryImageThumbs({ els, faviconUrl, itemUrl, newsPreviews }) {
+const { activeSelector: activeSummaryThumbSelector } = summaryThumbTransition;
+
+
+export function createSummaryImageThumbs({ els, faviconUrl, newsPreviews }) {
   return { createSummaryThumb, updateVisibleNewsThumbs };
 
   function createSummaryThumb(item) {

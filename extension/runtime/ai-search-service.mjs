@@ -182,7 +182,6 @@ async function answerAiSearch(body, runtimeOptions = {}) {
   const locale = settingsLocale(settings);
   const articleContext = normalizeArticleContext(body.articleContext, locale, normalizeUserUrl);
   const questionContext = normalizeQuestionContext(body.questionContext);
-  const followupContext = articleContext || questionContext;
   const queryLimit = AI_FOLLOWUP_QUERY_MAX_CHARS;
   const query = limitCodePoints(String(body.query || "").trim(), queryLimit);
   if (!query) return resultMessage(settings, false, "background.error.searchRequired");

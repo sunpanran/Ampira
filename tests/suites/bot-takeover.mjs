@@ -20,7 +20,7 @@ for (const brief of [true, false]) for (const news of [true, false]) for (const 
   assert.equal(normalizeSettings(disabled).botGenerateBrief, brief, "master switch retains individual choices");
 }
 for (const botGenerateBrief of [true, false]) {
-  const article = syntheticArticle("native-brief", { title: "本地产品更新", excerpt: "新版本改善显示效果，并支持现有设备。", contentLocale: "zh-CN" });
+  const article = syntheticArticle("native-brief", { title: "本地设备发布显示功能更新", excerpt: "新版本改善显示效果，并支持现有设备。厂商公布了安装步骤和设备清单，本次更新不需要购买新的硬件。", contentLocale: "zh-CN" });
   const h = createAutomaticAiHarness({ articles: [article], settings: {
     mcpEnabled: true, dashboardMode: "bot", botGenerateBrief, botAnswerQuestions: false, cardSummaryEnabled: false,
   } });

@@ -1,36 +1,39 @@
 const PRIMARY_CATEGORY = "primary";
-const MORE_CATEGORY = "more";
+const LOCAL_CATEGORY = "local";
 
 export const AI_PROVIDER_PRESETS = Object.freeze([
   preset({
     id: "openai", name: "OpenAI", mark: "OA", category: PRIMARY_CATEGORY,
     icon: themedIcon("openai"),
-    baseUrl: "https://api.openai.com/v1", apiStyle: "responses", model: "gpt-5.4-mini",
-    hintKey: "settings.service.providerHintDirect",
+    baseUrl: "https://api.openai.com/v1", apiStyle: "responses", model: "gpt-6-luna",
     modelDocs: "https://developers.openai.com/api/docs/models",
     hosts: ["api.openai.com"],
+  }),
+  preset({
+    id: "gemini", name: "Google Gemini", mark: "G", category: PRIMARY_CATEGORY,
+    icon: icon("gemini"),
+    baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai", apiStyle: "chat_completions", model: "gemini-4-hydrogen",
+    modelDocs: "https://aistudio.google.com/docs/models",
+    hosts: ["generativelanguage.googleapis.com"],
   }),
   preset({
     id: "deepseek", name: "DeepSeek", mark: "DS", category: PRIMARY_CATEGORY,
     icon: icon("deepseek"),
     baseUrl: "https://api.deepseek.com", apiStyle: "chat_completions", model: "deepseek-flash",
-    hintKey: "settings.service.providerHintDirect",
     modelDocs: "https://api-docs.deepseek.com/quick_start/pricing",
     hosts: ["api.deepseek.com"],
   }),
   preset({
-    id: "gemini", name: "Google Gemini", mark: "G", category: PRIMARY_CATEGORY,
-    icon: icon("gemini"),
-    baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai", apiStyle: "chat_completions", model: "gemini-3.6-flash",
-    hintKey: "settings.service.providerHintCompatible",
-    modelDocs: "https://aistudio.google.com/docs/models",
-    hosts: ["generativelanguage.googleapis.com"],
+    id: "grok", name: "Grok", mark: "GK", category: PRIMARY_CATEGORY,
+    icon: themedIcon("grok"),
+    baseUrl: "https://api.x.ai/v1", apiStyle: "responses", model: "grok-4.7",
+    modelDocs: "https://docs.x.ai/developers/models",
+    hosts: ["api.x.ai"],
   }),
   preset({
     id: "kimi", name: "Kimi", mark: "K", category: PRIMARY_CATEGORY,
     icon: icon("kimi"),
     apiStyle: "chat_completions", model: "kimi-k3.1-pro",
-    hintKey: "settings.service.providerHintCompatible",
     modelDocs: "https://platform.kimi.com/docs/models",
     hosts: ["api.moonshot.cn", "api.moonshot.ai"],
     regions: [
@@ -42,7 +45,6 @@ export const AI_PROVIDER_PRESETS = Object.freeze([
     id: "qwen", name: "Qwen", mark: "Q", category: PRIMARY_CATEGORY,
     icon: themedIcon("qwen"),
     apiStyle: "chat_completions", model: "qwen3.7-plus",
-    hintKey: "settings.service.providerHintCompatible",
     modelDocs: "https://help.aliyun.com/zh/model-studio/models",
     hosts: ["dashscope.aliyuncs.com", "dashscope-intl.aliyuncs.com", "dashscope-us.aliyuncs.com"],
     regions: [
@@ -54,21 +56,12 @@ export const AI_PROVIDER_PRESETS = Object.freeze([
   preset({
     id: "openrouter", name: "OpenRouter", mark: "OR", category: PRIMARY_CATEGORY,
     icon: themedIcon("openrouter"),
-    baseUrl: "https://openrouter.ai/api/v1", apiStyle: "chat_completions", model: "openai/gpt-5.2",
-    hintKey: "settings.service.providerHintGateway",
+    baseUrl: "https://openrouter.ai/api/v1", apiStyle: "chat_completions", model: "openai/gpt-6-luna",
     modelDocs: "https://openrouter.ai/models",
     hosts: ["openrouter.ai"],
   }),
   preset({
-    id: "grok", name: "Grok", mark: "GK", category: PRIMARY_CATEGORY,
-    icon: themedIcon("grok"),
-    baseUrl: "https://api.x.ai/v1", apiStyle: "responses", model: "grok-4.7",
-    hintKey: "settings.service.providerHintDirect",
-    modelDocs: "https://docs.x.ai/developers/models",
-    hosts: ["api.x.ai"],
-  }),
-  preset({
-    id: "ollama", name: "Ollama", mark: "OL", category: PRIMARY_CATEGORY,
+    id: "ollama", name: "Ollama", mark: "OL", category: LOCAL_CATEGORY,
     icon: themedIcon("ollama"),
     baseUrl: "http://localhost:11434/v1", apiStyle: "chat_completions", model: "",
     modelPlaceholder: "qwen3:8b", hintKey: "settings.service.providerHintLocal",
@@ -76,45 +69,14 @@ export const AI_PROVIDER_PRESETS = Object.freeze([
     hosts: ["localhost", "127.0.0.1"],
     match: (url) => ["localhost", "127.0.0.1"].includes(url.hostname) && url.port === "11434",
   }),
-  preset({
-    id: "siliconflow", name: "SiliconFlow", mark: "SF", category: MORE_CATEGORY,
-    icon: icon("siliconflow"),
-    baseUrl: "https://api.siliconflow.cn/v1", apiStyle: "chat_completions", model: "Pro/zai-org/GLM-5.1",
-    hintKey: "settings.service.providerHintCompatible",
-    modelDocs: "https://api-docs.siliconflow.cn/docs/userguide/capabilities/text-generation",
-    hosts: ["api.siliconflow.cn"],
-  }),
-  preset({
-    id: "zhipu", name: "Zhipu GLM", mark: "GLM", category: MORE_CATEGORY,
-    icon: icon("zhipu"),
-    baseUrl: "https://open.bigmodel.cn/api/paas/v4", apiStyle: "chat_completions", model: "glm-5.1",
-    hintKey: "settings.service.providerHintCompatible",
-    modelDocs: "https://docs.bigmodel.cn/cn/guide/start/model-overview",
-    hosts: ["open.bigmodel.cn"],
-  }),
-  preset({
-    id: "doubao", name: "Doubao Ark", mark: "DB", category: MORE_CATEGORY,
-    icon: icon("doubao"),
-    baseUrl: "https://ark.cn-beijing.volces.com/api/v3", apiStyle: "chat_completions", model: "",
-    modelPlaceholder: "ep-...", hintKey: "settings.service.providerHintCompatible",
-    modelDocs: "https://docs.volcengine.com/docs/ark/model-list?lang=zh",
-    hosts: ["ark.cn-beijing.volces.com"],
-  }),
-  preset({
-    id: "mistral", name: "Mistral", mark: "MI", category: MORE_CATEGORY,
-    icon: icon("mistral"),
-    baseUrl: "https://api.mistral.ai/v1", apiStyle: "chat_completions", model: "mistral-small-latest",
-    hintKey: "settings.service.providerHintCompatible",
-    modelDocs: "https://docs.mistral.ai/models",
-    hosts: ["api.mistral.ai"],
-  }),
 ]);
 
 export const CUSTOM_PROVIDER = Object.freeze({
   id: "custom",
   nameKey: "settings.service.customProvider",
   mark: "API",
-  category: MORE_CATEGORY,
+  category: "custom",
+  iconName: "server-01",
   apiStyle: "chat_completions",
   model: "",
   modelPlaceholder: "model-name",

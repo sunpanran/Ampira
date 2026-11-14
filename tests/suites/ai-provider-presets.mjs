@@ -2,8 +2,9 @@ import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { providerEndpoint } from "../../extension/core/ai.mjs";
+import { DEFAULT_SETTINGS } from "../../extension/core/constants.mjs";
 import { normalizeProviderSettings } from "../../extension/core/settings.mjs";
-import { aiProviderOriginPattern } from "../../assets/client/ai-settings-policy.mjs";
+import { deriveAiSetupControlState } from "../../assets/client/ai-settings-policy.mjs";
 import {
   AI_PROVIDER_PRESETS,
   CUSTOM_PROVIDER,
@@ -14,14 +15,17 @@ import {
   aiProviderRegionForUrl,
 } from "../../assets/client/ai-provider-presets.mjs";
 
-const expectedPrimary = ["openai", "deepseek", "gemini", "kimi", "qwen", "openrouter", "grok", "ollama"];
-const expectedMore = ["siliconflow", "zhipu", "doubao", "mistral"];
+const expectedPrimary = ["openai", "gemini", "deepseek", "grok", "kimi", "qwen", "openrouter"];
 assert.deepEqual(aiProviderPresets("primary").map((item) => item.id), expectedPrimary);
-assert.deepEqual(aiProviderPresets("more").map((item) => item.id), expectedMore);
+assert.deepEqual(aiProviderPresets("local").map((item) => item.id), ["ollama"]);
+assert.deepEqual(AI_PROVIDER_PRESETS.map((item) => item.id), [...expectedPrimary, "ollama"]);
+assert(aiProviderPresets("primary").every((item) => !item.hintKey), "cloud rows must not repeat API compatibility labels");
+assert.equal(aiProviderPreset("ollama").hintKey, "settings.service.providerHintLocal");
+assert.equal(CUSTOM_PROVIDER.iconName, "server-01");
 assert.equal(new Set(AI_PROVIDER_PRESETS.map((item) => item.id)).size, AI_PROVIDER_PRESETS.length);
 
 const providersWithIcons = new Set([
-  "openai", "deepseek", "gemini", "kimi", "qwen", "openrouter", "grok", "ollama", "siliconflow", "zhipu", "doubao", "mistral",
+  ...expectedPrimary, "ollama",
 ]);
 for (const preset of AI_PROVIDER_PRESETS) {
   assert.equal(Boolean(preset.icon), providersWithIcons.has(preset.id));
@@ -40,10 +44,6 @@ const expectedBases = {
   openrouter: "https://openrouter.ai/api/v1",
   grok: "https://api.x.ai/v1",
   ollama: "http://localhost:11434/v1",
-  siliconflow: "https://api.siliconflow.cn/v1",
-  zhipu: "https://open.bigmodel.cn/api/paas/v4",
-  doubao: "https://ark.cn-beijing.volces.com/api/v3",
-  mistral: "https://api.mistral.ai/v1",
 };
 for (const preset of AI_PROVIDER_PRESETS) {
   const configuration = aiProviderConfiguration(preset);
@@ -53,12 +53,15 @@ for (const preset of AI_PROVIDER_PRESETS) {
   assert(endpoint.endsWith(configuration.apiStyle === "responses" ? "/responses" : "/chat/completions"));
   assert.equal(aiProviderPresetForUrl(configuration.baseUrl)?.id, preset.id, `${preset.id} must be recognized from its real URL`);
 }
+assert.equal(DEFAULT_SETTINGS.openaiSummaryModel, aiProviderConfiguration("openai").model,
+  "new-install defaults and the OpenAI picker must agree");
+assert.equal(normalizeProviderSettings({}).openaiSummaryModel, DEFAULT_SETTINGS.openaiSummaryModel);
 
 const grok = aiProviderConfiguration("grok");
 assert.equal(grok.apiStyle, "responses");
 assert.equal(grok.model, "grok-4.7");
 assert.equal(providerEndpoint(grok.baseUrl, grok.apiStyle), "https://api.x.ai/v1/responses");
-assert.equal(aiProviderOriginPattern(grok.baseUrl), "https://api.x.ai/*");
+assert.equal(deriveAiSetupControlState({ providerUrl: grok.baseUrl }).originPattern, "https://api.x.ai/*");
 assert.equal(aiProviderPresetForUrl("https://api.x.ai/v1/responses")?.id, "grok");
 assert.equal(aiProviderPresetForUrl("https://api.x.ai.example.com/v1"), null);
 assert.equal(aiProviderPreset("groq"), null, "Groq must no longer be offered as a preset");
@@ -73,11 +76,32 @@ assert.equal(savedGroq.openaiSummaryModel, "openai/gpt-oss-20b");
 assert.equal(aiProviderPresetForUrl(savedGroq.openaiBaseUrl) || CUSTOM_PROVIDER, CUSTOM_PROVIDER,
   "saved Groq settings must stay editable as a custom provider without migration");
 
+for (const [id, baseUrl, model] of [
+  ["siliconflow", "https://api.siliconflow.cn/v1", "Pro/zai-org/GLM-4.7"],
+  ["zhipu", "https://open.bigmodel.cn/api/paas/v4", "glm-5.1"],
+  ["doubao", "https://ark.cn-beijing.volces.com/api/v3", "ep-synthetic"],
+  ["mistral", "https://api.mistral.ai/v1", "mistral-small-latest"],
+]) {
+  assert.equal(aiProviderPreset(id), null, `${id} must no longer appear in the picker`);
+  const saved = normalizeProviderSettings({
+    openaiBaseUrl: baseUrl,
+    openaiApiStyle: "chat_completions",
+    openaiSummaryModel: model,
+  });
+  assert.equal(saved.openaiBaseUrl, baseUrl);
+  assert.equal(saved.openaiSummaryModel, model);
+  assert.equal(saved.openaiApiStyle, "chat_completions");
+  assert.equal(aiProviderPresetForUrl(saved.openaiBaseUrl) || CUSTOM_PROVIDER, CUSTOM_PROVIDER,
+    `${id}: an existing configuration must remain editable through custom service`);
+}
+
 for (const [id, savedModel] of [
+  ["openai", "gpt-5.4-mini"],
+  ["openrouter", "openai/gpt-5.2"],
   ["deepseek", "deepseek-v4-flash"],
   ["gemini", "gemini-3.5-flash"],
+  ["gemini", "gemini-3.6-flash"],
   ["kimi", "kimi-k2.6"],
-  ["siliconflow", "Pro/zai-org/GLM-4.7"],
 ]) {
   const configuration = aiProviderConfiguration(id);
   const saved = normalizeProviderSettings({

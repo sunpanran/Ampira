@@ -11,7 +11,7 @@ export async function runDashboardControllerTests() {
   await testUnavailableAutomaticRefreshIsSkipped();
   await testRefreshStatusRendersDaily();
   const pending = [];
-  const apiGet = () => new Promise((resolve) => pending.push(resolve));
+  const readDashboard = () => new Promise((resolve) => pending.push(resolve));
   const state = { data: null, variants: {}, seen: new Set(), pollTimer: null };
   const noop = () => {};
   const controller = createDashboardController({
@@ -22,8 +22,7 @@ export async function runDashboardControllerTests() {
       summaryGrid: { removeAttribute: noop },
     },
     t: (key) => key,
-    apiGet,
-    apiPost: async () => ({}),
+    request: ({ type }) => type === "dashboard:get" ? readDashboard() : Promise.resolve({}),
     preloadDailyInspiration: noop,
     inspirationPreloadTimeoutMs: 0,
     renderConnectionError: noop,
@@ -74,8 +73,7 @@ function testDashboardRenderSyncsAiCapability() {
       summaryGrid: { removeAttribute: noop },
     },
     t: (key) => key,
-    apiGet: async () => ({}),
-    apiPost: async () => ({}),
+    request: async () => ({}),
     preloadDailyInspiration: noop,
     renderConnectionError: noop,
     renderStatus: noop,
@@ -113,8 +111,7 @@ async function testRefreshRequestShowsImmediateFeedback() {
     state: { data: {}, variants: {}, seen: new Set(), pollTimer: null },
     els: { refresh, settingsRefresh, dailyBoard: { removeAttribute: noop }, summaryGrid: { removeAttribute: noop } },
     t: (key) => key,
-    apiGet: async () => ({}),
-    apiPost: () => new Promise((resolve) => { resolveRefresh = resolve; }),
+    request: ({ type }) => type === "refresh:start" ? new Promise((resolve) => { resolveRefresh = resolve; }) : Promise.resolve({}),
     preloadDailyInspiration: noop,
     inspirationPreloadTimeoutMs: 0,
     renderConnectionError: noop,
@@ -209,8 +206,7 @@ async function testRefreshStatusRendersDaily() {
       summaryGrid: { removeAttribute: noop },
     },
     t: (key) => key,
-    apiGet: async () => ({ running: false }),
-    apiPost: async () => ({ started: true, status: { running: true, progress: .25 } }),
+    request: async ({ type }) => type === "refresh:start" ? { started: true, status: { running: true, progress: .25 } } : { running: false },
     preloadDailyInspiration: noop,
     inspirationPreloadTimeoutMs: 0,
     renderConnectionError: noop,
@@ -256,8 +252,8 @@ async function testUnavailableAutomaticRefreshIsSkipped() {
       summaryGrid: { removeAttribute: noop },
     },
     t: (key) => key,
-    apiGet: async () => state.data,
-    apiPost: async () => {
+    request: async ({ type }) => {
+      if (type === "dashboard:get") return state.data;
       postCount += 1;
       return { started: false, status: { running: false } };
     },

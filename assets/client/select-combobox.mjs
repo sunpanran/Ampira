@@ -170,7 +170,7 @@ function bindComboboxEvents(state) {
   listbox.addEventListener("pointerdown", (event) => {
     if (event.target.closest?.("[role='option']")) event.preventDefault();
   });
-  listbox.addEventListener("pointerover", (event) => {
+  listbox.addEventListener("pointermove", (event) => {
     const option = event.target.closest?.("[role='option'][data-option-index]");
     if (!option || !listbox.contains(option)) return;
     setActiveOption(state, Number(option.dataset.optionIndex), { scroll: false });
@@ -443,7 +443,8 @@ function commitOption(state, index, { restoreFocus = true } = {}) {
 
 function positionListbox(state) {
   if (!state.open) return;
-  const rect = state.trigger.getBoundingClientRect();
+  // The wrapper retains the resting size while the trigger is pressed.
+  const rect = state.wrapper.getBoundingClientRect();
   if (!rect.width || !rect.height || state.wrapper.hidden) {
     closeCombobox(state);
     return;

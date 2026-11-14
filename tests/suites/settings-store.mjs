@@ -102,6 +102,11 @@ assert.deepEqual(await crowdedStore.read(), normalizeSettings(DEFAULT_SETTINGS),
 
 const visibilityStorage = memoryStorage();
 const visibilityStore = createSettingsStore(visibilityStorage);
+assert.equal((await visibilityStore.read()).bookmarkSectionEnabled, false, "fresh public-source settings must hide the bookmark section");
+await visibilityStorage.set({ [SETTINGS_KEY]: { newsSourceMode: "bookmarks" } });
+assert.equal((await visibilityStore.read()).bookmarkSectionEnabled, true, "missing bookmark visibility must follow the saved bookmark source");
+await visibilityStore.write({ ...DEFAULT_SETTINGS, bookmarkSectionEnabled: true });
+assert.equal((await visibilityStore.read()).bookmarkSectionEnabled, true, "a public-source opt-in must survive storage reloads");
 await visibilityStore.write({ ...DEFAULT_SETTINGS, bookmarkSectionEnabled: false });
 assert.equal((await visibilityStore.read()).bookmarkSectionEnabled, false, "bookmark-section visibility must persist through the sync settings store");
 

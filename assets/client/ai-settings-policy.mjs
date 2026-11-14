@@ -17,11 +17,6 @@ export function aiProviderOrigin(value) {
   return "";
 }
 
-export function aiProviderOriginPattern(value) {
-  const origin = aiProviderOrigin(value);
-  return origin ? `${origin}/*` : "";
-}
-
 export function deriveAiSetupControlState({
   providerUrl = "",
   consentAccepted = false,

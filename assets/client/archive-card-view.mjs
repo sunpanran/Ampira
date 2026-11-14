@@ -1,33 +1,48 @@
-import { spanText } from "./dom.mjs";
+import { hostFromUrl } from "./urls.mjs";
 import { fadeElementsOut } from "./motion.mjs";
 
+const NEWS_CARD_TYPE = "news";
+
 export function createArchiveCardView({ state, t, createEmptyState, createArchiveCard, setIconLabel,
-  confirmAction, persistSeen, renderAll, newsSummaryItems, hostFromUrl, newsSectionName, newsCardType, isNewsCard }) {
+  confirmAction, persistSeen, renderAll, newsSummaryItems, newsSectionName, isNewsCard, attachMenuButton }) {
   let confirming = false;
+  const menuButtons = new Map();
   return { render };
 
-  function render() {
+  function render(instanceId = "archive") {
     const items = seenArchiveItems();
     const content = document.createElement("div");
     content.className = "card-list";
     const actions = [];
     if (items.length) {
       content.append(...items.map(createArchiveCard));
-      const clear = document.createElement("button");
-      clear.type = "button";
-      clear.className = "column-action";
-      setIconLabel(clear, "trash-01", t("action.clear"), "inline-icon", "btn-label");
-      clear.addEventListener("click", async () => {
-        if (confirming) return;
-        confirming = true;
-        try { await clearSeenArchive(); } finally { confirming = false; }
-      });
-      actions.push(clear);
+      let more = menuButtons.get(instanceId);
+      if (!more) {
+        more = document.createElement("button");
+        more.type = "button";
+        more.className = "action-toggle archive-more";
+        attachMenuButton(more, () => [{
+          label: t("action.clearArchive"), icon: "trash-01", tone: "danger",
+          action: async () => {
+            if (confirming) return;
+            confirming = true;
+            try { await clearSeenArchive(); } finally { confirming = false; }
+          },
+        }]);
+        menuButtons.set(instanceId, more);
+      }
+      const label = t("action.archiveMore");
+      if (more.title !== label) {
+        more.title = label;
+        more.setAttribute("aria-label", label);
+        setIconLabel(more, "more-horizontal", label, "action-toggle-icon", "sr-only");
+      }
+      actions.push(more);
     } else {
       content.classList.add("is-empty");
-      content.append(createEmptyState({ title: t("daily.empty.archiveTitle"), body: t("daily.empty.archiveBody"), variant: "compact" }));
+      content.append(createEmptyState({ title: t("daily.empty.archiveTitle"), variant: "compact" }));
     }
-    return { content, actions, meta: items.length ? spanText(String(items.length), "count") : null };
+    return { content, actions };
   }
 
   async function clearSeenArchive() {
@@ -35,7 +50,7 @@ export function createArchiveCardView({ state, t, createEmptyState, createArchiv
     if (!await confirmAction({
       kicker: t("confirmation.clearArchive.kicker"),
       title: t("confirmation.clearArchive.title"),
-      body: t("confirmation.clearArchive.body"),
+      body: t("confirmation.clearArchive.body", { count: seenArchiveItems().length }),
       cancelLabel: t("confirmation.clearArchive.cancel"),
       confirmLabel: t("confirmation.clearArchive.confirm"),
       tone: "danger",
@@ -82,7 +97,7 @@ export function createArchiveCardView({ state, t, createEmptyState, createArchiv
       host: hostFromUrl(url),
       section: isNews ? newsSectionName() : t("nav.bookmarks"),
       category: isNews ? t("category.news") : t("category.website"),
-      cardType: isNews ? newsCardType : "",
+      cardType: isNews ? NEWS_CARD_TYPE : "",
     };
   }
 

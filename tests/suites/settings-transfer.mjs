@@ -18,6 +18,10 @@ export function runSettingsTransferTests() {
     bookmarkSectionEnabled: false,
     syncStockWatchlistEnabled: true,
     syncCountdownsEnabled: true,
+    syncTrackedTopicsEnabled: true,
+    syncCalendarEnabled: true,
+    syncNotesEnabled: true,
+    syncWorldClockEnabled: true,
     websiteShortcuts: [{ title: "Ampira", url: "https://example.com/" }],
     openaiApiKey: "sk-private",
     braveSearchApiKey: "BSA-private",
@@ -51,6 +55,10 @@ export function runSettingsTransferTests() {
   assert.equal(full.patch.bookmarkSectionEnabled, false);
   assert.equal(full.patch.syncStockWatchlistEnabled, true);
   assert.equal(full.patch.syncCountdownsEnabled, true);
+  assert.equal(full.patch.syncTrackedTopicsEnabled, true);
+  assert.equal(full.patch.syncCalendarEnabled, true);
+  assert.equal(full.patch.syncNotesEnabled, true);
+  assert.equal(full.patch.syncWorldClockEnabled, true);
   assert.equal(full.providerOriginChanged, false);
 
   const partial = transferDocument({ colorMode: "light", unknownFutureField: "ignored" });

@@ -2,6 +2,7 @@
   const maxWebsiteShortcuts = 16;
   const storageKey = "ampira.colorMode";
   const navPositionStorageKey = "ampira.navPosition";
+  const bookmarkSectionStorageKey = "ampira.bookmarkSectionEnabled";
   const accentPaletteStorageKey = "ampira.accentPalette";
   const dashboardGlassBlurStorageKey = "ampira.dashboardGlassBlur";
   const sectionTitleOpacityStorageKey = "ampira.sectionTitleOpacity";
@@ -22,6 +23,7 @@
   const headerVideos = new WeakMap();
   let headerCoverControllerReady;
   let dashboardStylesReadyPromise;
+  let startupSettingsPromise;
   let colorMode = "system";
 
   try {
@@ -73,17 +75,50 @@
   } catch {
     // Keep the default title visibility when the appearance hint is unavailable.
   }
-  const firstFrameMotionEnabled = document.hidden !== true
-    && globalThis.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches !== true;
+  const bookmarkSection = readBookmarkSectionHint();
+  document.documentElement.dataset.bookmarkSection = bookmarkSection ?? "pending";
+  const bookmarkSectionReady = bookmarkSection === null ? hydrateBookmarkSection() : Promise.resolve();
+  const reducedMotion = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)");
+  const firstFrameMotionEnabled = document.hidden !== true && reducedMotion?.matches !== true;
   if (firstFrameMotionEnabled) {
     document.documentElement.classList.add("has-first-frame-motion");
-    globalThis.ampiraFirstFrameStartedAt = performance.now();
-    setTimeout(() => document.documentElement.classList.remove("has-first-frame-motion"), 560);
+    document.documentElement.classList.add("has-nav-entrance");
+    let headerFinished = false;
+    let navFinished = false;
+    const start = (event) => {
+      if (!["firstFrameNavIn", "firstFrameMobileNavIn", "firstFrameDashboardHeaderIn"].includes(event.animationName)) return;
+      globalThis.ampiraFirstFrameStartedAt = performance.now() - event.elapsedTime * 1000;
+      document.removeEventListener("animationstart", start);
+    };
+    const finish = (event) => {
+      const cancelled = event.type === "visibilitychange" && document.hidden
+        || event.type === "change" && reducedMotion.matches;
+      if (cancelled || event.animationName === "firstFrameDashboardHeaderIn") {
+        headerFinished = true;
+        document.documentElement.classList.remove("has-first-frame-motion");
+      }
+      if (cancelled || ["firstFrameNavIn", "firstFrameMobileNavIn"].includes(event.animationName)) {
+        navFinished = true;
+        document.documentElement.classList.remove("has-nav-entrance");
+      }
+      if (!headerFinished || !navFinished) return;
+      document.removeEventListener("animationstart", start);
+      document.removeEventListener("animationend", finish);
+      document.removeEventListener("visibilitychange", finish);
+      reducedMotion?.removeEventListener?.("change", finish);
+    };
+    // CSS starts when the shell can actually paint. A timer started in <head>
+    // can expire during stylesheet loading and cut the entrance off mid-frame.
+    document.addEventListener("animationstart", start);
+    document.addEventListener("animationend", finish);
+    document.addEventListener("visibilitychange", finish);
+    reducedMotion?.addEventListener?.("change", finish);
   }
 
   const shortcutLayout = readWebsiteShortcutLayoutHint();
   applyWebsiteShortcutLayout(shortcutLayout);
   globalThis.ampiraLayoutBootstrap = {
+    bookmarkSectionReady,
     websiteShortcutsReady: shortcutLayout.known
       ? Promise.resolve(shortcutLayout)
       : hydrateWebsiteShortcutLayout(),
@@ -412,10 +447,38 @@
     }
   }
 
+  function readBookmarkSectionHint() {
+    try {
+      const value = localStorage.getItem(bookmarkSectionStorageKey);
+      return value === "on" || value === "off" ? value : null;
+    } catch { return null; }
+  }
+
+  async function hydrateBookmarkSection() {
+    if (location.protocol !== "chrome-extension:" || !globalThis.chrome?.storage?.sync?.get) return;
+    try {
+      const records = await readStartupSettings();
+      // Settings loaded by the app take precedence over a delayed storage read.
+      if (document.documentElement.dataset.bookmarkSection !== "pending") return;
+      const settings = records?.[settingsStorageKey];
+      const visible = settings?.bookmarkSectionEnabled ?? (settings?.newsSourceMode === "bookmarks");
+      const value = visible ? "on" : "off";
+      document.documentElement.dataset.bookmarkSection = value;
+      try { localStorage.setItem(bookmarkSectionStorageKey, value); } catch {}
+    } catch {
+      // The settings workflow resolves visibility if the early read is unavailable.
+    }
+  }
+
+  function readStartupSettings() {
+    startupSettingsPromise ||= chrome.storage.sync.get(settingsStorageKey);
+    return startupSettingsPromise;
+  }
+
   async function hydrateWebsiteShortcutLayout() {
     if (location.protocol !== "chrome-extension:" || !globalThis.chrome?.storage?.sync?.get) return shortcutLayout;
     try {
-      const records = await chrome.storage.sync.get(settingsStorageKey);
+      const records = await readStartupSettings();
       const settings = records?.[settingsStorageKey];
       const layout = normalizeWebsiteShortcutLayout({
         enabled: settings?.websiteShortcutsEnabled === true,

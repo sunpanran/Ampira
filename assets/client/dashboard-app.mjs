@@ -1,4 +1,4 @@
-import { apiGet, apiPost } from "./api.mjs";
+import { sendExtensionRequest as request } from "./api.mjs";
 import { srOnly } from "./dom.mjs";
 import { getElementGroups } from "./elements.mjs";
 import { createIcon, createThemedIcon, hydrateIcons } from "./icons.mjs";
@@ -7,20 +7,16 @@ import { applyExternalStoragePatch, hydrateStorage, readJson, readNumber, readVa
 import { createInitialState } from "./state.mjs";
 import { formatDateTime, formatTodayMeta, getTodayKey } from "./time.mjs";
 import { faviconUrl, hostFromUrl, isHttpUrl, normalizeUrl } from "./urls.mjs";
-import { findNewsItemByReference as findNewsItemReference, pageForItems, seededShuffle as shuffle } from "./dashboard-model.mjs";
-import {
-  createPriorityRanker, groupItemsByKey, mergeRankedUnique,
-  selectDailyEvents, selectTodayNewsItems, selectUnseenPool,
-} from "./dashboard-selectors.mjs";
+import { findNewsItemByReference as findNewsItemReference } from "./dashboard-model.mjs";
+import { groupItemsByKey, selectDailyEvents } from "./dashboard-selectors.mjs";
 import { createReaderLauncher } from "./reader-launcher.mjs";
 import { createBotModeController } from "./bot-mode-controller.mjs";
-import { usesBotChat } from "../../extension/core/bot-mode.mjs";
 import { syncSearchCopy as syncSearchCopyView } from "./search-copy.mjs";
 import { cloneSettingsDraft, diffSettingsDraft, snapshotSettingsDraft } from "./settings-draft.mjs";
 import { createSitePreviewController } from "./inspiration-preview-controller.mjs";
 import { AI_SETUP_STAGE, aiProviderOrigin, deriveAiSetupControlState } from "./ai-settings-policy.mjs";
-import { isDisplayableFeedItem } from "../../extension/core/feed-item-policy.mjs";
-import { cleanSummaryLines, displaySummaryTitle, displayTitle, isCorrectlySummarized, itemUrl, summaryDetailLines, summaryText } from "./item-presenter.mjs";
+
+import { displaySummaryTitle, displayTitle, itemUrl, summaryText } from "./item-presenter.mjs";
 import { localizedCategory, localizedErrorMessage, localizedExclusionReason, localizedResponseMessage, localizedSourceLabel, localizedSourceReason, localizedStatusMessage } from "./localized-labels.mjs";
 import { createContextMenuController } from "./context-menu-controller.mjs";
 import { createAppearanceController } from "./appearance-controller.mjs";
@@ -29,7 +25,7 @@ import { createCoverBlurPreviewController } from "./cover-blur-preview-controlle
 import { createHeaderCoverController } from "./header-cover-controller.mjs";
 import { createSourceSettingsController } from "./source-settings-controller.mjs";
 import { createBookmarkSettingsController } from "./bookmark-settings-controller.mjs";
-import { hideBookmarkCategory as addHiddenBookmarkCategory } from "./bookmark-visibility.mjs";
+import { hideBookmarkCategory as addHiddenBookmarkCategory, isBookmarkSectionVisible } from "./bookmark-visibility.mjs";
 import { createWebsiteShortcutsController } from "./website-shortcuts-controller.mjs";
 import { createActivityController } from "./activity-controller.mjs";
 import { createSummaryView } from "./summary-view.mjs";
@@ -61,8 +57,9 @@ import { syncSegmentedIndicator } from "./segmented-control.mjs";
 import { requestOrigins } from "./permission-client.mjs";
 import { createActionPort } from "./action-port.mjs";
 import { createCardTransition } from "./card-transition.mjs";
-import { setAllContentSyncControls, syncContentSyncMaster } from "./content-sync-settings.mjs";
-import { MOTION_DURATION, playBatchActionFeedback, setDisclosureVisibility } from "./motion.mjs";
+import { setContentSyncEnabled, syncContentSyncMaster } from "./content-sync-settings.mjs";
+import { MOTION_DURATION, bindElasticActionFeedback, bindNavigationPressFeedback, playElasticActionFeedback, setDisclosureVisibility } from "./motion.mjs";
+import { bindControlFeedback } from "./control-feedback.mjs";
 import { createManualAiUsageNoticeController } from "./manual-ai-usage-notice.mjs";
 import { createConfirmationDialogController } from "./confirmation-dialog.mjs";
 import {
@@ -72,20 +69,14 @@ import {
   normalizeWeatherLocation,
 } from "./utility-card-model.mjs";
 
-const DAILY_NEWS_COUNT = 10;
-const DAILY_NEWS_BATCH_LIMIT = 3;
-const DAILY_INSPIRATION_COUNT = 5;
-const DAILY_INSPIRATION_BATCH_LIMIT = 3;
 const UPDATE_INSPIRATION_PRELOAD_TIMEOUT_MS = 800;
-const HOT_SUMMARY_PAGE_SIZE = 16;
+
 const SETTINGS_SAVE_CLOSE_DELAY_MS = 900;
-const DAILY_BOARD_CARD_SELECTOR = ".news-list-card, .daily-card";
-const SUMMARY_CARD_SELECTOR = ".summary-card";
+
 const CARD_EXIT_MS = 120;
 const NEWS_CARD_TYPE = "news";
-const INSPIRATION_CARD_TYPE = "inspiration";
+
 const ALL_FILTER = "all";
-const SUMMARY_DETAIL_MAX_LENGTH = 200;
 
 export function readRuntimeAppVersion() {
   try {
@@ -164,7 +155,7 @@ export async function createDashboardApp() {
   const readerActions = createActionPort(["openExternal", "openExternalWindow"]);
   const summaryActions = createActionPort(["createNewsRanker", "newsSummaryItems", "refreshSummaryItem"]);
   const cardTransition = createCardTransition({ exitMs: CARD_EXIT_MS, enterMs: MOTION_DURATION.emphasis });
-  const dashboardLayout = createDashboardLayoutController({ state, els: dashboardElements, t, apiPost, localizedErrorMessage });
+  const dashboardLayout = createDashboardLayoutController({ state, els: dashboardElements, t, request, localizedErrorMessage });
 
   const loadDashboard = (...args) => dashboardController.loadDashboard(...args);
   const triggerRefresh = (...args) => dashboardController.triggerRefresh(...args);
@@ -228,7 +219,7 @@ export async function createDashboardApp() {
     state, els: statusElements, t, tc, formatDateTime, localizedStatusMessage, localizedErrorMessage,
     setIconLabel, createEmptyState,
   });
-  createNewsOrganizationController({ state, els: settingsElements, apiPost, loadDashboard, renderStatus, renderOverviewStatus, localizedErrorMessage, t });
+  createNewsOrganizationController({ state, els: settingsElements, request, loadDashboard, renderStatus, renderOverviewStatus, localizedErrorMessage, t });
   const {
     syncViewportMetrics,
     syncNavExpandedWidth,
@@ -242,19 +233,27 @@ export async function createDashboardApp() {
     getCurrentSectionButton,
     navigateToSection,
   } = createShellController({ state, els: shellElements, openSearch: text => unifiedSearch.open(text) });
+  let navigationAutoHide, navigationAutoHideReady, navigationAutoHideSettings;
+  function syncNavigationAutoHide(settings) {
+    navigationAutoHideSettings = settings;
+    if (navigationAutoHide) { navigationAutoHide.sync(settings); return; }
+    if (!settings.navAutoHideEnabled) return;
+    navigationAutoHideReady ||= import("./navigation-auto-hide.mjs").then(({ createNavigationAutoHideController }) => {
+      navigationAutoHide = createNavigationAutoHideController({ sidebar: els.sidebar, reveal: els.navReveal });
+      navigationAutoHide.sync(navigationAutoHideSettings);
+    });
+  }
   const syncBookmarkSectionControls = (settings = {}) => {
-    els.bookmarkSectionEnabledInput.checked = settings.bookmarkSectionEnabled !== false;
+    els.bookmarkSectionEnabledInput.checked = isBookmarkSectionVisible(settings);
     syncBookmarkSectionVisibility(settings);
   };
   const dailyView = createDailyView({
-    dashboardLayout,
-    renderDailyCards: (...args) => renderDailyCards(...args),
-    state, els: dashboardElements, t, itemUrl, displayTitle, displaySummaryTitle,
-    createEmptyState, createIcon, createThemedIcon, createReadingActions,
-    createBookmarkFavicon,
+    dashboardLayout, renderDailyCards: (...args) => renderDailyCards(...args), state, els: dashboardElements,
+    t, createEmptyState, createThemedIcon, createReadingActions, createBookmarkFavicon,
     contextAttachLink: (...args) => contextMenu.attachLink(...args),
-    openDailyItem: activityActions.openDailyItem,
-    newsSummaryItems: summaryActions.newsSummaryItems,
+    attachMenuButton: (...args) => contextMenu.attachMenuButton(...args),
+    toggleSeen: activityActions.toggleSeen,
+    openDailyItem: activityActions.openDailyItem, newsSummaryItems: summaryActions.newsSummaryItems,
     inspirationPreviews: {
       fingerprint: (...args) => sitePreviews.fingerprint(...args),
       get: (...args) => sitePreviews.get(...args),
@@ -262,18 +261,8 @@ export async function createDashboardApp() {
       request: (...args) => sitePreviews.request(...args),
       preload: (...args) => sitePreviews.preload(...args),
     },
-    isHttpUrl, faviconUrl, hostFromUrl,
-    writeValue, pageForItems, shuffle,
-    dailyNewsCount: DAILY_NEWS_COUNT, dailyNewsBatchLimit: DAILY_NEWS_BATCH_LIMIT,
-    dailyInspirationCount: DAILY_INSPIRATION_COUNT,
-    dailyInspirationBatchLimit: DAILY_INSPIRATION_BATCH_LIMIT,
-    updateInspirationPreloadTimeoutMs: UPDATE_INSPIRATION_PRELOAD_TIMEOUT_MS,
-    dailyBoardCardSelector: DAILY_BOARD_CARD_SELECTOR, newsCardType: NEWS_CARD_TYPE,
-    inspirationCardType: INSPIRATION_CARD_TYPE,
-    createNewsRanker: summaryActions.createNewsRanker,
-    createSeenButton, displayBookmarkTitle, localizedCategory,
-    mergeRankedUnique, selectTodayNewsItems, selectUnseenPool,
-    openExternal: readerActions.openExternal,
+    faviconUrl, writeValue, createNewsRanker: summaryActions.createNewsRanker, createSeenButton,
+    displayBookmarkTitle, localizedCategory, openExternal: readerActions.openExternal,
     persistSeen: () => writeJson(
       state.settings?.retainSeenArchive === true ? "dash.seen.retained" : `dash.seen.${state.day}`,
       Array.from(state.seen).map((key) => ({ key, ...(state.seenMeta.get(key) || {}) })).slice(-150),
@@ -293,25 +282,14 @@ export async function createDashboardApp() {
     reshuffleSummaries,
     updateVisibleNewsThumbs,
   } = summaryView = createSummaryView({
-    state, els: dashboardElements, t, tc, apiPost, confirmManualAiUsage, isDisplayableFeedItem, itemUrl, displaySummaryTitle,
-    summaryDetailLines, cleanSummaryLines, isCorrectlySummarized, localizedCategory,
-    localizedSourceLabel, localizedResponseMessage, localizedErrorMessage,
-    formatDateTime, faviconUrl, hostFromUrl, createIcon, createThemedIcon, srOnly,
+    state, els: dashboardElements, t, request, confirmManualAiUsage, localizedCategory,
+    localizedResponseMessage, localizedErrorMessage, formatDateTime, faviconUrl, createThemedIcon,
     createReadingActions, createManualSummaryButton,
-    attachLinkContextMenu: (...args) => contextMenu.attachLink(...args),
-    activateCardFromKeyboard,
-    findNewsItemByReference: activityActions.findNewsItemByReference,
-    createPriorityRanker, mergeRankedUnique, selectUnseenPool,
-    shuffle, pageForItems, newsCardType: NEWS_CARD_TYPE,
-    hotSummaryPageSize: HOT_SUMMARY_PAGE_SIZE,
-    summaryCardSelector: SUMMARY_CARD_SELECTOR,
-    summaryDetailMaxLength: SUMMARY_DETAIL_MAX_LENGTH,
-    cardSummaryEnabled,
-    ...cardTransition, batchLabel,
-    createEmptyState, isNewsCard, loadDashboard, newsSectionName,
-    openSummaryItem: activityActions.openSummaryItem,
-    prefersReducedMotion, renderOverviewStatus, renderStatus, setCardItemIdentity,
-    triggerRefresh, writeValue,
+    attachLinkContextMenu: (...args) => contextMenu.attachLink(...args), activateCardFromKeyboard,
+    findNewsItemByReference: activityActions.findNewsItemByReference, cardSummaryEnabled, ...cardTransition,
+    batchLabel, createEmptyState, isNewsCard, loadDashboard, newsSectionName,
+    openSummaryItem: activityActions.openSummaryItem, prefersReducedMotion, renderOverviewStatus, renderStatus,
+    setCardItemIdentity, triggerRefresh, writeValue,
     newsPreviews: {
       fingerprint: (item) => sitePreviews.fingerprint(newsPreviewItem(item)),
       get: (item) => sitePreviews.get(newsPreviewItem(item)),
@@ -334,7 +312,7 @@ export async function createDashboardApp() {
     renderDailyCards,
   } = createEfficiencyView({
     dashboardLayout,
-    state, els: dashboardElements, t, tc, apiPost, confirmManualAiUsage, createEmptyState, createIcon,
+    state, els: dashboardElements, t, tc, request, confirmManualAiUsage, confirmAction, createEmptyState, createIcon,
     localizedErrorMessage, displaySummaryTitle, itemUrl,
     readingQueueItems: activityActions.readingQueueItems,
     openAndMarkReadingQueue: activityActions.openAndMarkReadingQueue,
@@ -350,7 +328,10 @@ export async function createDashboardApp() {
     attachLinkContextMenu: (...args) => contextMenu.attachLink(...args),
     renderDaily, renderOverviewStatus, renderSummaries, selectDailyEvents,
     openAiSettings,
-    getLocale, writeJson, writeValue, requestWeatherPermissions,
+    getLocale, readJson, writeJson, writeValue, requestWeatherPermissions,
+    newsSummaryItems, formatDateTime,
+    isQueued: activityActions.isQueued,
+    toggleReadingQueue: activityActions.toggleReadingQueue,
   });
   const {
     readingQueueItems,
@@ -382,9 +363,7 @@ export async function createDashboardApp() {
     renderActivitySurfaces: () => {
       renderEfficiencyPanel();
       renderDaily();
-      // Seen state does not change SIGNAL FEED membership or order. Its live
-      // controls and card classes are synchronized by the activity controller,
-      // which keeps decoded thumbnail nodes untouched.
+      renderSummaries();
     },
     newsSummaryItems,
     hostFromUrl,
@@ -401,7 +380,7 @@ export async function createDashboardApp() {
     srOnly,
     writeJson,
     readJson,
-    apiPost,
+    request,
     confirmAction,
   });
   activityActions.bind(activityController);
@@ -415,8 +394,7 @@ export async function createDashboardApp() {
     state,
     els: overlayElements,
     t,
-    apiGet,
-    apiPost,
+    request,
     confirmManualAiUsage,
     markOpenedItem,
     renderEfficiencyPanel,
@@ -436,7 +414,7 @@ export async function createDashboardApp() {
         import("./ai-stream-client.mjs"),
       ]);
       const controller = createAiSearchController({
-        state, els: overlayElements, t, apiGet, apiPost, confirmManualAiUsage, confirmAction,
+        state, els: overlayElements, t, request, confirmManualAiUsage, confirmAction,
         streamClient: createAiStreamClient(), syncNavToCurrentSection,
         restoreFocus: () => unifiedSearch.restoreFocus(),
         setActiveNavButton, navButton: els.aiSearchNav, localizedResponseMessage, localizedErrorMessage,
@@ -452,7 +430,7 @@ export async function createDashboardApp() {
     },
   });
   const unifiedSearch = createUnifiedSearchController({
-    state, els, t, apiPost, aiSearch, openExternalWindow, openAiSettings,
+    state, els, t, request, aiSearch, openExternalWindow,
     setActiveNavButton, syncNavToCurrentSection, localizedErrorMessage,
     openResult: result => {
       const item = newsSummaryItems(false).find(item => item.key === result.articleId)
@@ -516,6 +494,7 @@ export async function createDashboardApp() {
     renderAll,
     syncNavExpandedWidth,
     syncAiSetupControls,
+    syncNavigationAutoHide,
     syncAiSearchLocale,
     syncHeaderCoverControls: () => headerCoverController?.syncControls(),
     syncSegmentedIndicator,
@@ -545,14 +524,14 @@ export async function createDashboardApp() {
     els: settingsElements,
     hero: els.headerImageHero,
     t,
-    apiGet,
-    apiPost,
+    request,
     updatePreview: updateAppearancePreview,
     renderSettingsStatus: (...args) => settingsController.renderSettingsStatus(...args),
     setSettingsBusy: (...args) => settingsController.setSettingsBusy(...args),
   });
   const {
     currentExcludedNewsSources,
+    customFeeds,
     availableNewsFolders,
     renderExcludeFolderOptions,
     addNewsExclusion,
@@ -566,7 +545,7 @@ export async function createDashboardApp() {
     els: settingsElements,
     t,
     tc,
-    apiPost,
+    request,
     setIconLabel,
     createEmptyState,
     renderSettingsStatus: (...args) => settingsController.renderSettingsStatus(...args),
@@ -619,7 +598,7 @@ export async function createDashboardApp() {
     normalizeWebsiteShortcutUrl,
     renderSettingsStatus: (...args) => settingsController.renderSettingsStatus(...args),
     attachLinkContextMenu: (...args) => contextMenu.attachLink(...args),
-    saveWebsiteShortcutOrder: (websiteShortcuts) => apiPost("/api/settings", { websiteShortcuts }),
+    saveWebsiteShortcutOrder: (websiteShortcuts) => request({ type: "settings:save", payload: { websiteShortcuts } }),
     localizedErrorMessage,
     openBrowserSettings: async () => {
       await settingsController.openSettings();
@@ -640,7 +619,7 @@ export async function createDashboardApp() {
   }
 
   sitePreviews = createSitePreviewController({
-    apiGet,
+    request,
     normalizeUrl,
     isHttpUrl,
     isEnabled: () => state.settings?.bookmarkConsentGranted === true,
@@ -676,6 +655,7 @@ export async function createDashboardApp() {
     resetSecretDrafts,
     setSettingsBusy,
     runSettingsAction,
+    grantBookmarkAccess,
     selectSettingsTab,
     renderSettingsStatus,
     captureSettingsSnapshot,
@@ -685,9 +665,9 @@ export async function createDashboardApp() {
       feedback: els.keyboardShortcutFeedback, enabledInput: els.keyboardShortcutsEnabledInput,
       t, onChange: () => settingsController.renderSettingsStatus(),
     }),
-    state, els: settingsElements, t, apiGet, apiPost, confirmAction, confirmManualAiUsage, localizedResponseMessage, localizedErrorMessage,
+    state, els: settingsElements, t, request, confirmAction, confirmManualAiUsage, localizedResponseMessage, localizedErrorMessage,
     applyUiLocale, selectedUiLocale, syncLanguageControls, applyAppearanceSettings,
-    syncAppearanceControls, renderExcludeFolderOptions, renderExclusionList,
+    syncAppearanceControls, renderExcludeFolderOptions, renderExclusionList, customFeeds,
     syncBookmarkFolderControls, syncBookmarkSectionControls, syncPublicFeedSupplementControl, syncWebsiteShortcutControls, syncAiSetupControls, refreshAiSetupPermission,
     prepareAiProviderUi,
     getAiSetupState, clearAiSetupFeedback, focusAiSetupRequirement,
@@ -707,13 +687,13 @@ export async function createDashboardApp() {
     requestSourcePermissions, revealActiveSettingsTab,
   });
   const { exportSettings, importSettingsFile, factoryReset } = createSettingsTransferController({
-    els: settingsElements, state, t, apiGet, apiPost, confirmAction, localizedErrorMessage,
+    els: settingsElements, state, t, request, confirmAction, localizedErrorMessage,
     runSettingsAction, renderSettingsStatus, loadSettings, captureSettingsSnapshot, resetSecretDrafts,
     applyUiLocale, getLocale, prepareLocale, inspirationPreviews: sitePreviews, loadDashboard, triggerRefresh,
     resetExtensionPage,
   });
   dashboardController = createDashboardController({
-    state, els: { ...dashboardElements, settingsRefresh: settingsElements.settingsRefresh }, t, apiGet, apiPost, preloadDailyInspiration,
+    state, els: { ...dashboardElements, settingsRefresh: settingsElements.settingsRefresh }, t, request, preloadDailyInspiration,
     inspirationPreloadTimeoutMs: UPDATE_INSPIRATION_PRELOAD_TIMEOUT_MS,
     renderConnectionError, renderStatus, renderOverviewStatus, localizedErrorMessage,
     renderExclusionList, renderExcludeFolderOptions,
@@ -726,7 +706,7 @@ export async function createDashboardApp() {
     syncAiSearchCapability: syncAiSearchProviderCapability,
   });
   const keyboardShortcuts = createKeyboardShortcutsController({
-    isEnabled: () => Boolean(state.settings && state.data) && state.settings.keyboardShortcutsEnabled !== false,
+    isEnabled: () => Boolean(state.settings && state.data) && state.settings.keyboardShortcutsEnabled === true,
     getBindings: () => state.settings?.keyboardShortcuts,
     isBlocked: () => dashboardLayout.isInteracting(),
     getUtilityCard: getTodoTargetCard,
@@ -739,7 +719,7 @@ export async function createDashboardApp() {
       { root: els.summaryGrid.closest("section"), button: els.summaryBatch, run: advanceSummaryBatch },
     ],
   });
-  const botModeController = createBotModeController({ state, apiGet, apiPost, t, loadDashboard });
+  const botModeController = createBotModeController({ state, request, t, loadDashboard });
   botModeController.start();
 
   function renderTodayMetaValue(value) {
@@ -768,7 +748,7 @@ export async function createDashboardApp() {
       resetExtensionPage();
       return;
     }
-    if (detail?.type === "content-sync.changed") {
+    if (detail?.type === "content-sync.changed" || detail?.type === "personal-cards.changed") {
       const values = detail.payload?.values;
       applyExternalStoragePatch(values);
       syncPersonalCards();
@@ -851,7 +831,11 @@ export async function createDashboardApp() {
     try {
       await Promise.all([
         globalThis.ampiraLayoutBootstrap?.websiteShortcutsReady,
-        loadSettings(),
+        loadSettings().finally(() => {
+          if (document.documentElement.dataset.bookmarkSection === "pending") {
+            syncBookmarkSectionVisibility(state.settings);
+          }
+        }),
         loadDashboard({ render: false }),
       ]);
     } finally {
@@ -867,11 +851,15 @@ export async function createDashboardApp() {
   }
 
   function advanceSummaryBatch() {
-    playBatchActionFeedback(els.summaryBatch);
+    playElasticActionFeedback(els.summaryBatch);
     reshuffleSummaries();
   }
 
   function bindEvents() {
+    bindControlFeedback();
+    document.querySelectorAll(".nav-btn").forEach(bindNavigationPressFeedback);
+    bindElasticActionFeedback(els.summaryBatch);
+    bindElasticActionFeedback(document.querySelector("#navLogo"));
     initializePointerHighlights();
     initializeScrollSpy();
     bindAiPermissionEvents();
@@ -892,11 +880,7 @@ export async function createDashboardApp() {
     document.addEventListener("keydown", handleGlobalSearchTyping);
 
     document.querySelector("#navLogo")?.addEventListener("click", (event) => {
-      const logo = event.currentTarget;
-      logo.classList.remove("is-returning");
-      void logo.offsetWidth;
-      logo.classList.add("is-returning");
-      logo.addEventListener("animationend", () => logo.classList.remove("is-returning"), { once: true });
+      playElasticActionFeedback(event.currentTarget);
       window.scrollTo({
         top: 0,
         left: 0,
@@ -977,20 +961,18 @@ export async function createDashboardApp() {
       if (state.filter === button.dataset.section) return;
       state.filter = button.dataset.section;
       state.categoryFilter = ALL_FILTER;
-      for (const item of els.sectionFilter.querySelectorAll("button")) item.classList.toggle("active", item === button);
+      for (const item of els.sectionFilter.querySelectorAll("button")) {
+        item.classList.toggle("active", item === button);
+        item.setAttribute("aria-pressed", String(item === button));
+      }
       renderCategoryFilters();
       renderCategories();
       syncSegmentedIndicator(els.sectionFilter, button);
-      syncSegmentedIndicator(els.categoryFilter);
     });
 
-    els.categoryFilter.addEventListener("click", (event) => {
-      const button = event.target.closest("button[data-category]");
-      if (!button) return;
-      state.categoryFilter = button.dataset.category;
-      for (const item of els.categoryFilter.querySelectorAll("button")) item.classList.toggle("active", item === button);
+    els.categoryFilter.addEventListener("change", () => {
+      state.categoryFilter = els.categoryFilter.value;
       renderCategories();
-      syncSegmentedIndicator(els.categoryFilter, button);
     });
 
     els.refresh.addEventListener("click", () => {
@@ -1066,6 +1048,7 @@ export async function createDashboardApp() {
       updateAppearancePreview({ navPosition: button.dataset.navPosition });
     });
     els.pointerGlowEnabledInput.addEventListener("change", () => updateAppearancePreview());
+    els.navAutoHideEnabledInput.addEventListener("change", () => updateAppearancePreview());
     els.dashboardGlassBlurEnabledInput.addEventListener("change", () => updateAppearancePreview());
     els.sectionTitleOpacityGroup.addEventListener("click", (event) => {
       const button = event.target.closest("[data-title-opacity]");
@@ -1091,15 +1074,16 @@ export async function createDashboardApp() {
       state.settings = { ...(state.settings || {}), readingQueueReadAllPrompted: true };
     });
     els.contentSyncEnabledInput.addEventListener("change", () => {
-      setAllContentSyncControls(els, els.contentSyncEnabledInput.checked);
+      setContentSyncEnabled(els, els.contentSyncEnabledInput.checked);
       renderSettingsStatus();
     });
     els.webImageSearchEnabledInput.addEventListener("change", () => {
       setDisclosureVisibility(els.imageSearchStrategy, els.webImageSearchEnabledInput.checked);
     });
     [els.syncReadingQueueEnabledInput, els.syncTodosEnabledInput, els.syncWeatherLocationEnabledInput,
-      els.syncStockWatchlistEnabledInput, els.syncCountdownsEnabledInput].forEach((input) => {
-      input.addEventListener("change", () => { syncContentSyncMaster(els); renderSettingsStatus(); });
+      els.syncStockWatchlistEnabledInput, els.syncCountdownsEnabledInput, els.syncTrackedTopicsEnabledInput, els.syncCalendarEnabledInput,
+      els.syncNotesEnabledInput, els.syncWorldClockEnabledInput].forEach((input) => {
+      input.addEventListener("change", () => { syncContentSyncMaster(els, { keepOpen: true }); renderSettingsStatus(); });
     });
     [els.apiBaseUrlInput, els.apiStyleSelect, els.modelInput, els.dailyLimitInput, els.imageSearchApiKeyInput, els.aiDisclosureConsent, els.webImageSearchEnabledInput, els.cardSummaryEnabledInput, els.cacheSizeInput, els.hotNewsPerSourceInput, els.newsPerCategoryInput, els.bookmarkSectionEnabledInput, els.floatingOpenInput, els.readingQueueOpenOnReadAllInput, els.retainSeenArchiveInput, els.personalizedRankingEnabledInput, els.publicFeedSupplementEnabledInput].forEach((input) => {
       input.addEventListener("input", () => renderSettingsStatus());
@@ -1139,6 +1123,7 @@ export async function createDashboardApp() {
       addNewsExclusion();
     });
     els.saveSettings.addEventListener("click", saveSettings);
+    els.grantBookmarkAccess?.addEventListener("click", grantBookmarkAccess);
     els.grantSavedSourcePermissions.addEventListener("click", grantSavedSourcePermissions);
     els.dismissSavedSourcePermissions.addEventListener("click", dismissSavedSourcePermissions);
     els.testKey.addEventListener("click", testKey);
@@ -1200,13 +1185,16 @@ export async function createDashboardApp() {
     const hiddenBookmarkCategories = addHiddenBookmarkCategory(state.settings, section, category, sectionKey, categoryKey);
     if (hiddenBookmarkCategories.length === (state.settings?.hiddenBookmarkCategories || []).length) return;
     try {
-      const savedSettings = await apiPost("/api/settings", { hiddenBookmarkCategories });
+      const savedSettings = await request({ type: "settings:save", payload: { hiddenBookmarkCategories } });
       state.settings = savedSettings;
       if (state.filter === section && state.categoryFilter === category) state.categoryFilter = ALL_FILTER;
       renderCategoryFilters();
       renderCategories();
       requestAnimationFrame(() => {
-        els.categoryFilter.querySelector("button.active")?.focus({ preventScroll: true });
+        const target = els.categoryFilter.disabled
+          ? els.sectionFilter.querySelector("button.active")
+          : els.categoryFilter;
+        target?.focus({ preventScroll: true });
       });
       announceLibraryFeedback("bookmarks.categoryHidden", { category });
     } catch (error) {
@@ -1239,7 +1227,6 @@ export async function createDashboardApp() {
 
   function syncSegmentedIndicators() {
     syncSegmentedIndicator(els.sectionFilter);
-    syncSegmentedIndicator(els.categoryFilter);
     syncSegmentedIndicator(els.colorModeGroup);
     syncSegmentedIndicator(els.navPositionGroup);
     syncSegmentedIndicator(els.headerImageLayoutGroup);

@@ -1,7 +1,7 @@
 import { requestOrigins } from "./permission-client.mjs";
 import { botBoardRefreshInterval } from "./bot-runner-status.mjs";
 
-export function createBotModeController({ state, apiGet, apiPost, t, loadDashboard }) {
+export function createBotModeController({ state, request, t, loadDashboard }) {
   const byId = id => document.getElementById(id);
   let configuration = null, running = false, refreshing = false, pairing = false, pollingPair = false;
   let timer, generation = 0, refreshedAt = 0;
@@ -12,11 +12,11 @@ export function createBotModeController({ state, apiGet, apiPost, t, loadDashboa
     byId("mcpEnabledToggle").addEventListener("change", () => {
       const checked = byId("mcpEnabledToggle").checked;
       const permission = checked ? requestOrigins(["http://127.0.0.1/*"]).catch(() => false) : Promise.resolve(true);
-      return changeSetting("/api/mcp/enabled", { enabled: checked }, permission);
+      return changeSetting("mcp:enabled", { enabled: checked }, permission);
     });
-    byId("botModeToggle").addEventListener("change", () => changeSetting("/api/bot/mode", { mode: byId("botModeToggle").checked ? "bot" : "standard" }));
+    byId("botModeToggle").addEventListener("change", () => changeSetting("bot:mode", { mode: byId("botModeToggle").checked ? "bot" : "standard" }));
     for (const [id, scope] of [["botBriefToggle", "brief"], ["botOrganizationToggle", "news"], ["botQuestionsToggle", "questions"]]) {
-      byId(id).addEventListener("change", () => changeSetting("/api/bot/takeover", { scope, enabled: byId(id).checked }));
+      byId(id).addEventListener("change", () => changeSetting("bot:takeover", { scope, enabled: byId(id).checked }));
     }
     byId("mcpCopySetup").addEventListener("click", copySetup);
     byId("botConnectionRemove").addEventListener("click", disconnect);
@@ -24,7 +24,7 @@ export function createBotModeController({ state, apiGet, apiPost, t, loadDashboa
       if (running || event.detail?.type !== "settings.changed" || !event.detail.payload?.mcpSettingsChanged) return;
       const current = ++generation;
       try {
-        const result = await apiGet("/api/bot/config");
+        const result = await request({ type: "bot:config" });
         if (current !== generation) return;
         configuration = result; if (!enabled()) pairing = false; fill(); await loadDashboard();
       } catch (error) { if (current === generation) report(error); }
@@ -34,7 +34,7 @@ export function createBotModeController({ state, apiGet, apiPost, t, loadDashboa
     window.addEventListener("pagehide", () => { clearInterval(timer); generation++; });
     const initialGeneration = ++generation;
     try {
-      const result = await apiGet("/api/bot/config");
+      const result = await request({ type: "bot:config" });
       if (initialGeneration === generation) { configuration = result; fill(); }
     } catch (error) { if (initialGeneration === generation) report(error); }
     timer = setInterval(tick, 2000);
@@ -54,17 +54,18 @@ export function createBotModeController({ state, apiGet, apiPost, t, loadDashboa
     byId("botConnectionRemove").disabled = !connection;
     byId("mcpConnectionState").dataset.state = pairing ? "pairing" : connection ? "paired" : "unpaired";
     status("mcpConnectionState", pairing ? "mcp.pairing" : connection ? "mcp.paired" : "mcp.unpaired");
-    status("mcpConnectionHelp", connection ? "mcp.connectedHelp" : "mcp.quickHelp");
-    status("mcpMasterStatus", enabled() ? "" : "mcp.disabledHint");
+    status("mcpConnectionHelp", connection ? "" : "mcp.quickHelp");
+    byId("mcpConnectionHelp").hidden = Boolean(connection);
+    status("mcpMasterStatus", "");
     status("botOrganizationStatus", "");
   }
-  async function changeSetting(url, body, permission = Promise.resolve(true)) {
+  async function changeSetting(type, body, permission = Promise.resolve(true)) {
     if (running) return;
     const focusId = document.activeElement?.id;
     busy(true); generation++;
     try {
       if (!await permission) throw { messageKey: "background.bot.permissionRequired" };
-      configuration = await apiPost(url, body);
+      configuration = await request({ type, payload: body });
       if (!enabled()) { pairing = false; status("mcpSetupStatus", ""); }
       fill(); await loadDashboard();
     } catch (error) { fill(); report(error); }
@@ -77,7 +78,7 @@ export function createBotModeController({ state, apiGet, apiPost, t, loadDashboa
     status("mcpSetupStatus", "mcp.copying");
     try {
       if (!await permission) throw { messageKey: "background.bot.permissionRequired" };
-      const setup = await apiPost("/api/mcp/setup", {});
+      const setup = await request({ type: "mcp:setup", payload: {} });
       await navigator.clipboard.writeText(t("mcp.setupPrompt", { command: setup.command })).catch(() => { throw { messageKey: "bot.copyFailed" }; });
       pairing = true; fill(); status("mcpSetupStatus", "mcp.waiting");
     } catch (error) { report(error, "mcpSetupStatus"); }
@@ -87,8 +88,8 @@ export function createBotModeController({ state, apiGet, apiPost, t, loadDashboa
     if (running || !configuration?.connection) return;
     busy(true); generation++; pairing = false;
     try {
-      configuration = await apiPost("/api/bot/disconnect", {});
-      fill(); status("mcpSetupStatus", "mcp.disconnected"); await loadDashboard();
+      configuration = await request({ type: "bot:disconnect", payload: {} });
+      fill(); status("mcpSetupStatus", ""); await loadDashboard();
     } catch (error) { report(error); }
     finally { busy(false); byId(enabled() ? "mcpCopySetup" : "mcpEnabledToggle").focus?.({ preventScroll: true }); }
   }
@@ -97,11 +98,11 @@ export function createBotModeController({ state, apiGet, apiPost, t, loadDashboa
     if (pairing && !pollingPair && byId("mcpFeatures").getClientRects().length) {
       const current = generation; pollingPair = true;
       try {
-        const result = await apiPost("/api/mcp/pair", {});
+        const result = await request({ type: "mcp:pair", payload: {} });
         if (current !== generation || !enabled()) return;
         if (result.status === "connected") {
           pairing = false; configuration = result.configuration;
-          fill(); status("mcpSetupStatus", "mcp.pairSuccess"); await loadDashboard();
+          fill(); status("mcpSetupStatus", ""); await loadDashboard();
         } else if (["expired", "cancelled", "idle"].includes(result.status)) {
           pairing = false; fill(); status("mcpSetupStatus", "mcp.expired");
         }
@@ -116,7 +117,7 @@ export function createBotModeController({ state, apiGet, apiPost, t, loadDashboa
     refreshedAt = Date.now(); refreshing = true;
     const current = generation;
     try {
-      const board = await apiPost("/api/bot/refresh", {});
+      const board = await request({ type: "bot:refresh", payload: {} });
       if (current !== generation || !enabled()) return;
       if (state.data) state.data.bot = board;
       status("botOrganizationStatus", configuration.botOrganizeNews ? board.organization?.errorKey || (board.organization?.unavailable ? "background.bot.networkFailed"

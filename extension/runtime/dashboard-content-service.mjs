@@ -2,6 +2,7 @@ import { aiOutputPartsMatchLocale } from "../core/ai-output-language.mjs";
 import { nativeWebSearchCapability } from "../core/ai.mjs";
 import { botGeneratesBrief, botOrganizesNews } from "../core/bot-mode.mjs";
 import { annotateTodayNewsGroups } from "../core/news-ranking.mjs";
+import { customFeedSources, uniqueFeedSources } from "../core/custom-feeds.mjs";
 
 export function createDashboardContentService(options) {
   const {
@@ -36,7 +37,7 @@ async function buildDashboardPayload(attempt = 0, scope = "all") {
   const settings = await getSettings();
   const locale = settingsLocale(settings);
   const secrets = await secretStatus();
-  const model = settings.bookmarkConsentGranted ? await currentBookmarkModel(settings) : emptyBookmarkModel();
+  const model = await currentBookmarkModel(settings);
   let feed = feedCacheOrEmpty(await getRecord("feed", null));
   const [status, cachedDigest, quota, rawSourceQuality, autoAiStatus] = await Promise.all([
     getRefreshStatus(),
@@ -113,7 +114,7 @@ async function buildDashboardPayload(attempt = 0, scope = "all") {
     total: model.bookmarks.length,
     sections: model.sections,
     bookmarks: model.bookmarks,
-    feed,
+    feed: { ...feed, items: feed.items.map(({ contentText, readerContent, ...item }) => item) },
     dailyDigest: digest,
     ai: {
       enabled: configuredForAi,
@@ -171,14 +172,14 @@ async function buildDashboardPayload(attempt = 0, scope = "all") {
 }
 
 async function configuredFeedSources(settings, model) {
-  if (settings.bookmarkConsentGranted !== true) return [];
-  const localSources = (model?.bookmarks || []).filter((item) => item.cardType === "news" && !item.feedExcluded);
+  const localSources = settings.bookmarkConsentGranted === true
+    ? (model?.bookmarks || []).filter((item) => item.cardType === "news" && !item.feedExcluded) : [];
   const publicSources = settings.publicFeedSupplementEnabled === false
     ? []
     : publicFeedsForLocale(settingsLocale(settings), {
         includeAiOnly: botOrganizesNews(settings) || await aiConfigured(settings),
       }).map((feed) => ({ ...feed, externalDiscovery: true }));
-  return [...localSources, ...publicSources];
+  return uniqueFeedSources([...customFeedSources(settings), ...localSources, ...publicSources]);
 }
 
 async function currentFeedPermissionState(settings, model) {

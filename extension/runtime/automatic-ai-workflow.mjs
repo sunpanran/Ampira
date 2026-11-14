@@ -1,6 +1,7 @@
 import { feedItemNeedsLocalization } from "../core/feed-language-policy.mjs";
 import { currentSummaryRetry, isAiContentError } from "../core/card-summary-retry.mjs";
 import { botOrganizesNews } from "../core/bot-mode.mjs";
+import { articleContentText } from "../core/feed-content.mjs";
 
 export function automaticSummaryCandidates(items, settings, locale, isCurrentSummary, mode, {
   now = Date.now(), includeCooling = false,
@@ -11,7 +12,7 @@ export function automaticSummaryCandidates(items, settings, locale, isCurrentSum
     if (isCurrentSummary(item, locale)) return false;
     const required = feedItemNeedsLocalization(item, locale);
     if (mode === "required" ? !required : required || !settings.cardSummaryEnabled) return false;
-    if (!String(required ? item?.title || item?.excerpt || "" : item?.excerpt || "").trim()) return false;
+    if (!String(required ? item?.title || articleContentText(item) : articleContentText(item)).trim()) return false;
     const retry = currentSummaryRetry(item, settings, locale);
     return includeCooling || !retry || Date.parse(retry.nextEligibleAt) <= now;
   }).sort((left, right) => {

@@ -3,6 +3,10 @@ import { normalizeTodoItems } from "./todo.mjs";
 import { normalizeWeatherLocation } from "./weather.mjs";
 import { STOCK_LIMIT, STOCK_WATCHLIST_KEY, normalizeStockWatchlist } from "./stocks.mjs";
 import { COUNTDOWN_ITEM_LIMIT, COUNTDOWN_ITEMS_KEY, normalizeCountdownItems } from "./countdown.mjs";
+import { TOPIC_LIMIT, TRACKED_TOPICS_KEY, normalizeTrackedTopics } from "./tracked-topics.mjs";
+import { CALENDAR_EVENT_LIMIT, CALENDAR_STATE_KEY, normalizeCalendarState } from "./calendar.mjs";
+import { NOTE_LIMIT, NOTES_STATE_KEY, normalizeNotesState } from "./notes.mjs";
+import { WORLD_CLOCK_LIMIT, WORLD_CLOCK_STATE_KEY, normalizeWorldClockState } from "./world-clock.mjs";
 import { assertSyncStorageBudget } from "./sync-budget.mjs";
 
 export const CONTENT_SYNC_META_KEY = "content-sync-meta";
@@ -48,6 +52,30 @@ export const CONTENT_SYNC_DATASETS = Object.freeze({
     maxItems: COUNTDOWN_ITEM_LIMIT,
     maxBytes: 12 * 1024,
   }),
+  trackedTopics: Object.freeze({
+    flag: "syncTrackedTopicsEnabled",
+    localKey: TRACKED_TOPICS_KEY,
+    prefix: "ampira.content.topics.v1.",
+    maxItems: TOPIC_LIMIT,
+    maxBytes: 24 * 1024,
+  }),
+  calendar: Object.freeze({
+    flag: "syncCalendarEnabled",
+    localKey: CALENDAR_STATE_KEY,
+    prefix: "ampira.content.calendar.v1.",
+    maxItems: CALENDAR_EVENT_LIMIT,
+    // Select every bounded event; the shared storage guard rejects oversized uploads
+    // instead of silently synchronizing only part of a calendar.
+    maxBytes: 256 * 1024,
+  }),
+  notes: Object.freeze({
+    flag: "syncNotesEnabled", localKey: NOTES_STATE_KEY, prefix: "ampira.content.notes.v1.",
+    maxItems: NOTE_LIMIT, maxBytes: 512 * 1024,
+  }),
+  worldClock: Object.freeze({
+    flag: "syncWorldClockEnabled", localKey: WORLD_CLOCK_STATE_KEY, prefix: "ampira.content.worldClock.v1.",
+    maxItems: WORLD_CLOCK_LIMIT, maxBytes: 8 * 1024,
+  }),
 });
 
 export function createContentSyncService(options) {
@@ -66,6 +94,7 @@ export function createContentSyncService(options) {
   let operationQueue = Promise.resolve();
   let activeFlags = emptyFlags();
   let settingsRefreshTimer = 0;
+  const localPatches = new Map();
   const readMetadata = () => readMetadataFrom(getRecord);
 
   return {
@@ -119,17 +148,25 @@ export function createContentSyncService(options) {
   }
 
   async function handleLocalPatch(values = {}) {
-    await initialize();
     const relevant = Object.entries(CONTENT_SYNC_DATASETS)
       .filter(([, definition]) => Object.hasOwn(values, definition.localKey));
     if (!relevant.length) return;
-    const publicPatch = Object.fromEntries(relevant.map(([, definition]) => [definition.localKey, values[definition.localKey]]));
-    broadcast("content-sync.changed", { values: publicPatch });
-    return enqueue(async () => {
-      for (const [name, definition] of relevant) {
-        if (activeFlags[definition.flag]) await reconcileDataset(name);
+    const patch = {};
+    for (const [name] of relevant) localPatches.set(name, patch);
+    try {
+      await initialize();
+      const publicPatch = Object.fromEntries(relevant.map(([, definition]) => [definition.localKey, values[definition.localKey]]));
+      broadcast("content-sync.changed", { values: publicPatch });
+      return await enqueue(async () => {
+        for (const [name, definition] of relevant) {
+          if (activeFlags[definition.flag]) await reconcileDataset(name);
+        }
+      });
+    } finally {
+      for (const [name] of relevant) {
+        if (localPatches.get(name) === patch) localPatches.delete(name);
       }
-    });
+    }
   }
 
   function handleStorageChanged(changes = {}, areaName = "") {
@@ -163,68 +200,88 @@ export function createContentSyncService(options) {
   async function reconcileDataset(name) {
     const definition = CONTENT_SYNC_DATASETS[name];
     if (!definition) return;
-    const [clientState, allSyncRecords, metadata] = await Promise.all([
-      clientStateStore.read(),
+    const [allSyncRecords, metadata] = await Promise.all([
       storage.get(null),
       readMetadata(),
     ]);
-    const datasetMeta = metadata.datasets[name] || {};
-    const localEntries = parseLocalEntries(name, clientState[definition.localKey]);
-    const localMap = new Map(localEntries.map((entry) => [entry.id, entry.value]));
+    const datasetMeta = { ...(metadata.datasets[name] || {}) };
     const remoteRecords = normalizedRemoteRecords(name, definition, allSyncRecords);
-    let localChanged = false;
-
-    for (const remote of remoteRecords) {
-      const localVersion = datasetMeta[remote.id];
-      if (localVersion && compareVersions(remote, localVersion) <= 0) continue;
-      if (remote.deleted) localMap.delete(remote.id);
-      else localMap.set(remote.id, remote.value);
-      datasetMeta[remote.id] = metadataFromSyncRecord(remote);
-      localChanged = true;
-    }
-
-    const mergedEntries = Array.from(localMap, ([id, value]) => ({ id, value }));
-    const mergedSerialized = serializeLocalEntries(name, mergedEntries);
-    if (localChanged && mergedSerialized !== String(clientState[definition.localKey] ?? "")) {
-      await clientStateStore.save({ values: { [definition.localKey]: mergedSerialized } });
-      broadcast("content-sync.changed", { values: { [definition.localKey]: mergedSerialized } });
-    }
-
-    const selectedEntries = selectSyncEntries(name, mergedEntries, definition);
-    const selectedMap = new Map(selectedEntries.map((entry) => [entry.id, entry.value]));
     const writes = {};
-    const writeMetadata = [];
-    const operationTime = now();
-
-    for (const [id, value] of selectedMap) {
-      const valueHash = stableValue(value);
-      const current = datasetMeta[id];
-      if (current && current.deleted !== true && current.valueHash === valueHash) continue;
-      const record = syncRecord(name, id, value, operationTime, randomUUID());
-      const key = await contentSyncStorageKey(name, id);
-      if (jsonBytes(record) > MAX_SYNC_RECORD_BYTES) continue;
-      writes[key] = record;
-      writeMetadata.push([id, metadataFromSyncRecord(record)]);
+    const currentTime = now();
+    let operationTime = currentTime;
+    for (const record of [...Object.values(datasetMeta), ...remoteRecords]) {
+      operationTime = Math.max(operationTime, Number(record.updatedAt || 0) + 1);
     }
-
-    for (const [id, current] of Object.entries(datasetMeta)) {
-      if (current.deleted === true || selectedMap.has(id)) continue;
-      const record = tombstoneRecord(name, id, operationTime, randomUUID());
-      const key = await contentSyncStorageKey(name, id);
-      writes[key] = record;
-      writeMetadata.push([id, metadataFromSyncRecord(record)]);
-    }
-
-    if (Object.keys(writes).length) {
-      assertSyncStorageBudget(allSyncRecords, writes);
-      await storage.set(writes);
-      for (const [id, value] of writeMetadata) datasetMeta[id] = value;
-    }
-
+    // Read and merge under the same queue as local saves, after the remote read.
+    const localChanged = await clientStateStore.mutate(async (clientState) => {
+      const localEntries = parseLocalEntries(name, clientState[definition.localKey]);
+      const localMap = new Map(localEntries.map((entry) => [entry.id, entry.value]));
+      const dirty = new Set();
+      for (const { id, value } of selectSyncEntries(name, localEntries, definition)) {
+        const previous = datasetMeta[id];
+        if (previous ? previous.deleted || previous.valueHash !== stableValue(value) : localPatches.has(name)) dirty.add(id);
+      }
+      for (const [id, previous] of Object.entries(datasetMeta)) {
+        if (!previous.deleted && !localMap.has(id)) dirty.add(id);
+      }
+      let remoteChanged = false;
+      for (const remote of remoteRecords) {
+        const localVersion = datasetMeta[remote.id];
+        // A value differing from the last synced snapshot is a pending local edit.
+        if (dirty.has(remote.id) || localVersion && compareVersions(remote, localVersion) <= 0) continue;
+        if (remote.deleted) localMap.delete(remote.id);
+        else localMap.set(remote.id, remote.value);
+        datasetMeta[remote.id] = metadataFromSyncRecord(remote);
+        remoteChanged = true;
+      }
+      let mergedEntries = Array.from(localMap, ([id, value]) => ({ id, value }));
+      if (["calendar", "notes", "worldClock"].includes(name) && mergedEntries.length > definition.maxItems) {
+        const error = new Error(name === "calendar" ? "CALENDAR_SYNC_LIMIT_EXCEEDED" : "PERSONAL_CARD_SYNC_LIMIT_EXCEEDED");
+        error.code = error.message;
+        error.messageKey = `background.error.${name}SyncLimit`;
+        error.messageParams = { count: definition.maxItems };
+        error.retryable = false;
+        throw error;
+      }
+      if (["calendar", "notes", "worldClock"].includes(name)) mergedEntries.sort((left, right) => left.id.localeCompare(right.id));
+      if (name === "trackedTopics") {
+        // Resolve duplicate names and the eight-topic limit identically on every device.
+        mergedEntries.sort((left, right) => left.id < right.id ? -1 : left.id > right.id ? 1 : 0);
+        mergedEntries = parseLocalEntries(name, { topics: mergedEntries.map(entry => entry.value) });
+      }
+      const selectedMap = new Map(selectSyncEntries(name, mergedEntries, definition).map(entry => [entry.id, entry.value]));
+      const writeMetadata = [];
+      for (const [id, value] of selectedMap) {
+        const current = datasetMeta[id];
+        if (current && !current.deleted && current.valueHash === stableValue(value)) continue;
+        const record = syncRecord(name, id, value, operationTime, randomUUID());
+        if (jsonBytes(record) > MAX_SYNC_RECORD_BYTES) continue;
+        writes[await contentSyncStorageKey(name, id)] = record;
+        writeMetadata.push([id, metadataFromSyncRecord(record)]);
+      }
+      for (const [id, current] of Object.entries(datasetMeta)) {
+        if (current.deleted || selectedMap.has(id)) continue;
+        const record = tombstoneRecord(name, id, operationTime, randomUUID());
+        writes[await contentSyncStorageKey(name, id)] = record;
+        writeMetadata.push([id, metadataFromSyncRecord(record)]);
+      }
+      if (Object.keys(writes).length) {
+        assertSyncStorageBudget(allSyncRecords, writes);
+        await storage.set(writes);
+        for (const [id, value] of writeMetadata) datasetMeta[id] = value;
+      }
+      const serialized = serializeLocalEntries(name, mergedEntries, clientState[definition.localKey]);
+      const changed = remoteChanged && serialized !== String(clientState[definition.localKey] ?? "");
+      return { values: changed ? { [definition.localKey]: serialized } : {}, result: changed };
+    });
     metadata.datasets[name] = datasetMeta;
-    await pruneRemoteTombstones(name, definition, remoteRecords, operationTime);
-    pruneLocalMetadata(metadata, operationTime);
+    await pruneRemoteTombstones(name, definition, remoteRecords.filter(record => !Object.hasOwn(writes, record.storageKey)), currentTime);
+    pruneLocalMetadata(metadata, currentTime);
     await setRecord(CONTENT_SYNC_META_KEY, metadata, "state");
+    if (localChanged) {
+      const latest = await clientStateStore.read();
+      broadcast("content-sync.changed", { values: { [definition.localKey]: latest[definition.localKey] } });
+    }
   }
 
   async function clearDataset(name) {
@@ -291,6 +348,16 @@ export function parseLocalEntries(name, serialized) {
   if (name === "countdowns") {
     return normalizeCountdownItems(value).map((item) => ({ id: item.id, value: item }));
   }
+  if (name === "trackedTopics") {
+    return normalizeTrackedTopics(value).topics.map(({ id, name, words, source }) => ({ id, value: { id, name, words, source } }));
+  }
+  if (name === "calendar") {
+    return normalizeCalendarState(value).items.map(({ id, title, date, time }) => ({ id, value: { id, title, date, time } }));
+  }
+  if (name === "notes") {
+    return normalizeNotesState(value).items.map(({ id, text, pinned, createdAt, updatedAt }) => ({ id, value: { id, text, pinned, createdAt, updatedAt } }));
+  }
+  if (name === "worldClock") return normalizeWorldClockState(value).items.map(({ id }) => ({ id, value: { id } }));
   if (name === "weatherLocation") {
     const location = normalizeWeatherLocation(value);
     return location ? [{ id: "selected", value: location }] : [];
@@ -298,7 +365,7 @@ export function parseLocalEntries(name, serialized) {
   return [];
 }
 
-export function serializeLocalEntries(name, entries) {
+export function serializeLocalEntries(name, entries, previousValue) {
   if (name === "weatherLocation") return JSON.stringify(entries[0]?.value || null);
   const values = entries.map((entry) => entry.value);
   if (name === "readingQueue") {
@@ -311,6 +378,22 @@ export function serializeLocalEntries(name, entries) {
   }
   if (name === "stockWatchlist") return JSON.stringify(normalizeStockWatchlist(values));
   if (name === "countdowns") return JSON.stringify(normalizeCountdownItems(values));
+  if (["trackedTopics", "calendar", "notes", "worldClock"].includes(name)) {
+    const normalize = name === "notes" ? normalizeNotesState : name === "worldClock" ? normalizeWorldClockState
+      : name === "calendar" ? normalizeCalendarState : normalizeTrackedTopics;
+    const field = name === "trackedTopics" ? "topics" : "items";
+    let previous;
+    try { previous = typeof previousValue === "string" ? JSON.parse(previousValue) : previousValue; } catch { previous = null; }
+    const state = normalize(previous);
+    const previousEntries = new Map(parseLocalEntries(name, state).map(entry => [entry.id, entry.value]));
+    const items = normalize({ [field]: values })[field].map(item => {
+      const old = state[field].find(previousItem => previousItem.id === item.id);
+      const changed = stableValue(previousEntries.get(item.id)) !== stableValue(values.find(value => value.id === item.id));
+      return { ...item, revision: (old?.revision || 0) + Number(changed) };
+    });
+    const changed = stableValue(items) !== stableValue(state[field]);
+    return JSON.stringify({ ...state, revision: state.revision + Number(changed), [field]: items });
+  }
   return "[]";
 }
 
@@ -346,7 +429,8 @@ function normalizeSyncRecord(name, value) {
   const revision = cleanText(value.revision, 120);
   if (!id || !Number.isFinite(updatedAt) || updatedAt <= 0 || !revision) return null;
   if (value.deleted === true) return { version: 1, dataset: name, id, updatedAt, revision, deleted: true };
-  const entries = parseLocalEntries(name, name === "weatherLocation" ? value.value : [value.value]);
+  const entries = parseLocalEntries(name, name === "weatherLocation" ? value.value
+    : name === "trackedTopics" ? { topics: [value.value] } : ["calendar", "notes", "worldClock"].includes(name) ? { items: [value.value] } : [value.value]);
   const normalized = entries.find((entry) => entry.id === id);
   if (!normalized) return null;
   return { version: 1, dataset: name, id, value: normalized.value, updatedAt, revision, deleted: false };

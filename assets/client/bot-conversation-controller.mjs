@@ -2,7 +2,7 @@ import { usesBotChat } from "../../extension/core/bot-mode.mjs";
 import { botBoardRefreshInterval, botRunnerStatusKey } from "./bot-runner-status.mjs";
 import { botTaskPhase } from "./ai-task-state.mjs";
 
-export function createBotConversationController({ state, els, t, apiPost, appendMessage, finishMessage, removeMessages, setMeta, syncComposer, reset }) {
+export function createBotConversationController({ state, els, t, request, appendMessage, finishMessage, removeMessages, setMeta, syncComposer, reset }) {
   const messages = new Map();
   const conversationMessages = new Set();
   let busy = false;
@@ -62,7 +62,7 @@ export function createBotConversationController({ state, els, t, apiPost, append
     const expectedConnection = state.data?.bot?.connectionId;
     const version = generation;
     try {
-      const board = await apiPost("/api/bot/refresh", {});
+      const board = await request({ type: "bot:refresh", payload: {} });
       if (!isCurrentConnection(expectedConnection, version) || board.connectionId !== expectedConnection) return;
       state.data.bot = board;
       await sync();
@@ -161,7 +161,7 @@ export function createBotConversationController({ state, els, t, apiPost, append
     setMeta(t("bot.loading"));
     try {
       conversationId ||= crypto.randomUUID();
-      const board = await apiPost("/api/bot/actions", { ...(retryId ? { retryId } : { type: "message", text, conversationId }), connectionId: expectedConnection });
+      const board = await request({ type: "bot:submit", payload: { ...(retryId ? { retryId } : { type: "message", text, conversationId }), connectionId: expectedConnection } });
       if (!isCurrentConnection(expectedConnection, version) || board.connectionId !== expectedConnection) return;
       state.data.bot = board;
       if (notice) { removeMessages([notice]); notice = null; }

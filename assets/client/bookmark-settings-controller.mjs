@@ -27,6 +27,7 @@ export function createBookmarkSettingsController(options) {
     renderHiddenBookmarkCategoryList,
   };
 function syncBookmarkFolderControls(settings = {}) {
+  if (els.bookmarkConsentPrompt) els.bookmarkConsentPrompt.hidden = settings.bookmarkConsentGranted !== false;
   const options = Array.isArray(settings.bookmarkFolderOptions) ? settings.bookmarkFolderOptions : [];
   syncNewsSourceSelect(options, settings);
   syncInspirationSourceSelect(options, settings);
@@ -93,6 +94,9 @@ function setInspirationSourceSelection(value) {
 
 function setNewsSourceSelection(value) {
   const selection = parseNewsSelection(value, savedNewsFolder());
+  if (selection.mode === "public" && state.settings?.newsSourceMode !== "public") {
+    els.bookmarkSectionEnabledInput.checked = false;
+  }
   state.settings = {
     ...(state.settings || {}),
     newsSourceMode: selection.mode,
@@ -110,6 +114,8 @@ function syncPublicFeedSupplementControl(busy = false) {
   els.publicFeedSupplementEnabledInput.disabled = disabled;
   els.publicFeedSupplementEnabledInput.closest(".switch-field")
     ?.setAttribute("aria-disabled", String(disabled));
+  const help = els.publicFeedSupplementEnabledInput.closest(".switch-field")?.querySelector?.(".switch-help");
+  if (help) help.hidden = !publicOnly;
 }
 
 function syncBookmarkOnlyFolderControls() {
@@ -248,6 +254,7 @@ function removeBookmarkOnlyFolder(folder) {
 function renderBookmarkOnlyFolderList() {
   const folders = currentBookmarkOnlyFolders();
   els.bookmarkExtraCount.textContent = t("settings.disclosure.count", { count: folders.length });
+  els.bookmarkExtraCount.hidden = folders.length === 0;
   if (!folders.length) els.bookmarkExtraDetails.open = false;
   if (!folders.length) {
     const empty = document.createElement("div");
@@ -270,10 +277,7 @@ function renderBookmarkOnlyFolderList() {
     const title = document.createElement("div");
     title.className = "exclude-title";
     title.textContent = folder;
-    const meta = document.createElement("div");
-    meta.className = "exclude-meta";
-    meta.textContent = t("settings.bookmarks.panel");
-    main.append(title, meta);
+    main.append(title);
     const button = document.createElement("button");
     button.className = "btn";
     button.type = "button";
@@ -296,7 +300,7 @@ function restoreHiddenBookmarkCategory(item) {
     ),
   };
   renderHiddenBookmarkCategoryList();
-  renderSettingsStatus(t("settings.status.unsaved"));
+  renderSettingsStatus();
 }
 
 function restoreAllHiddenBookmarkCategories() {
@@ -305,12 +309,13 @@ function restoreAllHiddenBookmarkCategories() {
     hiddenBookmarkCategories: [],
   };
   renderHiddenBookmarkCategoryList();
-  renderSettingsStatus(t("settings.status.unsaved"));
+  renderSettingsStatus();
 }
 
 function renderHiddenBookmarkCategoryList() {
   const items = hiddenBookmarkCategories(state.settings);
   els.bookmarkHiddenCount.textContent = t("settings.disclosure.count", { count: items.length });
+  els.bookmarkHiddenCount.hidden = items.length === 0;
   if (!items.length) els.bookmarkHiddenDetails.open = false;
   els.restoreAllBookmarkCategories.hidden = items.length < 2;
   els.restoreAllBookmarkCategories.onclick = restoreAllHiddenBookmarkCategories;
@@ -339,10 +344,7 @@ function renderHiddenBookmarkCategoryList() {
       ? t(`category.inspiration.${item.categoryKey}`)
       : item.category;
     title.textContent = `${section} / ${category}`;
-    const meta = document.createElement("div");
-    meta.className = "exclude-meta";
-    meta.textContent = t("settings.bookmarks.hiddenMeta");
-    main.append(title, meta);
+    main.append(title);
     const button = document.createElement("button");
     button.className = "btn";
     button.type = "button";

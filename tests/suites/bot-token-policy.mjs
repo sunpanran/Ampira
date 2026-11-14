@@ -8,7 +8,7 @@ import { normalizeBotModule } from "../../extension/core/bot-board.mjs";
 
 const settings = { mcpEnabled: true, dashboardMode: "bot" };
 const nativeArticle = (id) => syntheticArticle(id, {
-  title: `显示设备更新 ${id}`, excerpt: "这次更新改善显示效果，并支持现有设备。", contentLocale: "zh-CN",
+  title: `显示设备更新 ${id}`, excerpt: "这次更新改善显示效果，并支持现有设备。厂商公布了安装步骤和设备清单，本次更新不需要购买新的硬件。", contentLocale: "zh-CN",
 });
 for (const mode of [
   { mcpEnabled: false, dashboardMode: "bot" },

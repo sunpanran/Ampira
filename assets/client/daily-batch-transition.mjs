@@ -1,5 +1,6 @@
-import { createBatchTransition } from "./batch-transition.mjs";
-import { cleanupDailyThumbTransitions, crossfadeDailyThumb, syncDailyThumb } from "./daily-thumb-transition.mjs";
+import { createBatchTransition, settleBatchImages } from "./batch-transition.mjs";
+import { dailyThumbTransition } from "./thumb-transition.mjs";
+const { sync: syncDailyThumb } = dailyThumbTransition;
 
 export function createDailyBatchTransition(options) {
   const snapshotLists = new Set();
@@ -19,28 +20,34 @@ export function createDailyBatchTransition(options) {
     documentNode: options.documentNode,
     cleanup,
     prefersReducedMotion,
+    requestKey: (columnId) => dailyColumns().find((column) => column.id === columnId)?.type || columnId,
     prepare,
+    settle: (contexts) => settleBatchImages([...contexts.keys()].map(getColumn)),
     update: (transitionState, columnId) => renderColumn(columnId, transitionState),
   });
 
   function prepare(columnId) {
-    const column = dailyColumns().find((candidate) => candidate.id === columnId);
+    const columns = dailyColumns();
+    const selected = columns.find((column) => column.id === columnId);
+    return new Map(columns.filter((column) => column.type === selected?.type)
+      .map((column) => [column.id, prepareColumn(column)]));
+  }
+
+  function prepareColumn(column) {
+    const columnId = column.id;
     const currentColumn = getColumn(columnId);
     const currentList = currentColumn?.querySelector(":scope > .utility-card-body > .card-list");
     const currentCards = currentList ? directDailyCards(currentList) : [];
-    const nextCardCount = column?.items?.length || 0;
+    currentCards.forEach((card) => clearCardAnimationState?.(card));
     const bounded = currentList && (currentList.closest(".dashboard-slot")?.dataset.slotSize === "compact"
       || currentList.scrollHeight > currentList.clientHeight + 1);
     if (bounded) {
       currentList.style.setProperty("view-transition-name", `today-${columnId}-viewport`);
       snapshotLists.add(currentList);
-      return { columnId, nextCardCount, bounded: true };
+      return { columnId, bounded: true };
     }
-    currentCards.forEach((card, index) => {
-      if (index < nextCardCount) setSharedTransitionNames(card, columnId, index);
-      else setTransitionName(card, columnId, index);
-    });
-    return { columnId, nextCardCount };
+    currentCards.forEach((card, index) => setTransitionName(card, columnId, index));
+    return { columnId };
   }
 
   function renderCardList(currentList, nextList, transitionState) {
@@ -48,8 +55,7 @@ export function createDailyBatchTransition(options) {
     const currentCards = directDailyCards(currentList);
     const nextCards = directDailyCards(nextList);
     if (transitionState.columnId !== columnId
-      || nextList.children.length !== nextCards.length
-      || nextCards.length !== transitionState.nextCardCount) {
+      || nextList.children.length !== nextCards.length) {
       currentList.className = nextList.className;
       currentList.replaceChildren(...nextList.childNodes);
       return;
@@ -62,8 +68,8 @@ export function createDailyBatchTransition(options) {
 
     const sharedCount = Math.min(currentCards.length, nextCards.length);
     for (let index = 0; index < sharedCount; index += 1) {
-      if (!transitionState.bounded) setSharedTransitionNames(nextCards[index], columnId, index);
-      syncCard(currentCards[index], nextCards[index], { crossfadeThumb: !transitionState.bounded && currentList.closest(".board-column")?.classList.contains("is-inspiration") });
+      syncCard(currentCards[index], nextCards[index]);
+      if (!transitionState.bounded) setTransitionName(currentCards[index], columnId, index);
     }
 
     for (let index = sharedCount; index < nextCards.length; index += 1) {
@@ -104,7 +110,7 @@ export function createDailyBatchTransition(options) {
     if (animateEntries) animateCardsIn(enteringCards);
   }
 
-  function syncCard(currentCard, nextCard, { crossfadeThumb = false } = {}) {
+  function syncCard(currentCard, nextCard) {
     currentCard.className = nextCard.className;
     clearCardAnimationState(currentCard);
     for (const key of Object.keys(currentCard.dataset)) delete currentCard.dataset[key];
@@ -116,8 +122,7 @@ export function createDailyBatchTransition(options) {
     if (nextCard.hasAttribute("title")) currentCard.setAttribute("title", nextCard.getAttribute("title") || "");
     else currentCard.removeAttribute("title");
 
-    if (crossfadeThumb) crossfadeDailyThumb(currentCard, nextCard);
-    else syncDailyThumb(currentCard, nextCard);
+    syncDailyThumb(currentCard, nextCard);
 
     const currentContent = batchContent(currentCard);
     const nextContent = batchContent(nextCard);
@@ -135,12 +140,7 @@ export function createDailyBatchTransition(options) {
     ) || []));
     for (const card of cards) {
       card.style.removeProperty("view-transition-name");
-      batchContent(card)?.style.removeProperty("view-transition-name");
-      for (const { node } of sharedTransitionParts(card)) {
-        node.style?.removeProperty("view-transition-name");
-      }
     }
-    cleanupDailyThumbTransitions(cards);
   }
 
   return { applyCardListDiff, cancel: controller.cancel, renderCardList, run: controller.run };
@@ -150,24 +150,6 @@ function batchContent(card) {
   return card?.querySelector?.(":scope > .daily-batch-content") || null;
 }
 
-function sharedTransitionParts(card) {
-  const content = batchContent(card);
-  if (!content) return card ? [{ node: card, suffix: "" }] : [];
-  if (!content.classList?.contains("news-list-content")) return [{ node: content, suffix: "" }];
-  const parts = [
-    { node: content.querySelector?.(":scope > .bookmark-favicon"), suffix: "source" },
-    { node: content.querySelector?.(":scope > .link-main"), suffix: "content" },
-  ].filter((part) => part.node);
-  return parts.length ? parts : [{ node: content, suffix: "" }];
-}
-
-function setSharedTransitionNames(card, columnId, index) {
-  for (const { node, suffix } of sharedTransitionParts(card)) {
-    setTransitionName(node, columnId, index, suffix);
-  }
-}
-
-function setTransitionName(node, columnId, index, suffix = "") {
-  const name = `today-${columnId}-card-${index + 1}`;
-  node?.style?.setProperty("view-transition-name", suffix ? `${name}-${suffix}` : name);
+function setTransitionName(node, columnId, index) {
+  node?.style?.setProperty("view-transition-name", `today-${columnId}-card-${index + 1}`);
 }

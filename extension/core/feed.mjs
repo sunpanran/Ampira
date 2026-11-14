@@ -4,6 +4,7 @@ import { translate } from "./runtime-i18n.mjs";
 import { classifyFeedEntryLocale } from "./feed-language-policy.mjs";
 import { decodeResponseBuffer, fetchBounded } from "./network.mjs";
 import { isDisplayableFeedItem } from "./feed-item-policy.mjs";
+import { boundedFeedText } from "./feed-content.mjs";
 import {
   extractMarkupImageCandidates,
   extractPageImageCandidates,
@@ -73,9 +74,9 @@ const ARTICLE_QUERY_KEYS = new Set(["articleid", "contentid", "id", "newsid", "s
 const NEWS_LANDING_PATHS = new Set([...ARTICLE_PATH_MARKERS, "articles", "latest", "posts", "updates"]);
 
 export async function fetchSourceArticles(source, options = {}) {
+  if (source?.sourceKind === "custom-feed") return fetchFeedSubscription(source, options);
   options.signal?.throwIfAborted();
-  const requestedLimit = Number(options.limit);
-  const limit = requestedLimit === 0 ? 12 : Math.max(1, Math.min(12, Number.isFinite(requestedLimit) ? requestedLimit : 5));
+  const limit = sourceItemLimit(options.limit);
   const scanLimit = sourceScanLimit(limit);
   const now = options.now ?? Date.now();
   const profile = normalizeFetchProfile(options.profile);
@@ -165,6 +166,41 @@ export async function fetchSourceArticles(source, options = {}) {
   return sourceFetchResult([], { outcome: "empty", response: landing, pendingFeeds });
 }
 
+export async function fetchFeedSubscription(source, options = {}) {
+  const profile = normalizeFetchProfile(options.profile);
+  const response = await fetchText(source.url, {
+    ...options,
+    validators: profile.resolvedUrl === source.url ? profile.validators : null,
+  });
+  if (response.notModified) {
+    if (options.preview === true) throw feedError("INVALID_FEED", "settings.feeds.invalidFeed");
+    return sourceFetchResult([], { outcome: "notModified", method: "direct-feed", response });
+  }
+  const text = String(response.text || "").trim().replace(/^(?:<\?xml[\s\S]*?\?>\s*|<!--[\s\S]*?-->\s*)+/i, "");
+  let title = "";
+  let valid = false;
+  if (text.startsWith("{")) {
+    try {
+      const data = JSON.parse(text);
+      valid = /^https:\/\/jsonfeed\.org\/version\/1(?:\.1)?$/.test(data.version) && Array.isArray(data.items);
+      title = typeof data.title === "string" ? data.title : "";
+    } catch { /* Invalid JSON is reported as an invalid subscription. */ }
+  } else {
+    valid = /^<rss\b/i.test(text) && /<channel\b[\s\S]*<\/channel>/i.test(text) && /<\/rss>\s*$/i.test(text)
+      || /^<feed\b/i.test(text) && (/<\/feed>\s*$/i.test(text) || /^<feed\b[^>]*\/>\s*$/i.test(text))
+      || /^<rdf:RDF\b/i.test(text) && /<\/rdf:RDF>\s*$/i.test(text);
+    title = tagText(text.split(/<(?:item|entry)\b/i)[0], "title");
+  }
+  if (!valid) throw feedError("INVALID_FEED", "settings.feeds.invalidFeed");
+  const limit = sourceItemLimit(options.limit);
+  const items = options.preview === true
+    ? parseFeedDocument(response.text, response.url, { ...source, fetchOrigin: safeSourceOrigin(response.url) }, limit, response.contentType)
+    : parsedResponseItems(response, source, limit, undefined, options.now ?? Date.now());
+  const result = sourceFetchResult(items, { outcome: "empty", method: "direct-feed", response });
+  Object.defineProperty(result, "feedTitle", { value: cleanText(title).slice(0, 80), enumerable: false });
+  return result;
+}
+
 function normalizeFetchProfile(profile) {
   const value = profile && typeof profile === "object" ? profile : {};
   return {
@@ -235,6 +271,11 @@ function parsedResponseItems(response, source, limit, scanLimit = sourceScanLimi
     limit,
     now,
   );
+}
+
+function sourceItemLimit(value) {
+  const limit = Number(value);
+  return limit === 0 ? 12 : Math.max(1, Math.min(12, Number.isFinite(limit) ? limit : 5));
 }
 
 function sourceScanLimit(limit) {
@@ -321,9 +362,11 @@ function parseXmlEntry(block, finalUrl, source, index) {
     tagText(block, "content"),
   ));
   const publishedAt = normalizeDate(firstNonEmpty(tagText(block, "pubDate"), tagText(block, "published"), tagText(block, "updated"), tagText(block, "dc:date")));
+  const modifiedAt = normalizeDate(tagText(block, "updated"));
+  const contentText = firstNonEmpty(tagText(block, "content:encoded"), tagText(block, "content"), description);
   const imageUrls = entryImageUrls(block, entryBase);
   const publisher = parseEntryPublisher(block, source);
-  return articleRecord({ title, url, description, publishedAt, imageUrls, source, index, ...publisher });
+  return articleRecord({ title, url, description, contentText, publishedAt, modifiedAt, imageUrls, source, index, ...publisher });
 }
 
 function parseJsonFeed(text, finalUrl, source, limit) {
@@ -350,7 +393,9 @@ function parseJsonFeed(text, finalUrl, source, limit) {
         title: cleanText(item.title) || source.title || hostOf(url),
         url,
         description: cleanText(item.summary || item.content_text || item.content_html),
+        contentText: item.content_text || item.content_html || item.summary,
         publishedAt: normalizeDate(item.date_published || item.date_modified),
+        modifiedAt: normalizeDate(item.date_modified),
         imageUrls,
         source,
         index,
@@ -381,6 +426,7 @@ function articleFromHtml(html, url, source) {
       htmlToText(html).slice(0, 600),
     )),
     publishedAt,
+    modifiedAt: normalizeDate(metaContent(html, ["article:modified_time", "datemodified"])),
     imageUrls,
     source,
     index: 0,
@@ -406,7 +452,7 @@ function articleFromLink(link, source, index) {
 
 function articleRecord({
   title, url, description, publishedAt, imageUrl, imageUrls = [], source, index, articleDocument = false,
-  publisher = "", publisherUrl = "",
+  publisher = "", publisherUrl = "", contentText = "", modifiedAt = "",
 }) {
   const host = hostOf(url);
   const fetchedAt = new Date().toISOString();
@@ -436,11 +482,13 @@ function articleRecord({
     title: cleanText(title) || source.title || host,
     url,
     excerpt,
+    contentText: boundedFeedText(cleanText(htmlToText(contentText || description))),
     summary: excerpt ? [excerpt] : [],
     imageUrl: normalizedImageUrls[0] || "",
     imageUrls: normalizedImageUrls,
     imageSource: normalizedImageUrls.length ? "feed" : "",
     publishedAt: publishedAt || "",
+    modifiedAt,
     fetchedAt,
     timeUnverified: !publishedAt,
     ...(articleDocument === true ? { articleDocument: true } : {}),
@@ -719,7 +767,9 @@ function extractJsonLdArticles(html, baseUrl, source, limit, { collectionPage = 
         title,
         url,
         description: cleanText(target.description || ""),
+        contentText: target.articleBody || target.description || "",
         publishedAt: normalizeDate(target.datePublished || target.dateModified),
+        modifiedAt: normalizeDate(target.dateModified),
         imageUrls,
         source: { ...source, fetchOrigin: safeSourceOrigin(baseUrl) },
         index: records.length,

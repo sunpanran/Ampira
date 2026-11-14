@@ -3,11 +3,12 @@ import { createAiConnectionTest } from "./ai-connection-test.mjs";
 import { newlyRequiredUngrantedOrigins } from "./permission-ui-model.mjs";
 import { createSavedSourcePermissionController, personalSourcePermissionScope } from "./saved-source-permission-controller.mjs";
 import { createSettingsFeedback } from "./settings-feedback.mjs";
+import { createSettingsTabIndicator } from "./settings-tab-indicator.mjs";
 export function createSettingsController(options) {
   const {
-    state, els, t, apiGet, apiPost, confirmAction, confirmManualAiUsage, localizedResponseMessage, localizedErrorMessage, shortcutSettings,
+    state, els, t, request, confirmAction, confirmManualAiUsage, localizedResponseMessage, localizedErrorMessage, shortcutSettings,
     applyUiLocale, selectedUiLocale, syncLanguageControls, applyAppearanceSettings, syncAppearanceControls,
-    renderExcludeFolderOptions, renderExclusionList, syncBookmarkFolderControls,
+    renderExcludeFolderOptions, renderExclusionList, syncBookmarkFolderControls, customFeeds,
     syncBookmarkSectionControls, syncPublicFeedSupplementControl, syncWebsiteShortcutControls, syncAiSetupControls, refreshAiSetupPermission,
     prepareAiProviderUi,
     getAiSetupState, clearAiSetupFeedback, focusAiSetupRequirement, currentExcludedNewsSources,
@@ -20,7 +21,8 @@ export function createSettingsController(options) {
   } = options;
   let settingsLoadToken = 0, settingsLocaleAtOpen = getLocale(), settingsSnapshot = null, settingsSession = 0;
   let settingsCloseTimer = 0, settingsActionGeneration = 0, settingsBusy = false, settingsTabScrollPositions = new Map();
-  const { syncSettingsFooter, renderSettingsStatus } = createSettingsFeedback({ els, t, isBusy: () => settingsBusy, hasUnsavedChanges: currentSettingsHaveUnsavedChanges });
+  const syncSettingsTabIndicator = createSettingsTabIndicator(els.settingsTabs);
+  const { syncSettingsHeader, syncSettingsFooter, renderSettingsStatus } = createSettingsFeedback({ els, t, isBusy: () => settingsBusy, hasUnsavedChanges: currentSettingsHaveUnsavedChanges });
   const captureSettingsSnapshot = () => { settingsLocaleAtOpen = getLocale(); settingsSnapshot = snapshotSettingsDraft(state.settings, selectedUiLocale()); syncSettingsFooter(); };
   const savedSourcePermission = createSavedSourcePermissionController({
     els, t, selectSettingsTab, requestSourcePermissions, loadDashboard, triggerRefresh,
@@ -29,12 +31,12 @@ export function createSettingsController(options) {
     settingsSaveCloseDelayMs, wait,
   });
   const { testKey, renderStatus: renderAiConnectionStatus } = createAiConnectionTest({
-    els, t, apiPost, confirmManualAiUsage, localizedResponseMessage, localizedErrorMessage,
+    els, t, request, confirmManualAiUsage, localizedResponseMessage, localizedErrorMessage,
     getAiSetupState, focusAiSetupRequirement, runSettingsAction,
     currentSettingsHaveUnsavedChanges, renderSettingsStatus,
   });
   return {
-    loadSettings, saveSettings,
+    loadSettings, saveSettings, grantBookmarkAccess,
     grantSavedSourcePermissions: savedSourcePermission.grant,
     dismissSavedSourcePermissions: savedSourcePermission.dismiss,
     testKey, testImageSearchKey, clearImageSearchKey,
@@ -44,21 +46,38 @@ export function createSettingsController(options) {
     setSettingsBusy, runSettingsAction, selectSettingsTab, renderSettingsStatus,
     isBusy: () => settingsBusy,
   };
+async function grantBookmarkAccess() {
+  if (settingsBusy) return;
+  return runSettingsAction(async isCurrent => {
+    try {
+      const saved = await request({ type: "onboarding:consent" });
+      if (!isCurrent()) return;
+      state.settings = { ...state.settings, bookmarkConsentGranted: saved.bookmarkConsentGranted,
+        bookmarkFolderOptions: saved.bookmarkFolderOptions, availableNewsFolders: saved.availableNewsFolders };
+      syncBookmarkFolderControls(state.settings);
+      renderSettingsStatus();
+      await loadDashboard();
+    } catch (error) {
+      if (isCurrent()) renderSettingsStatus(localizedErrorMessage(error), "error");
+    }
+  });
+}
 async function loadSettings() {
   const token = ++settingsLoadToken;
   try {
-    const [settings] = await Promise.all([apiGet("/api/settings"), headerCoverController.load()]);
+    const [settings] = await Promise.all([request({ type: "settings:get" }), headerCoverController.load()]);
     if (token !== settingsLoadToken) return false;
     const imagePreviewChanged = !state.settings
       || state.settings.webImageSearchEnabled !== settings.webImageSearchEnabled
       || state.settings.hasImageSearchKey !== settings.hasImageSearchKey;
     state.settings = settings;
+    customFeeds?.reset();
     if (imagePreviewChanged) inspirationPreviews.invalidate();
     await syncLanguageControls(state.settings, { render: false }); if (token !== settingsLoadToken) return false;
     els.apiBaseUrlInput.value = state.settings.savedBaseUrl || state.settings.baseUrl || state.settings.defaultBaseUrl || "";
     els.apiStyleSelect.value = state.settings.savedApiStyle || state.settings.apiStyle || state.settings.defaultApiStyle || "responses";
     els.modelInput.value = state.settings.savedModel || state.settings.model || state.settings.defaultModel || "";
-    els.modelInput.placeholder = state.settings.defaultModel || "gpt-5.4-mini";
+    els.modelInput.placeholder = state.settings.defaultModel || "gpt-6-luna";
     els.dailyLimitInput.value = state.settings.savedDailyLimit || state.settings.dailyLimit || state.settings.defaultDailyLimit || 160;
     els.dailyLimitInput.placeholder = state.settings.defaultDailyLimit || "160";
     els.cacheSizeInput.value = state.settings.savedHotNewsCacheSize || state.settings.hotNewsCacheSize || state.settings.defaultHotNewsCacheSize || 192;
@@ -113,9 +132,9 @@ async function saveSettings() {
   settingsActionGeneration += 1;
   const draft = currentSettingsDraft();
   if (!String(draft.openaiSummaryModel || "").trim()) {
-    renderAiConnectionStatus(t("background.error.aiModelRequired"), "error");
+    renderAiConnectionStatus();
     focusAiSetupRequirement();
-    return renderSettingsStatus(t("background.error.aiModelRequired"));
+    return renderSettingsStatus(t("background.error.aiModelRequired"), "error");
   }
   if (draft.newsSourceMode === "bookmarks" && draft.inspirationSourceMode === "bookmarks" && draft.newsBookmarkFolder === draft.inspirationBookmarkFolder) return renderSettingsStatus(t("settings.bookmarks.same"));
   savedSourcePermission.clear();
@@ -200,16 +219,17 @@ function currentSettingsDraft() {
     publicFeedSupplementEnabled: els.publicFeedSupplementEnabledInput.checked,
     ...websiteShortcutsPayload(),
     ...appearancePayload(),
-    excludedNewsSources: currentExcludedNewsSources()
+    excludedNewsSources: currentExcludedNewsSources(),
+    customFeeds: state.settings?.customFeeds || [],
   };
 }
 function testImageSearchKey() {
   return runSettingsAction(async (isCurrent) => {
     renderSettingsStatus(t("settings.imageTest.testing"));
     try {
-      const result = await apiPost("/api/settings/image-search/test", {
+      const result = await request({ type: "settings:image-test", payload: {
         braveSearchApiKey: els.imageSearchApiKeyInput.value,
-      });
+      } });
       if (!isCurrent()) return;
       renderSettingsStatus(t(result.ok ? "settings.imageTest.success" : "settings.imageTest.failed", {
         message: localizedResponseMessage(result, "error.requestFailed"),
@@ -223,7 +243,7 @@ function testImageSearchKey() {
 function clearImageSearchKey() {
   return runSettingsAction(async (isCurrent) => {
     try {
-      const settings = await apiPost("/api/settings", { clearBraveSearchApiKey: true });
+      const settings = await request({ type: "settings:save", payload: { clearBraveSearchApiKey: true } });
       if (!isCurrent()) return;
       state.settings = settings;
       els.imageSearchApiKeyInput.value = "";
@@ -238,14 +258,14 @@ function clearImageSearchKey() {
 function clearKey() {
   return runSettingsAction(async (isCurrent) => {
     try {
-      const settings = await apiPost("/api/settings", { clearOpenAIKey: true });
+      const settings = await request({ type: "settings:save", payload: { clearOpenAIKey: true } });
       if (!isCurrent()) return;
       state.settings = settings;
       syncSeenArchiveRetention();
       const bookmarkSourceChanged = state.settings?.bookmarkSourceChanged === true;
       els.apiKeyInput.value = "";
       syncAiSetupControls();
-      renderAiConnectionStatus(t("settings.key.cleared"), "success");
+      renderAiConnectionStatus();
       syncBookmarkFolderControls(state.settings);
       syncAppearanceControls(state.settings);
       applyAppearanceSettings(state.settings);
@@ -263,7 +283,7 @@ function clearCache() {
   return runSettingsAction(async (isCurrent) => {
     renderSettingsStatus(t("settings.cache.clearing"));
     try {
-      const result = await apiPost("/api/cache/clear");
+      const result = await request({ type: "cache:clear" });
       if (!isCurrent()) return;
       if (!result.ok) throw new Error(localizedResponseMessage(result, "error.requestFailed"));
       inspirationPreviews.invalidate();
@@ -279,7 +299,7 @@ function resetQuota() {
   return runSettingsAction(async (isCurrent) => {
     renderSettingsStatus(t("settings.quota.resetting"));
     try {
-      const result = await apiPost("/api/quota/reset");
+      const result = await request({ type: "quota:reset" });
       if (!isCurrent()) return;
       if (!result.ok) throw new Error(localizedResponseMessage(result, "error.requestFailed"));
       if (state.data?.ai && result.quota) {
@@ -298,7 +318,7 @@ function resetPreferences() {
   return runSettingsAction(async (isCurrent) => {
     renderSettingsStatus(t("settings.preferences.clearing"));
     try {
-      const result = await apiPost("/api/preferences/reset");
+      const result = await request({ type: "preferences:reset" });
       if (!isCurrent()) return;
       if (!result.ok) throw new Error(localizedResponseMessage(result, "error.requestFailed"));
       renderSettingsStatus(localizedResponseMessage(result, "settings.preferences.cleared"));
@@ -321,7 +341,9 @@ async function openSettings() {
   settingsSnapshot = snapshotSettingsDraft(state.settings, selectedUiLocale());
   resetSecretDrafts();
   setActiveNavButton(navButton);
-  selectSettingsTab("bookmarks");
+  selectSettingsTab("bookmarks", { animate: false });
+  // Establish the hidden frame once; interrupted transitions keep their current position.
+  if (!els.settingsModal.classList.contains("open")) window.getComputedStyle(els.settingsModal.querySelector(".modal")).transform;
   els.settingsModal.classList.add("open");
   els.closeSettings.focus({ preventScroll: true });
   setSettingsBusy(true);
@@ -393,6 +415,7 @@ function closeSettings(commit = false) {
     if (!els.settingsModal.classList.contains("open")) resetSecretDrafts();
   }, 0);
   settingsSnapshot = null;
+  customFeeds?.reset();
 }
 async function requestCloseSettings() {
   if (settingsBusy) return;
@@ -410,6 +433,8 @@ function currentSettingsHaveUnsavedChanges() { return Boolean(settingsSnapshot) 
 function wait(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
 function setSettingsBusy(busy) {
   settingsBusy = busy;
+  customFeeds?.setBusy(busy);
+  if (els.grantBookmarkAccess) els.grantBookmarkAccess.disabled = busy;
   syncSettingsFooter();
   els.saveSettings.disabled = busy;
   els.testKey.disabled = busy;
@@ -439,6 +464,7 @@ function setSettingsBusy(busy) {
   els.addBookmarkOnlyFolder.disabled = busy || !els.bookmarkOnlyFolderSelect.value;
   els.customAccentInput.disabled = busy; syncAccentColorPickerBusy(busy);
   els.pointerGlowEnabledInput.disabled = busy; els.dashboardGlassBlurEnabledInput.disabled = busy;
+  els.navAutoHideEnabledInput.disabled = busy;
   els.headerImageEnabledInput.disabled = busy;
   syncHeaderImageBlurControl(busy); syncHeaderImageHeightControl(busy);
   els.headerImageFixedInput.disabled = busy; syncHeaderImageFullscreenControl(busy);
@@ -481,23 +507,25 @@ async function runSettingsAction(action) {
     if (isCurrent()) setSettingsBusy(false);
   }
 }
-function selectSettingsTab(tab) {
+function selectSettingsTab(tab, { animate = true } = {}) {
   const panels = Array.from(els.settingsForm.querySelectorAll("[data-settings-panel]"));
   const currentPanel = panels.find((panel) => panel.classList.contains("active"));
   const nextPanel = panels.find((panel) => panel.dataset.settingsPanel === tab);
   if (!nextPanel) return;
+  syncSettingsHeader(nextPanel);
   if (currentPanel && currentPanel !== nextPanel) settingsTabScrollPositions.set(currentPanel.dataset.settingsPanel, els.settingsForm.scrollTop);
   for (const button of els.settingsTabs.querySelectorAll("button[data-settings-tab]")) {
     const active = button.dataset.settingsTab === tab;
     button.classList.toggle("active", active);
   }
+  syncSettingsTabIndicator({ animate });
   for (const panel of panels) {
     panel.classList.toggle("active", panel.dataset.settingsPanel === tab);
     panel.classList.remove("is-entering");
   }
   if (currentPanel !== nextPanel) els.settingsForm.scrollTop = settingsTabScrollPositions.get(tab) || 0;
   window.requestAnimationFrame(revealActiveSettingsTab);
-  if (nextPanel && currentPanel && nextPanel !== currentPanel
+  if (animate && nextPanel && currentPanel && nextPanel !== currentPanel
     && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
     nextPanel.classList.add("is-entering");
     const finishPanelEntrance = (event) => {
@@ -509,7 +537,11 @@ function selectSettingsTab(tab) {
     nextPanel.addEventListener("animationend", finishPanelEntrance);
     nextPanel.addEventListener("animationcancel", finishPanelEntrance);
   }
-  if (tab === "appearance") { syncSegmentedIndicator(els.colorModeGroup); syncSegmentedIndicator(els.navPositionGroup); syncSegmentedIndicator(els.headerImageLayoutGroup); syncSegmentedIndicator(els.sectionTitleOpacityGroup); }
+  if (tab === "appearance") {
+    for (const control of [els.colorModeGroup, els.navPositionGroup, els.headerImageLayoutGroup, els.sectionTitleOpacityGroup]) {
+      syncSegmentedIndicator(control, null, { animate: false });
+    }
+  }
   syncSettingsFooter();
 }
 

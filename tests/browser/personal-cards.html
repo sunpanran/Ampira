@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="zh-CN" data-color-mode="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ampira personal card fixtures</title>
+  <link rel="stylesheet" href="../../assets/dashboard.css">
+  <style>
+    body { min-width: 0; padding: 24px; }
+    #personal-fixture { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; --daily-workbench-h: 520px; }
+    @media (max-width: 820px) { body { padding: 16px; } #personal-fixture { grid-template-columns: minmax(0, 1fr); } }
+  </style>
+</head>
+<body>
+  <main id="personal-fixture" class="has-dashboard-layout"></main>
+  <script type="module" src="./personal-cards.mjs"></script>
+</body>
+</html>

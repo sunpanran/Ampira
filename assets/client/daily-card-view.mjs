@@ -1,17 +1,20 @@
+import { itemUrl, displayTitle, displaySummaryTitle } from "./item-presenter.mjs";
+import { isHttpUrl } from "./urls.mjs";
 import { cardIconName, cardTone } from "./card-policy.mjs";
 import { browserImageMeetsProfileDimensions } from "./card-image-quality.mjs";
 import { loadImageWithReveal } from "./async-image-reveal.mjs";
-import { activeDailyThumbSelector } from "./daily-thumb-transition.mjs";
-import { inspirationFallbackCoverAsset, resolveInspirationCoverUrl } from "./inspiration-cover.mjs";
+import { dailyThumbTransition } from "./thumb-transition.mjs";
+import { inspirationCoverPosition, inspirationFallbackCoverAsset, isDarkInspirationCover, resolveInspirationCoverUrl } from "./inspiration-cover.mjs";
 import { recoverInspirationImage } from "./inspiration-image-recovery.mjs";
+
+const { activeSelector: activeDailyThumbSelector } = dailyThumbTransition;
+
 
 export function createDailyCardView(options) {
   const {
-    state, els, dashboardLayout, t, itemUrl, displayTitle, displaySummaryTitle, createThemedIcon,
-    createReadingActions, createBookmarkFavicon, contextAttachLink, openDailyItem,
-    createSeenButton, localizedCategory, inspirationPreviews, faviconUrl,
-    isHttpUrl, hostFromUrl, openExternal, displayBookmarkTitle, isNewsCard,
-    isInspirationCard, setCardItemIdentity,
+    state, els, dashboardLayout, t, createThemedIcon, createReadingActions, createBookmarkFavicon,
+    contextAttachLink, openDailyItem, createSeenButton, localizedCategory, inspirationPreviews, faviconUrl,
+    openExternal, displayBookmarkTitle, isNewsCard, isInspirationCard, setCardItemIdentity, toggleSeen,
   } = options;
   let newsTitleReveal = null;
   let activeNewsTitle = null;
@@ -212,6 +215,7 @@ function createInspirationThumb(item) {
     if (imageUrl) {
       renderInspirationImageThumb(thumb, item, imageUrl, {
         local: true,
+        coverAsset: item.coverAsset,
         onError: () => renderInspirationFaviconThumb(thumb, item),
       });
     } else {
@@ -229,9 +233,12 @@ function createInspirationThumb(item) {
   return thumb;
 }
 
-function renderInspirationImageThumb(thumb, item, imageUrl, { forceReveal = true, local = false, onError } = {}) {
+function renderInspirationImageThumb(thumb, item, imageUrl, { forceReveal = true, local = false, coverAsset = "", onError } = {}) {
   thumb.className = "inspiration-thumb";
+  if (local && isDarkInspirationCover(coverAsset)) thumb.dataset.coverTone = "dark";
+  else delete thumb.dataset.coverTone;
   const img = document.createElement("img");
+  img.style.objectPosition = inspirationCoverPosition(local ? coverAsset : "");
   let rejected = false;
   img.alt = "";
   img.loading = "eager";
@@ -287,10 +294,12 @@ function preloadBrowserImage(imageUrl, { profile = "visual" } = {}) {
 }
 
 function renderInspirationFallbackThumb(thumb, item) {
-  const coverUrl = resolveInspirationCoverUrl(inspirationFallbackCoverAsset(item));
+  const coverAsset = inspirationFallbackCoverAsset(item);
+  const coverUrl = resolveInspirationCoverUrl(coverAsset);
   if (coverUrl) {
     renderInspirationImageThumb(thumb, item, coverUrl, {
       local: true,
+      coverAsset,
       onError: () => renderInspirationFaviconThumb(thumb, item),
     });
     return;
@@ -301,6 +310,7 @@ function renderInspirationFallbackThumb(thumb, item) {
 function renderInspirationFaviconThumb(thumb, item) {
   const fallback = faviconUrl(item) || "favicon.svg";
   thumb.className = "inspiration-thumb is-fallback";
+  delete thumb.dataset.coverTone;
   const glow = document.createElement("img");
   glow.className = "inspiration-favicon-glow";
   glow.src = fallback;
@@ -331,32 +341,25 @@ function createArchiveCard(item) {
   const titleText = archiveDisplayTitle(item);
   const url = archiveItemUrl(item);
   const card = document.createElement("article");
-  card.className = "daily-card archive-card link-row seen";
+  card.className = "efficiency-row archive-card seen";
   setCardItemIdentity(card, item);
   card.tabIndex = 0;
   card.setAttribute("role", "link");
   card.setAttribute("aria-label", t("card.openArchive", { title: titleText }));
-  card.title = archiveSource(item) === "news" ? titleText : url;
+  card.title = titleText;
   card.addEventListener("click", () => openExternal(url, titleText, item, { contentKind: archiveSource(item) }));
   card.addEventListener("keydown", (event) => {
     activateCardFromKeyboard(event, () => openExternal(url, titleText, item, { contentKind: archiveSource(item) }));
   });
-  contextAttachLink(card, () => ({ url, title: titleText }));
-  const main = document.createElement("div");
-  main.className = "link-main";
+  contextAttachLink(card, () => ({ url, title: titleText }), () => [{
+    label: t("action.removeArchive"), icon: "minus",
+    action: () => toggleSeen(item, false, archiveSource(item)),
+  }]);
   const title = document.createElement("span");
   title.className = "link-title archive-title";
   title.textContent = titleText;
-  const meta = document.createElement("span");
-  meta.className = "link-host archive-host";
-  meta.textContent = archiveMetaText(item, url);
-  main.append(title, meta);
-  card.append(createBookmarkFavicon({ ...item, url }), main, createSeenButton(item, t("action.markRead"), t("action.removeArchive"), archiveSource(item)));
+  card.append(title);
   return card;
-}
-
-function archiveMetaText(item, url) {
-  return [archivePillText(item), hostFromUrl(url)].filter(Boolean).join(" · ");
 }
 
 function archiveDisplayTitle(item) {
@@ -367,11 +370,6 @@ function archiveDisplayTitle(item) {
 function archiveItemUrl(item) {
   if (archiveSource(item) === "news") return itemUrl(item);
   return item.url || item.seenUrl || itemUrl(item);
-}
-
-function archivePillText(item) {
-  if (archiveSource(item) === "bookmark" && isNewsCard(item)) return t("category.website");
-  return localizedCategory(item) || item.section || t("category.seen");
 }
 
 function archiveSource(item) {

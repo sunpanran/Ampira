@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { DEFAULT_SETTINGS } from "../../extension/core/constants.mjs";
+import { aiProviderConfiguration } from "../../assets/client/ai-provider-presets.mjs";
 import {
   createAiSseParser,
   nativeWebSearchCapability,
@@ -24,6 +26,16 @@ const settings = {
   openaiBaseUrl: "https://api.openai.com/v1",
   openaiApiStyle: "responses",
   openaiSummaryModel: "gpt-5.4-mini",
+};
+const lunaSettings = {
+  ...settings,
+  openaiSummaryModel: DEFAULT_SETTINGS.openaiSummaryModel,
+};
+const routerPreset = aiProviderConfiguration("openrouter");
+const routerSettings = {
+  openaiBaseUrl: routerPreset.baseUrl,
+  openaiApiStyle: routerPreset.apiStyle,
+  openaiSummaryModel: routerPreset.model,
 };
 const grokSettings = {
   openaiBaseUrl: "https://api.x.ai/v1",
@@ -59,6 +71,40 @@ try {
   assert.equal(requestBody.store, false, "official Responses requests must disable provider storage");
   assert.deepEqual(requestBody.input.map(({ role }) => role), ["user", "assistant", "user"], "Responses must receive native conversation roles");
   assert.equal(requestBody.max_output_tokens, 4096);
+
+  globalThis.fetch = async (url, init) => {
+    requestBody = JSON.parse(init.body);
+    return jsonResponse(String(url).endsWith("/chat/completions")
+      ? { choices: [{ message: { content: "Ready" }, finish_reason: "stop" }] }
+      : { status: "completed", output_text: "Ready" });
+  };
+  for (const current of [lunaSettings, routerSettings, { ...lunaSettings, openaiApiStyle: "chat_completions" }]) {
+    const result = await requestAiCompletionResult(current, { ...common, maxTokens: 900 });
+    assert.equal(result.text, "Ready");
+    assert.equal(requestBody.model, current.openaiSummaryModel);
+    assert.equal(requestBody.max_output_tokens ?? requestBody.max_completion_tokens ?? requestBody.max_tokens, 900,
+      "new defaults must preserve the short connection-test output budget");
+    assert.equal(requestBody.reasoning?.effort ?? requestBody.reasoning_effort, "none",
+      "Luna must preserve the previous defaults' visible-output budget instead of enabling medium reasoning");
+    if (current.openaiBaseUrl === settings.openaiBaseUrl && current.openaiApiStyle === "chat_completions") {
+      assert.equal(requestBody.max_tokens, undefined, "direct Luna chat calls must use max_completion_tokens");
+      assert.equal(requestBody.max_completion_tokens, 900);
+    }
+    assert.equal(requestBody.temperature, undefined);
+  }
+  for (const current of [
+    settings,
+    { ...routerSettings, openaiSummaryModel: "openai/gpt-5.2" },
+    { ...lunaSettings, openaiSummaryModel: "gpt-6-unreviewed" },
+    ...["https://compatible.example/v1", "https://api.openai.com.example.com/v1", "https://api.openai.com:8443/v1"]
+      .map((openaiBaseUrl) => ({ ...lunaSettings, openaiBaseUrl })),
+    ...["https://compatible.example/v1", "https://openrouter.ai.example.com/api/v1", "https://openrouter.ai:8443/api/v1"]
+      .map((openaiBaseUrl) => ({ ...routerSettings, openaiBaseUrl })),
+  ]) {
+    await requestAiCompletionResult(current, common);
+    assert.equal(requestBody.reasoning, undefined, "Luna settings must not alter saved models or custom origins");
+    assert.equal(requestBody.reasoning_effort, undefined);
+  }
 
   globalThis.fetch = async (_url, init) => {
     requestBody = JSON.parse(init.body);
@@ -193,11 +239,17 @@ try {
       }],
     });
   };
-  const openAiWeb = await requestAiCompletionResult(settings, { ...common, webSearch: true });
-  assert.equal(nativeWebSearchCapability(settings), "openai_responses");
-  assert.deepEqual(requestBody.tools, [{ type: "web_search" }]);
-  assert.equal(openAiWeb.sources[0].url, "https://source.example/current?utm_source=test");
-  assert.equal(openAiWeb.sources[0].snippet, "Current fact.");
+  for (const current of [settings, lunaSettings]) {
+    const openAiWeb = await requestAiCompletionResult(current, { ...common, webSearch: true });
+    assert.equal(nativeWebSearchCapability(current), "openai_responses");
+    assert.equal(requestBody.model, current.openaiSummaryModel);
+    assert.deepEqual(requestBody.tools, [{ type: "web_search" }]);
+    assert.equal(openAiWeb.sources[0].url, "https://source.example/current?utm_source=test");
+    assert.equal(openAiWeb.sources[0].snippet, "Current fact.");
+  }
+  assert.equal(nativeWebSearchCapability({ ...lunaSettings, openaiSummaryModel: "gpt-6-unreviewed" }), "");
+  assert.equal(nativeWebSearchCapability({ ...lunaSettings, openaiApiStyle: "chat_completions" }), "");
+  assert.equal(nativeWebSearchCapability(routerSettings), "", "the OpenRouter preset must not inherit OpenAI-hosted search");
 
   const geminiSettings = {
     openaiBaseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
@@ -225,13 +277,26 @@ try {
       }],
     });
   };
-  const geminiWeb = await requestAiCompletionResult(geminiSettings, { ...common, webSearch: true });
-  assert.equal(nativeWebSearchCapability(geminiSettings), "gemini_interactions");
-  assert.equal(requestUrl, "https://generativelanguage.googleapis.com/v1beta/interactions");
-  assert.equal(requestHeaders["x-goog-api-key"], "fixture-key");
-  assert.equal(requestHeaders.authorization, undefined);
-  assert.deepEqual(requestBody.tools, [{ type: "google_search" }]);
-  assert.equal(geminiWeb.sources[0].url, "https://gemini-source.example/current");
+  const currentGeminiSettings = { ...geminiSettings, openaiSummaryModel: aiProviderConfiguration("gemini").model };
+  for (const current of [geminiSettings, currentGeminiSettings]) {
+    const geminiWeb = await requestAiCompletionResult(current, { ...common, webSearch: true });
+    assert.equal(nativeWebSearchCapability(current), "gemini_interactions");
+    assert.equal(requestUrl, "https://generativelanguage.googleapis.com/v1beta/interactions");
+    assert.equal(requestHeaders["x-goog-api-key"], "fixture-key");
+    assert.equal(requestHeaders.authorization, undefined);
+    assert.equal(requestBody.model, current.openaiSummaryModel);
+    assert.deepEqual(requestBody.tools, [{ type: "google_search" }]);
+    assert.equal(geminiWeb.sources[0].url, "https://gemini-source.example/current");
+  }
+  assert.equal(nativeWebSearchCapability({ ...geminiSettings, openaiSummaryModel: "gemini-4-unreviewed" }), "");
+  let blockedCalls = 0;
+  globalThis.fetch = async () => { blockedCalls += 1; throw new Error("unexpected provider request"); };
+  for (const current of [lunaSettings, currentGeminiSettings]) {
+    await assert.rejects(() => requestAiCompletionResult(current, {
+      ...common, webSearch: true, hasOriginPermissions: async () => false,
+    }), (error) => error.code === "ORIGIN_PERMISSION_REQUIRED");
+  }
+  assert.equal(blockedCalls, 0, "updated search models must still require website permission");
   assert.equal(nativeWebSearchCapability({
     ...geminiSettings,
     openaiSummaryModel: "gemini-embedding-001",
@@ -259,14 +324,21 @@ try {
   }), "", "unknown OpenAI models must not expose web search by default");
 
   const deltas = [];
-  globalThis.fetch = async () => eventStreamResponse([
-    'data: {"type":"response.output_text.delta","delta":"Stream "}\n\n',
-    'data: {"type":"response.output_text.delta","delta":"answer"}\n\n',
-    'data: {"type":"response.completed","response":{"status":"completed"}}\n\n',
-  ]);
+  globalThis.fetch = async (_url, init) => {
+    requestBody = JSON.parse(init.body);
+    return eventStreamResponse([
+      'data: {"type":"response.output_text.delta","delta":"Stream "}\n\n',
+      'data: {"type":"response.output_text.delta","delta":"answer"}\n\n',
+      'data: {"type":"response.completed","response":{"status":"completed"}}\n\n',
+    ]);
+  };
   const streamed = await requestAiCompletionStream(settings, { ...common, onDelta: (text) => deltas.push(text) });
   assert.deepEqual(streamed, { text: "Stream answer", incomplete: false, finishReason: "stop" });
   assert.deepEqual(deltas, ["Stream ", "answer"]);
+  assert.deepEqual(await requestAiCompletionStream(lunaSettings, common), streamed);
+  assert.equal(requestBody.stream, true);
+  assert.equal(requestBody.store, false);
+  assert.deepEqual(requestBody.reasoning, { effort: "none" });
 
   const grokDeltas = [];
   globalThis.fetch = async (_url, init) => {
@@ -307,6 +379,14 @@ try {
   };
   assert.equal((await requestAiCompletionStream(chatSettings, common)).text, "Chat");
   assert.deepEqual(requestBody.messages.map(({ role }) => role), ["system", "user", "assistant", "user"], "Chat Completions must receive native role order");
+  assert.equal((await requestAiCompletionStream(routerSettings, common)).text, "Chat");
+  assert.equal(requestBody.model, routerSettings.openaiSummaryModel);
+  assert.equal(requestBody.max_tokens, 4096);
+  assert.deepEqual(requestBody.reasoning, { effort: "none" });
+  assert.equal((await requestAiCompletionStream(currentGeminiSettings, common)).text, "Chat");
+  assert.equal(requestBody.model, currentGeminiSettings.openaiSummaryModel);
+  assert.equal(requestBody.max_tokens, 4096);
+  assert.equal(requestBody.reasoning, undefined, "OpenAI reasoning settings must not leak into Gemini requests");
 
   globalThis.fetch = async () => jsonResponse({ output_text: "JSON compatibility", status: "completed" });
   assert.equal((await requestAiCompletionStream(settings, common)).text, "JSON compatibility", "a JSON response to a streaming request must complete without replaying the request");

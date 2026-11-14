@@ -6,14 +6,7 @@ import {
   SYNC_CREDENTIALS_KEY,
 } from "../core/constants.mjs";
 import { hashText, inspirationPreviewTargets, originsFromUrls } from "../core/bookmarks.mjs";
-import {
-  buildDailyCandidates,
-  buildFallbackDigest,
-  dailyCandidateFingerprint,
-  feedCacheOrEmpty,
-  fetchSourceArticles,
-  rankAndDedupe,
-} from "../core/feed.mjs";
+import { buildDailyCandidates, buildFallbackDigest, dailyCandidateFingerprint, feedCacheOrEmpty, fetchSourceArticles } from "../core/feed.mjs";
 import { normalizeFeedback } from "../core/feedback.mjs";
 import { filterPresentableFeedItems } from "../core/feed-language-policy.mjs";
 import { createHeaderCoverStore } from "../core/header-cover.mjs";
@@ -50,7 +43,7 @@ import { createContentSyncService } from "../core/content-sync.mjs";
 import { createQuotaManager, shouldReleaseAutomaticAiQuota } from "../core/quota.mjs";
 import { createPreviewService, fetchSourceImageCandidateRecords } from "../core/preview.mjs";
 import { bravePreviewCacheKeys, newsPreviewTargets, previewCacheKeysOutsideTargets } from "../core/preview-cache.mjs";
-import { retainActiveUnrefreshedItems, selectRefreshBatch } from "../core/refresh.mjs";
+
 import { createRefreshCoordinator } from "../core/refresh-coordinator.mjs";
 import { createEpochMutationQueue } from "../core/mutation-queue.mjs";
 import {
@@ -71,7 +64,7 @@ import { isValidServiceUrl, normalizeSettings, providerOrigin } from "../core/se
 import { publicFeedsForLocale } from "../core/public-feeds.mjs";
 import { createSettingsStore } from "../core/settings-store.mjs";
 import { createSettingsTransferDocument, parseSettingsTransferDocument } from "../core/settings-transfer.mjs";
-import { dailyDigestEvidence, parseGeneratedDailyDigest } from "../core/summary-text.mjs";
+
 import { normalizeUserUrl, searchFeed } from "../core/search.mjs";
 import { researchRequestEnabled } from "../core/research-search.mjs";
 import { createMessageRouter } from "./message-router.mjs";
@@ -95,6 +88,7 @@ import { createAiStreamPortHandler } from "./ai-stream-port.mjs";
 import { createResearchSearchService } from "./research-search-service.mjs";
 import { createReaderPreviewService } from "./reader-preview-service.mjs";
 import { createSettingsWorkflow } from "./settings-workflow.mjs";
+import { createCustomFeedService } from "./custom-feed-service.mjs";
 import { createDashboardContentService } from "./dashboard-content-service.mjs";
 import { createBookmarkRefreshScheduler } from "./bookmark-refresh-scheduler.mjs";
 import { createWeatherService } from "./weather-service.mjs";
@@ -108,17 +102,8 @@ import { createActionReadingQueueService } from "./action-reading-queue-service.
 import { createBrowserSearchService } from "./browser-search-service.mjs";
 import { createLocalSearchService } from "./local-search-service.mjs";
 import { createFactoryResetService } from "./factory-reset-service.mjs";
-import {
-  emptySourceQuality,
-  hostOf,
-  localDateKey,
-  mapWithConcurrency,
-  pipelineStages,
-  safeOrigin,
-  summarizeQuality,
-  updateSourceQualityRecord,
-  uniqueStrings,
-} from "./runtime-utils.mjs";
+import { createPersonalCardsService } from "./personal-cards-service.mjs";
+import { emptySourceQuality, localDateKey, pipelineStages, safeOrigin, summarizeQuality, uniqueStrings } from "./runtime-utils.mjs";
 
 export function createExtensionRuntime(deps = {}) {
 const chrome = deps.chrome || globalThis.chrome;
@@ -127,7 +112,7 @@ const clientStateStore = createClientStateStore({ getRecord, setRecord });
 const quotaManager = createQuotaManager(chrome.storage.local, localDateKey);
 const headerCoverStore = createHeaderCoverStore(chrome.storage.local, { records: { getRecord, setRecord, deleteRecord, listRecords } });
 const headerCoverCache = createHeaderCoverCache({ getRecord, setRecord, deleteRecord });
-const settingsStore = createSettingsStore(chrome.storage.sync);
+const settingsStore = createSettingsStore(chrome.storage.sync, chrome.storage.local);
 const settingsService = createRuntimeSettingsService({ store: settingsStore, readProviderProfile, readDeviceConsent });
 const { getSettings } = settingsService;
 const cardSummaryPolicy = createCardSummaryPolicy({ settingsLocale, originPattern });
@@ -153,6 +138,7 @@ const contentSyncService = createContentSyncService({
 const { handleActionClicked, resetActionFeedback } = createActionReadingQueueService({
   chrome, clientStateStore, contentSyncService, getSettings, settingsLocale, translate, localDateKey, broadcast,
 });
+const personalCardsService = createPersonalCardsService({ clientStateStore, contentSyncService, broadcast });
 let publicSettings;
 let saveSettings;
 let exportSettings;
@@ -345,22 +331,14 @@ const cacheAccessPolicy = createCacheAccessPolicy({
   weatherCachePermitted,
 });
 const refreshService = createRefreshService({
-  organizeBot: options => botSummaries.organize(options),
-  onOrganizationComplete: () => botNative.syncBrief(),
+  organizeBot: options => botSummaries.organize(options), onOrganizationComplete: () => botNative.syncBrief(),
   refreshCoordinator, getSettings, currentBookmarkModel, emptyBookmarkModel, currentFeedPermissionState,
-  selectRefreshBatch, getRecord, setRecord, setRecords,
-  setRefreshStatus, pipelineStages, broadcast, fetchSourceArticles, sourceFetchOptions,
-  mapWithConcurrency, summarizeQuality, retainActiveUnrefreshedItems, rankAndDedupe,
-  updateSourceQualityRecord,
-  buildDailyCandidates, dailyCandidateFingerprint,
-  assertFeedItemsStillPermitted, withFeedCacheMetadata, cacheMutations, aiConfigured,
-  getAiAutoStatus, setAiAutoStatus, defaultAiAutoStatus, readQuota, runAiWithinQuota, runAiBatchWithinQuota,
-  callProvider, translate, translateAiPrompt, settingsLocale, parseGeneratedDailyDigest, dailyDigestEvidence,
-  cardSummaryPolicy, buildFallbackDigest,
-  digestCachePermitted, filterFeedItemsBySources, presentableFeedItems, resultMessage,
-  emptySourceQuality, localDateKey, uniqueStrings, safeOrigin, originPattern,
-  sanitizeDailyDigest, typedError, feedCacheOrEmpty, getRefreshStatus, hostOf,
-  originsFromUrls, fetchSourceImageCandidates: fetchSourceImageCandidateRecords, hasOriginPermission, hashText,
+  getRecord, setRecord, setRecords, setRefreshStatus, broadcast, fetchSourceArticles, sourceFetchOptions,
+  assertFeedItemsStillPermitted, withFeedCacheMetadata, cacheMutations, aiConfigured, getAiAutoStatus,
+  setAiAutoStatus, defaultAiAutoStatus, readQuota, runAiWithinQuota, runAiBatchWithinQuota, callProvider,
+  cardSummaryPolicy, digestCachePermitted, presentableFeedItems, localDateKey, sanitizeDailyDigest,
+  getRefreshStatus, fetchSourceImageCandidates: fetchSourceImageCandidateRecords, hasOriginPermission,
+  fetchReader, readerTextFromBlocks,
   isPermissionEpochCurrent: permissionEpoch.isCurrent,
 });
 refreshCoordinator.setRun(refreshService.runRefresh);
@@ -426,7 +404,7 @@ const {
   resetSourceQuality,
   recordFeedback,
 } = createMaintenanceService({
-  grantBookmarkConsent, publicSettings, markOnboardingComplete, startRefresh, getSettings,
+  grantBookmarkConsent, publicSettings, markOnboardingComplete, startRefresh, getSettings, typedError,
   cacheMutations, refreshCoordinator, clearRecords, setRecord, setRefreshStatus,
   defaultRefreshStatus, setAiAutoStatus, defaultAiAutoStatus, broadcast, resultMessage,
   quotaManager, getAiAutoStatus, emptySourceQuality, normalizeFeedback, getRecord,
@@ -479,6 +457,7 @@ async function refreshBotBoard(payload = {}) {
   const organization = await botSummaries.sync();
   return { ...await botNative.refreshBoard(payload), organization };
 }
+const customFeedService = createCustomFeedService({ sourceFetchOptions, hasOriginPermission, permissionEpoch });
 const routeMessage = createMessageRouter({
   "mcp:enabled": async (payload) => {
     if (payload.enabled === true && !await hasOriginPermission(BOT_LOCAL_ORIGIN)) throw typedError("MCP_PERMISSION", "background.bot.permissionRequired", {}, false);
@@ -532,6 +511,7 @@ const routeMessage = createMessageRouter({
   "settings:factory-reset": () => factoryReset(),
   "settings:test": (payload) => testOpenAISettings(payload),
   "settings:image-test": (payload) => testImageSearchSettings(payload),
+  "feeds:preview": (payload) => customFeedService.preview(payload),
   "refresh:start": async (payload) => {
     return startRefresh(payload.force === true, { organize: payload.automatic === true });
   },
@@ -557,6 +537,8 @@ const routeMessage = createMessageRouter({
   "weather:search": (payload) => searchLocations(payload),
   "weather:get": (payload) => getForecast(payload),
   "stocks:get": (payload) => getQuotes(payload),
+  "personal-cards:get": payload => personalCardsService.read(payload),
+  "personal-cards:change": payload => personalCardsService.change(payload),
   "reader:get": (payload) => readArticle(payload.url),
   "reader:translate": (payload) => translateReaderArticle(payload),
   "preview:get": (payload) => getSitePreview(payload),

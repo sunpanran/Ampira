@@ -5,6 +5,7 @@ import { createIcon } from "./icons.mjs";
 export function createContextMenuController(options) {
   const menu = options.menu;
   let returnFocus = null;
+  let menuButton = null;
 
   function bind() {
     menu.addEventListener("click", (event) => event.stopPropagation());
@@ -71,15 +72,15 @@ export function createContextMenuController(options) {
       );
       if (item?.feedItem?.articleId && options.personalizationEnabled()) {
         actions.push(
-          { label: options.t("context.moreLike"), icon: "stars-01", action: () => options.sendFeedback(item, "more_like_this") },
-          { label: options.t("context.notInterested"), icon: "slash-circle-01", action: () => options.dismiss(item) },
+          { label: options.t("context.moreLike"), icon: "stars-01", group: "feedback", action: () => options.sendFeedback(item, "more_like_this") },
+          { label: options.t("context.notInterested"), icon: "slash-circle-01", group: "feedback", action: () => options.dismiss(item) },
         );
       }
       show(event, actions);
     });
   }
 
-  function attachGroup(element, getGroup) {
+  function attachGroup(element, getGroup, getActions = () => []) {
     element.addEventListener("contextmenu", (event) => {
       if (event.target.closest("button, input, select, textarea")) return;
       const group = typeof getGroup === "function" ? getGroup() : getGroup;
@@ -89,7 +90,7 @@ export function createContextMenuController(options) {
         label: options.t("context.openAll", { count: links.length }),
         icon: "arrow-up-right",
         action: () => links.forEach((link) => options.openExternal(link.url)),
-      }]);
+      }, ...getActions().map(item => ({ ...item, group: "management" }))]);
     });
   }
 
@@ -103,13 +104,36 @@ export function createContextMenuController(options) {
     });
   }
 
-  function show(event, actions) {
-    actions = [...actions, ...(options.getCardActions?.(event.target) || [])];
+  function attachMenuButton(button, getActions) {
+    button.setAttribute("aria-haspopup", "menu");
+    button.setAttribute("aria-controls", menu.id);
+    button.setAttribute("aria-expanded", "false");
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (!menu.hidden && menuButton === button) { hide({ restoreFocus: true }); return; }
+      const rect = button.getBoundingClientRect();
+      show({
+        target: button, clientX: rect.right, clientY: rect.bottom + 4,
+        button: event.detail === 0 ? 0 : 2, preventDefault() {},
+      }, getActions(), { includeCardActions: false });
+      if (!menu.hidden) {
+        menuButton = button;
+        button.setAttribute("aria-expanded", "true");
+      }
+    });
+  }
+
+  function show(event, actions, { includeCardActions = true } = {}) {
+    const cardActions = (includeCardActions ? options.getCardActions?.(event.target) || [] : []).map(item => ({ ...item, group: "card" }));
+    actions = [...actions, ...cardActions];
     if (!actions.length) return;
+    hide();
     event.preventDefault();
     returnFocus = event.target.closest("button, a, [tabindex]") || document.activeElement;
     menu.dataset.inputMode = event.button === 2 || ["touch", "pen"].includes(event.pointerType) ? "pointer" : "keyboard";
-    menu.replaceChildren(...actions.map(createButton));
+    menu.replaceChildren(...actions.map((item, index) => createButton(item,
+      index > 0 && (item.group || "") !== (actions[index - 1].group || ""))));
     menu.hidden = false;
     menu.style.left = "0px";
     menu.style.top = "0px";
@@ -125,13 +149,15 @@ export function createContextMenuController(options) {
     menu.querySelector("button")?.focus({ preventScroll: true });
   }
 
-  function createButton(item) {
+  function createButton(item, startsGroup) {
     const button = document.createElement("button");
     button.type = "button";
+    button.className = startsGroup ? "context-menu-group-start" : "";
+    if (item.tone === "danger") button.classList.add("is-danger");
     button.setAttribute("role", "menuitem");
     button.replaceChildren(createIcon(item.icon || "arrow-up-right", "menu-icon"), spanText(item.label, "menu-label"));
     button.addEventListener("click", async () => {
-      hide();
+      hide({ restoreFocus: Boolean(menuButton) });
       await item.action();
     });
     return button;
@@ -141,6 +167,8 @@ export function createContextMenuController(options) {
     if (!menu || menu.hidden) return;
     menu.hidden = true;
     menu.replaceChildren();
+    menuButton?.setAttribute("aria-expanded", "false");
+    menuButton = null;
     if (restoreFocus) returnFocus?.focus({ preventScroll: true });
     returnFocus = null;
   }
@@ -157,5 +185,5 @@ export function createContextMenuController(options) {
     return links;
   }
 
-  return { bind, attachLink, attachGroup, attachActions, hide };
+  return { bind, attachLink, attachGroup, attachActions, attachMenuButton, hide };
 }

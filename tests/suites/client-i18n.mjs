@@ -34,6 +34,7 @@ try {
   const i18n = await import(`../../assets/client/i18n.mjs?client-i18n-test=${Date.now()}`);
   assert.equal(i18n.getLocale(), "zh-CN", "the initial browser locale must be prepared before the module resolves");
   assert.equal(i18n.t("language.name"), "简体中文");
+  assert.equal(i18n.t("action.cancel"), "取消", "note deletion must not expose an untranslated cancel key");
   assert.equal(i18n.t("aiSearch.userMessage", { number: 2 }), "你的第 2 条消息");
   assert.equal(i18n.t("aiSearch.assistantMessage"), "Ampira 回答");
   assert.throws(
@@ -44,6 +45,7 @@ try {
   assert.deepEqual(await Promise.all([i18n.prepareLocale("en"), i18n.prepareLocale("en-US")]), ["en", "en"], "concurrent requests for one locale must share a safe result");
   assert.equal(i18n.setLocale("en", { persist: false }), "en");
   assert.equal(i18n.t("language.name"), "English");
+  assert.equal(i18n.t("action.cancel"), "Cancel");
   assert.equal(i18n.t("aiSearch.userMessage", { number: 2 }), "Your message 2");
   assert.equal(i18n.t("aiSearch.assistantMessage"), "Ampira response");
   assert.equal(i18n.tc("unit.entries", 1), "1 entry");
@@ -54,13 +56,14 @@ try {
   await i18n.prepareLocale("zh-Hant");
   assert.equal(i18n.setLocale("zh-TW", { persist: false }), "zh-Hant");
   assert.equal(i18n.t("language.name"), "繁體中文");
+  assert.equal(i18n.t("action.cancel"), "取消");
   assert.equal(i18n.t("aiSearch.userMessage", { number: 2 }), "你的第 2 則訊息");
   assert.equal(i18n.t("aiSearch.assistantMessage"), "Ampira 回答");
   assert.equal(documentStub.documentElement.lang, "zh-Hant");
   assert.equal(localeEvents.at(-1)?.type, "ampira:locale-changed");
   assert.equal(localeEvents.at(-1)?.detail?.locale, "zh-Hant");
 
-  const statusNodes = ["settings.overview.aiService", "settings.overview.aiNotConfigured"].map(key => ({
+  const statusNodes = ["connection.unavailable", "status.noRecord"].map(key => ({
     dataset: { i18n: key }, textContent: "",
     removeAttribute(name) { if (name === "data-i18n") delete this.dataset.i18n; },
   }));
@@ -72,14 +75,19 @@ try {
   };
   for (const locale of ["zh-CN", "zh-Hant", "en"]) {
     i18n.setLocale(locale, { persist: false });
-    for (const key of ["settings.overview.aiReady", "settings.overview.aiNeedsAttention"]) {
-      statusView.renderOverviewStatus(i18n.t("settings.overview.aiService"), i18n.t(key));
+    for (const key of ["connection.backgroundPaused", "connection.recoveringTitle"]) {
+      statusView.renderOverviewStatus(i18n.t("connection.unavailable"), i18n.t(key));
       i18n.translateDocument(statusRoot);
       assert.equal(statusNodes[1].textContent, i18n.t(key), "translating settings must preserve the current AI readiness instead of restoring the unconfigured hint");
     }
     statusView.renderOverviewStatus(i18n.t("status.waitingUpdate"), i18n.t("status.noRecord"));
     i18n.translateDocument(statusRoot);
     assert.equal(statusNodes[0].textContent, i18n.t("status.waitingUpdate"), "translation must preserve the runtime loading title");
+    statusView.renderOverviewStatus();
+    i18n.translateDocument(statusRoot);
+    assert.equal(statusNodes[0].textContent, "", "translation must not restore a cleared overview title");
+    assert.equal(statusNodes[0].hidden, true);
+    assert.equal(statusNodes[1].hidden, true);
   }
 
   const coverElements = Object.fromEntries([
@@ -89,30 +97,55 @@ try {
     dataset: {}, textContent: "", removeAttribute(name) { if (name === "data-i18n") delete this.dataset.i18n; },
   }]));
   coverElements.headerImageLocalChooseLabel.dataset.i18n = "settings.headerImage.localChoose";
-  coverElements.headerImageLocalStatus.dataset.i18n = "settings.headerImage.localEmpty";
   coverElements.settingsStatus.dataset.i18n = "settings.status.loading";
   const coverRoot = { querySelectorAll: selector => selector === "[data-i18n]"
     ? Object.values(coverElements).filter(node => node.dataset.i18n) : [] };
   let coverRecord = null;
+  const coverHero = { dataset: {} };
   const cover = createHeaderCoverController({
-    state: {}, els: coverElements, t: i18n.t,
-    apiGet: async () => ({ record: coverRecord, available: Boolean(coverRecord) }),
+    state: {}, els: coverElements, t: i18n.t, hero: coverHero,
+    request: async () => ({ record: coverRecord, available: Boolean(coverRecord) }),
   });
-  const feedback = createSettingsFeedback({ els: { ...coverElements, settingsForm: {} }, t: i18n.t });
+  let dirtyDraft = false;
+  const feedback = createSettingsFeedback({
+    els: { ...coverElements, settingsForm: {}, settingsModal: { classList: { toggle() {} } } },
+    t: i18n.t, isBusy: () => false, hasUnsavedChanges: () => dirtyDraft,
+  });
   for (const locale of ["zh-CN", "zh-Hant", "en"]) {
     i18n.setLocale(locale, { persist: false });
-    for (const [record, statusKey] of [
-      [{ name: "synthetic.webp", width: 640, height: 360, byteLength: 1024 }, "localActive"],
-      [{ videoId: "synthetic-video", name: "synthetic.mp4", width: 640, height: 360, byteLength: 2048 }, "localVideoActive"],
-      [null, "localEmpty"],
+    feedback.renderSettingsStatus();
+    assert.equal(coverElements.settingsStatus.textContent, "", "an unchanged form must not claim unsaved changes");
+    dirtyDraft = true;
+    feedback.renderSettingsStatus();
+    assert.equal(coverElements.settingsStatus.dataset.state, "pending");
+    assert.equal(coverElements.settingsStatus.textContent, i18n.t("settings.status.unsaved"));
+    dirtyDraft = false;
+    feedback.syncSettingsFooter();
+    assert.equal(coverElements.settingsStatus.dataset.state, "ready", "reverting a draft clears the pending notice");
+    feedback.renderSettingsStatus(i18n.t("error.requestFailed"), "error");
+    feedback.syncSettingsFooter();
+    assert.equal(coverElements.settingsStatus.dataset.state, "error", "a clean draft must not erase operation errors");
+    for (const record of [
+      { name: "synthetic.webp", width: 640, height: 360, byteLength: 1024 },
+      { videoId: "synthetic-video", name: "synthetic.mp4", width: 640, height: 360, byteLength: 2048 },
+      null,
     ]) {
       coverRecord = record;
       await cover.load();
       feedback.renderSettingsStatus(i18n.t("settings.status.saved"));
       i18n.translateDocument(coverRoot);
-      assert.equal(coverElements.headerImageLocalStatus.textContent, i18n.t(`settings.headerImage.${statusKey}`), "deferred document translation must preserve the current cover state");
+      assert.equal(coverElements.headerImageLocalStatus.textContent, "", "deferred translation must not recreate redundant cover status text");
+      assert.equal(coverElements.headerImageLocalStatus.hidden, true);
+      assert.equal(coverElements.headerImageLocalMeta.hidden, !record, "local file identity stays available without a repeated status caption");
       assert.equal(coverElements.headerImageLocalChooseLabel.textContent, i18n.t(record ? "settings.headerImage.localReplace" : "settings.headerImage.localChoose"));
       assert.equal(coverElements.settingsStatus.textContent, i18n.t("settings.status.saved"), "translation must not restore the loading hint after settings have saved");
+    }
+    for (const [phase, key] of [["loading", "videoLoading"], ["ready", ""], ["error", "videoFailed"], ["ready", ""]]) {
+      coverHero.dataset.headerVideoState = phase;
+      cover.syncControls();
+      i18n.translateDocument(coverRoot);
+      assert.equal(coverElements.headerImageLocalStatus.textContent, key ? i18n.t(`settings.headerImage.${key}`) : "");
+      assert.equal(coverElements.headerImageLocalStatus.hidden, !key, "cover feedback remains visible only while loading or on failure");
     }
   }
 

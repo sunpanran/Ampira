@@ -1,9 +1,12 @@
+import { itemUrl, displaySummaryTitle } from "./item-presenter.mjs";
 import { restartMotionClass } from "./motion.mjs";
 import { aiTaskLabelKey, summaryTaskPhase } from "./ai-task-state.mjs";
 
 export function createSummaryOrganizationController(options) {
-  const { state, t, itemUrl, confirmManualAiUsage, apiPost, loadDashboard, findNewsItemByReference, displaySummaryTitle,
-    renderStatus, localizedResponseMessage, localizedErrorMessage, renderOverviewStatus, updateSummaryCard } = options;
+  const {
+    state, t, confirmManualAiUsage, request, loadDashboard, findNewsItemByReference, renderStatus,
+    localizedResponseMessage, localizedErrorMessage, renderOverviewStatus, updateSummaryCard,
+  } = options;
   return refreshSummaryItem;
 async function refreshSummaryItem(item, event) {
   event.preventDefault();
@@ -22,11 +25,11 @@ async function refreshSummaryItem(item, event) {
   setManualSummaryLoadingState(button, activeCard, summaryTaskPhase(state, item.key));
   updateSummaryCard(item);
   try {
-    const result = await apiPost("/api/summary/refresh", {
+    const result = await request({ type: "summary:refresh", payload: {
       articleId: item.feedItem?.articleId || item.key,
       sourceKey: item.sourceKey,
       url: articleUrl,
-    });
+    } });
     if (!result.ok) throw new Error(localizedResponseMessage(result, "error.requestFailed"));
     await loadDashboard({ render: false });
     latestItem = findNewsItemByReference({

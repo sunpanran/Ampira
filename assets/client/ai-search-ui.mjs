@@ -41,7 +41,7 @@ export async function requestAiSearchWithStreamFallback(payload, options = {}) {
 }
 
 export function createAiSearchController(options) {
-  const { state, els, t, apiGet, apiPost, confirmManualAiUsage } = options;
+  const { state, els, t, request, confirmManualAiUsage } = options;
   let generation = 0;
   let closeTimer = 0;
   let session = createAiSearchSession();
@@ -61,7 +61,7 @@ export function createAiSearchController(options) {
   let editRestoreState = null;
   let streamRenderFrame = 0;
   let botMode = usesBotChat(state.data);
-  const botConversation = createBotConversationController({ state, els, t, apiPost,
+  const botConversation = createBotConversationController({ state, els, t, request,
     appendMessage: appendConversationMessage, finishMessage: finishConversationResponse,
     setMeta: setAiSearchMeta, syncComposer: syncComposerState,
     reset: () => resetConversation({ animate: false, syncCopy: false }),
@@ -221,7 +221,7 @@ export function createAiSearchController(options) {
         ...(runOptions.cachePolicy ? { cachePolicy: runOptions.cachePolicy } : {}),
       };
       const result = await requestAiSearchWithStreamFallback(payload, {
-        fallbackRequest: (requestPayload) => apiPost("/api/ai/search", requestPayload),
+        fallbackRequest: (requestPayload) => request({ type: "ai:search", payload: requestPayload }),
         streamClient: options.streamClient,
         canFallback: () => isCurrent(requestGeneration),
         onRequestId: (requestId) => { activeStreamRequestId = requestId; },
@@ -1058,14 +1058,14 @@ export function createAiSearchController(options) {
   }
 
   async function loadResearchFolders() {
-    if (researchFoldersPromise || typeof apiGet !== "function") return researchFoldersPromise;
+    if (researchFoldersPromise || typeof request !== "function") return researchFoldersPromise;
     researchFoldersPromise = Promise.resolve().then(async () => {
       const researchUi = await loadResearchView();
       if (!researchFolders.length) {
         researchFolderStatus = "loading";
         renderResearchFolderOptions();
       }
-      const result = await researchUi.loadResearchFolderOptions(apiGet);
+      const result = await researchUi.loadResearchFolderOptions(request);
       researchFolders = result.folders;
       researchFolderStatus = result.status;
       if (draftResearchScope.bookmarkFolderId

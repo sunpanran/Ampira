@@ -1,5 +1,6 @@
 import { HOUR_MS, DAY_MS, FUTURE_SKEW_MS, finiteTime, localDateKey, newsTimeScope, publisherIdentity, verifiedTime } from "./news-item-model.mjs";
 import { normalizeUrl } from "./feed-utils.mjs";
+import { articleContentFingerprint } from "./feed-content.mjs";
 
 export { localDateKey, newsTimeScope, publisherIdentity } from "./news-item-model.mjs";
 
@@ -13,11 +14,18 @@ const GENERIC_EVENT_TERMS = new Set([
   "release", "released", "report", "reported", "update", "updated",
   "发布", "發佈", "推出", "上线", "上線", "更新", "宣布", "正式", "最新", "消息", "报道", "報道", "新闻", "新聞",
 ]);
-const HIGH_IMPACT = /(?:地震|台风|颱風|洪水|火灾|火災|战争|戰爭|冲突|衝突|袭击|襲擊|事故|灾害|災害|疫情|召回|漏洞|数据泄露|資料外洩|宕机|當機|中断|中斷|禁令|制裁|判决|判決|监管|監管|政策|法律|法规|法規|选举|選舉|辞职|辭職|破产|破產|裁员|裁員|并购|併購|停产|停產|涨价|漲價|降价|降價|earthquake|typhoon|flood|wildfire|war|conflict|attack|outage|breach|vulnerability|recall|ban|sanction|regulation|law|election|resign|bankrupt|layoff|acquisition)/i;
-const MATERIAL_CHANGE = /(?:发布|發佈|推出|上线|上線|开放|開放|关闭|關閉|停止|终止|終止|取消|调整|調整|更新|突破|正式|宣布|release|launch|announce|discontinue|shutdown|update)/i;
-const PROMOTIONAL = /(?:广告|廣告|推广|推廣|赞助|贊助|优惠|優惠|折扣|促销|促銷|秒杀|秒殺|领券|領券|众筹|眾籌|预购|預購|开售|開售|好价|好價|购买指南|購買指南|advertorial|sponsored|sale|discount|coupon|pre-?order|buying guide)/i;
-const SOFT_CONTENT = /(?:开箱|開箱|体验|體驗|上手|测评|測評|评测|評測|教程|技巧|清单|清單|盘点|盤點|推荐|推薦|随笔|隨筆|游记|遊記|周报|週報|月报|月報|壁纸|桌面|效率工具|unboxing|hands-on|review|tutorial|tips|roundup|recommend|best\s+\d+|top\s+\d+)/i;
-const UNCERTAIN = /(?:传闻|傳聞|爆料|据称|據稱|或将|或將|可能|疑似|rumou?r|leak|reportedly|may\s|might\s)/i;
+const HIGH_IMPACT = /(?:地震|台风|颱風|洪水|火灾|火災|战争|戰爭|冲突|衝突|袭击|襲擊|事故|灾害|災害|疫情|召回|漏洞|数据泄露|資料外洩|宕机|當機|中断|中斷|禁令|制裁|判决|判決|监管|監管|政策|法律|法规|法規|选举|選舉|辞职|辭職|破产|破產|裁员|裁員|并购|併購|停产|停產|涨价|漲價|降价|降價|\b(?:earthquakes?|typhoons?|flood(?:s|ed|ing)?|wildfires?|wars?|conflicts?|(?:cyber)?attack(?:s|ed|ing)?|outages?|breach(?:es|ed)?|vulnerabilit(?:y|ies)|recall(?:s|ed|ing)?|ban(?:s|ned|ning)?|sanctions?|regulations?|laws?|elections?|resign(?:s|ed|ing|ations?)?|bankrupt(?:cy|cies)?|layoffs?|acquisitions?)\b)/i;
+const MATERIAL_CHANGE = /(?:发布|發佈|推出|上线|上線|开放|開放|关闭|關閉|停止|终止|終止|取消|调整|調整|更新|突破|正式|宣布|\b(?:releas(?:e[sd]?|ing)|launch(?:es|ed|ing)?|announc(?:e[sd]?|ing|ements?)|discontinu(?:e[sd]?|ing|ation)|shutdowns?|updat(?:e[sd]?|ing))\b)/i;
+const PROMOTIONAL = /(?:广告|廣告|推广|推廣|赞助|贊助|优惠|優惠|折扣|促销|促銷|秒杀|秒殺|领券|領券|众筹|眾籌|预购|預購|开售|開售|好价|好價|购买指南|購買指南|\b(?:advertorials?|sponsored|sales?|discount(?:s|ed|ing)?|coupons?|pre-?order(?:s|ed|ing)?|buying guide)\b)/i;
+const SOFT_CONTENT = /(?:开箱|開箱|体验|體驗|上手|测评|測評|评测|評測|教程|技巧|清单|清單|盘点|盤點|推荐|推薦|随笔|隨筆|游记|遊記|周报|週報|月报|月報|壁纸|桌面|效率工具|\b(?:unboxing|hands-on|review(?:s|ed|ing)?|tutorials?|tips|roundups?|recommend(?:s|ed|ing|ations?)?|best\s+\d+|top\s+\d+)\b)/i;
+const UNCERTAIN = /(?:传闻|傳聞|爆料|据称|據稱|或将|或將|可能|疑似|\b(?:rumou?rs?|leak(?:s|ed|ing)?|reportedly|may|might)\b)/i;
+const EVENT_QUALIFIERS = [
+  ["cancelled", /取消|终止|終止|撤回|\b(?:cancel(?:s|led|ed|lation)?|terminat(?:e[sd]?|ing|ion)|withdraw(?:s|n|al)?|withdrew)\b/i],
+  ["denied", /否认|否認|澄清|\b(?:den(?:y|ies|ied)|reject(?:s|ed|ion)?|clarif(?:y|ies|ied))\b/i],
+  ["paused", /暂停|暫停|\b(?:paus(?:e[sd]?|ing)|suspend(?:s|ed|ing)?|halts?)\b/i],
+  ["stopped", /停止|关闭|關閉|\b(?:stop(?:s|ped|ping)?|clos(?:e[sd]?|ing)|shutdowns?)\b/i],
+  ["negative", /不再|尚未|不会|不會|没有|沒有|并未|並未|\b(?:not|never|no\s+longer)\b/i],
+];
 
 export function rankNewsItems(items, options = {}) {
   const now = finiteTime(options.now, Date.now());
@@ -130,6 +138,7 @@ export function dailyCandidateFingerprint(items, options = {}) {
     item.eventConfidence || "single-source",
     item.timeScope || "",
     item.localizationPending === true ? "pending" : "readable",
+    articleContentFingerprint(item), item.eventEvidenceFingerprint || "",
   ].join("|")).join("\n");
   return `ranking-${stableHash(`${publisherLimit}\n${content}`)}`;
 }
@@ -153,9 +162,11 @@ export function annotateTodayNewsGroups(items, options = {}) {
     const signature = eventSignature(title);
     const facts = materialNumericFacts(String(originals.get(key)?.title || title).normalize("NFKC").toLowerCase());
     const url = normalizeUrl(item.url);
-    const qualifiers = (title.toLowerCase().match(/取消|终止|終止|否认|否認|澄清|撤回|暂停|暫停|停止|关闭|關閉|不再|尚未|\b(?:not|denies|denied|rejected|cancelled|canceled|halts?|stops?|closes?)\b/gu) || []).sort().join("|");
+    const qualifiers = eventQualifiers(originals.get(key)?.title || title);
     const identityGroups = groups.filter((group) => group.entries.some((entry) => (
       url && entry.url === url || item.eventId && entry.item.eventId === item.eventId
+        && entry.qualifiers === qualifiers && entry.signature.qualifiers === signature.qualifiers
+        && !numbersConflict(entry.facts, facts)
     )));
     let group = identityGroups[0];
     // Exact identities may connect translations that have no shared wording.
@@ -171,10 +182,11 @@ export function annotateTodayNewsGroups(items, options = {}) {
         && signatureMatchScore(candidate.signature, signature) >= .75);
     }
     if (!group) {
-      group = { id: item.eventId || key, signature, qualifiers, entries: [] };
+      const id = item.eventId || key;
+      group = { id: groups.some(candidate => candidate.id === id) ? `${id}:${key}` : id, signature, qualifiers, entries: [] };
       groups.push(group);
     }
-    const entry = { item, url, signature, facts, group };
+    const entry = { item, url, signature, facts, qualifiers, group };
     group.entries.push(entry);
     return entry;
   });
@@ -224,10 +236,12 @@ function annotateEventClusters(items, now) {
   for (const cluster of clusters) {
     const representativeEntry = [...cluster.entries].sort((left, right) => compareRepresentative(left.item, right.item))[0];
     const representative = representativeEntry.item;
+    const eventEvidenceFingerprint = stableHash(cluster.entries.map(({ item }) => `${publisherIdentity(item)}:${articleContentFingerprint(item)}`).sort().join("\n"));
     const publisherCount = new Set(cluster.entries.map((entry) => publisherIdentity(entry.item)).filter(Boolean)).size || 1;
     const corroboration = publisherCount >= 4 ? 12 : (publisherCount === 3 ? 9 : (publisherCount === 2 ? 6 : 0));
     const signatureIdentity = [
       representativeEntry.signature.core,
+      representativeEntry.signature.qualifiers,
       numericFactIdentity(representativeEntry.signature.numericFacts),
       Math.floor(cluster.oldestPublished / EVENT_WINDOW_MS).toString(36),
     ].filter(Boolean).join("|");
@@ -244,6 +258,7 @@ function annotateEventClusters(items, now) {
       output.push({
         ...item,
         eventId,
+        eventEvidenceFingerprint,
         eventRepresentative,
         eventSourceCount: publisherCount,
         eventArticleCount: cluster.entries.length,
@@ -323,11 +338,17 @@ function eventSignature(value) {
       if (!GENERIC_EVENT_TERMS.has(term)) terms.add(term);
     }
   }
-  return { core: [...terms].sort().join(" "), terms, numericFacts: materialNumericFacts(title) };
+  return { core: [...terms].sort().join(" "), terms, numericFacts: materialNumericFacts(title), qualifiers: eventQualifiers(value) };
+}
+
+function eventQualifiers(value) {
+  const title = String(value || "").normalize("NFKC");
+  return EVENT_QUALIFIERS.filter(([, pattern]) => pattern.test(title)).map(([key]) => key).join("|");
 }
 
 function signatureMatchScore(left, right) {
   if (!left.core || !right.core) return -1;
+  if (left.qualifiers !== right.qualifiers) return -1;
   if (numbersConflict(left.numericFacts, right.numericFacts)) return -1;
   if (left.core === right.core) return 1;
   const shared = [...left.terms].filter((term) => right.terms.has(term));

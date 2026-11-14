@@ -8,15 +8,18 @@ import {
 import { normalizeLocale } from "./locale.mjs";
 import { normalizeDashboardCardOrder } from "./dashboard-layout.mjs";
 import { normalizeKeyboardShortcuts } from "./keyboard-shortcuts.mjs";
+import { normalizeCustomFeeds } from "./custom-feeds.mjs";
 
 const BOOLEAN_FIELDS = [
+  "navAutoHideEnabled",
   "mcpEnabled", "botOrganizeNews", "botGenerateBrief", "botAnswerQuestions",
   "bookmarkConsentGranted", "onboardingCompleted", "aiDisclosureAccepted", "pointerGlowEnabled",
   "dashboardGlassBlurEnabled", "headerImageEnabled", "headerImageFixed", "headerImageFullscreen", "headerImageBlurEnabled", "cardSummaryEnabled",
   "floatingWebOpenEnabled", "readingQueueOpenOnReadAll", "readingQueueReadAllPrompted", "retainSeenArchive",
   "syncReadingQueueEnabled", "syncTodosEnabled", "syncWeatherLocationEnabled",
-  "syncStockWatchlistEnabled", "syncCountdownsEnabled",
-  "personalizedRankingEnabled", "publicFeedSupplementEnabled", "webImageSearchEnabled", "bookmarkSectionEnabled", "websiteShortcutsEnabled", "keyboardShortcutsEnabled",
+  "syncStockWatchlistEnabled", "syncCountdownsEnabled", "syncTrackedTopicsEnabled", "syncCalendarEnabled",
+  "syncNotesEnabled", "syncWorldClockEnabled",
+  "personalizedRankingEnabled", "publicFeedSupplementEnabled", "webImageSearchEnabled", "websiteShortcutsEnabled", "keyboardShortcutsEnabled",
 ];
 const COLOR_MODES = new Set(["system", "dark", "light"]);
 const NAV_POSITIONS = new Set(["top", "bottom", "left", "right"]);
@@ -88,6 +91,7 @@ export function normalizeSettings(value = {}) {
   );
   settings.headerImageFullscreen = settings.headerImageFixed && settings.headerImageFullscreen;
   settings.websiteShortcuts = normalizeWebsiteShortcuts(input.websiteShortcuts);
+  settings.customFeeds = normalizeCustomFeeds(input.customFeeds);
   settings.newsBookmarkFolder = cleanString(input.newsBookmarkFolder, 200, DEFAULT_SETTINGS.newsBookmarkFolder);
   settings.newsSourceMode = enumValue(
     input.newsSourceMode,
@@ -95,6 +99,7 @@ export function normalizeSettings(value = {}) {
     DEFAULT_SETTINGS.newsSourceMode,
   );
   if (settings.newsSourceMode === "public") settings.publicFeedSupplementEnabled = true;
+  settings.bookmarkSectionEnabled = booleanValue(input.bookmarkSectionEnabled, settings.newsSourceMode === "bookmarks");
   settings.inspirationBookmarkFolder = cleanString(input.inspirationBookmarkFolder, 200, DEFAULT_SETTINGS.inspirationBookmarkFolder);
   settings.inspirationSourceMode = enumValue(
     input.inspirationSourceMode,

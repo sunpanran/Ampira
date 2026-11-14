@@ -1,10 +1,10 @@
 import { MAX_WEBSITE_SHORTCUTS } from "../../extension/core/settings.mjs";
-import { createLoadingPhaseController } from "./motion.mjs";
+import { createLoadingPhaseController, prefersReducedMotion } from "./motion.mjs";
 
 export function refreshAvailability(data) {
   if (!data) return { available: false, reason: "loading", messageKey: "status.refreshUnavailable.loading" };
-  if (data.status?.running === true) return { available: false, reason: "running", messageKey: "status.refreshUnavailable.running" };
-  if (data.onboarding?.bookmarkConsentGranted === false) {
+  if (data.status?.running === true) return { available: false, reason: "running", messageKey: "status.caching" };
+  if (data.onboarding?.bookmarkConsentGranted === false && data.pipeline?.publicFeedSupplementEnabled !== true) {
     return { available: false, reason: "consent", messageKey: "status.refreshUnavailable.consent" };
   }
   const configuredSources = finiteCount(data.cache?.configuredSources, data.sourceQuality?.configured);
@@ -116,17 +116,11 @@ function renderStatus() {
   const status = state.data?.status || {};
   const ai = state.data?.ai || {};
   const refreshState = refreshAvailability(state.data);
-  const overviewMetaKey = ai.enabled
-    ? "settings.overview.aiReady"
-    : ai.configured
-      ? "settings.overview.aiNeedsAttention"
-      : "settings.overview.aiNotConfigured";
-  renderOverviewStatus(t("settings.overview.aiService"), t(overviewMetaKey));
+  renderOverviewStatus();
   renderQuotaOverview(ai);
   renderCacheOverview(status, refreshState);
   const organization = state.data?.organization;
   renderAutoAiStatus(organization?.provider === "bot" ? { ...ai, enabled: organization.available, autoStatus: organization } : ai);
-  renderCacheStatus();
   renderRefreshButtons(refreshState);
   if (els.organizeNews) {
     const running = state.newsOrganizeRequest || organization?.running;
@@ -148,10 +142,13 @@ function renderQuotaOverview(ai = {}) {
   const limitValue = Number(ai.dailyLimit);
   const used = Number.isFinite(usedValue) ? Math.max(0, Math.floor(usedValue)) : 0;
   const limit = Number.isFinite(limitValue) ? Math.max(1, Math.floor(limitValue)) : 160;
-  const remaining = Math.max(0, limit - used);
   els.settingsQuotaStatus.textContent = `${used} / ${limit}`;
-  els.settingsQuotaDetail.removeAttribute("data-i18n");
-  els.settingsQuotaDetail.textContent = t("settings.overview.quotaDetail", { used, remaining });
+  const meterValue = Math.min(used, limit);
+  els.settingsQuotaMeter.setAttribute("aria-valuemax", String(limit));
+  els.settingsQuotaMeter.setAttribute("aria-valuenow", String(meterValue));
+  els.settingsQuotaMeter.setAttribute("aria-valuetext", els.settingsQuotaStatus.textContent);
+  els.settingsQuotaMeter.dataset.exhausted = String(used >= limit);
+  els.settingsQuotaMeter.style.setProperty("--settings-quota-progress", `${meterValue / limit * 100}%`);
 }
 
 function setCacheOverviewLoading(isLoading) {
@@ -163,11 +160,14 @@ function setCacheOverviewLoading(isLoading) {
 function renderCacheOverview(status = {}, refreshState = refreshAvailability(state.data)) {
   const isRunning = status.running === true;
   setCacheOverviewLoading(isRunning);
+  els.settingsCacheOverviewStatus.closest(".settings-overview-cache")?.setAttribute("data-state",
+    isRunning ? "running" : refreshState.available ? "ready" : "unavailable");
   els.settingsCacheOverviewStatus.removeAttribute("data-i18n");
   els.settingsCacheOverviewStatus.textContent = t(isRunning
     ? "settings.overview.cacheRunning"
     : refreshState.available ? "settings.overview.cacheReady" : "settings.overview.cacheUnavailable");
   els.settingsCacheOverviewDetail.removeAttribute("data-i18n");
+  els.settingsCacheOverviewDetail.hidden = false;
   if (isRunning) {
     const progressValue = Number(status.progress);
     const progress = Number.isFinite(progressValue) ? Math.min(1, Math.max(0, progressValue)) : 0;
@@ -181,7 +181,8 @@ function renderCacheOverview(status = {}, refreshState = refreshAvailability(sta
   const finishedAt = String(status.finishedAt || "");
   els.settingsCacheOverviewDetail.textContent = Number.isFinite(Date.parse(finishedAt))
     ? t("settings.overview.cacheUpdated", { time: formatDateTime(finishedAt) })
-    : t("settings.overview.cacheNoRecord");
+    : "";
+  els.settingsCacheOverviewDetail.hidden = !els.settingsCacheOverviewDetail.textContent;
 }
 
 function renderAutoAiStatus(ai) {
@@ -194,6 +195,7 @@ function renderAutoAiStatus(ai) {
   const phase = ai.enabled ? (auto.phase || "never") : readinessPhase;
   els.settingsAutoAiStatus.removeAttribute("data-i18n");
   els.settingsAutoAiDetail.removeAttribute("data-i18n");
+  els.settingsAutoAiDetail.hidden = false;
   const labelKeys = {
     "running-digest": "settings.auto.runningDigest",
     "running-cards": "settings.auto.runningCards",
@@ -215,8 +217,11 @@ function renderAutoAiStatus(ai) {
   const attempted = Math.max(0, Number(auto.attempted ?? processed));
   const failed = Math.max(0, Number(auto.failed || 0));
   const deferred = Math.max(0, Number(auto.deferred || 0));
-  const used = Math.max(0, Number(ai.usedToday || 0));
-  const limit = Math.max(1, Number(ai.dailyLimit || 160));
+  if (phase === "never" || (total === 0 && ["completed", "no-candidates", "quota"].includes(phase))) {
+    els.settingsAutoAiDetail.textContent = "";
+    els.settingsAutoAiDetail.hidden = true;
+    return;
+  }
   if (["never", "missing-key", "missing-consent", "missing-permission", "not-ready"].includes(phase)) {
     const detailKeys = {
       "missing-key": "settings.auto.missingKeyDetail",
@@ -251,8 +256,6 @@ function renderAutoAiStatus(ai) {
     processed,
     total,
     attempted, failed, deferred,
-    used,
-    limit,
     time: auto.lastRunAt ? formatDateTime(auto.lastRunAt) : t("settings.auto.noTime"),
   });
 }
@@ -260,21 +263,23 @@ function renderAutoAiStatus(ai) {
 function renderOverviewStatus(title, meta) {
   els.settingsOverviewTitle.removeAttribute("data-i18n");
   els.settingsOverviewMeta.removeAttribute("data-i18n");
-  els.settingsOverviewTitle.textContent = title || t("status.waitingUpdate");
-  els.settingsOverviewMeta.textContent = meta || t("status.noRecord");
+  els.settingsOverviewTitle.textContent = title || "";
+  els.settingsOverviewTitle.hidden = !title;
+  els.settingsOverviewMeta.textContent = meta || "";
+  els.settingsOverviewMeta.hidden = !meta;
 }
 
 function renderRefreshButtons(refreshState) {
   renderRefreshButton(els.refresh, refreshState);
   renderRefreshButton(els.settingsRefresh, refreshState);
-  const message = refreshState.available ? "" : t(refreshState.messageKey);
-  els.refreshAvailability.textContent = message;
-  els.refreshAvailability.classList.toggle("is-visible", Boolean(message));
 }
 
 function renderRefreshButton(button, refreshState) {
   const isRunning = refreshState.reason === "running";
   button.disabled = !refreshState.available;
+  button.setAttribute("aria-busy", String(isRunning));
+  if (refreshState.available || isRunning) button.removeAttribute("title");
+  else button.setAttribute("title", t(refreshState.messageKey));
   if (refreshState.available) button.removeAttribute("data-disabled-reason");
   else button.dataset.disabledReason = isRunning ? "loading" : "prerequisite";
   if (isRunning) {
@@ -285,7 +290,7 @@ function renderRefreshButton(button, refreshState) {
     return;
   }
   const spinningIcon = button.classList.contains?.("is-loading") && button.querySelector?.(".btn-icon");
-  if (spinningIcon?.addEventListener) {
+  if (spinningIcon?.addEventListener && !prefersReducedMotion()) {
     button.classList.add("is-spinner-stopping");
     spinningIcon.addEventListener("animationiteration", () => {
       if (!button.classList.contains("is-spinner-stopping")) return;
@@ -294,17 +299,9 @@ function renderRefreshButton(button, refreshState) {
     }, { once: true });
     return;
   }
+  button.classList.remove?.("is-spinner-stopping");
   button.classList.toggle("is-loading", false);
   setIconLabel(button, "refresh-cw-01", t("action.refreshNews"));
-}
-
-function renderCacheStatus() {
-  const cache = state.data?.cache || {};
-  els.settingsCacheStatus.textContent = t("status.cacheDetail", {
-    ready: cache.ready || 0,
-    target: cache.target || state.settings?.hotNewsCacheSize || state.settings?.defaultHotNewsCacheSize || 192,
-    message: localizedStatusMessage(cache, "status.nextBatchPreparing"),
-  });
 }
 
 function renderConnectionError(error) {
@@ -312,14 +309,19 @@ function renderConnectionError(error) {
   renderOverviewStatus(t("connection.unavailable"), t("connection.retryMeta", { detail }));
   renderQuotaOverview();
   setCacheOverviewLoading(false);
+  els.settingsCacheOverviewStatus.closest(".settings-overview-cache")?.setAttribute("data-state", "unavailable");
   els.settingsCacheOverviewStatus.removeAttribute("data-i18n");
   els.settingsCacheOverviewStatus.textContent = t("connection.backgroundPaused");
   els.settingsCacheOverviewDetail.removeAttribute("data-i18n");
   els.settingsCacheOverviewDetail.textContent = t("settings.overview.cachePaused");
+  els.settingsCacheOverviewDetail.hidden = false;
   const unavailable = { available: false, reason: "connection", messageKey: "status.refreshUnavailable.connection" };
   renderRefreshButtons(unavailable);
+  els.settingsAutoAiStatus.removeAttribute("data-i18n");
+  els.settingsAutoAiDetail.removeAttribute("data-i18n");
   els.settingsAutoAiStatus.textContent = t("settings.auto.notReady");
   els.settingsAutoAiDetail.textContent = t("settings.auto.neverDetail");
+  els.settingsAutoAiDetail.hidden = false;
   els.settingsAutoAiStatus.closest(".settings-overview-auto")?.setAttribute("data-phase", "not-ready");
   dashboardLayout.cancelDrag();
   for (const id of ["utility", "digest", "queue", "news", "inspiration", "archive"]) {

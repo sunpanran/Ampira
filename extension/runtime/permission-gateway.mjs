@@ -5,6 +5,8 @@ import { publicFeedsForLocale } from "../core/public-feeds.mjs";
 import { WEATHER_ORIGINS } from "../core/weather.mjs";
 import { STOCK_ORIGIN, STOCK_OPTED_IN_KEY } from "../core/stocks.mjs";
 import { createBookmarkModelCache } from "../core/bookmark-model-cache.mjs";
+import { botOrganizesNews } from "../core/bot-mode.mjs";
+import { customFeedSources } from "../core/custom-feeds.mjs";
 
 export function createPermissionGateway({
   chrome,
@@ -18,7 +20,9 @@ export function createPermissionGateway({
     buildModel: (tree, settings, locale) => applyInspirationSource(buildBookmarkModel(tree, settings), settings, locale),
   });
   async function currentBookmarkModel(settings) {
-    if (settings.bookmarkConsentGranted !== true) return emptyBookmarkModel();
+    if (settings.bookmarkConsentGranted !== true) {
+      return applyInspirationSource(emptyBookmarkModel(), settings, settings.uiLocale || chrome.i18n?.getUILanguage?.());
+    }
     return bookmarkModels.get(settings, settings.uiLocale || chrome.i18n?.getUILanguage?.());
   }
 
@@ -26,7 +30,7 @@ export function createPermissionGateway({
     return { folderOptions: [], sections: [], bookmarks: [], availableNewsFolders: [], missingFolders: [] };
   }
 
-  async function selectedOrigins(modelArg, settingsArg) {
+  async function selectedOrigins(modelArg, settingsArg, { sourcesOnly = false } = {}) {
     const settings = settingsArg || await getSettings();
     const model = modelArg || (settings.bookmarkConsentGranted ? await currentBookmarkModel(settings) : emptyBookmarkModel());
     const [secrets, granted] = await Promise.all([
@@ -36,18 +40,24 @@ export function createPermissionGateway({
     const grantedOrigins = granted.origins || [];
     const publicFeeds = publicFeedsForLocale(
       settings.uiLocale || chrome.i18n?.getUILanguage?.(),
-      { includeAiOnly: true },
+      { includeAiOnly: !sourcesOnly || botOrganizesNews(settings) || Boolean(
+        settings.aiDisclosureAccepted && providerCredentialAvailable(settings.openaiBaseUrl, secrets.hasOpenAIKey)
+        && settings.openaiSummaryModel && grantedOrigins.includes(originPattern(settings.openaiBaseUrl)),
+      ) },
     );
     const urls = settings.bookmarkConsentGranted
       ? model.bookmarks.filter((item) => item.cardType === "news" && !item.feedExcluded).map((item) => item.url)
       : [];
+    const customSources = customFeedSources(settings);
+    urls.push(...customSources.map(feed => feed.url));
     if (settings.bookmarkConsentGranted) urls.push(...inspirationPreviewSourceUrls(model.bookmarks));
-    if (settings.bookmarkConsentGranted && settings.publicFeedSupplementEnabled !== false) urls.push(...publicFeeds.map((feed) => feed.url));
-    if (settings.bookmarkConsentGranted && typeof getRecord === "function") {
+    if (settings.publicFeedSupplementEnabled !== false) urls.push(...publicFeeds.map((feed) => feed.url));
+    if (typeof getRecord === "function") {
       const sourceQuality = await getRecord("source-quality", { records: {} });
-      const activeKeys = new Set(model.bookmarks
+      const activeKeys = new Set((settings.bookmarkConsentGranted ? model.bookmarks : [])
         .filter((item) => item.cardType === "news" && !item.feedExcluded)
         .map((item) => String(item.key || "")));
+      customSources.forEach(feed => activeKeys.add(feed.key));
       if (settings.publicFeedSupplementEnabled !== false) {
         publicFeeds.forEach((feed) => activeKeys.add(feed.key));
       }
@@ -57,6 +67,7 @@ export function createPermissionGateway({
         if (record?.resolvedUrl && record?.fetchOrigin) urls.push(record.resolvedUrl);
       }
     }
+    if (sourcesOnly) return buildPermissionRows(originsFromUrls(urls), grantedOrigins);
     if (
       settings.openaiBaseUrl
       && settings.aiDisclosureAccepted

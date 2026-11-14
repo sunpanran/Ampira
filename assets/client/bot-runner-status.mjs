@@ -28,8 +28,8 @@ export function botBriefEmptyStateKeys(board, digest) {
     if (!automatic) return { title: "bot.brief.pendingTitle", body: "bot.brief.pendingHelp", action: "" };
     const running = board.runner.status === "running" && board.runner.kind === "brief";
     return { title: running ? "bot.brief.runningTitle" : "bot.brief.queuedTitle",
-      body: running ? "bot.brief.runningHelp" : "bot.brief.queuedHelp", action: "" };
+      body: "", action: "" };
   }
-  return { title: "bot.waitingContent", body: automatic ? "bot.runner.briefHelp" : "bot.brief.help",
+  return { title: "bot.waitingContent", body: automatic ? "" : "bot.brief.help",
     action: automatic ? "bot.runner.generate" : "bot.brief.prepare" };
 }

@@ -6,7 +6,7 @@ import { createEpochMutationQueue } from "../../extension/core/mutation-queue.mj
 import { createStockCardState } from "../../assets/client/stock-card-state.mjs";
 import { applyExternalStoragePatch } from "../../assets/client/storage.mjs";
 import { createCacheAccessPolicy } from "../../extension/runtime/cache-access-policy.mjs";
-import { messageRequestForHttp } from "../../assets/client/message-contract.mjs";
+
 
 export async function runStockTests() {
   for (const [input, expected] of Object.entries({ "600519": "sh600519", "000001": "sz000001", "920001": "bj920001",
@@ -31,7 +31,6 @@ export async function runStockTests() {
     quote("usAAPL", "Bad date", "AAPL", "20261312150000"), quote("usAAPL", "Missing price", "AAPL", "20261112150000", { 3: "" }),
     quote("usAAPL", "Zero", "AAPL", "20261112150000", { 3: "0" })]) assert.equal(parseStockQuotes(text, ["AAPL"]).quotes.length, 0);
   assert.equal(globalThis.stockInjected, undefined);
-  assert.equal(messageRequestForHttp("POST", "/api/stocks/quotes").request.type, "stocks:get");
   await testService(payload);
   await testState();
 }
@@ -85,7 +84,7 @@ async function testService(payload) {
 async function testState() {
   const requests = [], saved = [];
   const state = createStockCardState({ initialSymbols: ["AAPL"], notify() {}, localizedErrorMessage: error => error.message,
-    writeJson: (key, value) => saved.push([key, value]), apiPost: (_url, payload) => {
+    writeJson: (key, value) => saved.push([key, value]), request: ({ payload }) => {
       const request = deferred(); requests.push({ ...request, payload }); return request.promise;
     } });
   const first = state.ensure(); assert.equal(state.ensure(), first);

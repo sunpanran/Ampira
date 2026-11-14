@@ -23,7 +23,7 @@ const WEATHER_CONDITION_ICONS = Object.freeze({
 
 export function normalizeUtilityMode(value) {
   const mode = String(value || "");
-  return UTILITY_MODES.includes(mode) ? mode : "events";
+  return UTILITY_MODES.includes(mode) ? mode : "weather";
 }
 
 export function weatherConditionIconName(value) {

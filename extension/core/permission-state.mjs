@@ -37,18 +37,6 @@ export function revokedSourceKeys(sources = [], removedOrigins = []) {
     .filter(Boolean));
 }
 
-export function filterRevokedFeedItems(items = [], removedOrigins = [], sourceKeys = new Set()) {
-  const removed = normalizedOriginSet(removedOrigins);
-  const revokedKeys = sourceKeys instanceof Set ? sourceKeys : new Set(sourceKeys || []);
-  return (Array.isArray(items) ? items : []).filter((item) => {
-    if (revokedKeys.has(String(item?.sourceKey || ""))) return false;
-    const sourcePattern = originPattern(item?.sourceOrigin || "");
-    if (!sourcePattern) return false;
-    const fetchPattern = originPattern(item?.fetchOrigin || item?.sourceOrigin || "");
-    return Boolean(fetchPattern && !patternIsRemoved(sourcePattern, removed) && !patternIsRemoved(fetchPattern, removed));
-  });
-}
-
 export function filterFeedItemsBySources(items = [], sources = [], grantedOrigins = []) {
   const expectedByKey = new Map((Array.isArray(sources) ? sources : [])
     .map((source) => [String(source?.key || ""), originPattern(source?.url || "")])
@@ -64,23 +52,6 @@ export function filterFeedItemsBySources(items = [], sources = [], grantedOrigin
     if (fetchPattern === actual) return true;
     return granted.has(fetchPattern);
   });
-}
-
-export function valueTouchesOrigins(value, removedOrigins = []) {
-  const removed = normalizedOriginSet(removedOrigins);
-  if (!removed.size) return false;
-  return visit(value, removed, new Set());
-}
-
-function visit(value, removed, seen) {
-  if (typeof value === "string") {
-    const pattern = originPattern(value);
-    return Boolean(pattern && patternIsRemoved(pattern, removed));
-  }
-  if (!value || typeof value !== "object" || seen.has(value)) return false;
-  seen.add(value);
-  if (Array.isArray(value)) return value.some((entry) => visit(entry, removed, seen));
-  return Object.values(value).some((entry) => visit(entry, removed, seen));
 }
 
 function normalizedOriginSet(values) {

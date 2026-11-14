@@ -5,15 +5,24 @@ export function createMaintenanceService(options) {
     cacheMutations, refreshCoordinator, clearRecords, setRecord, setRefreshStatus,
     defaultRefreshStatus, setAiAutoStatus, defaultAiAutoStatus, broadcast, resultMessage,
     quotaManager, getAiAutoStatus, emptySourceQuality, normalizeFeedback, getRecord,
-    clearImageCache = async () => {},
+    clearImageCache = async () => {}, typedError,
   } = options;
   return { recordBookmarkConsent, completeOnboarding, clearGeneratedCache, resetQuota, resetPreferences, resetSourceQuality, recordFeedback };
 async function recordBookmarkConsent() {
   await grantBookmarkConsent();
+  broadcast("settings.changed", { bookmarkConsentGranted: true });
+  broadcast("dashboard.updated", { reason: "bookmark-consent" });
   return publicSettings();
 }
 
 async function completeOnboarding() {
+  const settings = await publicSettings();
+  const personal = settings.newsSourceMode === "bookmarks" || settings.inspirationSourceMode === "bookmarks";
+  if (personal && settings.bookmarkConsentGranted !== true
+    || !Array.isArray(settings.onboardingSourcePermissions)
+    || settings.onboardingSourcePermissions.some(row => row.granted !== true)) {
+    throw typedError("ONBOARDING_PERMISSION_REQUIRED", "background.error.onboardingPermissionRequired", {}, false);
+  }
   await markOnboardingComplete();
   startRefresh(true).catch(() => {});
   return publicSettings();

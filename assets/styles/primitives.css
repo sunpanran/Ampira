@@ -112,14 +112,26 @@
   opacity: .55;
 }
 
-.btn:active,
-.nav-logo:active,
-.nav-btn:active,
-.column-action:active,
-.theme-swatch:active,
-.action-toggle:active,
-.empty-state-action:active {
-  transform: translateY(1px) scale(.985);
+.nav-btn {
+  --nav-button-motion-duration: var(--motion-state-duration);
+}
+
+.nav-btn:not(:disabled):is(:active, .is-nav-pressed) {
+  --nav-button-motion-duration: var(--motion-press-duration);
+  transform: translateY(.5px) scale(.96);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  :is([data-batch-action], #summaryBatch, #navLogo):not(:disabled):active {
+    /* WAAPI owns both the held press and rebound, so repeat presses stay continuous. */
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :is([data-batch-action], #summaryBatch, #navLogo, .nav-btn) {
+    transform: none !important;
+  }
 }
 
 .btn.icon-btn,
@@ -508,11 +520,14 @@ input::placeholder {
   opacity: 0;
   pointer-events: none;
   transform: translate3d(var(--segmented-x), var(--segmented-y), 0);
-  transition: transform var(--motion-emphasis-duration) var(--motion-ease-move), width var(--motion-emphasis-duration) var(--motion-ease-move), height var(--motion-emphasis-duration) var(--motion-ease-move), opacity var(--motion-state-duration) var(--motion-ease-standard);
 }
 
 .segmented.has-indicator .segment-indicator {
   opacity: 1;
+}
+
+.segmented.is-indicator-moving .segment-indicator {
+  transition: transform var(--motion-emphasis-duration) var(--motion-ease-move), width var(--motion-emphasis-duration) var(--motion-ease-move), height var(--motion-emphasis-duration) var(--motion-ease-move), opacity var(--motion-state-duration) var(--motion-ease-standard);
 }
 
 #library .controls .segmented .segment-indicator {
@@ -576,7 +591,8 @@ input::placeholder {
 .summary-order select,
 .summary-order .select-combobox-trigger {
   min-height: 32px;
-  border-radius: var(--radius-button);
+  border-radius: var(--radius-pill);
+  corner-shape: round;
 }
 
 .summary-order .select-combobox-trigger {
@@ -649,34 +665,55 @@ input::placeholder {
   corner-shape: var(--corner-shape-surface);
 }
 
-.category-segmented {
-  max-width: min(100%, 860px);
-  max-height: 0;
-  min-height: 0;
-  padding: 0;
-  border-color: transparent;
-  background: transparent;
-  overflow: hidden;
-  opacity: 0;
-  pointer-events: none;
-  transform: translateY(-6px);
-  transition: max-height var(--motion-move-duration) var(--motion-ease-move), margin var(--motion-move-duration) var(--motion-ease-move), opacity var(--motion-state-duration) var(--motion-ease-standard), transform var(--motion-move-duration) var(--motion-ease-move);
-  will-change: max-height, opacity, transform;
+.category-filter {
+  width: 160px;
+  max-width: 45%;
+  flex: 0 0 auto;
 }
 
-.category-segmented.is-open {
-  max-height: 54px;
-  min-height: 40px;
-  margin-top: 8px;
-  padding: 3px;
-  border-color: var(--control-line);
-  background: var(--control-bg);
-  overflow-x: auto;
-  overflow-y: hidden;
-  opacity: 1;
-  pointer-events: auto;
-  transform: translateY(0);
-  animation: categoryFilterIn var(--motion-emphasis-duration) var(--motion-ease-enter) both;
+.category-filter select,
+.category-filter .select-combobox-trigger {
+  min-height: 32px;
+  border-radius: var(--radius-button);
+}
+
+.category-filter .select-combobox-trigger {
+  gap: 6px;
+  padding-inline: 10px;
+}
+
+#categoryFilter-combobox-listbox {
+  border-radius: var(--radius-button);
+}
+
+@media (forced-colors: none) {
+  .category-filter select,
+  .category-filter .select-combobox-trigger,
+  #categoryFilter-combobox-listbox {
+    background: var(--blur-panel-bg);
+    -webkit-backdrop-filter: var(--card-backdrop-blur);
+    backdrop-filter: var(--card-backdrop-blur);
+  }
+
+  .category-filter select:not(:disabled):hover,
+  .category-filter .select-combobox-trigger:not(:disabled):hover,
+  .category-filter .select-combobox.is-open .select-combobox-trigger {
+    background: color-mix(in srgb, var(--surface-hover) 68%, transparent);
+  }
+}
+
+:root[data-dashboard-glass-blur="off"] #categoryFilter-combobox-listbox {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+@media (pointer: coarse) {
+  #sectionFilter button,
+  .category-filter select,
+  .category-filter .select-combobox-trigger,
+  #categoryFilter-combobox-listbox .select-combobox-option {
+    min-height: 44px;
+  }
 }
 
 .pill,

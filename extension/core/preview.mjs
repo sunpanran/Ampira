@@ -219,14 +219,6 @@ export function createPreviewService(adapters) {
   }
 }
 
-export async function fetchSourceImagePreview(url, options = {}) {
-  return (await fetchSourceImageCandidates(url, options))[0] || "";
-}
-
-export async function fetchSourceImageCandidates(url, options = {}) {
-  return (await fetchSourceImageCandidateRecords(url, options)).map((candidate) => candidate.url);
-}
-
 export async function fetchSourceImageCandidateRecords(url, options = {}) {
   const target = normalizePreviewUrl(url);
   const profile = normalizeImageProfile(options.profile);

@@ -1,26 +1,26 @@
-export function syncSegmentedIndicator(control, activeButton = null) {
-  placeSegmentedIndicator(control, activeButton);
-  requestAnimationFrame(() => placeSegmentedIndicator(control, activeButton));
+export function syncSegmentedIndicator(control, activeButton = null, { animate = true } = {}) {
+  placeSegmentedIndicator(control, activeButton, animate);
+  requestAnimationFrame(() => placeSegmentedIndicator(control, activeButton, animate));
 }
 
-function placeSegmentedIndicator(control, activeButton = null) {
+function placeSegmentedIndicator(control, activeButton, animate) {
   if (!control) return;
-  ensureSegmentedIndicator(control);
+  const indicator = ensureSegmentedIndicator(control);
   const button = activeButton?.matches?.("button") ? activeButton : control.querySelector("button.active");
   if (control.hidden || !button || !control.getClientRects().length || !button.getClientRects().length) {
-    control.classList.remove("has-indicator");
+    control.classList.remove("has-indicator", "is-indicator-moving");
     return;
   }
-  const controlRect = control.getBoundingClientRect();
-  const buttonRect = button.getBoundingClientRect();
-  const controlStyle = getComputedStyle(control);
-  const borderLeft = parseFloat(controlStyle.borderLeftWidth) || 0;
-  const borderTop = parseFloat(controlStyle.borderTopWidth) || 0;
-  control.style.setProperty("--segmented-x", `${Math.round(buttonRect.left - controlRect.left - borderLeft)}px`);
-  control.style.setProperty("--segmented-y", `${Math.round(buttonRect.top - controlRect.top - borderTop)}px`);
-  control.style.setProperty("--segmented-w", `${Math.round(buttonRect.width)}px`);
-  control.style.setProperty("--segmented-h", `${Math.round(buttonRect.height)}px`);
+  const shouldAnimate = animate && control.classList.contains("has-indicator");
+  control.classList.toggle("is-indicator-moving", shouldAnimate);
+  // Measure layout, not the temporarily compressed press pose.
+  control.style.setProperty("--segmented-x", `${button.offsetLeft}px`);
+  control.style.setProperty("--segmented-y", `${button.offsetTop}px`);
+  control.style.setProperty("--segmented-w", `${button.offsetWidth}px`);
+  control.style.setProperty("--segmented-h", `${button.offsetHeight}px`);
   control.classList.add("has-indicator");
+  // Commit the saved position before later interactions can enable transitions.
+  if (!shouldAnimate) getComputedStyle(indicator).transform;
 }
 
 function ensureSegmentedIndicator(control) {

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { bookmarkSearchEntries, rankSearchEntries, ampiraSearchEntries } from "../../extension/core/unified-search.mjs";
 import { createLocalSearchService } from "../../extension/runtime/local-search-service.mjs";
 import { createUnifiedSearchController, searchRecommendationRows, defaultSearchRecommendation } from "../../assets/client/unified-search-controller.mjs";
-import { messageRequestForHttp } from "../../assets/client/message-contract.mjs";
+
 import { createSearchResultsView } from "../../assets/client/search-results-view.mjs";
 import { faviconUrl } from "../../assets/client/urls.mjs";
 
@@ -44,7 +44,19 @@ assert.equal(defaultSearchRecommendation(searchRecommendationRows("absent", [], 
 assert.equal(defaultSearchRecommendation(searchRecommendationRows("https://example.com", results, {})), "direct");
 assert.equal(defaultSearchRecommendation(searchRecommendationRows("", [], { hasConversation: true, historyStatus: "permission" })), "", "AI and permission rows never auto-submit");
 assert.deepEqual(rows.map(row => row.kind), ["result", "web", "ai", "result", "result", "history"]);
-assert.equal(messageRequestForHttp("POST", "/api/search").request.type, "search:query");
+
+for (const query of ["", "model", "https://example.com"]) {
+  for (const aiEnabled of [undefined, false]) {
+    assert(!searchRecommendationRows(query, results, { aiEnabled }).some(row => row.kind === "ai"),
+      "unconfigured AI has no prompt or keyboard-selectable action, with or without a query");
+  }
+  assert.equal(searchRecommendationRows(query, results, { aiEnabled: true }).find(row => row.kind === "ai")?.titleKey,
+    "search.unified.ask", "available AI retains the ask action");
+}
+assert.deepEqual(searchRecommendationRows("", []), [], "unconfigured AI leaves no empty-input placeholder row");
+assert.deepEqual(searchRecommendationRows("  ", [], { historyStatus: "permission" }), [], "empty input does not offer history permission");
+assert(searchRecommendationRows("query", [], { historyStatus: "permission" }).some(row => row.kind === "history"),
+  "history permission is offered only for a real query");
 
 for (const [query, title, url, bookmarkMatch] of [
   ["a", "Alpha", "https://saved.example/", "normal"],
@@ -104,7 +116,7 @@ for (const entries of [renamedEntries, [...renamedEntries].reverse()]) {
   assert.equal(merged[0].title, "Saved label");
   assert.equal(merged[0].bookmarkMatch, "normal", "matching history or content never promotes an unrelated saved title");
   assert.deepEqual(merged[0].sources, ["bookmark", "ampira", "history"]);
-  assert.deepEqual(searchRecommendationRows("model", merged).map(row => row.id), ["web", "ai", merged[0].id]);
+  assert.deepEqual(searchRecommendationRows("model", merged, { aiEnabled: true }).map(row => row.id), ["web", "ai", merged[0].id]);
 }
 assert.equal(rankSearchEntries([
   ...renamedEntries, { title: "Model", url: renamedEntries[0].url, sources: ["bookmark"] },
@@ -117,17 +129,17 @@ const crowded = rankSearchEntries([
 ], "model");
 assert.equal(crowded.length, 20);
 assert.deepEqual(crowded.slice(0, 2).map(row => row.sources[0]), ["bookmark", "ampira"], "high-scoring history cannot crowd out bookmarks or Ampira content");
-const crowdedRows = searchRecommendationRows("model", crowded);
+const crowdedRows = searchRecommendationRows("model", crowded, { aiEnabled: true });
 assert.equal(crowdedRows.length, 22, "search and AI actions do not consume the local result limit");
 assert.equal(defaultSearchRecommendation(crowdedRows), "web", "ordinary local matches do not take the default Enter action");
 const letterResults = rankSearchEntries([
   { title: "Alpha", url: "https://saved.example/alpha", sources: ["bookmark"] },
   { title: "a", url: "https://visited.example/letter", sources: ["history"] },
 ], "a");
-assert.deepEqual(searchRecommendationRows("a", letterResults).map(row => row.kind), ["web", "ai", "result", "result"]);
+assert.deepEqual(searchRecommendationRows("a", letterResults, { aiEnabled: true }).map(row => row.kind), ["web", "ai", "result", "result"]);
 assert.equal(defaultSearchRecommendation(searchRecommendationRows("a", letterResults)), "web");
-assert.deepEqual(searchRecommendationRows("", prioritized, { hasConversation: true, historyStatus: "permission" }).map(row => row.id),
-  ["ai", "resume", "history"], "empty input never displays retained result rows or selects an action");
+assert.deepEqual(searchRecommendationRows("", prioritized, { aiEnabled: true, hasConversation: true, historyStatus: "permission" }).map(row => row.id),
+  ["ai", "resume"], "empty input never displays retained result rows or history permission");
 console.log("Search priority, bookmark match tiers and bounded result selection tests passed");
 
 let historyAllowed = false, consent = true, historyCalls = 0, bookmarkCalls = 0, dashboardCalls = 0;
@@ -238,13 +250,13 @@ view.clear();
 assert.equal(list.children.length, 0, "privacy invalidation removes every displayed result immediately");
 console.log("Search result identity, safe favicon and stale-action tests passed");
 
-await testSearchMotionLifecycle();
+for (const aiEnabled of [false, true]) await testSearchMotionLifecycle(aiEnabled);
 
-async function testSearchMotionLifecycle() {
+async function testSearchMotionLifecycle(aiEnabled) {
   const previousDocument = globalThis.document;
   const doc = { createElement: element, addEventListener() {}, hidden: false };
   const els = Object.fromEntries(["unifiedSearchInput", "unifiedSearchResults", "unifiedSearch",
-    "unifiedSearchForm", "unifiedSearchStatus", "unifiedSearchSubmit",
+    "unifiedSearchForm", "unifiedSearchFooter", "unifiedSearchStatus", "unifiedSearchSubmit",
     "backToSearch", "aiSearchOverlay", "aiSearchPanel", "aiSearchNav"].map(key => [key, element("div")]));
   const trigger = element("button"), timers = new Map(), animations = [];
   let nextTimer = 0;
@@ -254,14 +266,18 @@ async function testSearchMotionLifecycle() {
     node.setSelectionRange = () => {};
   }
   const list = els.unifiedSearchResults, input = els.unifiedSearchInput;
+  els.unifiedSearchStatus.parentElement = els.unifiedSearchFooter;
   input.value = "";
   const view = {
     setTimeout(callback, delay) { const id = ++nextTimer; timers.set(id, { callback, delay }); return id; },
     clearTimeout: id => timers.delete(id),
     matchMedia: () => ({ matches: false }), addEventListener() {},
-    getComputedStyle: node => ({ height: `${node.children.length * 48 + 12}px`, opacity: "1" }),
+    getComputedStyle: node => ({ height: `${node === els.unifiedSearch
+      ? 62 + (list.hidden ? 0 : list.children.length * 48 + 12) + (els.unifiedSearchFooter.hidden ? 0 : 36)
+      : node.children.length * 48 + 12}px`, opacity: "1" }),
   };
-  list.animate = (keyframes) => {
+  els.unifiedSearch.animate = (keyframes, options) => {
+    assert.equal(options.duration, 300, "search expansion keeps its original duration");
     const animation = { keyframes, playState: "running", addEventListener() {},
       pause() { this.playState = "paused"; }, play() { this.playState = "running"; },
       cancel() { this.playState = "idle"; } };
@@ -276,18 +292,25 @@ async function testSearchMotionLifecycle() {
   };
   globalThis.document = doc;
   try {
+    const state = { settings: {}, data: { ai: { enabled: aiEnabled } } };
     const search = createUnifiedSearchController({
-      state: { settings: {}, data: {} }, els, doc, view, t: key => key,
-      apiPost: async (_path, { query }) => ({ results: query ? [saved] : [], sources: {}, browserSearchEnabled: true }),
+      state, els, doc, view, t: key => key,
+      request: async ({ payload: { query } }) => ({ results: query ? [saved] : [], sources: {}, browserSearchEnabled: true }),
       aiSearch: { close() {}, call() {} }, setActiveNavButton() {}, syncNavToCurrentSection() {},
     });
     trigger.focus(); search.open(); await flush(0);
+    assert.equal(els.unifiedSearchFooter.hidden, true, "empty input hides the entire footer");
+    const compactHeight = view.getComputedStyle(els.unifiedSearch).height;
     const compactRows = [...list.children];
     input.value = "model"; input.fire("input");
     assert.deepEqual(list.children, compactRows, "first query waits for results instead of inserting a transient action layout");
     assert.equal(animations.length, 0, "typing alone does not start the first of two expansions");
+    assert.equal(els.unifiedSearchFooter.hidden, true, "the footer waits with the first results instead of expanding twice");
     await flush(150);
     assert.equal(animations.length, 1, "first results trigger one size transition");
+    assert.equal(animations[0].keyframes[0].height, compactHeight, "expansion starts at the visible compact height, including without AI");
+    assert.equal(animations[0].keyframes[1].height, view.getComputedStyle(els.unifiedSearch).height);
+    assert.equal(els.unifiedSearchFooter.hidden, false, "a query shows the search hints and status");
     assert(list.children.some(node => node.dataset.searchId === saved.id));
     const populatedRows = [...list.children], resize = animations.at(-1);
     search.close();
@@ -302,13 +325,35 @@ async function testSearchMotionLifecycle() {
     assert.equal(list.children.length, 0, "completed close releases the result DOM");
     assert.equal(doc.activeElement, trigger, "reopening while closing retains the original focus target");
     search.open("model"); await flush(0);
-    const previousHeight = view.getComputedStyle(list).height;
+    const previousHeight = view.getComputedStyle(els.unifiedSearch).height;
     input.value = ""; input.fire("input");
     assert.equal(animations.at(-1).keyframes[0].height, previousHeight, "clear measures the populated height before removing rows");
+    assert.equal(animations.at(-1).keyframes[1].height, compactHeight, "clearing smoothly returns to the compact height");
+    assert.equal(els.unifiedSearchFooter.hidden, true, "clearing removes the entire footer");
     assert(!list.children.some(node => node.dataset.searchId === saved.id), "clearing removes old content immediately");
     input.value = "model"; input.fire("input"); await flush(150);
     search.invalidate();
     assert(!list.children.some(node => node.dataset.searchId === saved.id), "privacy invalidation removes results without waiting for animation");
+    search.close(); await flush(180);
+    state.data.ai.enabled = false;
+    search.open(""); await flush(0);
+    assert.equal(list.children.length, 0, "unconfigured AI does not render a setup row");
+    assert.equal(list.hidden, true, "an empty search list collapses without leaving a blank row");
+    assert.equal(input.getAttribute("aria-expanded"), "false");
+    assert.equal(els.unifiedSearchSubmit.disabled, true);
+    state.data.ai.enabled = true;
+    search.invalidate(); await flush(0);
+    assert.equal(list.children[0]?.dataset.searchId, "ai", "configuring AI restores the ask action");
+    assert.equal(list.hidden, false);
+    state.data.ai.enabled = false;
+    search.invalidate(); await flush(0);
+    assert.equal(list.children.length, 0, "removing AI configuration clears the action on refresh");
+    state.data.bot = { mcpEnabled: true, mode: "bot", botAnswerQuestions: true };
+    search.invalidate(); await flush(0);
+    assert.equal(list.children[0]?.dataset.searchId, "ai", "Bot-managed questions remain available without an API provider");
+    state.data.bot.botAnswerQuestions = false;
+    search.invalidate(); await flush(0);
+    assert.equal(list.children.length, 0, "disabling Bot questions removes the unavailable action");
     search.close(); await flush(180);
   } finally {
     if (previousDocument === undefined) delete globalThis.document;

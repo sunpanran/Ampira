@@ -3,7 +3,7 @@ import { createIcon } from "./icons.mjs";
 
 export function createSourceCoverageController(options) {
   const {
-    state, els, t, tc, apiPost, setIconLabel, createEmptyState, renderSettingsStatus,
+    state, els, t, tc, request, setIconLabel, createEmptyState, renderSettingsStatus,
     localizedErrorMessage, formatDateTime, getSourceQuality,
   } = options;
   const sourceActions = new Set();
@@ -27,6 +27,7 @@ export function createSourceCoverageController(options) {
       return metric;
     }));
     const records = Object.values(summary.records || {}).sort(compareSourceRecords);
+    els.sourceCoverageSummary.hidden = records.length === 0;
     if (!records.length) {
       els.sourceCoverageList.replaceChildren(createEmptyState({
         title: t("settings.sources.emptyTitle"),
@@ -109,7 +110,7 @@ export function createSourceCoverageController(options) {
     if (button) button.disabled = true;
     renderSettingsStatus(t("settings.sources.refreshing", { title: record.title || record.host || sourceKey }));
     try {
-      const result = await apiPost("/api/feed/source/refresh", { sourceKey });
+      const result = await request({ type: "feed:refresh-source", payload: { sourceKey } });
       if (result?.sourceQuality) {
         if (state.data) state.data.sourceQuality = result.sourceQuality;
         if (state.settings) state.settings.sourceQuality = result.sourceQuality;

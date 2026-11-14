@@ -1,18 +1,19 @@
 import assert from "node:assert/strict";
 import { createAutomaticAiHarness, syntheticArticle } from "../helpers/automatic-ai-harness.mjs";
 import { createSummarySessionOrder } from "../../assets/client/summary-session-order.mjs";
-import { messageRequestForHttp } from "../../assets/client/message-contract.mjs";
+
 import { isCorrectlySummarized } from "../../assets/client/item-presenter.mjs";
 
 const articles = Array.from({ length: 13 }, (_, i) => syntheticArticle(`native-${i}`, {
-  title: `产品功能更新 ${i}`, excerpt: "更新改善显示效果，已有设备可以获得支持。", contentLocale: "zh-CN",
+  title: `产品功能更新 ${i}`, excerpt: "更新改善显示效果，已有设备可以获得支持。厂商公布了安装步骤和设备清单，本次更新不需要购买新的硬件。", contentLocale: "zh-CN",
 }));
-assert.equal(messageRequestForHttp("POST", "/api/news/organize").request.type, "news:organize");
+
 assert(isCorrectlySummarized({ summary: { summaryStatus: "ai", summaryTitle: "更新已经整理", summary: ["摘要允许只包含一条有依据的信息。"] } }), "a validated single-line summary is complete");
 {
   const h = createAutomaticAiHarness({ articles: articles.slice(0, 2) });
   await h.run(undefined, { organize: false }); h.control.refreshError = true;
   await h.run(undefined, { organize: false });
+  assert.equal(h.control.refreshFailures, 1, "the failure fixture must reach the storage boundary");
   assert.equal(h.requests.length, 0, "failed manual refresh must not fall back to AI");
   await h.run();
   assert.equal(h.requests.filter(request => request.kind === "card").length, 2, "failed background refresh still organizes the permitted cache");
@@ -42,7 +43,9 @@ assert(isCorrectlySummarized({ summary: { summaryStatus: "ai", summaryTitle: "�
   await h.run(undefined, { organize: false });
   await h.service.organizeNews(); await h.service.waitForOrganization();
   assert.equal(h.requests.length, 2); assert.equal(h.statuses.at(-1).phase, "quota");
-  const target = articles[2], body = { sourceKey: target.sourceKey, articleId: target.articleId, url: target.url };
+  const target = h.records.get("feed").items.find(item => item.summaryStatus !== "ai");
+  assert(target, "the automatic quota leaves one pending article regardless of ranking order");
+  const body = { sourceKey: target.sourceKey, articleId: target.articleId, url: target.url };
   await Promise.all([h.service.refreshSingleSummary(body), h.service.refreshSingleSummary(body)]);
   assert.equal(h.requests.length, 3, "concurrent manual requests share one result");
   assert.equal((await h.quota.read(2)).used, 2, "single manual requests do not consume the automatic allowance");

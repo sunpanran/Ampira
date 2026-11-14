@@ -38,6 +38,9 @@ function syncBookmarkSectionVisibility(settings = {}) {
   const wasActive = els.bookmarkNav.classList.contains("active");
   els.bookmarkNav.hidden = !visible;
   els.librarySection.hidden = !visible;
+  const hint = visible ? "on" : "off";
+  document.documentElement.dataset.bookmarkSection = hint;
+  try { localStorage.setItem("ampira.bookmarkSectionEnabled", hint); } catch {}
   syncNavExpandedWidth();
   if (!visible && wasActive) syncNavToCurrentSection();
 }
@@ -153,7 +156,6 @@ function initializePointerHighlights() {
     ".category",
     ".daily-card",
     ".news-list-card",
-    ".archive-card",
     ".link-row",
   ].join(", ");
 

@@ -21,7 +21,7 @@ try {
       if (!nodes.has(key)) nodes.set(key, element("div"));
       return nodes.get(key);
     } });
-    els.aiProviderCatalog.append(els.aiProviderPrimaryList, els.aiProviderMoreList);
+    els.aiProviderCatalog.append(els.aiProviderPrimaryList, els.aiProviderOtherList);
     els.aiProviderEditor.hidden = true;
     els.aiProviderCatalog.hidden = true;
     els.aiProviderConfiguration.hidden = true;
@@ -39,7 +39,17 @@ try {
       aiSetupStage: AI_SETUP_STAGE, settingsBusy: () => false, renderSettingsStatus() {},
     });
     controller.initializeAiProviderUi();
+    assert.deepEqual(els.aiProviderPrimaryList.querySelectorAll("button[data-provider-id]").map((button) => button.dataset.providerId),
+      ["openai", "gemini", "deepseek", "grok", "kimi", "qwen", "openrouter"]);
+    assert.deepEqual(els.aiProviderOtherList.querySelectorAll("button[data-provider-id]").map((button) => button.dataset.providerId),
+      ["ollama", "custom"]);
     controller.prepareAiProviderUi();
+    assert.equal(els.aiProviderConfiguration.dataset.custom, String(!configured));
+    assert.equal(els.aiProviderApiStyleControl.hidden, configured);
+    assert.equal(els.aiProviderApiStyleValue.hidden, !configured);
+    assert.equal(els.aiProviderBaseUrlHelp.hidden, configured);
+    assert.equal(els.aiProviderApiStyleHelp.hidden, configured);
+    assert.equal(els.aiProviderApiStyleValue.textContent, "Responses");
     await controller.refreshAiSetupPermission();
     assertClosed("initial setup and permission hydration must leave both panels collapsed");
 
@@ -94,6 +104,36 @@ try {
     assert.equal(els.aiProviderConfiguration.hidden, false);
     controller.prepareAiProviderUi();
     assertClosed("a fresh settings session must reset the disclosure state");
+
+    for (const [index, id] of ["ollama", "custom"].entries()) {
+      els.changeAiProvider.click();
+      const other = els.aiProviderOtherList.querySelectorAll("button[data-provider-id]")[index];
+      els.aiProviderOtherList.dispatch("click", { target: other });
+      assert.equal(els.aiProviderConfiguration.hidden, false, `${id} must open configuration from the bottom group`);
+      assert.equal(els.apiBaseUrlInput.value, id === "ollama" ? "http://localhost:11434/v1" : "");
+      assert.equal(els.apiBaseUrlInput.readOnly, id !== "custom");
+      assert.equal(els.aiProviderApiStyleControl.hidden, id !== "custom");
+      assert.equal(els.aiProviderApiStyleValue.hidden, id === "custom");
+      assert.equal(els.aiProviderBaseUrlHelp.hidden, id !== "custom");
+      assert.equal(els.aiProviderApiStyleHelp.hidden, id !== "custom");
+      assert.equal(els.aiProviderApiStyleValue.textContent, "settings.service.chatCompletions");
+      assert.equal(other.getAttribute("aria-pressed"), "true");
+      els.closeAiProviderConfiguration.click();
+    }
+
+    els.apiBaseUrlInput.value = "https://api.siliconflow.cn/v1";
+    els.apiStyleSelect.value = "chat_completions";
+    els.modelInput.value = "saved-provider-model";
+    els.apiKeyInput.value = "synthetic-unsaved-key";
+    controller.prepareAiProviderUi();
+    els.editAiProvider.click();
+    assert.equal(els.apiBaseUrlInput.value, "https://api.siliconflow.cn/v1");
+    assert.equal(els.modelInput.value, "saved-provider-model");
+    assert.equal(els.apiKeyInput.value, "synthetic-unsaved-key");
+    assert.equal(els.apiBaseUrlInput.readOnly, false, "removed presets must reopen as editable custom configurations");
+    assert.equal(els.aiProviderApiStyleControl.hidden, false);
+    assert.equal(els.aiProviderApiStyleValue.hidden, true);
+    assert.equal(els.apiBaseUrlInput.getAttribute("aria-describedby"), "aiProviderBaseUrlHelp");
 
     function assertClosed(message) {
       assert.equal(els.aiProviderEditor.hidden, true, message);

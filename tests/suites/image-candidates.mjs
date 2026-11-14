@@ -10,7 +10,7 @@ import { parseFeedDocument } from "../../extension/core/feed.mjs";
 import { extractReaderDocument } from "../../extension/core/reader.mjs";
 import {
   articleImageSignature,
-  fetchSourceImageCandidates,
+  fetchSourceImageCandidateRecords,
   repeatedArticleImageSignatures,
 } from "../../extension/core/preview.mjs";
 import { createArticleImageReuseFilter } from "../../extension/core/article-image-reuse.mjs";
@@ -19,7 +19,7 @@ import { isPrivateAddressLiteral } from "../../extension/core/network-policy.mjs
 import { feedImageCacheFresh, selectFeedImageEnrichmentTargets } from "../../extension/runtime/refresh-service.mjs";
 import { createFeedImageService } from "../../extension/runtime/feed-image-service.mjs";
 import { browserImageMeetsProfileDimensions } from "../../assets/client/card-image-quality.mjs";
-import { messageRequestForHttp } from "../../assets/client/message-contract.mjs";
+
 
 const pageUrl = "https://news.example.com/story";
 assert.equal(isPrivateAddressLiteral("127.0.0.1"), true);
@@ -163,10 +163,8 @@ assert.equal(imageMeetsProfileDimensions(319, 220, "article"), false);
 assert.equal(imageMeetsProfileDimensions(640, 120, "article"), true);
 assert.equal(browserImageMeetsProfileDimensions({ naturalWidth: 101, naturalHeight: 46 }, "article"), false);
 assert.equal(browserImageMeetsProfileDimensions({ naturalWidth: 640, naturalHeight: 360 }, "article"), true);
-assert.equal(messageRequestForHttp("GET", `/api/site-preview?url=${encodeURIComponent(pageUrl)}&profile=article`)
-  .request.payload.profile, "article");
-assert.equal(messageRequestForHttp("GET", `/api/site-preview?url=${encodeURIComponent(pageUrl)}&profile=unknown`)
-  .request.payload.profile, "visual", "unknown preview profiles must fail closed to visual");
+
+
 
 const repeatedUrl = "https://cdn.example.com/default-cover.jpg?w=1200&quality=80";
 const repeatedSignature = articleImageSignature(repeatedUrl);
@@ -270,7 +268,7 @@ try {
     <meta property="og:image" content="/first.jpg">
     <meta name="twitter:image" content="/second.jpg">
   `, { headers: { "content-type": "text/html" } });
-  assert.deepEqual(await fetchSourceImageCandidates(pageUrl), [
+  assert.deepEqual((await fetchSourceImageCandidateRecords(pageUrl)).map((candidate) => candidate.url), [
     "https://news.example.com/first.jpg",
     "https://news.example.com/second.jpg",
   ]);

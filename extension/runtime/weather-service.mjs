@@ -5,6 +5,7 @@ import {
   WEATHER_CACHE_FRESH_MS,
   WEATHER_CACHE_KEY,
   WEATHER_CACHE_STALE_MS,
+  WEATHER_FORECAST_DAYS,
   WEATHER_FORECAST_ORIGIN,
   WEATHER_GEOCODING_ORIGIN,
   WEATHER_ORIGINS,
@@ -16,7 +17,7 @@ import {
   weatherLocationFingerprint,
 } from "../core/weather.mjs";
 
-const WEATHER_FETCH_TIMEOUT_MS = 8000;
+const WEATHER_FETCH_TIMEOUT_MS = 15000;
 const WEATHER_MAX_RESPONSE_BYTES = 128 * 1024;
 
 export function createWeatherService(options) {
@@ -127,6 +128,11 @@ export function createWeatherService(options) {
       });
     } catch (error) {
       if (error?.messageKey) throw error;
+      if (error?.code === "NETWORK_TIMEOUT") {
+        throw typedError("WEATHER_TIMEOUT", "background.error.weatherTimeout", {}, true, {
+          origin: expectedOrigin,
+        });
+      }
       throw typedError("WEATHER_NETWORK_ERROR", "background.error.weatherUnavailable", {}, true, {
         origin: expectedOrigin,
       });
@@ -143,12 +149,13 @@ function weatherForecastUrl(coordinates) {
   const url = new URL("/v1/forecast", WEATHER_FORECAST_ORIGIN);
   url.searchParams.set("latitude", String(coordinates.latitude));
   url.searchParams.set("longitude", String(coordinates.longitude));
-  url.searchParams.set("current", "temperature_2m,apparent_temperature,weather_code");
+  url.searchParams.set("current", "temperature_2m,apparent_temperature,weather_code,relative_humidity_2m,wind_speed_10m");
   url.searchParams.set("hourly", "precipitation_probability,weather_code");
   url.searchParams.set("daily", "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max");
   url.searchParams.set("temperature_unit", "celsius");
+  url.searchParams.set("wind_speed_unit", "kmh");
   url.searchParams.set("timezone", "auto");
-  url.searchParams.set("forecast_days", "3");
+  url.searchParams.set("forecast_days", String(WEATHER_FORECAST_DAYS));
   return url;
 }
 
@@ -169,7 +176,7 @@ function publicForecast(record, stale) {
   return {
     timezone: String(record.timezone || "UTC"),
     current: record.current,
-    daily: Array.isArray(record.daily) ? record.daily.slice(0, 2) : [],
+    daily: Array.isArray(record.daily) ? record.daily.slice(0, WEATHER_FORECAST_DAYS - 1) : [],
     fetchedAt: String(record.fetchedAt || ""),
     stale: stale === true,
   };

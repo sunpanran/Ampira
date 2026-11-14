@@ -1,0 +1,34 @@
+/* Ordinary controls share a short press and a quieter, slightly longer release.
+   Individual scale preserves positioning transforms and never changes layout. */
+:root :is(button, summary, :where(a).btn, .empty-state-action, .website-shortcut, .select-combobox-option):where(:not(.nav-btn, #navLogo, [data-batch-action], #summaryBatch)) {
+  --control-press-scale: .97;
+  --control-feedback-duration: var(--motion-state-duration);
+  transition: color var(--motion-state-duration) var(--motion-ease-standard), background-color var(--motion-state-duration) var(--motion-ease-standard), border-color var(--motion-state-duration) var(--motion-ease-standard), box-shadow var(--motion-state-duration) var(--motion-ease-standard), opacity var(--motion-state-duration) var(--motion-ease-standard), scale var(--control-feedback-duration) var(--motion-ease-standard), transform var(--motion-state-duration) var(--motion-ease-standard);
+}
+
+:root :is(.icon-btn, .action-toggle, .seen-toggle, .theme-swatch, .ai-copy-button, .date-picker-day, .calendar-day, .todo-toggle) {
+  --control-press-scale: .94;
+}
+
+/* Long rows compress less horizontally so their labels remain steady. */
+:root :is(summary, .settings-tabs button, .select-combobox-trigger, .select-combobox-option, .context-menu button, .utility-type-option, .ai-provider-option) {
+  --control-press-scale: .99 .97;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  :root:not(.has-control-feedback) :is(button, summary, :where(a).btn, .empty-state-action, .website-shortcut, .select-combobox-option):where(:not(.nav-btn, #navLogo, [data-batch-action], #summaryBatch, :disabled, [aria-disabled="true"], .is-loading, .is-dragging)):active,
+  :root.has-control-feedback .is-control-pressed:where(:not(:disabled, [aria-disabled="true"], .is-loading, .is-dragging, input)) {
+    --control-feedback-duration: var(--motion-press-duration);
+    scale: var(--control-press-scale);
+  }
+
+  .toggle > span {
+    transition: border-color var(--motion-state-duration) var(--motion-ease-standard), background var(--motion-state-duration) var(--motion-ease-standard), box-shadow var(--motion-state-duration) var(--motion-ease-standard), scale var(--motion-state-duration) var(--motion-ease-standard);
+  }
+
+  :root:not(.has-control-feedback) .toggle:has(input:not(:disabled):active) > span,
+  :root.has-control-feedback .toggle:has(input.is-control-pressed:not(:disabled)) > span {
+    scale: .94;
+    transition-duration: var(--motion-press-duration);
+  }
+}

@@ -13,7 +13,7 @@ export function formatKeyboardShortcut(binding, platform = globalThis.navigator?
 export function setKeyboardShortcutHint(element, id, label, settings = {}, available = true) {
   if (!element) return;
   const binding = normalizeKeyboardShortcuts(settings?.keyboardShortcuts)[id];
-  const active = binding && available && settings?.keyboardShortcutsEnabled !== false && !element.disabled && element.getAttribute("aria-disabled") !== "true";
+  const active = binding && available && settings?.keyboardShortcutsEnabled === true && !element.disabled && element.getAttribute("aria-disabled") !== "true";
   element.title = active ? `${label} (${formatKeyboardShortcut(binding)})` : label;
   if (active) element.setAttribute("aria-keyshortcuts", binding.split("+").map(part => part === "Ctrl" ? "Control" : part === "Minus" ? "-" : part.startsWith("Arrow") ? part : KEY_LABELS[part] || part.replace(/^(Key|Digit)/, "")).join("+"));
   else element.removeAttribute("aria-keyshortcuts");

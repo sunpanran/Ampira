@@ -37,7 +37,6 @@
   --control-hover-line: var(--line);
   --control-line: rgba(255, 255, 255, .10);
   --blur-panel-bg: color-mix(in srgb, var(--surface-1) 72%, transparent);
-  --blur-panel-hover-bg: color-mix(in srgb, var(--surface-hover) 78%, transparent);
   --blur-row-bg: color-mix(in srgb, var(--surface-row) 70%, transparent);
   --blur-row-hover-bg: color-mix(in srgb, var(--surface-row-hover) 76%, transparent);
   --search-overlay-bg: color-mix(in srgb, var(--bg) 54%, transparent);
@@ -55,9 +54,6 @@
   --inspiration-glow-opacity: .20;
   --inspiration-title: #FFFFFF;
   --inspiration-muted: rgba(255, 255, 255, .68);
-  --inspiration-pill-bg: rgba(8, 10, 14, .62);
-  --inspiration-pill-line: rgba(255, 255, 255, .08);
-  --inspiration-hover-line: rgba(255, 255, 255, .075);
   --card-backdrop-blur: blur(18px);
   --row-backdrop-blur: blur(14px);
   --active-bg: rgba(var(--accent-rgb), .13);
@@ -106,7 +102,6 @@
   --motion-ease-exit: cubic-bezier(.4, 0, 1, 1);
   --motion-ease-move: cubic-bezier(.22, .8, .3, 1);
   --motion-ease-ambient: cubic-bezier(.37, 0, .63, 1);
-  --motion-ease-brand: cubic-bezier(.34, 1.16, .64, 1);
   --sidebar-w: 88px;
   --nav-edge: 16px;
   --nav-clearance: 88px;
@@ -183,9 +178,6 @@
   --inspiration-glow-opacity: .15;
   --inspiration-title: #0E141C;
   --inspiration-muted: rgba(14, 20, 28, .62);
-  --inspiration-pill-bg: rgba(255, 255, 255, .68);
-  --inspiration-pill-line: rgba(17, 24, 39, .06);
-  --inspiration-hover-line: rgba(17, 24, 39, .075);
   --active-bg: rgba(var(--accent-rgb), .12);
   --active-bg-hover: rgba(var(--accent-rgb), .16);
   --active-line: rgba(var(--accent-rgb), .44);
@@ -252,9 +244,6 @@
     --inspiration-glow-opacity: .15;
     --inspiration-title: #0E141C;
     --inspiration-muted: rgba(14, 20, 28, .62);
-    --inspiration-pill-bg: rgba(255, 255, 255, .68);
-    --inspiration-pill-line: rgba(17, 24, 39, .06);
-    --inspiration-hover-line: rgba(17, 24, 39, .075);
     --active-bg: rgba(var(--accent-rgb), .12);
     --active-bg-hover: rgba(var(--accent-rgb), .16);
     --active-line: rgba(var(--accent-rgb), .44);

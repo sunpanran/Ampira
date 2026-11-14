@@ -50,8 +50,8 @@ async function testReadAllCompletesBeforePreferenceSaveAndRejectsReentry() {
     srOnly() {},
     writeJson() {},
     readJson: (_key, fallback) => fallback,
-    apiPost: (url) => {
-      if (url === "/api/settings") return settingsSave.then(() => state.settings);
+    request: ({ type: url }) => {
+      if (url === "settings:save") return settingsSave.then(() => state.settings);
       feedback.push(url);
       return Promise.resolve({});
     },
@@ -69,17 +69,17 @@ async function testReadAllCompletesBeforePreferenceSaveAndRejectsReentry() {
   await Promise.resolve();
   assert.deepEqual(opened, ["https://example.com/story"], "read-all must open URLs before waiting for preference persistence");
   assert.deepEqual([...state.readingQueue], [], "read-all must commit the queue mutation in the user gesture");
-  assert.deepEqual(feedback, ["/api/feedback"]);
+  assert.deepEqual(feedback, ["feedback:record"]);
 
   const second = controller.openAndMarkReadingQueue(items);
   assert.deepEqual(opened, ["https://example.com/story"], "a pending read-all action must reject reentry");
-  assert.deepEqual(feedback, ["/api/feedback"], "reentry must not submit duplicate feedback");
+  assert.deepEqual(feedback, ["feedback:record"], "reentry must not submit duplicate feedback");
   assert.equal(confirmCount, 1);
 
   releaseSettingsSave();
   await Promise.all([first, second]);
   assert.deepEqual(opened, ["https://example.com/story"]);
-  assert.deepEqual(feedback, ["/api/feedback"]);
+  assert.deepEqual(feedback, ["feedback:record"]);
 }
 
 async function testReadAllCanMarkWithoutOpeningWebsites() {
@@ -119,8 +119,8 @@ async function testReadAllCanMarkWithoutOpeningWebsites() {
     srOnly() {},
     writeJson() {},
     readJson: (_key, fallback) => fallback,
-    apiPost: async (url, payload) => {
-      if (url === "/api/settings") saved.push(payload);
+    request: async ({ type: url, payload }) => {
+      if (url === "settings:save") saved.push(payload);
       return state.settings;
     },
     confirmAction: async (content) => {

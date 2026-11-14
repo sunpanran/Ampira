@@ -22,9 +22,8 @@ const els = { summaryGrid: node(), summaryBatch: node(), summaryMeta: node(), su
 const writes = [];
 const view = createSummaryView({
   state, els, t: key => key,
-  itemUrl: item => item.url, isDisplayableFeedItem: () => true, isNewsCard: () => false,
-  createPriorityRanker: () => ({ compareByOrder: () => () => 0 }), mergeRankedUnique: () => [],
-  pageForItems: () => ({ items: [], variant: 0, pageCount: 1 }), batchLabel: () => "",
+    isNewsCard: () => false,
+   batchLabel: () => "",
   createEmptyState: () => node(), prefersReducedMotion: () => true,
   writeValue: (...args) => writes.push(args),
 });

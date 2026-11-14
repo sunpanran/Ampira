@@ -26,10 +26,10 @@ function harness() {
   const view = createSummaryView({
     state, els: { summaryGrid: node(), summaryBatch: node(), summaryMeta: node(), summaryOrder: node() },
     confirmManualAiUsage: () => confirmation.promise,
-    apiPost: async (url, body) => { requests.push({ url, body }); started.resolve(); return response.promise; },
-    itemUrl: item => item.url, t: key => key, createThemedIcon: () => node(), srOnly: text => text,
-    isDisplayableFeedItem: () => true, isNewsCard: () => false, createPriorityRanker: () => ({ compareByOrder: () => () => 0 }), mergeRankedUnique: () => [],
-    pageForItems: () => ({ items: [], variant: 0, pageCount: 1 }), batchLabel: () => "", createEmptyState: () => node(),
+    request: async ({ type, payload }) => { requests.push({ type, payload }); started.resolve(); return response.promise; },
+     t: key => key, createThemedIcon: () => node(), srOnly: text => text,
+     isNewsCard: () => false,
+     batchLabel: () => "", createEmptyState: () => node(),
     prefersReducedMotion: () => true, animateCardsIn() {}, syncSegmentedIndicator() {},
     localizedResponseMessage: () => "Synthetic failure", localizedErrorMessage: error => error.message, renderOverviewStatus() {},
   });
@@ -53,7 +53,7 @@ function harness() {
   h.confirmation.resolve(true);
   await h.started.promise;
   assert.equal(h.requests.length, 1, "clicks awaiting the same confirmation must not start duplicate summaries");
-  assert.equal(h.requests[0].url, "/api/summary/refresh");
+  assert.equal(h.requests[0].type, "summary:refresh");
   assert.equal(h.button.disabled, true, "the originating button remains available after the click event has finished dispatching");
   assert.equal(h.button.getAttribute("aria-label"), "aiTask.running");
   assert.equal(h.card.getAttribute("aria-busy"), "true");

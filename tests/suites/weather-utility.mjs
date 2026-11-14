@@ -14,6 +14,7 @@ import {
   weatherLocationFingerprint,
 } from "../../extension/core/weather.mjs";
 import { createWeatherService } from "../../extension/runtime/weather-service.mjs";
+import { defaultWeatherLocation } from "../../assets/client/weather-card-state.mjs";
 import {
   CHINA_LOCATION_DATA_MAX_BYTES,
   createChinaLocationLoader,
@@ -38,7 +39,8 @@ export async function runWeatherUtilityTests() {
     "utf8",
   ));
   assert.equal(normalizeUtilityMode("weather"), "weather");
-  assert.equal(normalizeUtilityMode("invalid"), "events");
+  assert.equal(normalizeUtilityMode("invalid"), "weather");
+  assert.equal(normalizeUtilityMode(), "weather");
   assert.deepEqual(UTILITY_MODES.map(normalizeUtilityMode), ["events", "weather", "todo"]);
   assert.deepEqual(
     ["clear", "partlyCloudy", "overcast", "fog", "drizzle", "rain", "snow", "thunderstorm", "unknown", "invalid"]
@@ -57,6 +59,16 @@ export async function runWeatherUtilityTests() {
   );
 
   const cixiLocations = searchChinaLocationRecords(chinaLocationRecords, "慈溪", "zh-CN");
+  const beijing = defaultWeatherLocation("zh-CN");
+  const beijingRecord = searchChinaLocationRecords(chinaLocationRecords, "北京", "zh-CN")[0];
+  assert.equal(beijing.id, beijingRecord.id);
+  assert.equal(weatherLocationFingerprint(beijing.latitude, beijing.longitude),
+    weatherLocationFingerprint(beijingRecord.latitude, beijingRecord.longitude));
+  assert.deepEqual(defaultWeatherLocation("zh-Hant"), beijing);
+  assert.deepEqual(defaultWeatherLocation(), beijing);
+  assert.equal(defaultWeatherLocation("en").name, "London");
+  assert.equal(defaultWeatherLocation("en-GB").countryCode, "GB");
+  assert.equal(weatherLocationFingerprint(defaultWeatherLocation("en").latitude, defaultWeatherLocation("en").longitude), "51.5085,-0.1257");
   assert.deepEqual(cixiLocations.map((location) => [location.name, location.admin2, location.admin1]), [
     ["慈溪市", "宁波市", "浙江省"],
   ]);
@@ -99,12 +111,28 @@ export async function runWeatherUtilityTests() {
 
   const forecastPayload = weatherFixture();
   const normalizedForecast = normalizeWeatherForecastResponse(forecastPayload);
-  assert.equal(normalizedForecast.daily.length, 2);
+  assert.equal(normalizedForecast.daily.length, 5);
   assert.equal(normalizedForecast.current.date, "2026-07-14");
   assert.equal(normalizedForecast.current.temperatureC, 27.3);
   assert.equal(normalizedForecast.current.precipitationProbability, 10);
+  assert.equal(normalizedForecast.current.relativeHumidity, 64);
+  assert.equal(normalizedForecast.current.windSpeedKmh, 12.4);
   assert.equal(weatherConditionKey(normalizedForecast.current.weatherCode), "partlyCloudy");
-  assert.deepEqual(normalizedForecast.daily.map((day) => day.precipitationProbabilityPeak), [80, 0]);
+  assert.deepEqual(normalizedForecast.daily.map((day) => day.precipitationProbabilityPeak), [80, 0, 20, 40, 60]);
+  assert.equal(normalizedForecast.daily.at(-1).date, "2026-07-19");
+  for (const [humidity, wind] of [[null, undefined], [101, -1], ["wet", "windy"]]) {
+    const missingMetrics = normalizeWeatherForecastResponse({ ...forecastPayload, current: {
+      ...forecastPayload.current, relative_humidity_2m: humidity, wind_speed_10m: wind,
+    } });
+    assert.equal(missingMetrics.current.relativeHumidity, null, "missing extra readings must not become zero or discard the forecast");
+    assert.equal(missingMetrics.current.windSpeedKmh, null);
+    assert.equal(missingMetrics.daily.length, 5);
+  }
+  const calm = normalizeWeatherForecastResponse({ ...forecastPayload, current: {
+    ...forecastPayload.current, relative_humidity_2m: 0, wind_speed_10m: 0,
+  } });
+  assert.equal(calm.current.relativeHumidity, 0);
+  assert.equal(calm.current.windSpeedKmh, 0);
   const realtimeConditionPayload = weatherFixture();
   realtimeConditionPayload.daily.weather_code[0] = 95;
   const realtimeCondition = normalizeWeatherForecastResponse(realtimeConditionPayload);
@@ -115,12 +143,15 @@ export async function runWeatherUtilityTests() {
   );
   assert.deepEqual(
     normalizedForecast.daily.map((day) => day.weatherCode),
-    [61, 0],
+    [61, 0, 2, 3, 61],
     "daily peak conditions must retain the provider's native weather code for secondary warnings",
   );
   assert.equal(normalizeWeatherForecastResponse({ ...forecastPayload, daily: { ...forecastPayload.daily, time: ["2026-07-14"] } }), null);
   assert.equal(normalizeWeatherForecastResponse({ ...forecastPayload, current: { ...forecastPayload.current, temperature_2m: "hot" } }), null);
   assert.equal(normalizeWeatherForecastResponse({ ...forecastPayload, current: { ...forecastPayload.current, temperature_2m: null } }), null);
+  const incompleteForecast = weatherFixture();
+  incompleteForecast.daily.temperature_2m_max.pop();
+  assert.equal(normalizeWeatherForecastResponse(incompleteForecast), null, "all five future days must have matching data arrays");
   testDailyWeatherSummary();
 
   const permissionGateway = createPermissionGateway({
@@ -186,6 +217,8 @@ async function testWeatherService(forecastPayload, chinaLocationRecords) {
     },
   });
   await assert.rejects(() => denied.searchLocations({ query: "x", locale: "en" }), (error) => error.code === "INVALID_WEATHER_QUERY");
+  await assert.rejects(() => denied.getForecast(defaultWeatherLocation("zh-CN")), (error) => error.code === "WEATHER_PERMISSION_REQUIRED",
+    "default cities must not bypass optional weather access");
   assert.equal(lazyLoadCalls, 0, "invalid searches must be rejected before loading the packaged China index");
   await assert.rejects(() => denied.searchLocations({ query: "Paris", locale: "en" }), (error) => (
     error.code === "WEATHER_PERMISSION_REQUIRED" && error.messageKey === "background.error.weatherPermission"
@@ -233,7 +266,7 @@ async function testWeatherService(forecastPayload, chinaLocationRecords) {
   assert.equal(searchUrl.pathname, "/v1/search");
   assert.equal(searchUrl.searchParams.get("count"), "5");
   assert.equal(searchUrl.searchParams.get("language"), "zh");
-  assert.equal(requests[0].limits.timeoutMs, 8000);
+  assert.equal(requests[0].limits.timeoutMs, 15000);
   assert.equal(requests[0].limits.maxBytes, 128 * 1024);
 
   const failedLocalIndexRequests = [];
@@ -261,21 +294,25 @@ async function testWeatherService(forecastPayload, chinaLocationRecords) {
 
   const location = { latitude: 48.8566, longitude: 2.3522 };
   const legacyForecast = normalizeWeatherForecastResponse(forecastPayload);
-  records.set("weather-forecast-v3", {
+  records.set("weather-forecast-v4", {
     ...legacyForecast,
-    daily: legacyForecast.daily.map(({ dominantWeatherCode, ...day }) => day),
+    daily: legacyForecast.daily.slice(0, 2),
     locationFingerprint: weatherLocationFingerprint(location.latitude, location.longitude),
     fetchedAt: new Date(currentTime).toISOString(),
   });
   const first = await service.getForecast(location);
   assert.equal(first.stale, false);
-  assert.equal(requests.length, 2, "the old peak-only cache must not bypass the new hourly summary request");
+  assert.equal(requests.length, 2, "the old two-day cache must not bypass the extended forecast request");
+  assert.equal(first.daily.length, 5);
+  assert.equal(first.current.relativeHumidity, 64);
+  assert.equal(first.current.windSpeedKmh, 12.4);
   const forecastUrl = new URL(requests[1].url);
   assert.equal(forecastUrl.origin, WEATHER_FORECAST_ORIGIN);
   assert.equal(forecastUrl.pathname, "/v1/forecast");
-  assert.equal(forecastUrl.searchParams.get("forecast_days"), "3");
+  assert.equal(forecastUrl.searchParams.get("forecast_days"), "6");
   assert.equal(forecastUrl.searchParams.get("temperature_unit"), "celsius");
-  assert.equal(forecastUrl.searchParams.get("current"), "temperature_2m,apparent_temperature,weather_code");
+  assert.equal(forecastUrl.searchParams.get("wind_speed_unit"), "kmh");
+  assert.equal(forecastUrl.searchParams.get("current"), "temperature_2m,apparent_temperature,weather_code,relative_humidity_2m,wind_speed_10m");
   assert.equal(forecastUrl.searchParams.get("hourly"), "precipitation_probability,weather_code");
   assert.equal(forecastUrl.searchParams.get("daily"), "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max");
   assert.equal(forecastUrl.searchParams.has("models"), false, "Open-Meteo must select its native best-match model");
@@ -284,12 +321,14 @@ async function testWeatherService(forecastPayload, chinaLocationRecords) {
   currentTime += WEATHER_CACHE_FRESH_MS;
   const fresh = await service.getForecast(location);
   assert.equal(fresh.stale, false);
+  assert.deepEqual(fresh.daily, first.daily, "cached forecasts retain all five future days");
   assert.equal(requests.length, 2, "a 30-minute weather cache must avoid another network request");
 
   currentTime += 1;
   failForecast = true;
   const stale = await service.getForecast(location);
   assert.equal(stale.stale, true);
+  assert.deepEqual(stale.daily, first.daily, "offline fallback retains the extended forecast");
   assert.equal(requests.length, 3);
 
   const midnightCache = {
@@ -327,6 +366,17 @@ async function testWeatherService(forecastPayload, chinaLocationRecords) {
     },
   });
   await assert.rejects(() => wrongOrigin.searchLocations({ query: "Paris" }), (error) => error.code === "WEATHER_ORIGIN_MISMATCH");
+
+  const timedOut = createWeatherService({
+    hasOriginPermissions: async () => true,
+    getRecord: async () => null,
+    setRecord: async () => {},
+    typedError,
+    fetchBoundedResponse: async () => { throw Object.assign(new Error("timeout"), { code: "NETWORK_TIMEOUT" }); },
+  });
+  await assert.rejects(() => timedOut.getForecast(defaultWeatherLocation("en")), (error) => (
+    error.code === "WEATHER_TIMEOUT" && error.messageKey === "background.error.weatherTimeout" && error.retryable === true
+  ), "a timed-out forecast must remain distinguishable and retryable");
 }
 
 function testDailyWeatherSummary() {
@@ -422,7 +472,9 @@ function typedError(code, messageKey, messageParams = {}, retryable = false, det
 }
 
 function weatherFixture() {
-  const dates = ["2026-07-14", "2026-07-15", "2026-07-16"];
+  const dates = ["2026-07-14", "2026-07-15", "2026-07-16", "2026-07-17", "2026-07-18", "2026-07-19"];
+  const codes = [2, 61, 0, 2, 3, 61];
+  const probabilities = [10, 80, 0, 20, 40, 60];
   return {
     timezone: "Europe/Paris",
     current: {
@@ -430,22 +482,20 @@ function weatherFixture() {
       temperature_2m: 27.34,
       apparent_temperature: 28.7,
       weather_code: 2,
+      relative_humidity_2m: 64,
+      wind_speed_10m: 12.36,
     },
     daily: {
       time: dates,
-      weather_code: [2, 61, 0],
-      temperature_2m_max: [29.4, 25.2, 30.1],
-      temperature_2m_min: [20.2, 18.4, 19.8],
-      precipitation_probability_max: [10, 80, 0],
+      weather_code: codes,
+      temperature_2m_max: [29.4, 25.2, 30.1, 28.1, 27.2, 26.3],
+      temperature_2m_min: [20.2, 18.4, 19.8, 19.2, 18.1, 17.3],
+      precipitation_probability_max: probabilities,
     },
     hourly: {
       time: dates.flatMap((date) => Array.from({ length: 24 }, (_, index) => `${date}T${String(index).padStart(2, "0")}:00`)),
-      weather_code: [...Array(24).fill(2), ...Array(24).fill(61), ...Array(24).fill(0)],
-      precipitation_probability: [
-        ...Array(24).fill(10),
-        ...Array(24).fill(80),
-        ...Array(24).fill(0),
-      ],
+      weather_code: codes.flatMap(code => Array(24).fill(code)),
+      precipitation_probability: probabilities.flatMap(value => Array(24).fill(value)),
     },
   };
 }

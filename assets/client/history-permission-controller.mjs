@@ -7,6 +7,11 @@ export function createHistoryPermissionController({ t }) {
   let busy = false;
   let version = 0;
 
+  function showFeedback(key = "") {
+    status.textContent = key ? t(key) : "";
+    status.hidden = !key;
+  }
+
   async function refresh() {
     const token = ++version;
     const enabled = await containsPermissions(["history"]).catch(() => false);
@@ -14,7 +19,7 @@ export function createHistoryPermissionController({ t }) {
     granted = enabled === true;
     toggle.checked = granted;
     toggle.disabled = busy || !globalThis.chrome?.permissions?.request;
-    status.textContent = t(granted ? "settings.browser.historyEnabled" : "settings.browser.historyDisabled");
+    showFeedback();
   }
 
   toggle.addEventListener("change", async () => {
@@ -25,10 +30,10 @@ export function createHistoryPermissionController({ t }) {
       // Invoke the permission request directly in the checkbox's user gesture.
       const changed = await (toggle.checked ? requestPermissions(["history"]) : removePermissions(["history"]));
       await refresh();
-      if (!changed) status.textContent = t("search.unified.permissionDeclined");
+      if (!changed) showFeedback("search.unified.permissionDeclined");
     } catch {
       await refresh();
-      status.textContent = t("settings.browser.historyError");
+      showFeedback("settings.browser.historyError");
     } finally {
       busy = false;
       toggle.disabled = !globalThis.chrome?.permissions?.request;

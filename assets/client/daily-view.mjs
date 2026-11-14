@@ -1,3 +1,5 @@
+import { pageForItems, seededShuffle as shuffle } from "./dashboard-model.mjs";
+import { mergeRankedUnique, selectTodayNewsItems, selectUnseenPool } from "./dashboard-selectors.mjs";
 import { isHotNewsItem as matchesHotNews, isSummaryFillItem as matchesSummaryFill } from "./card-policy.mjs";
 import { createDailyBatchTransition } from "./daily-batch-transition.mjs";
 import { createDailyCardView } from "./daily-card-view.mjs";
@@ -5,7 +7,7 @@ import { spanText } from "./dom.mjs";
 import { orderPresetInspiration } from "./inspiration-preset-selection.mjs";
 import { createArchiveCardView } from "./archive-card-view.mjs";
 import { setKeyboardShortcutHint } from "./keyboard-shortcuts.mjs";
-import { playBatchActionFeedback } from "./motion.mjs";
+import { bindElasticActionFeedback, playElasticActionFeedback } from "./motion.mjs";
 
 export function shouldShowColumnAction(column) {
   const type = column?.action;
@@ -15,21 +17,22 @@ export function shouldShowColumnAction(column) {
   return true;
 }
 
+const DAILY_NEWS_COUNT = 10;
+const DAILY_NEWS_BATCH_LIMIT = 3;
+const DAILY_INSPIRATION_COUNT = 5;
+const DAILY_INSPIRATION_BATCH_LIMIT = 3;
+const UPDATE_INSPIRATION_PRELOAD_TIMEOUT_MS = 800;
+const DAILY_BOARD_CARD_SELECTOR = ".news-list-card, .daily-card";
+const NEWS_CARD_TYPE = "news";
+const INSPIRATION_CARD_TYPE = "inspiration";
+
 export function createDailyView(options) {
   const {
-    state, els, dashboardLayout, t, itemUrl, displayTitle, displaySummaryTitle,
-    createEmptyState, createThemedIcon, createReadingActions,
-    createBookmarkFavicon, contextAttachLink, openDailyItem,
-    newsSummaryItems, inspirationPreviews,
-    isHttpUrl, faviconUrl, hostFromUrl,
-    writeValue, pageForItems, shuffle,
-    dailyNewsCount, dailyNewsBatchLimit, dailyInspirationCount,
-    dailyInspirationBatchLimit, updateInspirationPreloadTimeoutMs,
-    dailyBoardCardSelector, newsCardType,
-    inspirationCardType,
-    createNewsRanker, createSeenButton, displayBookmarkTitle, localizedCategory,
-    mergeRankedUnique, selectTodayNewsItems, selectUnseenPool, openExternal, persistSeen, renderAll, renderDailyCards,
-    renderTodayMeta, setIconLabel, localizedStatusMessage, confirmAction, cardTransition,
+    state, els, dashboardLayout, t, createEmptyState, createThemedIcon, createReadingActions,
+    createBookmarkFavicon, contextAttachLink, openDailyItem, newsSummaryItems, inspirationPreviews, faviconUrl,
+    writeValue, createNewsRanker, createSeenButton, displayBookmarkTitle, localizedCategory, openExternal,
+    persistSeen, renderAll, renderDailyCards, renderTodayMeta, setIconLabel, localizedStatusMessage,
+    confirmAction, cardTransition, toggleSeen, attachMenuButton,
   } = options;
   const {
     animateCardsIn, animateCardsOut, canReuseCard, clearCardAnimationState,
@@ -45,26 +48,22 @@ export function createDailyView(options) {
     updateVisibleInspirationThumbs,
     createArchiveCard,
   } = createDailyCardView({
-    dashboardLayout,
-    state, els, t, itemUrl, displayTitle, displaySummaryTitle, createThemedIcon,
-    createReadingActions, createBookmarkFavicon, contextAttachLink, openDailyItem,
-    createSeenButton, localizedCategory, inspirationPreviews, faviconUrl,
-    isHttpUrl, hostFromUrl, openExternal, displayBookmarkTitle, isNewsCard,
-    isInspirationCard, setCardItemIdentity,
+    dashboardLayout, state, els, t, createThemedIcon, createReadingActions, createBookmarkFavicon,
+    contextAttachLink, openDailyItem, createSeenButton, localizedCategory, inspirationPreviews, faviconUrl,
+    openExternal, displayBookmarkTitle, isNewsCard, isInspirationCard, setCardItemIdentity, toggleSeen,
   });
   const archiveView = createArchiveCardView({
     state, t, createEmptyState, createArchiveCard, setIconLabel, confirmAction, persistSeen, renderAll,
-    newsSummaryItems, hostFromUrl, newsSectionName, newsCardType, isNewsCard,
+    newsSummaryItems, newsSectionName, isNewsCard, attachMenuButton,
   });
   const dailyBatchTransition = createDailyBatchTransition({
     getColumn: dashboardLayout.getCard,
-    animateCardsIn, canReuseCard, clearCardAnimationState, dailyBoardCardSelector,
+    animateCardsIn, canReuseCard, clearCardAnimationState, dailyBoardCardSelector: DAILY_BOARD_CARD_SELECTOR,
     dailyColumns, directDailyCards, els, prefersReducedMotion,
     renderColumn: (columnId, batchTransition) => {
-      renderDailyColumn(columnId, { batchTransition, preserveBatchTransition: true });
       for (const column of dailyColumns()) {
-        if (column.id !== columnId && column.type === state.cardTypes[columnId]) {
-          renderDailyColumn(column.id, { preserveBatchTransition: true });
+        if (column.type === state.cardTypes[columnId]) {
+          renderDailyColumn(column.id, { batchTransition: batchTransition?.get(column.id), preserveBatchTransition: true });
         }
       }
     },
@@ -93,8 +92,8 @@ function dailyColumns() {
 }
 
 function dailyColumn(id, type) {
-  const pageInfo = dailyPageForCardType(type === "news" ? newsCardType : inspirationCardType,
-    type === "news" ? dailyNewsCount : dailyInspirationCount);
+  const pageInfo = dailyPageForCardType(type === "news" ? NEWS_CARD_TYPE : INSPIRATION_CARD_TYPE,
+    type === "news" ? DAILY_NEWS_COUNT : DAILY_INSPIRATION_COUNT);
   return { id, type, items: pageInfo.items, action: "reshuffle", pageInfo };
 }
 
@@ -180,7 +179,7 @@ function cancelDailyColumnTransition(columnId) {
 }
 
 function directDailyCards(root) {
-  return Array.from(root.children).filter((node) => node.matches?.(dailyBoardCardSelector));
+  return Array.from(root.children).filter((node) => node.matches?.(DAILY_BOARD_CARD_SELECTOR));
 }
 
 function createDailyColumnEmptyState(column) {
@@ -198,7 +197,6 @@ function createDailyColumnEmptyState(column) {
   return createEmptyState({
     ...(emptyStates[column.type] || {
       title: t("daily.empty.defaultTitle"),
-      body: t("daily.empty.defaultBody"),
     }),
     variant: "compact",
   });
@@ -222,9 +220,7 @@ function createDailyNewsCachingState() {
   title.textContent = t("daily.loading.newsTitle");
   const body = document.createElement("div");
   body.className = "empty-state-body";
-  body.textContent = t("daily.loading.newsBody", {
-    message: localizedStatusMessage(status, "status.nextBatchPreparing"),
-  });
+  body.textContent = localizedStatusMessage(status, "status.nextBatchPreparing");
   copy.append(title, body);
 
   const meter = document.createElement("div");
@@ -270,6 +266,7 @@ function createColumnAction(column) {
     button.classList.add("accent");
     button.dataset.batchAction = column.id;
     setKeyboardShortcutHint(button, "batch", t("action.reshuffle"), state.settings);
+    bindElasticActionFeedback(button);
     button.addEventListener("click", () => reshuffleDailyColumn(column.id));
 
   }
@@ -279,42 +276,42 @@ function createColumnAction(column) {
 function reshuffleDailyColumn(columnId) {
   const type = state.cardTypes[columnId];
   if (!["news", "inspiration"].includes(type)) return;
-  const count = type === "news" ? dailyNewsCount : dailyInspirationCount;
-  const page = dailyPageForCardType(type === "news" ? newsCardType : inspirationCardType, count);
+  const count = type === "news" ? DAILY_NEWS_COUNT : DAILY_INSPIRATION_COUNT;
+  const page = dailyPageForCardType(type === "news" ? NEWS_CARD_TYPE : INSPIRATION_CARD_TYPE, count);
   if (page.pageCount <= 1) return;
   state.variants[type] = (page.variant + 1) % page.pageCount;
   writeValue(`dash.variant.${state.day}.${type}`, String(state.variants[type]));
   if (type === "inspiration") writeValue(`dash.variant.${state.day}`, String(state.variants[type]));
-  playBatchActionFeedback(dashboardLayout.getCard(columnId)?.querySelector("[data-batch-action]"));
+  playElasticActionFeedback(dashboardLayout.getCard(columnId)?.querySelector("[data-batch-action]"));
   dailyBatchTransition.run(columnId);
-  if (type === "inspiration") void preloadDailyInspiration(updateInspirationPreloadTimeoutMs);
+  if (type === "inspiration") void preloadDailyInspiration(UPDATE_INSPIRATION_PRELOAD_TIMEOUT_MS);
 }
 
 function newsSectionName() {
-  return state.data?.sections?.find((section) => section.cardType === newsCardType)?.name
+  return state.data?.sections?.find((section) => section.cardType === NEWS_CARD_TYPE)?.name
     || state.settings?.newsBookmarkFolder
     || t("bookmarkFolder.defaultNews");
 }
 
 function inspirationSectionName() {
-  return state.data?.sections?.find((section) => section.cardType === inspirationCardType)?.name
+  return state.data?.sections?.find((section) => section.cardType === INSPIRATION_CARD_TYPE)?.name
     || state.settings?.inspirationBookmarkFolder
     || t("bookmarkFolder.defaultInspiration");
 }
 
 function isNewsCard(item) {
-  return item?.cardType === newsCardType;
+  return item?.cardType === NEWS_CARD_TYPE;
 }
 
 function isInspirationCard(item) {
-  return item?.cardType === inspirationCardType;
+  return item?.cardType === INSPIRATION_CARD_TYPE;
 }
 
 function dailyPageForCardType(cardType, count) {
-  if (cardType === newsCardType) {
-    return fixedDailyPage(dailyNewsItems(), state.seen, count, dailyNewsBatchLimit, state.variants.news);
+  if (cardType === NEWS_CARD_TYPE) {
+    return fixedDailyPage(dailyNewsItems(), state.seen, count, DAILY_NEWS_BATCH_LIMIT, state.variants.news);
   }
-  return fixedDailyPage(dailyInspirationItems(), state.seen, count, dailyInspirationBatchLimit, state.variants.inspiration);
+  return fixedDailyPage(dailyInspirationItems(), state.seen, count, DAILY_INSPIRATION_BATCH_LIMIT, state.variants.inspiration);
 }
 
 function fixedDailyPage(items, seenKeys, count, batchLimit, variant) {
@@ -335,14 +332,14 @@ function dailyInspirationItems() {
   return shuffle(items, seed);
 }
 
-function preloadDailyInspiration(timeoutMs = updateInspirationPreloadTimeoutMs) {
+function preloadDailyInspiration(timeoutMs = UPDATE_INSPIRATION_PRELOAD_TIMEOUT_MS) {
   if (!state.data || (state.data.bot && state.data.bot.scopes?.inspiration !== false) || !state.settings?.bookmarkConsentGranted) return Promise.resolve([]);
   const pool = selectUnseenPool(
     dailyInspirationItems(),
     state.seen,
-    dailyInspirationCount * dailyInspirationBatchLimit,
+    DAILY_INSPIRATION_COUNT * DAILY_INSPIRATION_BATCH_LIMIT,
   );
-  const current = pageForItems(pool, dailyInspirationCount, state.variants.inspiration).items;
+  const current = pageForItems(pool, DAILY_INSPIRATION_COUNT, state.variants.inspiration).items;
   const items = [...current, ...pool].filter((item) => !item.coverAsset && item.sourceKind !== "preset");
   if (!items.length) return Promise.resolve([]);
   return inspirationPreviews.preload(items, { timeoutMs }).catch(() => []);
@@ -366,8 +363,8 @@ function dailyNewsItems() {
   return selectTodayNewsItems(ranked, {
     compare: ranker.compareImportant,
     recentLimit: 3,
-    pageSize: dailyNewsCount,
-    pageCount: dailyNewsBatchLimit,
+    pageSize: DAILY_NEWS_COUNT,
+    pageCount: DAILY_NEWS_BATCH_LIMIT,
     publisherLimit: state.settings?.todayNewsPerPublisherLimit ?? 0,
   });
 }

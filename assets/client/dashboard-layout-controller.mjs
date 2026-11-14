@@ -3,7 +3,7 @@ import { createDashboardLayoutState } from "./dashboard-layout-state.mjs";
 import { bindDashboardLayoutDrag } from "./dashboard-layout-drag.mjs";
 import { createDashboardLayoutMotion } from "./dashboard-layout-motion.mjs";
 
-export function createDashboardLayoutController({ state, els, t, apiPost, localizedErrorMessage }) {
+export function createDashboardLayoutController({ state, els, t, request, localizedErrorMessage }) {
   const root = els.dailyBoard.closest(".daily-shell");
   const cards = new Map();
   root.classList.add("has-dashboard-layout");
@@ -28,7 +28,7 @@ export function createDashboardLayoutController({ state, els, t, apiPost, locali
   let drag;
   const layout = createDashboardLayoutState({
     initialOrder: state.settings?.dashboardCardOrder,
-    save: (dashboardCardOrder) => apiPost("/api/settings", { dashboardCardOrder }),
+    save: (dashboardCardOrder) => request({ type: "settings:save", payload: { dashboardCardOrder } }),
     apply: applyOrder,
     setBusy: (busy) => {
       root.classList.toggle("is-layout-saving", busy);

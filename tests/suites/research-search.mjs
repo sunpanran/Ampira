@@ -88,6 +88,25 @@ assert.equal(inventory.bookmarks.find((bookmark) => bookmark.id === "a-post").ur
 assert(!Object.hasOwn(inventory.bookmarks[0], "publishedAt"), "bookmark dateAdded must never be promoted to publication time");
 
 const fixedNow = Date.UTC(2026, 7, 13, 12);
+for (const [query, start, end] of [
+  ["2025年", "2025-01-01", "2025-12-31"],
+  ["回顾2025年新闻", "2025-01-01", "2025-12-31"],
+  ["2026年11月14日发生了什么", "2026-11-14", "2026-11-14"],
+  ["2026 年 11 月 14 号", "2026-11-14", "2026-11-14"],
+  ["2024年2月29日", "2024-02-29", "2024-02-29"],
+  ["2026年11月14日至16日", "2026-11-14", "2026-11-16"],
+  ["2026年11月14日到12月1日", "2026-11-14", "2026-12-01"],
+  ["2026年12月31日至2027年1月2日", "2026-12-31", "2027-01-02"],
+  ["2026-11-14 的更新", "2026-11-14", "2026-11-14"],
+]) {
+  const intent = detectResearchTimeIntent(query, fixedNow);
+  assert.equal(intent.explicit, true, query);
+  assert.equal(intent.startAt, `${start}T00:00:00.000Z`, query);
+  assert.equal(intent.endAt, `${end}T23:59:59.999Z`, query);
+}
+for (const query of ["2025年2月29日", "2026年11月31日", "2026年11月16日至14日", "2026-02-30"]) {
+  assert.equal(detectResearchTimeIntent(query, fixedNow).explicit, false, "invalid days must not silently widen to a month or year");
+}
 assert.equal(detectResearchTimeIntent("最近有哪些更新", fixedNow).kind, "recent");
 assert.equal(detectResearchTimeIntent("值得关注的内容", fixedNow).kind, "default");
 const monthIntent = detectResearchTimeIntent("近一个月的重要内容", fixedNow);
@@ -299,12 +318,18 @@ assert.equal(pruneResearchCacheEntries([{
 
 const plannedCompare = planResearchQuestion("配色工具里哪个比较好", { timeIntent: { kind: "default" } });
 assert.equal(plannedCompare.intent, "compare");
-assert.deepEqual(plannedCompare.requiredEvidence, ["passage-text", "multiple-entities", "comparison-fields"]);
-assert.equal(plannedCompare.subqueries.length, 3);
+for (const query of ["那哪个更适合我", "它有什么缺点", "這些哪個更好", "前者支持离线吗", "which is better"]) {
+  assert.match(planResearchQuestion(query, { previousQuestion: "比较 Aurora 与 Meridian 的功能" }).standaloneQuery,
+    /Aurora.*Meridian/, "referential follow-ups must retain the previous topic");
+}
+assert.equal(planResearchQuestion("item storage", { previousQuestion: "unrelated topic" }).standaloneQuery, "item storage",
+  "English pronouns must retain word boundaries");
+assert.equal(planResearchQuestion("数据库备份怎么做", { previousQuestion: "配色工具" }).standaloneQuery, "数据库备份怎么做");
+
 const genericRecommendation = planResearchQuestion("什么商品值得买", { timeIntent: { kind: "default" } });
 assert.equal(genericRecommendation.clarificationNeeded, true, "generic shopping questions must ask for decision context before scanning sources");
 const plannedPopular = planResearchQuestion("最近有什么热门内容", { timeIntent: { kind: "recent" } });
-assert(plannedPopular.requiredEvidence.includes("verified-date") && plannedPopular.requiredEvidence.includes("audience-metrics"));
+assert.equal(plannedPopular.freshnessIntent, "recent");
 
 const longDocument = createResearchDocument({
   title: "Palette tools",
@@ -322,14 +347,102 @@ assert(passageCacheEntry(retrievedPassages[0]) && !Object.hasOwn(passageCacheEnt
   "the corpus cache must retain only a small passage and its context, never the full document");
 assert.equal(passageCacheEntry({ ...retrievedPassages[0], evidenceLayer: "source" }), null,
   "source-level summaries must not silently enter the passage corpus");
-const insufficientComparison = assessResearchPassages(plannedCompare, retrievedPassages);
-assert.equal(insufficientComparison.canAnswer, false, "one document cannot support a best-tool comparison");
+assert.equal(assessResearchPassages(retrievedPassages).hasEvidence, true, "a single document may describe several options");
+const unrelatedPassages = segmentResearchDocument({
+  title: "家庭烘焙教程", url: "https://postgresql.example/baking", readLevel: "full",
+  content: "将面粉和清水搅拌均匀，加入酵母发酵，然后揉成光滑面团，放入烤箱烘烤，出炉后冷却并切片。",
+  publishedAt: new Date(fixedNow).toISOString(),
+});
+for (const query of ["PostgreSQL replication slot", "What is PostgreSQL replication?", "如何配置数据库复制", ""]) {
+  const found = retrieveResearchPassages(unrelatedPassages, planResearchQuestion(query), { now: fixedNow });
+  assert.equal(found.length, 0, "freshness, readability and URL keywords alone must not make unrelated passages evidence");
+  assert.equal(assessResearchPassages(found).hasEvidence, false);
+}
+const datedPassages = segmentResearchDocument({
+  title: "PostgreSQL replication", url: "https://db.example/replication", readLevel: "full",
+  content: "PostgreSQL replication slots retain the log required by subscribers until their acknowledged positions advance.",
+  publishedAt: new Date(fixedNow).toISOString(),
+});
+const relevantPlan = planResearchQuestion("PostgreSQL replication slot");
+const datedScore = retrieveResearchPassages(datedPassages, relevantPlan, { now: fixedNow })[0].retrievalScore;
+assert(datedScore > 0 && datedScore < 1000, "dates must not enter the numeric lexical relevance score");
+const shiftedScore = retrieveResearchPassages(datedPassages.map(item => ({ ...item, publishedAt: "2027-08-13T12:00:00Z" })),
+  relevantPlan, { now: Date.UTC(2027, 7, 13, 12) })[0].retrievalScore;
+assert.equal(datedScore, shiftedScore, "moving the same equally fresh evidence to another year must not change its relevance score");
+assert.equal(retrieveResearchPassages([...unrelatedPassages, ...datedPassages], relevantPlan, { now: fixedNow })[0].url,
+  datedPassages[0].url);
+const chinesePassages = segmentResearchDocument({ title: "数据库复制配置", url: "https://db.example/zh", readLevel: "full",
+  content: "数据库复制需要先配置主节点和订阅节点，再设置日志保留与复制槽，监控确认位置和磁盘使用情况，避免订阅端中断后积累过多日志。" });
+assert.equal(retrieveResearchPassages(chinesePassages, planResearchQuestion("如何配置数据库复制"), { now: fixedNow }).length, 1);
 
+await testUnrelatedEvidenceAndFollowups();
+await testLimitedEvidenceAnswers();
 await testScopeMatrix();
 await testNativeWebSearch();
 await testRuntimeRevalidation();
 
 console.log("research search tests passed");
+
+async function testUnrelatedEvidenceAndFollowups() {
+  const docs = [{ url: "https://alpha.example/bread", title: "家庭烘焙教程", text: unrelatedPassages[0].snippet.repeat(2) }];
+  const fixtureTree = [{ id: "root", children: [{ id: "ai", title: "References", children: docs.map(doc => ({ id: "bread", title: doc.title, url: doc.url })) }] }];
+  const h = serviceHarness({ aiEnabled: true, noFeedEvidence: true, tree: fixtureTree, documents: docs });
+  const result = await h.service.answerResearchSearch({ query: "PostgreSQL replication slot", research: { bookmarkFolderId: "ai" } });
+  assert.equal(result.evidence.length, 0);
+  assert.equal(result.usedAi, false, "unrelated pages must not trigger answer synthesis");
+  assert.equal(h.providerOptions, null);
+  const followup = serviceHarness({ aiEnabled: true });
+  const answer = await followup.service.answerResearchSearch({ query: "它有什么缺点", questionContext: {
+    type: "question", initialQuery: "Alpha frame control", initialAnswer: "Previous synthetic answer.",
+    turns: [{ question: "它支持哪些功能", answer: "Another synthetic answer." }],
+  }, research: { bookmarkFolderId: "ai" } });
+  assert(answer.evidence.length > 0 && answer.usedAi, "multiple short Chinese follow-ups must retain the original retrieval subject");
+  const datedDocs = [11, 12].map(day => ({ url: `https://alpha.example/day-${day}`, title: "发布记录",
+    text: "该页面记录了服务功能调整的具体内容，包括界面显示的变化、使用步骤和适用范围，并解释了相关功能的兼容性。".repeat(2),
+    publishedAt: `2026-08-${day}T08:00:00Z` }));
+  const datedTree = [{ id: "root", children: [{ id: "ai", title: "References", children: datedDocs.map((doc, index) => ({ id: String(index), title: doc.title, url: doc.url })) }] }];
+  const dates = serviceHarness({ noFeedEvidence: true, tree: datedTree, documents: datedDocs });
+  const day = await dates.service.answerResearchSearch({ query: "2026年8月12日发生了什么", research: { bookmarkFolderId: "ai" } });
+  assert(day.evidence.length > 0 && day.evidence.every(item => item.publishedAt.startsWith("2026-08-12")),
+    "a date-only request must keep that day's evidence without widening to the whole month");
+}
+
+async function testLimitedEvidenceAnswers() {
+  const tcp = { url: "https://alpha.example/tcp", title: "TCP", text: "TCP 在发送数据前建立连接，通过序号、确认和重传保证字节流有序到达；发送端根据接收窗口调整发送速率。连接两端维护传输状态，应用读取连续字节，而不需要自行恢复丢失的数据。" };
+  const udp = { url: "https://alpha.example/udp", title: "UDP", text: "UDP 以独立数据报发送内容，无需建立连接，也不会自动确认、重传或排序；接收端自行处理丢失和乱序。每个报文分别传递，应用可以根据自身需求决定是否补发，也可以直接忽略迟到的数据包。" };
+  const comparison = { url: "https://alpha.example/prices", title: "甲乙价格对照", text: "产品甲价格为每月二十元，产品乙价格为每月三十元。两款产品均按月付款，合同列明同样的计费单位和退款条件。两项订阅均无最低购买月数，页面另外注明上述金额不包含额外服务和按量使用部分。" };
+  const fixtureTree = docs => [{ id: "root", children: [{ id: "ai", title: "References", children: docs.map((doc, i) => ({ id: String(i), title: doc.title, url: doc.url })) }] }];
+  for (const [query, docs] of [
+    ["对比 TCP 和 UDP 的传输方式", [tcp, udp]],
+    ["比较产品甲和产品乙的价格", [comparison]],
+    ["最近有哪些 TCP 更新", [tcp]],
+    ["推荐热门 TCP 教程", [tcp]],
+  ]) {
+    const h = serviceHarness({ aiEnabled: true, noFeedEvidence: true, tree: fixtureTree(docs), documents: docs, providerAnswer: "正文支持这一部分；其余信息尚不明确 [S1]。" });
+    const result = await h.service.answerResearchSearch({ query, research: { bookmarkFolderId: "ai" } });
+    assert.equal(result.usedAi, true, query);
+    assert.match(h.providerSystem, /missing comparison fields or a single document/);
+    assert.match(h.providerSystem, /verifiable audience metrics/);
+    assert(result.evidence.length > 0);
+  }
+  for (const locale of ["zh-CN", "zh-Hant", "en"]) {
+    const outdated = { ...udp, publishedAt: "2025-01-01T00:00:00Z" };
+    const docs = [tcp, outdated];
+    const h = serviceHarness({ locale, aiEnabled: true, noFeedEvidence: true, tree: fixtureTree(docs), documents: docs });
+    const result = await h.service.answerResearchSearch({ query: "2026年8月 TCP 更新", research: { bookmarkFolderId: "ai" } });
+    assert.equal(result.usedAi, true);
+    assert(result.evidence.every(item => item.url === tcp.url && item.timeVerified === false));
+    assert.match(result.answer, locale === "en" ? /background.*latest/ : /背景.*指定期/);
+    assert.match(h.providerInput, /"timeScopeMatched":false/);
+  }
+  const abort = new AbortController();
+  const aborted = serviceHarness({ aiEnabled: true, onProvider: () => abort.abort(new Error("Synthetic cancellation")) });
+  await assert.rejects(aborted.service.answerResearchSearch({ query: "compare frame controls", research: { bookmarkFolderId: "ai" } }, { signal: abort.signal }), /Synthetic cancellation/);
+  const failed = serviceHarness({ aiEnabled: true, providerFails: true });
+  const fallback = await failed.service.answerResearchSearch({ query: "compare frame controls", research: { bookmarkFolderId: "ai" } });
+  assert.equal(fallback.usedAi, false);
+  assert(fallback.evidence.length > 0 && fallback.answer.includes("[S1]"));
+}
 
 async function testScopeMatrix() {
   const folderHarness = serviceHarness();
@@ -448,7 +561,7 @@ async function testScopeMatrix() {
 }
 
 async function testNativeWebSearch() {
-  const nativeHarness = serviceHarness();
+  const nativeHarness = serviceHarness({ nativeWebTitle: "宁波天气", nativeWebSnippet: "宁波天气预报说明了当地今天的气温、降水和风力情况，并列出白天与夜间的变化，供出行前参考。" });
   const native = await nativeHarness.service.answerResearchSearch({
     query: "今天宁波天气怎么样",
     research: { bookmarkFolderId: "", webSearch: true },
@@ -459,17 +572,18 @@ async function testNativeWebSearch() {
     "provider-native web search responses must not expose legacy Brave permission fields");
   assert.match(native.answer, /\[S1\]/, "provider annotations must become visible Ampira evidence citations");
 
-  const wideningHarness = serviceHarness({ webResultCounts: [2, 6] });
+  const wideningHarness = serviceHarness({ webResultCounts: [2, 6], nativeWebTitle: "AI 视频模型首尾帧控制",
+    nativeWebSnippet: "AI 视频模型支持首尾帧控制，使用参考图片约束视频开头和结尾的构图，并提供不同长度的输出选项。" });
   const widened = await wideningHarness.service.answerResearchSearch({
     query: "最近有哪些 AI 视频模型支持首尾帧控制",
     research: { bookmarkFolderId: "", webSearch: true },
   });
-  assert.equal(wideningHarness.webCalls, 3,
-    "recent web research must widen from seven days to 31 days and then remove the limit when dated evidence remains insufficient");
+  assert.equal(wideningHarness.webCalls, 2,
+    "enough undated passages permit a qualified answer without a redundant third search");
   assert.equal(widened.coverage.expandedBeyondRecent, true);
   assert.match(wideningHarness.providerInputs[0], /publication window/i);
   assert.notEqual(wideningHarness.providerInputs[0], wideningHarness.providerInputs[1]);
-  assert.match(wideningHarness.providerInputs[2], /no publication-date restriction/i);
+  assert(widened.notices.some(notice => /日期|date/i.test(notice)));
 
   const emptyHarness = serviceHarness({ nativeWebNoSources: true });
   const empty = await emptyHarness.service.answerResearchSearch({
@@ -586,7 +700,7 @@ function serviceHarness(options = {}) {
   const fetchedSourceUrls = [];
   const readArticleUrls = [];
   const records = new Map();
-  const harnessTree = options.largeFolder ? largeResearchTree() : tree;
+  const harnessTree = options.tree || (options.largeFolder ? largeResearchTree() : tree);
   const deletedTree = [{ id: "0", title: "", children: [{ id: "bar", title: "Bookmarks bar", children: [] }] }];
   const service = createResearchSearchService({
     chrome: {
@@ -605,7 +719,7 @@ function serviceHarness(options = {}) {
       openaiApiStyle: "responses",
       openaiSummaryModel: "fixture-model",
     }),
-    settingsLocale: () => "zh-CN",
+    settingsLocale: () => options.locale || "zh-CN",
     translate: (_locale, key) => key,
     getRecord: async (key, fallback) => records.get(key) ?? fallback,
     setRecords: async (entries) => entries.forEach((entry) => records.set(entry.key, entry.value)),
@@ -640,11 +754,16 @@ function serviceHarness(options = {}) {
     readArticle: async (url) => {
       readArticleUrls.push(url);
       if (options.readerFails) throw new Error("Reader failed");
+      if (options.documents) {
+        const record = options.documents.find(item => item.url === url);
+        if (!record) throw new Error("No fixture document");
+        return { ...record, blocks: [record.text] };
+      }
       const blocks = options.readerRelevantLate
         ? [`${"Generic introductory copy without pricing facts. ".repeat(55)} The annual palette price is nineteen dollars for professional teams. ${"Additional neutral context. ".repeat(20)}`]
         : ["Full article text about first-frame and last-frame control. ".repeat(4)];
       return {
-        title: "Full article",
+        title: `Full article about ${new URL(url).hostname}`,
         url,
         canonicalUrl: url,
         publishedAt: "2026-08-12T08:00:00Z",
@@ -656,6 +775,8 @@ function serviceHarness(options = {}) {
       providerSystem = String(args[1] || "");
       providerInput = String(args[2] || "");
       providerOptions = args[6] || {};
+      options.onProvider?.(providerOptions);
+      if (options.providerFails) throw new Error("Synthetic provider failure");
       if (providerOptions.webSearch === true) {
         webCalls += 1;
         providerInputs.push(providerInput);
@@ -672,11 +793,11 @@ function serviceHarness(options = {}) {
           ? options.webResultCounts[Math.min(webCalls - 1, options.webResultCounts.length - 1)]
           : options.webResultCount || 6;
         const sources = options.nativeWebNoSources ? [] : Array.from({ length: resultCount }, (_, index) => ({
-          title: `Web frame model ${index}`,
+          title: options.nativeWebTitle || `Web frame model ${index}`,
           url: index === 0 ? firstUrl : `https://web-${index + 1}.example/result`,
           snippet: index === 0 && options.maliciousSnippet
             ? options.maliciousSnippet
-            : "A current web result about first and last frame control.",
+            : options.nativeWebSnippet || "A current web result about first and last frame control.",
           startIndex: 0,
           endIndex: text.length,
         }));

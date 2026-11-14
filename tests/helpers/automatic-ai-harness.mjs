@@ -2,13 +2,12 @@ import { createRefreshService } from "../../extension/runtime/refresh-service.mj
 import { createAiSearchService } from "../../extension/runtime/ai-search-service.mjs";
 import { createRuntimeStatusStore } from "../../extension/runtime/status-store.mjs";
 import { createQuotaManager, shouldReleaseAutomaticAiQuota } from "../../extension/core/quota.mjs";
-import { buildDailyCandidates, dailyCandidateFingerprint, localDateKey } from "../../extension/core/news-ranking.mjs";
-import { buildFallbackDigest } from "../../extension/core/feed-digest.mjs";
-import { dailyDigestEvidence, parseGeneratedDailyDigest } from "../../extension/core/summary-text.mjs";
+import { localDateKey } from "../../extension/core/news-ranking.mjs";
+
 import { filterPresentableFeedItems } from "../../extension/core/feed-language-policy.mjs";
 import { originPattern } from "../../extension/core/permission-state.mjs";
 import { typedError } from "../../extension/runtime/runtime-result.mjs";
-import { translate, translateAiPrompt } from "./full-i18n.mjs";
+import { translate } from "./full-i18n.mjs";
 
 export const GOOD_CARD = "标题：Apple Vision Pro 推出更新\n这次更新改善了显示效果，并向现有用户开放。\n具体适用设备以官方公布的名单为准。";
 export const WRONG_CARD = "Title: A new product update\nThe update improves display quality for existing users.\nThe official list describes supported devices.";
@@ -24,7 +23,7 @@ export function syntheticArticle(id, extra = {}) {
   };
 }
 
-export function createAutomaticAiHarness({ articles, dailyAiLimit = 20, providerResponse, settings: overrides = {} }) {
+export function createAutomaticAiHarness({ articles, dailyAiLimit = 20, providerResponse, settings: overrides = {}, runtime = {} }) {
   const settings = {
     bookmarkConsentGranted: true, uiLocale: "zh-CN", cardSummaryEnabled: true,
     openaiBaseUrl: "https://ai.example/v1", openaiSummaryModel: "synthetic-model",
@@ -54,7 +53,13 @@ export function createAutomaticAiHarness({ articles, dailyAiLimit = 20, provider
     if (!control.permitted) throw typedError("SOURCE_PERMISSION_CHANGED", "background.error.sourcePermission");
     return { origins: ["https://news.example"] };
   };
-  const getRecord = async (key, fallback = null) => structuredClone(records.get(key) ?? fallback);
+  const getRecord = async (key, fallback = null) => {
+    if (key === "refresh-source-cursor" && control.refreshError) {
+      control.refreshFailures = (control.refreshFailures || 0) + 1;
+      throw new Error("Synthetic refresh storage failure");
+    }
+    return structuredClone(records.get(key) ?? fallback);
+  };
   const setRecord = async (key, value) => records.set(key, structuredClone(value));
   const cacheMutations = {
     capture: () => 0, isCurrent: () => control.active,
@@ -94,23 +99,18 @@ export function createAutomaticAiHarness({ articles, dailyAiLimit = 20, provider
     aiConfigured: ready, providerOrigin: value.openaiBaseUrl,
   });
   const service = createRefreshService({
-    ...statusStore, getSettings, settingsLocale: (value) => value.uiLocale,
-    cacheMutations, refreshCoordinator: { isCurrent: (value) => value === 1 && control.active },
+    ...statusStore, getSettings, cacheMutations,
+    refreshCoordinator: { isCurrent: (value) => value === 1 && control.active },
     currentBookmarkModel: async () => ({ bookmarks: sources }), emptyBookmarkModel: () => ({ bookmarks: [] }),
-    currentFeedPermissionState: permissions, configuredFeedSources: async () => sources,
-    selectRefreshBatch: (permitted) => ({ sources: permitted, nextCursor: 0 }),
-    getRecord, setRecord, setRecords: async (writes) => { for (const write of writes) await setRecord(write.key, write.value); },
-    pipelineStages: () => [], broadcast: (type, value) => events.push({ type, value }),
+    currentFeedPermissionState: permissions, getRecord, setRecord,
+    setRecords: async (writes) => { for (const write of writes) await setRecord(write.key, write.value); },
+    broadcast: (type, value) => events.push({ type, value }),
     fetchSourceArticles: async (source) => ({
       items: structuredClone(control.articles.filter((item) => item.sourceKey === source.key)), outcome: "success",
     }),
-    sourceFetchOptions: () => ({}),
-    mapWithConcurrency: async (items, _limit, operation) => { if (control.refreshError) throw new Error("Synthetic refresh failure"); for (const item of items) await operation(item); },
-    summarizeQuality: (records) => ({ records }),
-    retainActiveUnrefreshedItems: () => [], rankAndDedupe: (items) => items,
-    assertFeedItemsStillPermitted: assertPermitted,
-    withFeedCacheMetadata: (value) => value,
-    aiConfigured: async () => true, readQuota: (limit) => quota.read(limit),
+    sourceFetchOptions: () => ({}), assertFeedItemsStillPermitted: assertPermitted,
+    withFeedCacheMetadata: (value) => value, aiConfigured: async () => true,
+    readQuota: (limit) => quota.read(limit),
     runAiWithinQuota: async (value, operation) => {
       const reservation = await quota.reserve(value.dailyAiLimit);
       if (!reservation) return { usedAi: false, value: null };
@@ -123,19 +123,11 @@ export function createAutomaticAiHarness({ articles, dailyAiLimit = 20, provider
       try { return { usedAi: true, value: await operation(reservation.units) }; }
       catch (error) { if (shouldReleaseAutomaticAiQuota(error)) await quota.release(reservation); throw error; }
     },
-    callProvider: ai.callProvider, translate, translateAiPrompt,
-    parseGeneratedDailyDigest, dailyDigestEvidence, buildFallbackDigest, buildDailyCandidates, dailyCandidateFingerprint,
-    digestCachePermitted: () => true, filterFeedItemsBySources: (items) => control.permitted ? items : [],
-    presentableFeedItems: presentable, resultMessage: (_settings, ok, messageKey) => ({ ok, messageKey }),
-    emptySourceQuality: () => ({ records: {} }), localDateKey,
-    uniqueStrings: (values) => [...new Set(values)],
-    safeOrigin: (value) => { try { return new URL(value).origin; } catch { return ""; } },
-    hostOf: (value) => new URL(value).hostname, originPattern, typedError,
-    sanitizeDailyDigest: async (digest) => ({ digest, cacheEpoch: 0, permissionEpoch: 0 }),
-    feedCacheOrEmpty: (value) => value || { items: [] }, originsFromUrls: () => [],
+    callProvider: ai.callProvider, digestCachePermitted: () => true, presentableFeedItems: presentable,
+    localDateKey, sanitizeDailyDigest: async (digest) => ({ digest, cacheEpoch: 0, permissionEpoch: 0 }),
     isPermissionEpochCurrent: () => control.active && control.permitted,
-    updateSourceQualityRecord: (previous, update) => ({ ...previous, ...update }),
     feedImageService: { enrichMissingFeedImages: async () => {}, updateImageQualityMetrics: () => {} },
+    ...runtime,
   });
   return { service, control, requests, records, statuses, events, quota, run: async (signal, options = {}) => {
     await service.runRefresh(1, { signal, ...options }); await service.waitForOrganization();

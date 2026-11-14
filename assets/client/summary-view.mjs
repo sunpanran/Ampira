@@ -1,3 +1,8 @@
+import { itemUrl, displaySummaryTitle, summaryDetailLines, isCorrectlySummarized } from "./item-presenter.mjs";
+import { hostFromUrl } from "./urls.mjs";
+import { createPriorityRanker, mergeRankedUnique } from "./dashboard-selectors.mjs";
+import { pageForItems } from "./dashboard-model.mjs";
+import { isDisplayableFeedItem } from "../../extension/core/feed-item-policy.mjs";
 import { createSummarySessionOrder } from "./summary-session-order.mjs";
 import { createSummaryOrganizationController } from "./summary-organization-controller.mjs";
 import { normalizeComparableText, truncateText } from "./text.mjs";
@@ -7,35 +12,40 @@ import { summaryEmptyStateKind } from "./empty-state-policy.mjs";
 import { aiTaskLabelKey, isAiTaskBusy, summaryTaskPhase } from "./ai-task-state.mjs";
 import { createAiTaskStatus } from "./ui-primitives.mjs";
 import { createSummaryImageThumbs } from "./summary-image-thumb.mjs";
-import { createSummaryBatchTransition } from "./summary-batch-transition.mjs";
-import { cleanupSummaryThumbTransitions, crossfadeSummaryThumb, syncSummaryThumb } from "./summary-thumb-transition.mjs";
+import { createBatchTransition, settleBatchImages } from "./batch-transition.mjs";
+import { summaryThumbTransition } from "./thumb-transition.mjs";
 import { setKeyboardShortcutHint } from "./keyboard-shortcuts.mjs";
+
+const { sync: syncSummaryThumb } = summaryThumbTransition;
+
+
+const NEWS_CARD_TYPE = "news";
+const HOT_SUMMARY_PAGE_SIZE = 16;
+const SUMMARY_CARD_SELECTOR = ".summary-card";
+const SUMMARY_DETAIL_MAX_LENGTH = 200;
 
 export function createSummaryView(options) {
   const {
-    state, els, t, isDisplayableFeedItem, itemUrl, displaySummaryTitle,
-    summaryDetailLines, isCorrectlySummarized, localizedCategory,
-    formatDateTime, faviconUrl, hostFromUrl, createThemedIcon,
-    createReadingActions, createManualSummaryButton, attachLinkContextMenu,
-    activateCardFromKeyboard, createPriorityRanker,
-    mergeRankedUnique, pageForItems, newsCardType,
-    hotSummaryPageSize, summaryCardSelector, cardSummaryEnabled,
-    summaryDetailMaxLength,
-    animateCardsIn, animateCardsOut, batchLabel, canReuseCard, clearCardAnimationState,
-    createEmptyState, isNewsCard, newsSectionName, openSummaryItem,
-    prefersReducedMotion, setCardItemIdentity,
-    triggerRefresh, writeValue, newsPreviews,
+    state, els, t, localizedCategory, formatDateTime, faviconUrl, createThemedIcon, createReadingActions,
+    createManualSummaryButton, attachLinkContextMenu, activateCardFromKeyboard, cardSummaryEnabled,
+    animateCardsIn, animateCardsOut, batchLabel, canReuseCard, clearCardAnimationState, createEmptyState,
+    isNewsCard, newsSectionName, openSummaryItem, prefersReducedMotion, setCardItemIdentity, triggerRefresh,
+    writeValue, newsPreviews,
   } = options;
   const sessionOrder = createSummarySessionOrder();
-  const refreshSummaryItem = createSummaryOrganizationController({ ...options, updateSummaryCard });
+  const refreshSummaryItem = createSummaryOrganizationController({
+    ...options, updateSummaryCard,
+  });
   let summaryRenderToken = 0;
   const { createSummaryThumb, updateVisibleNewsThumbs } = createSummaryImageThumbs({
-    els, faviconUrl, itemUrl, newsPreviews,
+    els, faviconUrl, newsPreviews,
   });
-  const summaryBatchTransition = createSummaryBatchTransition({
+  const summaryBatchTransition = createBatchTransition({
+    activeClass: "is-summary-batch-transitioning",
     cleanup: cleanupSummaryBatchTransition,
     prefersReducedMotion,
     prepare: prepareSummaryBatchTransition,
+    settle: () => settleBatchImages([els.summaryGrid]),
     update: (batchTransition) => renderSummaries({
       batchTransition,
       immediate: !batchTransition,
@@ -51,7 +61,7 @@ function renderSummaries({ batchTransition = null, immediate = false, preserveBa
   const token = ++summaryRenderToken;
   const news = newsSummaryItems(false);
   const pool = summaryPoolItems(news);
-  const page = pageForItems(pool, hotSummaryPageSize, state.variants.summary);
+  const page = pageForItems(pool, HOT_SUMMARY_PAGE_SIZE, state.variants.summary);
   state.variants.summary = page.variant;
   const order = state.summaryOrder === "time" ? "time" : "importance";
   if (els.summaryOrder.value !== order) els.summaryOrder.value = order;
@@ -78,9 +88,9 @@ function renderSummaries({ batchTransition = null, immediate = false, preserveBa
 function renderSummaryGrid(nodes, token, { batchTransition = null, immediate = false } = {}) {
   const grid = els.summaryGrid;
   const currentCards = directSummaryCards(grid);
-  const nextCards = nodes.filter((node) => node.matches?.(summaryCardSelector));
+  const nextCards = nodes.filter((node) => node.matches?.(SUMMARY_CARD_SELECTOR));
   if (batchTransition) {
-    renderSummaryBatchGrid(grid, nodes, currentCards, nextCards, batchTransition);
+    renderSummaryBatchGrid(grid, nodes, currentCards, nextCards);
     return;
   }
   if (immediate || (!nextCards.length && prefersReducedMotion())) {
@@ -121,7 +131,7 @@ function applySummaryGridDiff(grid, nodes) {
     .map((card) => [card.dataset.key, card]));
   const enteringCards = [];
   const resolvedNodes = nodes.map((node) => {
-    if (!node.matches?.(summaryCardSelector)) {
+    if (!node.matches?.(SUMMARY_CARD_SELECTOR)) {
       return node;
     }
     const currentCard = currentByKey.get(node.dataset.key || "");
@@ -141,37 +151,31 @@ function applySummaryGridDiff(grid, nodes) {
 }
 
 function directSummaryCards(root) {
-  return Array.from(root.children).filter((node) => node.matches?.(summaryCardSelector));
+  return Array.from(root.children).filter((node) => node.matches?.(SUMMARY_CARD_SELECTOR));
 }
 
 function prepareSummaryBatchTransition() {
-  const pool = summaryPoolItems(newsSummaryItems(false));
-  const page = pageForItems(pool, hotSummaryPageSize, state.variants.summary);
-  const nextCardCount = page.items.length;
   directSummaryCards(els.summaryGrid).forEach((card, index) => {
-    const transitionNode = index < nextCardCount
-      ? summaryBatchContent(card) || card
-      : card;
-    setSummaryBatchTransitionName(transitionNode, index);
+    clearCardAnimationState(card);
+    setSummaryBatchTransitionName(card, index);
   });
-  return { nextCardCount };
+  return {};
 }
 
-function renderSummaryBatchGrid(grid, nodes, currentCards, nextCards, transitionState) {
-  if (nodes.length !== nextCards.length || nextCards.length !== transitionState.nextCardCount) {
+function renderSummaryBatchGrid(grid, nodes, currentCards, nextCards) {
+  if (nodes.length !== nextCards.length) {
     grid.replaceChildren(...nodes);
     return;
   }
 
   for (const child of Array.from(grid.children)) {
-    if (!child.matches?.(summaryCardSelector)) child.remove();
+    if (!child.matches?.(SUMMARY_CARD_SELECTOR)) child.remove();
   }
 
   const sharedCount = Math.min(currentCards.length, nextCards.length);
   for (let index = 0; index < sharedCount; index += 1) {
-    const nextContent = summaryBatchContent(nextCards[index]) || nextCards[index];
-    setSummaryBatchTransitionName(nextContent, index);
-    syncSummaryCard(currentCards[index], nextCards[index], { crossfadeThumb: true });
+    syncSummaryCard(currentCards[index], nextCards[index]);
+    setSummaryBatchTransitionName(currentCards[index], index);
   }
 
   for (let index = sharedCount; index < nextCards.length; index += 1) {
@@ -196,9 +200,7 @@ function cleanupSummaryBatchTransition() {
   const cards = directSummaryCards(els.summaryGrid);
   for (const card of cards) {
     card.style.removeProperty("view-transition-name");
-    summaryBatchContent(card)?.style.removeProperty("view-transition-name");
   }
-  cleanupSummaryThumbTransitions(cards);
 }
 
 function newsSummaryItems() {
@@ -218,7 +220,7 @@ function unifiedFeedItem(feedItem) {
     key: feedItem.articleId || feedItem.entryKey,
     sourceKey: feedItem.sourceKey || "",
     section: newsSectionName(),
-    cardType: newsCardType,
+    cardType: NEWS_CARD_TYPE,
     title: feedItem.source || feedItem.host || t("category.news"),
     host: feedItem.host || hostFromUrl(feedItem.url || ""),
     publisher: feedItem.publisher || feedItem.source || "",
@@ -271,7 +273,8 @@ function summaryPoolItems(news) {
     keyOf: (item) => item.key,
     limit,
   });
-  return sessionOrder.arrange(ranked, state.summaryOrder);
+  return sessionOrder.arrange(ranked, state.summaryOrder)
+    .filter((item) => !state.seen.has(item.key));
 }
 
 function isHotNewsItem(item) {
@@ -299,7 +302,7 @@ function createNewsRanker() {
 
 function reshuffleSummaries() {
   const pool = summaryPoolItems(newsSummaryItems(false));
-  const page = pageForItems(pool, hotSummaryPageSize, state.variants.summary);
+  const page = pageForItems(pool, HOT_SUMMARY_PAGE_SIZE, state.variants.summary);
   if (page.pageCount <= 1) return;
   state.variants.summary = (page.variant + 1) % page.pageCount;
   writeValue(`dash.variant.${state.day}.summary`, String(state.variants.summary));
@@ -395,7 +398,7 @@ function createSummaryCard(item) {
   const lines = document.createElement("div");
   lines.className = "summary-lines";
   const fullDetailText = summaryDetailLines(item, cardTitle).slice(0, 3).join(" ");
-  const detailText = truncateText(fullDetailText, summaryDetailMaxLength);
+  const detailText = truncateText(fullDetailText, SUMMARY_DETAIL_MAX_LENGTH);
   if (detailText) {
     const node = document.createElement("div");
     node.className = "summary-line";
@@ -425,8 +428,9 @@ function updateSummaryCard(item) {
     .find((node) => node.dataset.key === item.key) || null;
 }
 
-function syncSummaryCard(currentCard, nextCard, { crossfadeThumb = false } = {}) {
+function syncSummaryCard(currentCard, nextCard) {
   currentCard.className = nextCard.className;
+  clearCardAnimationState(currentCard);
   for (const key of Object.keys(currentCard.dataset)) delete currentCard.dataset[key];
   for (const [key, value] of Object.entries(nextCard.dataset)) currentCard.dataset[key] = value;
   currentCard.ampiraItem = nextCard.ampiraItem;
@@ -436,8 +440,7 @@ function syncSummaryCard(currentCard, nextCard, { crossfadeThumb = false } = {})
   currentCard.setAttribute("aria-label", nextCard.getAttribute("aria-label") || "");
   if (nextCard.getAttribute("aria-busy") === "true") currentCard.setAttribute("aria-busy", "true");
   else currentCard.removeAttribute("aria-busy");
-  if (crossfadeThumb) crossfadeSummaryThumb(currentCard, nextCard);
-  else syncSummaryThumb(currentCard, nextCard);
+  syncSummaryThumb(currentCard, nextCard);
   syncSummaryActions(currentCard, nextCard);
   const currentContent = summaryBatchContent(currentCard);
   const nextContent = summaryBatchContent(nextCard);

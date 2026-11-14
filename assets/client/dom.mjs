@@ -12,6 +12,7 @@ export function cloneWithoutIconLoadState(node) {
     removeTransientClass(clone, className);
     clone.querySelectorAll?.(`.${className}`)?.forEach((element) => removeTransientClass(element, className));
   }
+  clone.querySelectorAll?.('[class=""]')?.forEach((element) => element.removeAttribute("class"));
   return clone;
 }
 

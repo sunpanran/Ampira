@@ -2,8 +2,10 @@ import assert from "node:assert/strict";
 import { createCardTransition } from "../../assets/client/card-transition.mjs";
 import { createDailyBatchTransition } from "../../assets/client/daily-batch-transition.mjs";
 import { nodesEqualIgnoringIconLoadState } from "../../assets/client/dom.mjs";
-import { syncDailyThumb } from "../../assets/client/daily-thumb-transition.mjs";
-import { syncSummaryThumb } from "../../assets/client/summary-thumb-transition.mjs";
+import { dailyThumbTransition } from "../../assets/client/thumb-transition.mjs";
+const { sync: syncDailyThumb } = dailyThumbTransition;
+import { summaryThumbTransition } from "../../assets/client/thumb-transition.mjs";
+const { sync: syncSummaryThumb } = summaryThumbTransition;
 
 export function runDailyCardReconciliationTests() {
   testStableCardStaysConnected();
@@ -12,7 +14,31 @@ export function runDailyCardReconciliationTests() {
   testTransientIconLoadStateDoesNotPreventReuse();
   testTransientPreviewImageLoadStateDoesNotPreventReuse();
   testActionStateRerenderKeepsLoadedPreviewThumbs();
+  testCachedImageKeepsLoadedPreviewThumbs();
   testClippedBatchSnapshots();
+  testSharedBatchSnapshots();
+}
+
+function testSharedBatchSnapshots() {
+  const values = new Map();
+  const columns = ["utility", "news", "inspiration"].map(id => ({ id, type: id === "inspiration" ? "inspiration" : "news", items: [1] }));
+  const roots = new Map(columns.map(({ id }) => [id, {
+    querySelector: () => ({ children: [], clientHeight: 100, scrollHeight: 200,
+      closest: () => null, style: { setProperty: (_key, value) => values.set(id, value), removeProperty: () => values.delete(id) } }),
+    querySelectorAll: () => [],
+  }]));
+  let contexts;
+  const controller = createDailyBatchTransition({
+    documentNode: { documentElement: { classList: { add() {}, remove() {} } }, startViewTransition: update => { update(); return {}; } },
+    dailyColumns: () => columns, getColumn: id => roots.get(id), directDailyCards: node => node.children,
+    prefersReducedMotion: () => false, renderColumn: (_id, value) => { contexts = value; },
+  });
+  controller.run("news");
+  assert.deepEqual([...contexts.keys()], ["utility", "news"], "every visible instance of the same card type must join one transition");
+  assert.equal(new Set(values.values()).size, 2, "shared batches must have unique snapshot names per instance");
+  assert(!values.has("inspiration"), "other card types must stay untouched");
+  controller.cancel();
+  assert.equal(values.size, 0, "all participating snapshots must be cleaned on interruption");
 }
 
 function testClippedBatchSnapshots() {
@@ -31,7 +57,7 @@ function testClippedBatchSnapshots() {
       documentNode: { visibilityState: "visible", documentElement: { classList: { add: value => classes.add(value), remove: value => classes.delete(value) } },
         startViewTransition(update) { update(); return { skipTransition() {} }; } },
       getColumn: () => column, dailyColumns: () => [{ id: "utility", items: [1, 2, 3] }], directDailyCards: node => node.children,
-      prefersReducedMotion: () => false, renderColumn: (_id, value) => { context = value; },
+      prefersReducedMotion: () => false, renderColumn: (id, value) => { context = value.get(id); },
     });
     transition.run("utility");
     assert.equal(Boolean(context.bounded), bounded, "compact or scrollable content needs a clipped viewport snapshot");
@@ -172,9 +198,22 @@ function testActionStateRerenderKeepsLoadedPreviewThumbs() {
   }
 }
 
-function createComparablePreviewThumb(transientClass) {
+function testCachedImageKeepsLoadedPreviewThumbs() {
+  for (const syncThumb of [syncDailyThumb, syncSummaryThumb]) {
+    const currentThumb = createComparablePreviewThumb("is-preview-image-revealing");
+    const cachedThumb = createComparablePreviewThumb("", true);
+    syncThumb(createThumbCard(currentThumb), createThumbCard(cachedThumb));
+    assert.equal(currentThumb.replaceCount, 0, "an empty class attribute after a cache hit must not replace the already decoded image");
+    assert.equal(cachedThumb.removeCount, 1);
+    const changedThumb = createComparablePreviewThumb("", true);
+    changedThumb.markup = "different-preview";
+    assert(!nodesEqualIgnoringIconLoadState(currentThumb, changedThumb), "a real thumbnail change must remain observable");
+  }
+}
+
+function createComparablePreviewThumb(transientClass, hasClassAttribute = Boolean(transientClass)) {
   let imageClass = transientClass;
-  let imageClassAttribute = Boolean(transientClass);
+  let imageClassAttribute = hasClassAttribute;
   const thumb = {
     markup: "same-preview",
     removeCount: 0,
@@ -184,7 +223,9 @@ function createComparablePreviewThumb(transientClass) {
       remove() {},
     },
     cloneNode() {
-      return createComparablePreviewThumb(imageClass);
+      const clone = createComparablePreviewThumb(imageClass, imageClassAttribute);
+      clone.markup = thumb.markup;
+      return clone;
     },
     isEqualNode(other) {
       return thumb.markup === other.markup
@@ -192,7 +233,7 @@ function createComparablePreviewThumb(transientClass) {
         && imageClassAttribute === other.imageClassAttribute();
     },
     querySelectorAll(selector) {
-      if (!imageClass || selector !== `.${imageClass}`) return [];
+      if (selector === '[class=""]' ? imageClass || !imageClassAttribute : !imageClass || selector !== `.${imageClass}`) return [];
       return [{
         classList: {
           get length() { return imageClass ? 1 : 0; },

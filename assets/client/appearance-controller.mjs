@@ -27,6 +27,7 @@ export function createAppearanceController(options) {
   function syncControls(settings = {}) {
     syncColorModeButtons(normalizeColorMode(settings.colorMode || settings.defaultColorMode));
     syncNavPositionButtons(settings.navPosition);
+    els.navAutoHideEnabledInput.checked = settings.navAutoHideEnabled === true;
     const accentTheme = normalizeAccentTheme(settings.accentTheme || settings.defaultAccentTheme);
     const custom = normalizeHexColor(settings.customAccentColor) || settings.defaultCustomAccentColor || DEFAULT_CUSTOM_ACCENT_COLOR;
     syncAccentThemeButtons(accentTheme);
@@ -143,6 +144,7 @@ export function createAppearanceController(options) {
       uiLocale: selectedUiLocale(),
       colorMode: selectedColorMode(),
       navPosition: normalizeNavPosition(els.navPositionGroup.querySelector(".active[data-nav-position]")?.dataset.navPosition || state.settings?.navPosition),
+      navAutoHideEnabled: els.navAutoHideEnabledInput.checked,
       accentTheme: selectedAccentTheme(),
       customAccentColor: normalizeHexColor(els.customAccentInput.value) || DEFAULT_CUSTOM_ACCENT_COLOR,
       sectionTitleOpacity: normalizeSectionTitleOpacity(els.sectionTitleOpacityGroup.querySelector(".active[data-title-opacity]")?.dataset.titleOpacity ?? state.settings?.sectionTitleOpacity),
@@ -236,6 +238,7 @@ export function createAppearanceController(options) {
     cache(COLOR_MODE_STORAGE_KEY, colorMode);
     root.dataset.navPosition = normalizeNavPosition(settings.navPosition);
     cache(NAV_POSITION_STORAGE_KEY, root.dataset.navPosition);
+    options.syncNavigationAutoHide?.(settings);
     options.syncNavExpandedWidth();
     root.dataset.accentTheme = accentTheme;
     cache(ACCENT_PALETTE_STORAGE_KEY, JSON.stringify({ theme: accentTheme, color: palette.accent }));

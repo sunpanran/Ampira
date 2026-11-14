@@ -1,13 +1,20 @@
 import assert from "node:assert/strict";
 import { createDigestCardView } from "../../assets/client/digest-card-view.mjs";
+import { createSwitchableCardView } from "../../assets/client/switchable-card-view.mjs";
+import { translate } from "../helpers/full-i18n.mjs";
 
 const originalDocument = Object.getOwnPropertyDescriptor(globalThis, "document");
+const originalNavigator = Object.getOwnPropertyDescriptor(globalThis, "navigator");
 try {
   globalThis.document = {
     createElement: node,
     createTextNode: (text) => Object.assign(node("#text"), { textContent: text }),
     createDocumentFragment: () => node("#fragment"),
   };
+  const copied = [];
+  Object.defineProperty(globalThis, "navigator", { configurable: true, value: {
+    clipboard: { writeText: async (value) => copied.push(value) },
+  } });
   for (const bot of [false, true]) {
     const state = { data: {
       ai: { enabled: true },
@@ -46,12 +53,18 @@ try {
     assert.equal(calls, 1, "both providers use the header refresh action");
 
     const expectedText = text(initial.content);
+    assert.equal(view.contextActions()[0].label, "context.copyDigest");
+    await view.contextActions()[0].action();
+    assert.equal(copied.at(-1), bot ? "合成简报。[来源](https://example.com/source)" : "合成简报。\n\n保留正文供阅读。",
+      "copy preserves displayed paragraphs and Bot Markdown without status or refresh labels");
+    assert.equal(calls, 1, "copying a brief must not regenerate it");
     state.dailyDigestRefreshing = true;
     const busy = view.render();
     assert.equal(busy.actions[0], button, "refreshing must retain the focused header control");
     assert(busy.busy);
     assert.equal(button.attributes["aria-disabled"], "true");
     assert.equal(text(busy.content), expectedText, "refresh must leave the existing brief readable");
+    assert.equal(view.contextActions().length, 1, "the previous readable brief remains copyable while refreshing");
     button.events.click({});
     assert.equal(calls, 1, "busy refresh controls must ignore repeated activation");
     state.dailyDigestRefreshing = false;
@@ -77,14 +90,43 @@ try {
     assert.equal(calls, 2, "unavailable services cannot be invoked by the header control");
     const second = createDigestCardView(options).render();
     assert.notEqual(second.actions[0], button, "multiple brief cards must each own their header control");
+    state.data.dailyDigest.overview = ["  第一段  ", "", "第二段", null, "第三段", "第四段"];
+    await view.contextActions()[0].action();
+    assert.equal(copied.at(-1), bot ? "第一段\n\n第二段\n\n第三段\n\n第四段" : "第一段\n\n第二段\n\n第三段",
+      "opening the menu again copies the latest displayed brief, including all Bot paragraphs");
+    for (const locale of ["zh-CN", "zh-Hant", "en"]) {
+      const localized = createDigestCardView({ ...options, t: key => translate(locale, key) });
+      assert.equal(localized.contextActions()[0].label, { "zh-CN": "复制简报", "zh-Hant": "複製簡報", en: "Copy brief" }[locale]);
+    }
+    state.cardTypes = { news: "digest" };
+    const card = createSwitchableCardView({ ...options, id: "news", getDigestContextActions: view.contextActions });
+    assert.deepEqual(card.contextActions().map(action => action.label), ["context.copyDigest", "context.switchCard"],
+      "a brief in any card position exposes copy before the existing switch action");
+    state.cardTypes.news = "events";
+    assert.deepEqual(card.contextActions().map(action => action.label), ["context.switchCard"],
+      "switching away from the brief removes its copy action");
+    for (const status of ["pending", "fallback", "quota-or-empty", "no-api-key"]) {
+      state.data.dailyDigest.status = status;
+      assert.deepEqual(view.contextActions(), [], "empty-state guidance must not be copied as a brief");
+    }
+    state.data.dailyDigest.status = bot ? "bot" : "ai";
     state.data.dailyDigest.overview = [];
+    assert.deepEqual(view.contextActions(), []);
     assert(view.render().content.children[0].copy, "empty and unconfigured states retain their guidance");
+    state.data.dailyDigest.overview = ["  ", null];
+    assert.deepEqual(view.contextActions(), [], "whitespace-only brief content has no copy action");
+    state.data.dailyDigest.overview = null;
+    assert.deepEqual(view.contextActions(), []);
+    state.data.dailyDigest = null;
+    assert.deepEqual(view.contextActions(), [], "loading without a brief must not offer copy");
   }
 } finally {
   if (originalDocument) Object.defineProperty(globalThis, "document", originalDocument);
   else delete globalThis.document;
+  if (originalNavigator) Object.defineProperty(globalThis, "navigator", originalNavigator);
+  else delete globalThis.navigator;
 }
-console.log("Daily brief header refresh tests passed");
+console.log("Daily brief refresh and copy tests passed");
 
 function node(tag) {
   return { tag, textContent: "", children: [], attributes: {}, events: {}, dataset: {}, style: { setProperty() {} },

@@ -7,6 +7,7 @@ export const SYNC_CREDENTIALS_KEY = "ampira.credentials.sync.v1";
 export const LOCAL_PROVIDER_KEY = "ampira.provider.local.v1";
 export const LOCAL_DEVICE_CONSENT_KEY = "ampira.device-consent.local.v1";
 export const LOCAL_HEADER_COVER_KEY = "ampira.header-cover.local.v1";
+export const LOCAL_CUSTOM_FEEDS_KEY = "ampira.custom-feeds.local.v1";
 export const DB_NAME = "ampira-extension";
 export const DB_VERSION = 2;
 export const CACHE_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
@@ -19,6 +20,7 @@ export const HEADER_IMAGE_HEIGHT_MAX = 300;
 export const HEADER_IMAGE_HEIGHT_STEP = 5;
 
 export const LOCAL_ONLY_SETTINGS_FIELDS = Object.freeze([
+  "customFeeds",
   "consentVersion",
   "bookmarkConsentGranted",
   "onboardingCompleted",
@@ -41,6 +43,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   uiLocale: "",
   colorMode: "system",
   navPosition: "left",
+  navAutoHideEnabled: false,
   mcpEnabled: false,
   botGenerateBrief: true,
   botAnswerQuestions: true,
@@ -61,8 +64,8 @@ export const DEFAULT_SETTINGS = Object.freeze({
   headerImageUrl: "",
   headerImageMediaType: "auto",
   headerImageFit: "cover",
-  bookmarkSectionEnabled: true,
-  keyboardShortcutsEnabled: true,
+  bookmarkSectionEnabled: false,
+  keyboardShortcutsEnabled: false,
   keyboardShortcuts: DEFAULT_KEYBOARD_SHORTCUTS,
   websiteShortcutsEnabled: false,
   websiteShortcuts: [],
@@ -71,6 +74,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   inspirationBookmarkFolder: "",
   inspirationSourceMode: "preset",
   bookmarkOnlyFolders: [],
+  customFeeds: [],
   hiddenBookmarkCategories: [],
   cardSummaryEnabled: true,
   floatingWebOpenEnabled: false,
@@ -82,13 +86,17 @@ export const DEFAULT_SETTINGS = Object.freeze({
   syncWeatherLocationEnabled: false,
   syncStockWatchlistEnabled: false,
   syncCountdownsEnabled: false,
+  syncTrackedTopicsEnabled: false,
+  syncCalendarEnabled: false,
+  syncNotesEnabled: false,
+  syncWorldClockEnabled: false,
   personalizedRankingEnabled: false,
   publicFeedSupplementEnabled: true,
   webImageSearchEnabled: false,
   excludedNewsSources: [],
   openaiBaseUrl: "https://api.openai.com/v1",
   openaiApiStyle: "responses",
-  openaiSummaryModel: "gpt-5.4-mini",
+  openaiSummaryModel: "gpt-6-luna",
   credentialGeneration: 0,
   dailyAiLimit: 160,
   hotNewsCacheSize: 192,

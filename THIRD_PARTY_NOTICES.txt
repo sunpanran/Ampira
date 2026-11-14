@@ -5,6 +5,7 @@ Source revision: 10ecc14790612ca8fd164e3f4ffe9c16fc50d5b7
 Ampira includes a local SVG subset with weight 600 and optical size 24.
 Icons use FILL 0, except the saved-bookmark state which uses FILL 1.
 Local changes: filenames and explicit black root fill for existing theme filters.
+The push_pin symbol also has an explicit 24px viewBox for consistent scaling.
 The original symbol name is retained in each SVG's attribution comment.
 
 Apache License
@@ -227,6 +228,16 @@ Ampira includes local copies of selected provider logos obtained from SVGL.
 All product names, logos, and brands remain property of their respective owners.
 Their inclusion identifies compatible services and does not imply endorsement.
 
+OpenRouter Official Glyph
+https://openrouter.ai/brand
+https://openrouter.ai/brand/logos/transparent/glyph/svg/glyph-ink.svg
+https://openrouter.ai/brand/logos/transparent/glyph/svg/glyph-cloud.svg
+
+Ampira includes the official OpenRouter glyph in its Ink and Cloud variants,
+downloaded on 2026-11-14. The SVG geometry and colors are unchanged. OpenRouter
+and its logo remain property of their owner; inclusion identifies the service
+and does not imply endorsement.
+
 SiliconFlow Logo
 https://siliconflow.cn/logo-new.svg
 
@@ -244,3 +255,137 @@ Ampira includes local copies of the Zhipu and Doubao provider marks obtained
 from SVGLOGO. All product names, logos, and brands remain property of their
 respective owners. Their inclusion identifies compatible services and does not
 imply endorsement.
+
+
+Inspiration Cover Photography (user-selected covers-A4, imported 2026-11-14)
+https://www.pexels.com/license/
+
+Ampira packages the 24 photographs supplied in covers-A4.zip. Photographer
+and source information below is retained from the accompanying credits.csv.
+These photographs are provided under the Pexels License, separately from
+Ampira's source-code license. Copyright remains with the respective creators.
+
+Modifications: centered framing to 960 x 600, WebP encoding, and removal of
+embedded metadata. Original colors are preserved. Images load locally from
+the extension package; no requests are made to Pexels during use. Inclusion
+does not imply endorsement by the photographers or Pexels.
+
+assets/presets/inspiration/web-signal-01.webp
+Creator: Jan van der Wolf
+Source: https://www.pexels.com/photo/shadow-on-pink-and-peach-wall-11462713/
+License: Pexels License — https://www.pexels.com/license/
+
+assets/presets/inspiration/web-signal-02.webp
+Creator: Jan van der Wolf
+Source: https://www.pexels.com/photo/sunlight-streaming-in-minimalist-interior-30490954/
+License: Pexels License — https://www.pexels.com/license/
+
+assets/presets/inspiration/web-signal-03.webp
+Creator: Jan van der Wolf
+Source: https://www.pexels.com/photo/view-of-a-staircase-12245822/
+License: Pexels License — https://www.pexels.com/license/
+
+assets/presets/inspiration/web-signal-04.webp
+Creator: Mike Panton
+Source: https://www.pexels.com/photo/shadow-on-building-facade-15665755/
+License: Pexels License — https://www.pexels.com/license/
+
+assets/presets/inspiration/brand-form-01.webp
+Creator: Jan van der Wolf
+Source: https://www.pexels.com/photo/a-long-bench-9997283/
+License: Pexels License — https://www.pexels.com/license/
+
+assets/presets/inspiration/brand-form-02.webp
+Creator: Jan van der Wolf
+Source: https://www.pexels.com/photo/a-shadow-of-a-lamp-on-a-wall-28302719/
+License: Pexels License — https://www.pexels.com/license/
+
+assets/presets/inspiration/brand-form-03.webp
+Creator: Jan van der Wolf
+Source: https://www.pexels.com/photo/minimalist-architectural-detail-in-sunlight-30267851/
+License: Pexels License — https://www.pexels.com/license/
+
+assets/presets/inspiration/brand-form-04.webp
+Creator: Tim Mossholder
+Source: https://www.pexels.com/photo/three-rectangular-holes-1650656/
+License: Pexels License — https://www.pexels.com/license/
+
+assets/presets/inspiration/type-rhythm-01.webp
+Creator: Laura Cleffmann
+Source: https://www.pexels.com/photo/walls-and-stairs-behind-windows-20207672/
+License: Pexels License — https://www.pexels.com/license/
+
+assets/presets/inspiration/type-rhythm-02.webp
+Creator: Jan van der Wolf
+Source: https://www.pexels.com/photo/close-up-of-a-white-wall-in-sunlight-19553078/
+License: Pexels License — https://www.pexels.com/license/
+
+assets/presets/inspiration/type-rhythm-03.webp
+Creator: Jan van der Wolf
+Source: https://www.pexels.com/photo/textured-terracotta-wall-with-shadow-play-40386167/
+License: Pexels License — https://www.pexels.com/license/
+
+assets/presets/inspiration/motion-field-01.webp
+Creator: Alinson Torres
+Source: https://www.pexels.com/photo/modern-pillars-in-madrid-architecture-36115688/
+License: Pexels License — https://www.pexels.com/license/
+
+assets/presets/inspiration/motion-field-02.webp
+Creator: Jan van der Wolf
+Source: https://www.pexels.com/photo/minimalist-shadow-on-corrugated-metal-and-brick-wall-34054349/
+License: Pexels License — https://www.pexels.com/license/
+
+assets/presets/inspiration/motion-field-03.webp
+Creator: Mathias Reding
+Source: https://www.pexels.com/photo/project-of-stairs-12040670/
+License: Pexels License — https://www.pexels.com/license/
+
+assets/presets/inspiration/space-light-01.webp
+Creator: Jan van der Wolf
+Source: https://www.pexels.com/photo/minimalist-archway-with-subtle-lighting-28721084/
+License: Pexels License — https://www.pexels.com/license/
+
+assets/presets/inspiration/space-light-02.webp
+Creator: Satoshi Hirayama
+Source: https://www.pexels.com/photo/opened-window-1576405/
+License: Pexels License — https://www.pexels.com/license/
+
+assets/presets/inspiration/space-light-03.webp
+Creator: Jan van der Wolf
+Source: https://www.pexels.com/photo/shadows-on-building-16512513/
+License: Pexels License — https://www.pexels.com/license/
+
+assets/presets/inspiration/art-chroma-01.webp
+Creator: Angela Roma
+Source: https://www.pexels.com/photo/black-canvas-placed-on-stairway-against-pink-wall-7319304/
+License: Pexels License — https://www.pexels.com/license/
+
+assets/presets/inspiration/art-chroma-02.webp
+Creator: İrfan Simsar
+Source: https://www.pexels.com/photo/modern-concrete-corridor-with-geometric-architecture-29482122/
+License: Pexels License — https://www.pexels.com/license/
+
+assets/presets/inspiration/art-chroma-03.webp
+Creator: i.am.anatolia
+Source: https://www.pexels.com/photo/ancient-stairs-on-wall-8469251/
+License: Pexels License — https://www.pexels.com/license/
+
+assets/presets/inspiration/photo-grain-01.webp
+Creator: Jan van der Wolf
+Source: https://www.pexels.com/photo/minimalist-architectural-interior-corner-design-38798400/
+License: Pexels License — https://www.pexels.com/license/
+
+assets/presets/inspiration/photo-grain-02.webp
+Creator: AVA A
+Source: https://www.pexels.com/photo/minimalist-architectural-shadow-play-37063647/
+License: Pexels License — https://www.pexels.com/license/
+
+assets/presets/inspiration/material-study-01.webp
+Creator: Hassan Bouamoud
+Source: https://www.pexels.com/photo/minimalist-shadows-on-a-modern-staircase-30923846/
+License: Pexels License — https://www.pexels.com/license/
+
+assets/presets/inspiration/material-study-02.webp
+Creator: Cihan Çimen
+Source: https://www.pexels.com/photo/modern-architecture-reflection-in-istanbul-28674872/
+License: Pexels License — https://www.pexels.com/license/

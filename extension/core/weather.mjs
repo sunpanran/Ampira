@@ -4,7 +4,8 @@ export const WEATHER_ORIGINS = Object.freeze([
   WEATHER_GEOCODING_ORIGIN,
   WEATHER_FORECAST_ORIGIN,
 ]);
-export const WEATHER_CACHE_KEY = "weather-forecast-v4";
+export const WEATHER_CACHE_KEY = "weather-forecast-v5";
+export const WEATHER_FORECAST_DAYS = 6;
 export const WEATHER_CACHE_FRESH_MS = 30 * 60 * 1000;
 export const WEATHER_CACHE_STALE_MS = 6 * 60 * 60 * 1000;
 export const WEATHER_QUERY_MAX_LENGTH = 80;
@@ -49,15 +50,15 @@ export function normalizeWeatherForecastResponse(value) {
   const daily = value?.daily;
   const hourly = value?.hourly;
   if (!current || !daily || !hourly) return null;
-  const dates = Array.isArray(daily.time) ? daily.time.slice(0, 3) : [];
+  const dates = Array.isArray(daily.time) ? daily.time.slice(0, WEATHER_FORECAST_DAYS) : [];
   const times = Array.isArray(hourly.time) ? hourly.time : [];
-  const weatherCodes = Array.isArray(daily.weather_code) ? daily.weather_code.slice(0, 3) : [];
-  const maximums = Array.isArray(daily.temperature_2m_max) ? daily.temperature_2m_max.slice(0, 3) : [];
-  const minimums = Array.isArray(daily.temperature_2m_min) ? daily.temperature_2m_min.slice(0, 3) : [];
+  const weatherCodes = Array.isArray(daily.weather_code) ? daily.weather_code.slice(0, WEATHER_FORECAST_DAYS) : [];
+  const maximums = Array.isArray(daily.temperature_2m_max) ? daily.temperature_2m_max.slice(0, WEATHER_FORECAST_DAYS) : [];
+  const minimums = Array.isArray(daily.temperature_2m_min) ? daily.temperature_2m_min.slice(0, WEATHER_FORECAST_DAYS) : [];
   const precipitationPeaks = Array.isArray(daily.precipitation_probability_max)
-    ? daily.precipitation_probability_max.slice(0, 3)
+    ? daily.precipitation_probability_max.slice(0, WEATHER_FORECAST_DAYS)
     : [];
-  if ([dates, weatherCodes, maximums, minimums, precipitationPeaks].some((items) => items.length !== 3) || !times.length) {
+  if ([dates, weatherCodes, maximums, minimums, precipitationPeaks].some((items) => items.length !== WEATHER_FORECAST_DAYS) || !times.length) {
     return null;
   }
   const currentTime = normalizeLocalDateTime(current.time) || { date: dates[0], hour: 0 };
@@ -75,6 +76,8 @@ export function normalizeWeatherForecastResponse(value) {
   if (Object.values(normalizedCurrent).some((item) => item === null || item === "")) {
     return null;
   }
+  normalizedCurrent.relativeHumidity = boundedInteger(current.relative_humidity_2m, 0, 100);
+  normalizedCurrent.windSpeedKmh = boundedNumber(current.wind_speed_10m, 0, 500);
 
   const normalizedDaily = dates.slice(1).map((date, index) => {
     const sourceIndex = index + 1;

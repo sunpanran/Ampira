@@ -1,5 +1,5 @@
 export function createHeaderCoverController(options) {
-  const { state, els, t, apiGet, hero } = options;
+  const { state, els, t, request, hero } = options;
   let savedRecord = null;
   let savedExists = false;
   let savedInvalid = false;
@@ -20,7 +20,7 @@ export function createHeaderCoverController(options) {
     const generation = ++loadGeneration;
     selectionGeneration += 1;
     try {
-      const result = await apiGet("/api/settings/header-cover");
+      const result = await request({ type: "header-cover:get" });
       if (generation !== loadGeneration) return false;
       savedRecord = result?.record || null;
       savedExists = result?.available === true || result?.invalid === true;
@@ -55,7 +55,7 @@ export function createHeaderCoverController(options) {
   }
 
   async function saveSettings(payload) {
-    if (!draftRecord?.blob || payload.headerCoverOperation?.action !== "replace") return options.apiPost("/api/settings", payload);
+    if (!draftRecord?.blob || payload.headerCoverOperation?.action !== "replace") return options.request({ type: "settings:save", payload: payload });
     try {
       const { saveHeaderVideoSettings } = await import("./header-cover-local-video.mjs");
       return await saveHeaderVideoSettings(payload, draftRecord.blob);
@@ -146,17 +146,15 @@ export function createHeaderCoverController(options) {
 
   function syncControls() {
     const record = draftRecord;
-    const videoStatus = { loading: "videoLoading", ready: "videoActive", error: "videoFailed" }[hero?.dataset.headerVideoState];
+    const videoStatus = { loading: "videoLoading", error: "videoFailed" }[hero?.dataset.headerVideoState];
     els.headerImageLocalChooseLabel.removeAttribute("data-i18n");
     els.headerImageLocalStatus.removeAttribute("data-i18n");
     els.headerImageLocalChooseLabel.textContent = t(record
       ? "settings.headerImage.localReplace"
       : "settings.headerImage.localChoose");
-    els.headerImageLocalStatus.textContent = record
-      ? t(record.videoId ? "settings.headerImage.localVideoActive" : "settings.headerImage.localActive")
-      : savedInvalid
-        ? t("settings.headerImage.localInvalid")
-        : t(videoStatus ? `settings.headerImage.${videoStatus}` : "settings.headerImage.localEmpty");
+    const statusKey = record ? "" : savedInvalid ? "localInvalid" : videoStatus;
+    els.headerImageLocalStatus.textContent = statusKey ? t(`settings.headerImage.${statusKey}`) : "";
+    els.headerImageLocalStatus.hidden = !statusKey;
     els.headerImageLocalMeta.hidden = !record;
     els.headerImageLocalMeta.textContent = record
       ? t("settings.headerImage.localMeta", {

@@ -1,9 +1,5 @@
 const DEFAULT_REFRESH_SOURCE_LIMIT = 80;
 
-export function selectRefreshSources(sources, limit = DEFAULT_REFRESH_SOURCE_LIMIT) {
-  return selectRefreshBatch(sources, 0, limit).sources;
-}
-
 export function selectRefreshBatch(sources, cursor = 0, limit = DEFAULT_REFRESH_SOURCE_LIMIT, options = {}) {
   const list = Array.isArray(sources) ? sources : [];
   const safeLimit = Math.max(0, Math.floor(Number(limit) || 0));

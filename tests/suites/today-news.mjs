@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { annotateTodayNewsGroups, rankNewsItems } from "../../extension/core/news-ranking.mjs";
+import { annotateTodayNewsGroups, rankNewsItems, scoreNewsArticle } from "../../extension/core/news-ranking.mjs";
 import { filterPresentableFeedItems } from "../../extension/core/feed-language-policy.mjs";
 import { createLocalization } from "../../extension/core/feed-localization.mjs";
 import { selectTodayNewsItems } from "../../assets/client/dashboard-selectors.mjs";
@@ -13,6 +13,8 @@ export async function runTodayNewsTests() {
   testVisibleHeadlines();
   testLocalizedHeadlines();
   testDifferentFacts();
+  testEventStateConflicts();
+  testEnglishScoringBoundaries();
   testRepresentativeSelection();
   testUrlsAndConnectedIdentities();
   testPaginationAndTime();
@@ -101,6 +103,51 @@ function testDifferentFacts() {
   const originals = [article("v1", distinctPairs[2][0]), article("v2", distinctPairs[2][1])];
   const shortened = annotateTodayNewsGroups(originals.map(item => ({ ...item, title: "Aurora 推出全新渲染引擎版本" })), { now, originalItems: originals });
   assert.equal(new Set(shortened.map(item => item.todayNewsId)).size, 2, "translated titles must not hide conflicting facts in the original reports");
+}
+
+function testEventStateConflicts() {
+  for (const [left, right] of [
+    ["星海公司宣布收购远山科技公司", "星海公司终止收购远山科技公司"],
+    ["星海公司宣布收購遠山科技公司", "星海公司否認收購遠山科技公司"],
+    ["星海公司宣布收购远山科技公司", "星海公司暂停收购远山科技公司"],
+    ["Aurora will acquire Meridian technology company", "Aurora will not acquire Meridian technology company"],
+    ["Aurora announces acquisition of Meridian technology company", "Aurora cancels acquisition of Meridian technology company"],
+  ]) {
+    const inputs = [article("left", left), article("right", right)].map(item => ({
+      ...item, excerpt: "A detailed synthetic report describes the company's decision and its next steps for the proposed transaction.",
+    }));
+    for (const ordered of [inputs, [...inputs].reverse()]) {
+      const ranked = rankNewsItems(ordered, { now });
+      assert.equal(new Set(ranked.map(item => item.eventId)).size, 2, `${left} / ${right}: opposite states must remain separate events`);
+      assert(ranked.every(item => item.eventSourceCount === 1 && item.eventConfidence !== "corroborated"));
+      assert.equal(select(ranked).length, 2, "the complete ranking and visible-news pipeline must preserve both developments");
+    }
+    assert.equal(select(inputs.map(item => ({ ...item, eventId: "legacy-shared-id" }))).length, 2,
+      "a previously cached event ID must not override conflicting states");
+  }
+  const sameState = rankNewsItems([
+    article("cancel-a", "Aurora cancels acquisition of Meridian technology company"),
+    article("cancel-b", "Aurora cancelled acquisition of Meridian technology company"),
+  ], { now });
+  assert.equal(new Set(sameState.map(item => item.eventId)).size, 1, "equivalent state inflections still corroborate one event");
+}
+
+function testEnglishScoringBoundaries() {
+  const score = title => scoreNewsArticle(article("score", title, { excerpt: "A factual description of the change and the steps needed to use the updated feature." }), now);
+  for (const title of [
+    "Software update adds keyboard shortcuts", "Hardware update adds keyboard shortcuts",
+    "Urban platform update adds keyboard shortcuts",
+  ]) assert.equal(score(title).breakdown.impact, 2, "embedded war/ban substrings must not elevate ordinary updates");
+  assert.equal(score("Interface preview adds keyboard shortcuts").breakdown.penalties, 0, "preview is not a review");
+  assert.equal(score("Wholesale platform adds keyboard shortcuts").breakdown.penalties, 0, "wholesale is not a sale promotion");
+  for (const title of ["War disrupts transport across the region", "Regulator bans unsafe equipment across the region",
+    "Regulator banned unsafe equipment across the region", "Company recalled unsafe equipment across the region",
+    "Security vulnerabilities affect regional services"]) {
+    assert(score(title).breakdown.impact >= 24, "real impact terms and their inflections must retain their weight");
+  }
+  assert.equal(score("Interface review explains keyboard shortcuts").breakdown.penalties, 18);
+  assert.equal(score("Discounts on selected equipment this week").breakdown.penalties, 35);
+  assert.equal(score("Discounted equipment is available this week").breakdown.penalties, 35);
 }
 
 function testRepresentativeSelection() {

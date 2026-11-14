@@ -6,8 +6,7 @@ import { extractGeneratedSummaryTitle } from "../core/summary-text.mjs";
 import { normalizeCardSummary } from "../core/card-summary-format.mjs";
 import { settingsLocale } from "./runtime-result.mjs";
 import { cachedLocalization, withLocalization } from "../core/feed-localization.mjs";
-
-const CARD_SUMMARY_EXCERPT_MAX_CHARS = 2000;
+import { articleContentFingerprint, articleContentText, CARD_CONTEXT_MAX_CHARS, currentSummaryContent, preserveArticleEnrichment } from "../core/feed-content.mjs";
 
 export function createCardSummaryPolicy(options = {}) {
   const localeForSettings = options.settingsLocale || settingsLocale;
@@ -25,10 +24,12 @@ export function createCardSummaryPolicy(options = {}) {
   function isCurrentCardSummary(item, locale = "") {
     if (item?.localization) return Boolean(cachedLocalization(item, locale || item.localization.locale));
     return item?.summaryStatus === "ai" && (!locale || item?.summaryLocale === locale)
+      && currentSummaryContent(item)
       && localizedSummaryMatchesLocale(item.summaryTitle, item.summary, locale || item.summaryLocale);
   }
 
   function preserveCardAiSummary(item, previous, settings) {
+    item = preserveArticleEnrichment(item, previous);
     const locale = localeForSettings(settings);
     if (previous?.localization) {
       const shared = cachedLocalization({ ...item, localization: previous.localization }, locale);
@@ -37,6 +38,7 @@ export function createCardSummaryPolicy(options = {}) {
     const retry = currentSummaryRetry({ ...item, summaryRetry: previous?.summaryRetry }, settings, locale);
     item = retry ? { ...item, summaryRetry: retry } : withoutSummaryRetry(item);
     if (!isCurrentCardSummary(previous, locale) || !previous.summaryTitle || !Array.isArray(previous.summary) || !previous.summary.length) return item;
+    if (articleContentFingerprint(item) !== articleContentFingerprint(previous)) return item;
     if (patternForOrigin(previous.summaryProviderOrigin || "") !== patternForOrigin(settings.openaiBaseUrl)) return item;
     return {
       ...withoutSummaryRetry(item),
@@ -46,6 +48,7 @@ export function createCardSummaryPolicy(options = {}) {
       summaryLocale: locale,
       summarizedAt: previous.summarizedAt || "",
       summaryProviderOrigin: previous.summaryProviderOrigin,
+      summaryFingerprint: articleContentFingerprint(item),
     };
   }
 
@@ -57,7 +60,7 @@ export function createCardSummaryPolicy(options = {}) {
       if (shared) return withLocalization(item, shared);
       if (item.summaryStatus !== "ai" && !item.localization) return item;
       if (!item.localization && configuredForAi && isCurrentCardSummary(item, locale) && patternForOrigin(item.summaryProviderOrigin || "") === patternForOrigin(settings.openaiBaseUrl)) return item;
-      const { localization, summarizedAt, summaryLocale, summaryProviderOrigin, summaryTitle, ...rest } = item;
+      const { localization, summarizedAt, summaryLocale, summaryProviderOrigin, summaryTitle, summaryFingerprint, ...rest } = item;
       const excerpt = String(item.excerpt || "").trim();
       return { ...rest, summary: excerpt ? [excerpt] : [], summaryStatus: excerpt ? "excerpt" : "raw" };
     });
@@ -82,7 +85,7 @@ export function validateCardSummaryOutput(value, locale) {
 
 function automaticCardSummaryContext(candidate) {
   return {
-    text: String(candidate.excerpt || "").trim().slice(0, CARD_SUMMARY_EXCERPT_MAX_CHARS),
+    text: articleContentText(candidate, CARD_CONTEXT_MAX_CHARS),
     origins: [],
   };
 }

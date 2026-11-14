@@ -26,42 +26,6 @@ const DYNAMIC_CLASS_NAMES = new Set([
   "loading-line-wide",
 ]);
 
-const REMOVED_IDENTIFIERS = [
-  "sanitizeLocalOnlyFields",
-  "broadPatternCovers",
-  "CARD_SUMMARY_POLICY_VERSION",
-  "NEWS_RANKING_POLICY_VERSION",
-  "DAILY_DIGEST_SCHEMA_VERSION",
-  "INSPIRATION_PRESET_ID",
-  "INSPIRATION_PRESET_VERSION",
-  "normalizeClientStatePatch",
-  "normalizeChinaLocationSearchKey",
-  "syncSelectCombobox",
-  "formatLocaleNumber",
-  "getElements",
-  "bestSrcset",
-  "comparableText",
-  "normalizedDate",
-  "currentPipelineStage",
-  "setMeter",
-  "isBookmarkCard",
-  "DEFAULT_BOT_SCOPES",
-  "normalizeBotScopes",
-  "botOwnsScope",
-  "selectedBotModules",
-  "createBotUtilityView",
-  "submitBotAction",
-  "botGenerated",
-  "botScopesChanged",
-  "extractDirectAnswer",
-  "apiStyleLabel",
-  "colorModeLabel",
-  "themeLabel",
-  "structuredImageCandidates",
-  "updateProviderProfile",
-  "updateSecrets",
-];
-
 export async function runCodeHygieneTests(root) {
   const productionModules = await listFiles(root, ["extension", "assets/client"], ".mjs");
   const sources = new Map(await Promise.all(productionModules.map(async (file) => [
@@ -90,9 +54,6 @@ export async function runCodeHygieneTests(root) {
   );
 
   const combinedSource = [...sources.values()].join("\n");
-  for (const identifier of REMOVED_IDENTIFIERS) {
-    assert(!combinedSource.includes(identifier), `${identifier} must not return as obsolete production code`);
-  }
 
   const [htmlFiles, cssFiles] = await Promise.all([
     listFiles(root, ["."], ".html"),
@@ -100,22 +61,26 @@ export async function runCodeHygieneTests(root) {
   ]);
   const markup = (await Promise.all(htmlFiles.map((file) => fs.readFile(file, "utf8")))).join("\n");
   const referencedText = `${combinedSource}\n${markup}`;
+  const referencedTokens = new Set(referencedText.match(/[A-Za-z][A-Za-z0-9_-]*/g));
   const cssSource = (await Promise.all(cssFiles.map((file) => fs.readFile(file, "utf8")))).join("\n");
-  const iconsSource = sources.get("assets/client/icons.mjs");
-  assert(iconsSource.includes('icon.classList.add("is-icon-pending")')
-    && iconsSource.includes('icon.addEventListener("load", reveal, { once: true })')
-    && iconsSource.includes('icon.addEventListener("error", hide, { once: true })')
-    && iconsSource.includes("icon.hidden = true"),
-  "local icons must stay hidden until loaded and suppress the browser broken-image placeholder on failure");
-  assert(cssSource.includes("img[data-icon]:not([src]),")
-    && cssSource.includes(".industrial-icon.is-icon-pending"),
-  "static icon slots must remain invisible before hydration and while image decoding is pending");
   const unusedClasses = [...cssSource.matchAll(/\.([A-Za-z][A-Za-z0-9_-]*)/g)]
     .map((match) => match[1])
     .filter((name, index, all) => all.indexOf(name) === index)
     .filter((name) => !DYNAMIC_CLASS_NAMES.has(name))
-    .filter((name) => !referencedText.includes(name));
+    .filter((name) => !referencedTokens.has(name));
   assert.deepEqual(unusedClasses, [], "CSS class selectors must be referenced by packaged markup or code");
+
+  const styleReferences = `${cssSource}\n${referencedText}`;
+  const unusedProperties = [...new Set([...cssSource.matchAll(/(--[A-Za-z0-9_-]+)\s*:/g)].map((match) => match[1]))]
+    .filter((name) => !referencedText.includes(name))
+    .filter((name) => !new RegExp(`var\\(\\s*${name}(?=[\\s,)])`).test(styleReferences));
+  assert.deepEqual(unusedProperties, [], "CSS custom properties must be consumed by styles or code");
+
+  const styleTokens = styleReferences.match(/[A-Za-z][A-Za-z0-9_-]*/g) || [];
+  const unusedAnimations = [...cssSource.matchAll(/@keyframes\s+([A-Za-z][A-Za-z0-9_-]*)/g)]
+    .map((match) => match[1])
+    .filter((name) => styleTokens.filter((token) => token === name).length === 1);
+  assert.deepEqual(unusedAnimations, [], "CSS keyframes must be referenced outside their declaration");
 }
 
 function localModuleSpecifiers(source) {

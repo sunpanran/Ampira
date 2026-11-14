@@ -13,7 +13,9 @@ import { seededShuffle } from "../../assets/client/dashboard-model.mjs";
 import { orderPresetInspiration } from "../../assets/client/inspiration-preset-selection.mjs";
 import {
   INSPIRATION_COVER_ASSETS,
+  inspirationCoverPosition,
   inspirationFallbackCoverAsset,
+  isDarkInspirationCover,
   resolveInspirationCoverUrl,
 } from "../../assets/client/inspiration-cover.mjs";
 import { localizedCategory } from "../../assets/client/localized-labels.mjs";
@@ -97,6 +99,15 @@ export async function runInspirationPresetTests() {
     url: "https://example.com/",
   });
   assert(INSPIRATION_COVER_ASSETS.includes(fallbackCover), "personal inspiration fallbacks must use a packaged local cover");
+  assert.equal(isDarkInspirationCover(" /assets/presets/inspiration/type-rhythm-01.webp "), true, "dark cover presentation must normalize the same local asset references as cover resolution");
+  assert.equal(isDarkInspirationCover("assets/presets/inspiration/type-rhythm-02.webp"), false, "bright covers must keep the active theme's text colors");
+  assert.equal(inspirationCoverPosition(" /assets/presets/inspiration/type-rhythm-01.webp "), "50% 64%", "packaged cover framing must normalize local asset references");
+  assert.equal(inspirationCoverPosition("assets/presets/inspiration/brand-form-03.webp"), "50% 23%", "the portal's upper edge must remain in the wide cover crop");
+  assert.equal(inspirationCoverPosition("assets/presets/inspiration/space-light-02.webp"), "50% 50%", "covers without a focal override must remain centered");
+  for (const invalid of ["", undefined, "../type-rhythm-01.webp", "https://example.com/assets/presets/inspiration/type-rhythm-01.webp"]) {
+    assert.equal(isDarkInspirationCover(invalid), false, "unknown and remote images must not inherit packaged-cover presentation");
+    assert.equal(inspirationCoverPosition(invalid), "50% 50%", "unknown and remote images must not inherit packaged-cover framing");
+  }
   assert.equal(
     fallbackCover,
     inspirationFallbackCoverAsset({
@@ -177,7 +188,7 @@ export async function runInspirationPresetTests() {
   let transientRequestCount = 0;
   const transientController = createInspirationPreviewController(previewControllerOptions({
     retryDelaysMs: [0],
-    apiGet: async () => {
+    request: async () => {
       transientRequestCount += 1;
       if (transientRequestCount === 1) throw new Error("temporary message failure");
       return {
@@ -197,7 +208,7 @@ export async function runInspirationPresetTests() {
   let originErrorRequestCount = 0;
   const originErrorController = createInspirationPreviewController(previewControllerOptions({
     retryDelaysMs: [0],
-    apiGet: async () => {
+    request: async () => {
       originErrorRequestCount += 1;
       return originErrorRequestCount === 1
         ? { imageUrl: "", imageUrls: [], originalStatus: "error" }
@@ -214,7 +225,7 @@ export async function runInspirationPresetTests() {
   let definitiveFailure = true;
   const definitiveController = createInspirationPreviewController(previewControllerOptions({
     retryDelaysMs: [0],
-    apiGet: async () => {
+    request: async () => {
       definitiveRequestCount += 1;
       if (!definitiveFailure) {
         return { imageUrl: "https://images.example/after-source-switch.webp", source: "origin" };
@@ -237,7 +248,7 @@ export async function runInspirationPresetTests() {
   let boundedRequestCount = 0;
   const boundedController = createInspirationPreviewController(previewControllerOptions({
     retryDelaysMs: [0, 0],
-    apiGet: async () => {
+    request: async () => {
       boundedRequestCount += 1;
       throw new Error("still unavailable");
     },

@@ -1,6 +1,7 @@
 import { createThemedIcon } from "./icons.mjs";
 import { getLocale, setLocale, t } from "./popup-i18n.mjs";
 import { sendRuntimeRequest } from "./runtime-client.mjs";
+import { bindControlFeedback } from "./control-feedback.mjs";
 
 const root = document.querySelector(".action-popup");
 const elements = {
@@ -19,6 +20,7 @@ const elements = {
 };
 
 applyAppearanceHint();
+bindControlFeedback();
 elements.openDashboardIcon.replaceChildren(createThemedIcon("arrow-up-right", "popup-action-icon"));
 elements.openDashboard.addEventListener("click", openDashboard);
 initialize();

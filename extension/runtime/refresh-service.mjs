@@ -1,3 +1,12 @@
+import { selectRefreshBatch, retainActiveUnrefreshedItems } from "../core/refresh.mjs";
+import { mapWithConcurrency, summarizeQuality, emptySourceQuality, uniqueStrings, safeOrigin, hostOf, pipelineStages, updateSourceQualityRecord } from "./runtime-utils.mjs";
+import { rankAndDedupe, buildDailyCandidates, dailyCandidateFingerprint, feedCacheOrEmpty } from "../core/feed.mjs";
+import { buildFallbackDigest } from "../core/feed-digest.mjs";
+import { parseGeneratedDailyDigest, dailyDigestEvidence } from "../core/summary-text.mjs";
+import { filterFeedItemsBySources, originPattern } from "../core/permission-state.mjs";
+import { originsFromUrls, hashText } from "../core/bookmarks.mjs";
+import { resultMessage, typedError, settingsLocale } from "./runtime-result.mjs";
+import { translate, translateAiPrompt } from "../core/runtime-i18n.mjs";
 import { createCardSummaryPolicy, validateCardSummaryOutput } from "./card-summary-policy.mjs";
 import { automaticSummaryCandidates as selectSummaryCandidates, runAutomaticAiWorkflow } from "./automatic-ai-workflow.mjs";
 import { cardSummaryContextKey, isAiContentError, nextSummaryRetry, withoutSummaryRetry } from "../core/card-summary-retry.mjs";
@@ -8,6 +17,9 @@ import { createLocalization } from "../core/feed-localization.mjs";
 import { translateFeedBatch } from "./feed-translation-batch.mjs";
 import { CARD_SUMMARY_WRITING_RULES } from "../core/card-summary-format.mjs";
 import { createNewsOrganizationService } from "./news-organization-service.mjs";
+import { articleContentFingerprint, articleContentText, feedContentFingerprint } from "../core/feed-content.mjs";
+import { createFeedBatchWriter } from "./feed-batch-writer.mjs";
+import { createFeedContentService } from "./feed-content-service.mjs";
 import {
   selectDistinctEventEvidence,
   shouldRetainPreviousItemsAfterEmpty,
@@ -29,18 +41,11 @@ const AI_ARTICLE_SUMMARY_MAX_TOKENS = 1200;
 export function createRefreshService(options) {
   const {
     refreshCoordinator, getSettings, currentBookmarkModel, emptyBookmarkModel, currentFeedPermissionState,
-    selectRefreshBatch, getRecord, setRecord, setRecords,
-    setRefreshStatus, pipelineStages, broadcast, fetchSourceArticles, sourceFetchOptions,
-    mapWithConcurrency, summarizeQuality, retainActiveUnrefreshedItems, rankAndDedupe,
-    assertFeedItemsStillPermitted, withFeedCacheMetadata, cacheMutations, aiConfigured,
-    getAiAutoStatus, setAiAutoStatus, defaultAiAutoStatus, readQuota, runAiWithinQuota, runAiBatchWithinQuota,
-    callProvider, translate, translateAiPrompt, settingsLocale, parseGeneratedDailyDigest, dailyDigestEvidence, buildFallbackDigest,
-    digestCachePermitted, filterFeedItemsBySources, presentableFeedItems = (items) => items,
-    resultMessage,
-    emptySourceQuality, localDateKey, uniqueStrings, safeOrigin, originPattern,
-    sanitizeDailyDigest, typedError, feedCacheOrEmpty, getRefreshStatus, hostOf,
-    originsFromUrls, isPermissionEpochCurrent, buildDailyCandidates,
-    dailyCandidateFingerprint, updateSourceQualityRecord,
+    getRecord, setRecord, setRecords, setRefreshStatus, broadcast, fetchSourceArticles, sourceFetchOptions,
+    assertFeedItemsStillPermitted, withFeedCacheMetadata, cacheMutations, aiConfigured, getAiAutoStatus,
+    setAiAutoStatus, defaultAiAutoStatus, readQuota, runAiWithinQuota, runAiBatchWithinQuota, callProvider,
+    digestCachePermitted, presentableFeedItems = (items) => items, localDateKey, sanitizeDailyDigest,
+    getRefreshStatus, isPermissionEpochCurrent,
   } = options;
   const cardSummaryPolicy = options.cardSummaryPolicy || createCardSummaryPolicy({
     settingsLocale,
@@ -70,7 +75,7 @@ export function createRefreshService(options) {
     cacheMutations,
     getRecord,
     setRecord,
-    hashText: options.hashText,
+    hashText,
     refreshCoordinator,
   });
   const organization = createNewsOrganizationService({
@@ -81,6 +86,7 @@ export function createRefreshService(options) {
     },
     summarizeNative: refreshSingleSummary, onComplete: options.onOrganizationComplete,
   });
+  const { enrichFeedContent } = createFeedContentService(options);
   const isWorkCurrent = generation => typeof generation === "function" ? generation() : refreshCoordinator.isCurrent(generation);
   return {
     startRefresh, runRefresh, refreshSource, refreshDailyDigest, refreshSingleSummary: organization.summarize,
@@ -125,7 +131,6 @@ async function performRefresh(generation, { signal, organize = true } = {}) {
   const settings = await getSettings();
   if (!isWorkCurrent(generation)) return;
   const locale = settingsLocale(settings);
-  if (!settings.bookmarkConsentGranted) return;
   const model = await currentBookmarkModel(settings);
   const feedPermissions = await currentFeedPermissionState(settings, model);
   const { permitted, denied } = feedPermissions;
@@ -158,12 +163,15 @@ async function performRefresh(generation, { signal, organize = true } = {}) {
   ]);
   const previousFeedSnapshot = feedCacheOrEmpty(rawPreviousFeedSnapshot);
   const quality = {};
-  const articles = [];
-  const replacedSources = [];
+  const aiReadyForRefresh = await aiConfigured(settings);
+  let latestItems = previousFeedSnapshot.items;
+  const active = () => !signal?.aborted && cacheMutations.isCurrent(cacheEpoch) && isWorkCurrent(generation);
+  const batchWriter = createFeedBatchWriter(commitBatch);
   await mapWithConcurrency(refreshSources, 4, async (source) => {
-    if (!isWorkCurrent(generation) || signal?.aborted) return;
+    if (!active()) return;
     const previousRecord = previousQualitySnapshot.records?.[source.key] || {};
     const previousItems = (previousFeedSnapshot.items || []).filter((item) => item.sourceKey === source.key);
+    let sourceItems = [], replace = false;
     try {
       const nextEligibleAt = Date.parse(String(previousRecord.nextEligibleAt || ""));
       if (Number.isFinite(nextEligibleAt) && nextEligibleAt > Date.now()) {
@@ -177,8 +185,8 @@ async function performRefresh(generation, { signal, organize = true } = {}) {
       });
       const items = result.items || [];
       const retainPreviousAfterEmpty = shouldRetainPreviousItemsAfterEmpty(result, previousItems, previousRecord);
-      if (result.outcome !== "notModified" && !retainPreviousAfterEmpty) replacedSources.push(source);
-      articles.push(...items.map((item) => ({ ...item, externalDiscovery: source.externalDiscovery === true })));
+      replace = result.outcome !== "notModified" && !retainPreviousAfterEmpty;
+      sourceItems = items.map((item) => ({ ...item, externalDiscovery: source.externalDiscovery === true }));
       const itemCount = result.outcome === "notModified"
         ? previousItems.length
         : Number(result.displayableItemCount ?? items.length);
@@ -233,107 +241,199 @@ async function performRefresh(generation, { signal, organize = true } = {}) {
       status.message = "";
       status.messageKey = "background.processedSources";
       status.messageParams = { completed: status.completed, total: status.total };
-      if (isWorkCurrent(generation)) {
+      if (active()) {
+        batchWriter.add({ source, items: sourceItems, replace, record: quality[source.key] });
         await setRefreshStatus(status);
         broadcast("refresh.progress", status);
       }
     }
-  }, { signal, isCurrent: () => isWorkCurrent(generation) });
-  if (!isWorkCurrent(generation)) return;
-  await enrichMissingFeedImages(articles, { cacheEpoch, generation, signal });
-  updateImageQualityMetrics(quality, articles);
-  if (!isWorkCurrent(generation)) return;
-  const aiReadyForRefresh = await aiConfigured(settings);
-  const committed = await cacheMutations.run(async (isCurrent) => {
-    if (!isCurrent() || !isWorkCurrent(generation)) return null;
-    const [previous, previousQuality, previousDigest, feedback] = await Promise.all([
-      getRecord("feed", { items: [] }),
-      getRecord("source-quality", emptySourceQuality()),
-      getRecord("daily-digest", null),
-      getRecord("feedback", []),
-    ]);
-    if (!isCurrent() || !isWorkCurrent(generation)) return null;
-    const previousFeed = feedCacheOrEmpty(previous);
-    const retained = filterFeedItemsBySources(
-      retainActiveUnrefreshedItems(previousFeed.items, permitted, replacedSources),
-      permitted,
-      feedPermissions.grantedOrigins,
-    );
-    const previousByArticle = new Map(previousFeed.items.map((item) => [item.articleId || item.entryKey || item.url, item]));
-    const refreshed = articles.map((item) => preserveCardAiSummary(item, previousByArticle.get(item.articleId || item.entryKey || item.url), settings));
-    const items = rankAndDedupe([...refreshed, ...retained], settings.hotNewsCacheSize, {
-      feedback,
-      personalizedRankingEnabled: settings.personalizedRankingEnabled !== false,
-      aiRankingEnabled: aiReadyForRefresh,
-      now: Date.now(),
-    });
-    const visibleItems = presentableFeedItems(items, settings, aiReadyForRefresh);
-    const feed = {
-      generatedAt: new Date().toISOString(),
-      items,
-      localCount: visibleItems.filter((item) => !item.externalDiscovery).length,
-      publicCount: visibleItems.filter((item) => item.externalDiscovery).length,
-      deniedOrigins: originsFromUrls(denied.map((source) => source.url)),
-    };
-    const unrefreshedPermittedKeys = new Set(permitted.filter((source) => !refreshSources.includes(source)).map((source) => source.key));
-    const retainedQuality = Object.fromEntries(Object.entries(previousQuality.records || {}).filter(([key, record]) => (
-      unrefreshedPermittedKeys.has(key)
-      && originPattern(record?.sourceOrigin || "") === feedPermissions.permittedByKey.get(key)
-    )));
-    const qualitySummary = summarizeQuality({ ...retainedQuality, ...quality }, denied, feedPermissions.sources);
-    const digestCandidates = buildDailyCandidates(visibleItems, {
-      limit: 12,
-      recentLimit: 3,
-      publisherLimit: settings.todayNewsPerPublisherLimit,
-      aiRankingEnabled: aiReadyForRefresh,
-    });
-    const preservedDigest = previousDigest?.locale === locale
-      && previousDigest?.date === localDateKey()
-      && digestCachePermitted(previousDigest, visibleItems, feedPermissions, settings, aiReadyForRefresh)
-      ? previousDigest
-      : withFeedCacheMetadata(buildFallbackDigest(digestCandidates, "local", locale, {
-          preselected: true,
-          publisherLimit: settings.todayNewsPerPublisherLimit,
-        }), digestCandidates, "daily-digest");
-    if (!isCurrent() || !isWorkCurrent(generation)) return null;
-    await setRecords([
-      { key: "feed", value: feed, kind: "cache" },
-      { key: "source-quality", value: qualitySummary, kind: "cache" },
-      {
-        key: "daily-digest",
-        value: preservedDigest,
-        kind: "cache",
-      },
-      { key: "refresh-source-cursor", value: refreshBatch.nextCursor, kind: "state" },
-    ]);
-    return { items };
-  }, cacheEpoch);
-  if (!committed || !isWorkCurrent(generation)) return;
-  broadcast("dashboard.updated", { reason: "feed" });
-  const items = committed.items;
-  if (!isWorkCurrent(generation)) return;
+  }, { signal, isCurrent: active }).catch(async error => {
+    await batchWriter.cancel();
+    throw error;
+  });
+  await batchWriter.finish();
+  if (!active()) return;
+  await commitBatch([], true);
+  if (!active()) return;
+  const items = latestItems;
   const finished = {
     ...status,
     running: false,
     finishedAt: new Date().toISOString(),
     progress: 1,
     message: "",
-    messageKey: items.length
-      ? "background.cachedItems"
-      : "background.noItems",
+    messageKey: items.length ? "background.cachedItems" : "background.noItems",
     messageParams: items.length ? { count: items.length } : {},
     stages: pipelineStages("complete"),
   };
   await setRefreshStatus(finished);
-  if (!isWorkCurrent(generation)) return;
+  if (!active()) return;
   broadcast("dashboard.updated", { reason: "refresh-complete" });
-  if (organize) await organization.start({ allowDigest: true });
+  await finishFeedEnrichment(items, { cacheEpoch, generation, signal, organize });
+
+  async function commitBatch(batch, final = false) {
+    if (!active()) return;
+    const articles = batch.flatMap(entry => entry.items);
+    const replacedSources = batch.filter(entry => entry.replace).map(entry => entry.source);
+    const batchQuality = Object.fromEntries(batch.filter(entry => entry.record).map(entry => [entry.source.key, entry.record]));
+    const committed = await cacheMutations.run(async (isCurrent) => {
+      if (!isCurrent() || !active()) return null;
+      const feedPermissions = await currentFeedPermissionState(settings, model);
+      const { permitted, denied } = feedPermissions;
+      const [previous, previousQuality, previousDigest, feedback] = await Promise.all([
+        getRecord("feed", { items: [] }),
+        getRecord("source-quality", emptySourceQuality()),
+        getRecord("daily-digest", null),
+        getRecord("feedback", []),
+      ]);
+      if (!isCurrent() || !active()) return null;
+      const previousFeed = feedCacheOrEmpty(previous);
+      const retained = filterFeedItemsBySources(
+        retainActiveUnrefreshedItems(previousFeed.items, permitted, replacedSources),
+        permitted,
+        feedPermissions.grantedOrigins,
+      );
+      const previousByArticle = new Map(previousFeed.items.map((item) => [item.articleId || item.entryKey || item.url, item]));
+      const refreshed = filterFeedItemsBySources(articles, permitted, feedPermissions.grantedOrigins)
+        .map((item) => preserveCardAiSummary(item, previousByArticle.get(item.articleId || item.entryKey || item.url), settings));
+      updateImageQualityMetrics(batchQuality, refreshed);
+      const items = rankAndDedupe([...refreshed, ...retained], settings.hotNewsCacheSize, {
+        feedback,
+        personalizedRankingEnabled: settings.personalizedRankingEnabled !== false,
+        aiRankingEnabled: aiReadyForRefresh,
+        now: Date.now(),
+      });
+      const visibleItems = presentableFeedItems(items, settings, aiReadyForRefresh);
+      const feed = {
+        generatedAt: new Date().toISOString(),
+        items,
+        localCount: visibleItems.filter((item) => !item.externalDiscovery).length,
+        publicCount: visibleItems.filter((item) => item.externalDiscovery).length,
+        deniedOrigins: originsFromUrls(denied.map((source) => source.url)),
+      };
+      const retainedQuality = Object.fromEntries(Object.entries(previousQuality.records || {}).filter(([key, record]) => (
+        originPattern(record?.sourceOrigin || "") === feedPermissions.permittedByKey.get(key)
+      )));
+      const qualitySummary = summarizeQuality({ ...retainedQuality, ...batchQuality }, denied, feedPermissions.sources);
+      const digestCandidates = buildDailyCandidates(visibleItems, {
+        limit: 12,
+        recentLimit: 3,
+        publisherLimit: settings.todayNewsPerPublisherLimit,
+        aiRankingEnabled: aiReadyForRefresh,
+      });
+      const preservedDigest = previousDigest?.locale === locale
+        && previousDigest?.date === localDateKey()
+        && digestCachePermitted(previousDigest, visibleItems, feedPermissions, settings, aiReadyForRefresh)
+        ? previousDigest
+        : withFeedCacheMetadata(buildFallbackDigest(digestCandidates, "local", locale, {
+            preselected: true,
+            publisherLimit: settings.todayNewsPerPublisherLimit,
+          }), digestCandidates, "daily-digest");
+      if (!isCurrent() || !active()) return null;
+      await setRecords([
+        { key: "feed", value: feed, kind: "cache" },
+        { key: "source-quality", value: qualitySummary, kind: "cache" },
+        {
+          key: "daily-digest",
+          value: preservedDigest,
+          kind: "cache",
+        },
+        ...(final ? [{ key: "refresh-source-cursor", value: refreshBatch.nextCursor, kind: "state" }] : []),
+      ]);
+      return { items };
+    }, cacheEpoch);
+    if (!committed || !active()) return;
+    latestItems = committed.items;
+    broadcast("dashboard.updated", { reason: "feed" });
+  }
+}
+
+async function finishFeedEnrichment(items, { cacheEpoch, generation = null, signal, organize = false }) {
+  const active = () => !signal?.aborted && cacheMutations.isCurrent(cacheEpoch)
+    && (generation === null || isWorkCurrent(generation));
+  const context = { cacheEpoch, generation, signal };
+  const imageItems = items.filter(item => !item.imageUrl).map(item => ({ ...item }));
+  const contentItems = items.map(item => ({ ...item }));
+  // Text is already committed. Neither optional enrichment may delay its display,
+  // and a slow image host must not delay the organization of available evidence.
+  await Promise.allSettled([
+    (async () => {
+      await enrichMissingFeedImages(imageItems, context);
+      if (active()) await commitFeedEnrichment(imageItems, "images", context);
+    })(),
+    (async () => {
+      try {
+        await enrichFeedContent(contentItems, { signal, isCurrent: active });
+        if (active()) await commitFeedEnrichment(contentItems, "content", context);
+      } finally {
+        if (active() && organize) {
+          if (organization.isRunning()) await organization.wait();
+          if (active()) await organization.start({ allowDigest: true });
+        }
+      }
+    })(),
+  ]);
+}
+
+async function commitFeedEnrichment(candidates, kind, { cacheEpoch, generation, signal }) {
+  const active = () => !signal?.aborted && cacheMutations.isCurrent(cacheEpoch)
+    && (generation === null || isWorkCurrent(generation));
+  const byId = new Map(candidates.map(item => [item.articleId || item.entryKey || item.url, item]));
+  const committed = await cacheMutations.run(async isCurrent => {
+    if (!isCurrent() || !active()) return false;
+    const settings = await getSettings();
+    const model = await currentBookmarkModel(settings);
+    const permissions = await currentFeedPermissionState(settings, model);
+    const feed = feedCacheOrEmpty(await getRecord("feed", null));
+    const aiReady = await aiConfigured(settings);
+    let changed = false;
+    let items = filterFeedItemsBySources(feed.items, permissions.permitted, permissions.grantedOrigins).map(item => {
+      const candidate = byId.get(item.articleId || item.entryKey || item.url);
+      if (!candidate || feedContentFingerprint(item) !== feedContentFingerprint(candidate)) return item;
+      if (kind === "images") {
+        if (item.imageUrl || !candidate.imageUrl) return item;
+        changed = true;
+        return { ...item, imageUrl: candidate.imageUrl, imageUrls: candidate.imageUrls, imageSource: candidate.imageSource };
+      }
+      if (!candidate.readerContent || JSON.stringify(candidate.readerContent) === JSON.stringify(item.readerContent)) return item;
+      changed = true;
+      return sanitizeCardAiSummaries([{ ...item, readerContent: candidate.readerContent,
+        summaryFingerprint: item.summaryFingerprint || articleContentFingerprint(item) }], settings, aiReady)[0];
+    });
+    if (!changed || !isCurrent() || !active()) return false;
+    if (kind === "content") items = rankAndDedupe(items, settings.hotNewsCacheSize, {
+      feedback: await getRecord("feedback", []), personalizedRankingEnabled: settings.personalizedRankingEnabled !== false,
+      aiRankingEnabled: aiReady,
+    });
+    const visible = presentableFeedItems(items, settings, aiReady);
+    const writes = [{ key: "feed", value: { ...feed, items,
+      localCount: visible.filter(item => !item.externalDiscovery).length,
+      publicCount: visible.filter(item => item.externalDiscovery).length }, kind: "cache" }];
+    if (kind === "images") {
+      const quality = await getRecord("source-quality", emptySourceQuality());
+      updateImageQualityMetrics(quality.records || {}, items);
+      writes.push({ key: "source-quality", value: summarizeQuality(quality, permissions.denied, permissions.sources), kind: "cache" });
+    } else {
+      const digest = await getRecord("daily-digest", null);
+      if (!digestCachePermitted(digest, visible, permissions, settings, aiReady)) {
+        const selected = buildDailyCandidates(visible, { limit: 12, recentLimit: 3,
+          publisherLimit: settings.todayNewsPerPublisherLimit, aiRankingEnabled: aiReady });
+        writes.push({ key: "daily-digest", value: withFeedCacheMetadata(buildFallbackDigest(selected, "local", settingsLocale(settings), {
+          preselected: true, publisherLimit: settings.todayNewsPerPublisherLimit,
+        }), selected, "daily-digest"), kind: "cache" });
+      }
+    }
+    if (!isCurrent() || !active()) return false;
+    await setRecords(writes);
+    return true;
+  }, cacheEpoch);
+  if (committed && active()) broadcast("dashboard.updated", { reason: "feed" });
 }
 
 async function runAutomaticAiAfterFailedRefresh(generation, signal, allowDigest = true, retryFailed = false) {
   try {
     const settings = await getSettings();
-    if (!settings.bookmarkConsentGranted || !isWorkCurrent(generation)) return null;
+    if (!isWorkCurrent(generation)) return null;
     const model = await currentBookmarkModel(settings);
     const feedPermissions = await currentFeedPermissionState(settings, model);
     const cacheEpoch = cacheMutations.capture();
@@ -378,7 +478,6 @@ async function refreshSource(body = {}) {
   const cacheEpoch = cacheMutations.invalidate();
   refreshCoordinator.invalidate();
   const settings = await getSettings();
-  if (!settings.bookmarkConsentGranted) throw typedError("SOURCE_NOT_FOUND", "background.error.sourceNotFound", {}, false);
   const model = await currentBookmarkModel(settings);
   const permissions = await currentFeedPermissionState(settings, model);
   const source = permissions.permitted.find((candidate) => String(candidate.key || "") === sourceKey);
@@ -430,7 +529,6 @@ async function refreshSource(body = {}) {
   const checkedAt = new Date().toISOString();
   const newItems = result.items || [];
   const retainPreviousAfterEmpty = shouldRetainPreviousItemsAfterEmpty(result, previousItems, previousRecord);
-  if (result.outcome !== "notModified") await enrichMissingFeedImages(newItems, { cacheEpoch });
   const itemCount = result.outcome === "notModified"
     ? previousItems.length
     : Number(result.displayableItemCount ?? newItems.length);
@@ -493,7 +591,7 @@ async function refreshSource(body = {}) {
     const visibleItems = presentableFeedItems(items, settings, aiReady);
     const qualitySummary = summarizeQuality({
       ...(latestQuality.records || {}),
-      [sourceKey]: nextRecord,
+      [sourceKey]: { ...nextRecord, ...imageQualityMetrics(sourceItems) },
     }, permissions.denied, permissions.sources);
     const locale = settingsLocale(settings);
     const candidates = buildDailyCandidates(visibleItems, {
@@ -527,7 +625,8 @@ async function refreshSource(body = {}) {
   if (!committed) throw typedError("SOURCE_REFRESH_STALE", "background.error.sourcePermission", {}, false);
   broadcast("dashboard.updated", { reason: "single-source-refresh" });
   broadcast("settings.changed", { sourceQualityChanged: true });
-  return { ok: true, itemCount, outcome: result.outcome, sourceQuality: committed.sourceQuality };
+  await finishFeedEnrichment(committed.feed.items.filter(item => item.sourceKey === sourceKey), { cacheEpoch });
+  return { ok: true, itemCount, outcome: result.outcome, sourceQuality: await getRecord("source-quality", committed.sourceQuality) };
 }
 
 function nextEligibleAtForError(error) {
@@ -599,6 +698,7 @@ async function automaticallySummarizeCards(
         ...(mode === "required" ? { localization: createLocalization(item, organized, locale, "native", new Date().toISOString(), safeOrigin(settings.openaiBaseUrl)) } : {}),
         summaryStatus: "ai", summaryLocale: locale, summarizedAt: new Date().toISOString(),
         summaryProviderOrigin: safeOrigin(settings.openaiBaseUrl),
+        summaryFingerprint: articleContentFingerprint(item),
       }));
       if (!committedItem) { outcome.stopped = true; break; }
       outcome.items = outcome.items.map((item) => item.url === committedItem.url ? committedItem : item);
@@ -734,11 +834,13 @@ async function refreshDailyDigest({ automatic = false, signal } = {}) {
       if (!eventItems.has(eventId)) eventItems.set(eventId, []);
       eventItems.get(eventId).push(item);
     }
+    const evidenceItems = [];
     const context = contextItems.map((item, index) => {
       const related = selectDistinctEventEvidence(eventItems.get(String(item.eventId || "")) || [item], 3);
+      evidenceItems.push(...related);
       const publishers = [...new Set(related.map((entry) => entry.publisher || entry.source).filter(Boolean))].join(", ");
       const evidence = related.map((entry) => {
-        const detail = dailyDigestEvidence(entry.title, entry.excerpt);
+        const detail = dailyDigestEvidence(entry.title, articleContentText(entry, 1600));
         return `${entry.title}${detail ? ` — ${detail}` : " — [no detail beyond headline]"}`;
       }).join(" / ");
       return `${index + 1}. time=${item.publishedAt || "unverified"}｜publishers=${publishers}｜sources=${Number(item.eventSourceCount || 1)}｜evidence=${evidence}`;
@@ -750,7 +852,7 @@ async function refreshDailyDigest({ automatic = false, signal } = {}) {
         context,
         AI_DIGEST_MAX_TOKENS,
         "",
-        () => assertFeedItemsStillPermitted(contextItems),
+        () => assertFeedItemsStillPermitted(evidenceItems),
         {
           signal,
           preferVisibleOutput: true,
@@ -786,7 +888,7 @@ async function refreshDailyDigest({ automatic = false, signal } = {}) {
           candidateFingerprint: dailyCandidateFingerprint(contextItems, {
             publisherLimit: settings.todayNewsPerPublisherLimit,
           }),
-        }, contextItems, "daily-digest", settings.openaiBaseUrl);
+        }, evidenceItems, "daily-digest", settings.openaiBaseUrl);
       } else {
         digest = { ...digest, status: "quota-or-empty" };
       }
@@ -824,7 +926,6 @@ async function refreshSingleSummary(body) {
   const cacheEpoch = cacheMutations.capture();
   const settings = await getSettings();
   const locale = settingsLocale(settings);
-  if (!settings.bookmarkConsentGranted) return resultMessage(settings, false, "background.error.sourceNotFound");
   const model = await currentBookmarkModel(settings);
   const feed = feedCacheOrEmpty(await getRecord("feed", null));
   const target = feed.items.find((item) => (
@@ -865,7 +966,7 @@ async function refreshSingleSummary(body) {
   const committed = await cacheMutations.run(async (isCurrent) => {
     if (!isCurrent()) return null;
     const latestSettings = await getSettings();
-    if (!latestSettings.bookmarkConsentGranted || botOrganizesNews(latestSettings)) return null;
+    if (botOrganizesNews(latestSettings)) return null;
     const latestModel = await currentBookmarkModel(latestSettings);
     const latestPermissions = await currentFeedPermissionState(latestSettings, latestModel);
     if (!isCurrent() || latestPermissions.permittedByKey.get(String(target.sourceKey || "")) !== permittedSourceOrigin) return null;
@@ -887,6 +988,7 @@ async function refreshSingleSummary(body) {
           summaryLocale: locale,
           summarizedAt: new Date().toISOString(),
           summaryProviderOrigin: safeOrigin(settings.openaiBaseUrl),
+          summaryFingerprint: articleContentFingerprint(item),
         }
         : item
     ));

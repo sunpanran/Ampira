@@ -13,8 +13,8 @@ const IMAGE_QUERY_MAX_WORDS = 50;
 const MIN_IMAGE_WIDTH = 320;
 const MIN_IMAGE_HEIGHT = 180;
 const LOW_VALUE_IMAGE_PATTERN = /(?:^|[\s._/\\-])(?:app-?icon|avatar|badge|brandmark|favicon|icon|logo|logotype|sprite)(?:$|[\s._/\\-])/i;
-const GEMINI_WEB_SEARCH_MODEL_PATTERN = /^gemini-(?:1\.5|2(?:\.\d+)?|3(?:\.\d+)?)(?:-[a-z0-9._-]+)?$/i;
-const OPENAI_RESPONSES_WEB_SEARCH_MODEL_PATTERN = /^(?:gpt-(?:4\.1|4o|5(?:\.\d+)?)(?:-[a-z0-9._-]+)?|o(?:3|4)(?:-[a-z0-9._-]+)?)$/i;
+const GEMINI_WEB_SEARCH_MODEL_PATTERN = /^gemini-(?:4-hydrogen|(?:1\.5|2(?:\.\d+)?|3(?:\.\d+)?)(?:-[a-z0-9._-]+)?)$/i;
+const OPENAI_RESPONSES_WEB_SEARCH_MODEL_PATTERN = /^(?:gpt-6-luna|gpt-(?:4\.1|4o|5(?:\.\d+)?)(?:-[a-z0-9._-]+)?|o(?:3|4)(?:-[a-z0-9._-]+)?)$/i;
 const OPENAI_CHAT_WEB_SEARCH_MODEL_PATTERN = /^(?:gpt-4o(?:-mini)?-search-preview|gpt-5(?:\.\d+)?-search-api)$/i;
 
 export async function requestAiCompletion(settings, options) {
@@ -132,6 +132,9 @@ async function prepareAiRequest(settings, options, stream) {
   const chat = settings.openaiApiStyle === "chat_completions";
   const xaiResponses = !chat && isOfficialXaiEndpoint(endpoint);
   const kimiChat = chat && settings.openaiSummaryModel === "kimi-k3.1-pro" && isOfficialKimiEndpoint(endpoint);
+  // Keep the short summary and connection-test budgets available for visible output.
+  const luna = isLunaEndpoint(endpoint, settings.openaiSummaryModel);
+  const openAiLunaChat = chat && luna && isOfficialOpenAiEndpoint(endpoint);
   const nativeMessages = Array.isArray(options.messages);
   const messages = normalizeAiMessages(options.messages, options.input);
   const requestBody = webSearchKind === "gemini_interactions" ? {
@@ -144,9 +147,10 @@ async function prepareAiRequest(settings, options, stream) {
         ...(options.system ? [{ role: "system", content: String(options.system) }] : []),
         ...messages,
       ],
-      ...(kimiChat
-        ? { max_completion_tokens: options.maxTokens, reasoning_effort: "low" }
+      ...(kimiChat || openAiLunaChat
+        ? { max_completion_tokens: options.maxTokens, reasoning_effort: kimiChat ? "low" : "none" }
         : { max_tokens: options.maxTokens }),
+      ...(luna && !openAiLunaChat ? { reasoning: { effort: "none" } } : {}),
       ...(stream ? { stream: true } : {}),
       ...(webSearchKind === "openai_chat_search" ? { web_search_options: {} } : {}),
       ...(options.preferVisibleOutput === true && isOfficialDeepSeekEndpoint(endpoint)
@@ -168,6 +172,7 @@ async function prepareAiRequest(settings, options, stream) {
       ...(webSearchKind === "openai_responses" ? { tools: [{ type: "web_search" }] } : {}),
       ...(isOfficialOpenAiEndpoint(endpoint) || xaiResponses ? { store: false } : {}),
       ...(xaiResponses && settings.openaiSummaryModel === "grok-4.7" ? { reasoning: { effort: "low" } } : {}),
+      ...(luna ? { reasoning: { effort: "none" } } : {}),
     };
   const headers = { "content-type": "application/json" };
   if (apiKey && webSearchKind === "gemini_interactions") headers["x-goog-api-key"] = apiKey;
@@ -364,6 +369,16 @@ function isOfficialXaiEndpoint(value) {
 function isOfficialKimiEndpoint(value) {
   try {
     return ["https://api.moonshot.cn", "https://api.moonshot.ai"].includes(new URL(value).origin);
+  } catch {
+    return false;
+  }
+}
+
+function isLunaEndpoint(value, model) {
+  try {
+    const origin = new URL(value).origin;
+    return (origin === "https://api.openai.com" && model === "gpt-6-luna")
+      || (origin === "https://openrouter.ai" && model === "openai/gpt-6-luna");
   } catch {
     return false;
   }

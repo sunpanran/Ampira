@@ -241,9 +241,9 @@ export function normalizeResearchFolder(value) {
   };
 }
 
-export async function loadResearchFolderOptions(apiGet) {
+export async function loadResearchFolderOptions(request) {
   try {
-    const result = await apiGet("/api/research/folders");
+    const result = await request({ type: "research:folders" });
     const consentRequired = result?.bookmarkConsentGranted === false;
     const folders = !consentRequired && Array.isArray(result?.folders)
       ? result.folders.map(normalizeResearchFolder).filter(Boolean)

@@ -231,10 +231,6 @@ button {
   outline-offset: 3px;
 }
 
-.popup-footer button:active {
-  transform: translateY(1px);
-}
-
 #openDashboardIcon {
   display: flex;
 }
@@ -274,10 +270,6 @@ button {
   *::after {
     animation: none !important;
     transition: none !important;
-  }
-
-  .popup-footer button:active {
-    transform: none;
   }
 }
 

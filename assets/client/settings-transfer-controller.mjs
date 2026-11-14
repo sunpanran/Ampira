@@ -1,6 +1,6 @@
 export function createSettingsTransferController(options) {
   const {
-    els, state, t, apiGet, apiPost, confirmAction, localizedErrorMessage,
+    els, state, t, request, confirmAction, localizedErrorMessage,
     runSettingsAction, renderSettingsStatus, loadSettings, captureSettingsSnapshot, resetSecretDrafts,
     applyUiLocale, getLocale, prepareLocale, inspirationPreviews, loadDashboard, triggerRefresh,
     resetExtensionPage,
@@ -13,7 +13,7 @@ export function createSettingsTransferController(options) {
       renderSettingsStatus(t("settings.transfer.exporting"));
       try {
         const [config, { settingsTransferFilename }] = await Promise.all([
-          apiGet("/api/settings/export"),
+          request({ type: "settings:export" }),
           import("../../extension/core/settings-transfer.mjs"),
         ]);
         if (!isCurrent()) return;
@@ -58,7 +58,7 @@ export function createSettingsTransferController(options) {
     return runSettingsAction(async (isCurrent) => {
       renderSettingsStatus(t("settings.transfer.importing"));
       try {
-        const savedSettings = await apiPost("/api/settings/import", { config: transfer.config });
+        const savedSettings = await request({ type: "settings:import", payload: { config: transfer.config } });
         if (!isCurrent()) return;
         const bookmarkSourceChanged = savedSettings.bookmarkSourceChanged === true;
         const rankingChanged = savedSettings.rankingChanged === true;
@@ -96,7 +96,7 @@ export function createSettingsTransferController(options) {
     return runSettingsAction(async (isCurrent) => {
       renderSettingsStatus(t("settings.transfer.resetting"));
       try {
-        const result = await apiPost("/api/settings/factory-reset");
+        const result = await request({ type: "settings:factory-reset" });
         if (!isCurrent()) return;
         if (result?.ok !== true) throw new Error(t("background.error.factoryResetIncomplete", { count: 1 }));
         renderSettingsStatus(t("settings.transfer.resetComplete"));

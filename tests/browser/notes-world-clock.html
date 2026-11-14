@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="zh-CN" data-color-mode="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ampira notes and world clock fixtures</title>
+  <link rel="stylesheet" href="../../assets/dashboard.css">
+  <style>
+    body { min-width: 0; padding: 24px; }
+    #notesClockFixture { width: min(900px, 100%); margin: auto; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; align-items: start; }
+    @media (max-width: 820px) { body { padding: 12px; } #notesClockFixture { grid-template-columns: minmax(0, 1fr); } }
+  </style>
+</head>
+<body>
+  <main id="notesClockFixture" class="has-dashboard-layout"></main>
+  <dialog class="confirmation-dialog" id="confirmationDialog" aria-labelledby="confirmationTitle" aria-describedby="confirmationBody">
+    <div class="confirmation-copy">
+      <span class="confirmation-kicker" id="confirmationKicker">CONFIRM</span>
+      <h2 id="confirmationTitle"></h2>
+      <p id="confirmationBody"></p>
+    </div>
+    <div class="confirmation-actions">
+      <button class="btn ghost" id="confirmationCancel" type="button" autofocus>Cancel</button>
+      <button class="btn primary" id="confirmationConfirm" type="button">Continue</button>
+    </div>
+  </dialog>
+  <div class="context-menu" id="linkContextMenu" role="menu" hidden></div>
+  <script type="module" src="./notes-world-clock.mjs"></script>
+</body>
+</html>

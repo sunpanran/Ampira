@@ -1,13 +1,14 @@
 import { validTranslation } from "../core/feed-localization.mjs";
 import { isAiContentError } from "../core/card-summary-retry.mjs";
 import { normalizeCardSummary } from "../core/card-summary-format.mjs";
+import { articleContentText } from "../core/feed-content.mjs";
 
 export async function translateFeedBatch(items, locale, request) {
   const remaining = new Map(items.map((item, index) => [String(index + 1), item]));
   const results = new Map();
   let received = false;
   for (let attempt = 0; attempt < 2 && remaining.size; attempt++) {
-    const inputs = [...remaining].map(([id, item]) => ({ id, title: String(item.title || "").slice(0, 200), excerpt: String(item.excerpt || "").trim().slice(0, 2000) }));
+    const inputs = [...remaining].map(([id, item]) => ({ id, title: String(item.title || "").slice(0, 200), excerpt: articleContentText(item, 2000) }));
     let text;
     try { text = await request(inputs); received = true; }
     catch (error) {

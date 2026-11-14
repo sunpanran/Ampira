@@ -9,6 +9,9 @@ import { diffSettingsDraft, snapshotSettingsDraft } from "../../assets/client/se
 
 export async function runNavigationPositionTests() {
   assert.equal(DEFAULT_SETTINGS.navPosition, "left");
+  assert.equal(DEFAULT_SETTINGS.navAutoHideEnabled, false);
+  assert.equal(normalizeSettings({}).navAutoHideEnabled, false);
+  assert.equal(normalizeSettings({ navAutoHideEnabled: true }).navAutoHideEnabled, true);
   for (const value of [undefined, null, "", "auto", "TOP", {}, [], 0]) {
     assert.equal(normalizeSettings({ navPosition: value }).navPosition, "left");
     assert.equal(normalizeNavPosition(value), "left");
@@ -36,7 +39,7 @@ export async function runNavigationPositionTests() {
     getRecord: async (key, fallback) => fallback,
     emptySourceQuality: () => ({}),
     broadcast: (...args) => broadcasts.push(args),
-    startRefresh: () => assert.fail("moving navigation must not fetch feeds or start AI"),
+    startRefresh: () => assert.fail("navigation preferences must not fetch feeds or start AI"),
   });
   await store.write({ ...DEFAULT_SETTINGS, colorMode: "light", uiLocale: "en" });
   for (const position of ["top", "bottom", "right", "left"]) {
@@ -53,14 +56,31 @@ export async function runNavigationPositionTests() {
     assert.throws(() => parseSettingsTransferDocument(transferred), { name: "SettingsTransferError" });
   }
   assert.equal(broadcasts.length, 4, "other open dashboards must receive saved settings changes");
+  for (const enabled of [true, false]) {
+    const result = await workflow.saveSettings({ navAutoHideEnabled: enabled });
+    assert.equal(result.navAutoHideEnabled, enabled);
+    assert.equal((await store.read()).navAutoHideEnabled, enabled);
+    assert.equal(result.navPosition, "left");
+    assert.equal(result.sourceRefreshScheduled, false);
+    assert.equal(result.automaticAiStarted, false);
+    const transferred = createSettingsTransferDocument(await store.read());
+    assert.equal(parseSettingsTransferDocument(transferred).patch.navAutoHideEnabled, enabled);
+    transferred.settings.navAutoHideEnabled = "true";
+    assert.throws(() => parseSettingsTransferDocument(transferred), { name: "SettingsTransferError" });
+  }
+  assert.equal(broadcasts.length, 6);
   assert(broadcasts.every(([type]) => type === "settings.changed"));
   const baseline = snapshotSettingsDraft(await store.read());
   assert.deepEqual(diffSettingsDraft({ ...baseline, navPosition: "right" }, baseline), { navPosition: "right" });
+  assert.deepEqual(diffSettingsDraft({ ...baseline, navAutoHideEnabled: true }, baseline), { navAutoHideEnabled: true });
   assert.deepEqual(diffSettingsDraft({ ...baseline }, baseline), {}, "opening or restoring appearance must not create a draft");
   const legacy = createSettingsTransferDocument({ colorMode: "dark" });
   delete legacy.settings.navPosition;
+  delete legacy.settings.navAutoHideEnabled;
+  assert.equal(Object.hasOwn(parseSettingsTransferDocument(legacy, { navAutoHideEnabled: true }).patch, "navAutoHideEnabled"), false);
   assert.equal(Object.hasOwn(parseSettingsTransferDocument(legacy, { navPosition: "right" }).patch, "navPosition"), false,
     "older exports must not reset the saved position");
   await store.reset();
   assert.equal((await store.read()).navPosition, "left");
+  assert.equal((await store.read()).navAutoHideEnabled, false);
 }

@@ -4,6 +4,10 @@ const CONTENT_SYNC_CONTROLS = Object.freeze([
   ["syncWeatherLocationEnabledInput", "syncWeatherLocationEnabled"],
   ["syncStockWatchlistEnabledInput", "syncStockWatchlistEnabled"],
   ["syncCountdownsEnabledInput", "syncCountdownsEnabled"],
+  ["syncTrackedTopicsEnabledInput", "syncTrackedTopicsEnabled"],
+  ["syncCalendarEnabledInput", "syncCalendarEnabled"],
+  ["syncNotesEnabledInput", "syncNotesEnabled"],
+  ["syncWorldClockEnabledInput", "syncWorldClockEnabled"],
 ]);
 
 export function applyContentSyncSettings(els, settings = {}) {
@@ -12,14 +16,14 @@ export function applyContentSyncSettings(els, settings = {}) {
   syncContentSyncMaster(els);
 }
 
-export function setAllContentSyncControls(els, enabled) {
-  for (const [control] of CONTENT_SYNC_CONTROLS) els[control].checked = enabled === true;
-  syncContentSyncMaster(els);
+export function setContentSyncEnabled(els, enabled) {
+  if (!enabled) for (const [control] of CONTENT_SYNC_CONTROLS) els[control].checked = false;
+  syncContentSyncMaster(els, { keepOpen: enabled === true });
 }
 
-export function syncContentSyncMaster(els) {
+export function syncContentSyncMaster(els, { keepOpen = false } = {}) {
   const enabledCount = CONTENT_SYNC_CONTROLS.filter(([control]) => els[control].checked).length;
-  els.contentSyncEnabledInput.checked = enabledCount > 0;
+  els.contentSyncEnabledInput.checked = keepOpen || enabledCount > 0;
   els.contentSyncEnabledInput.indeterminate = false;
   els.contentSyncEnabledInput.setAttribute("aria-checked", String(els.contentSyncEnabledInput.checked));
   if (els.contentSyncDetails) els.contentSyncDetails.hidden = !els.contentSyncEnabledInput.checked;

@@ -1,8 +1,9 @@
 import { WEATHER_ORIGINS, weatherConditionKey } from "../../extension/core/weather.mjs";
 import { WEATHER_LOCATION_KEY, WEATHER_OPTED_IN_KEY, normalizeWeatherLocation, weatherConditionIconName } from "./utility-card-model.mjs";
+import { defaultWeatherLocation } from "./weather-card-state.mjs";
 import { spanText } from "./dom.mjs";
 
-export function createWeatherCardView({ state, t, getLocale, apiPost, createEmptyState, createIcon,
+export function createWeatherCardView({ state, t, getLocale, request, createEmptyState, createIcon,
   writeJson, writeValue, requestWeatherPermissions, localizedErrorMessage, weatherState, requestRender, isActive }) {
   let weatherEditing = false;
   let weatherQuery = "", weatherLocations = [], weatherSearchError = "";
@@ -16,28 +17,29 @@ export function createWeatherCardView({ state, t, getLocale, apiPost, createEmpt
   return {
     render() {
       const { forecast } = weatherState.read();
-      if (state.weatherLocation) {
-        locationButton.textContent = state.weatherLocation.name;
-        locationButton.title = t("weather.location.change", { location: weatherLocationLabel(state.weatherLocation) });
-        locationButton.setAttribute("aria-label", locationButton.title);
-      }
-      if (state.weatherLocation && !weatherEditing) queueMicrotask(() => { if (isActive()) weatherState.ensure(); });
+      const location = currentLocation();
+      locationButton.textContent = location.name;
+      locationButton.title = t("weather.location.change", { location: weatherLocationLabel(location) });
+      locationButton.setAttribute("aria-label", locationButton.title);
+      if (!weatherEditing) queueMicrotask(() => { if (isActive()) weatherState.ensure(); });
       return {
         icon: forecast?.current ? weatherConditionIconName(weatherConditionKey(forecast.current.weatherCode)) : "cloud-sun",
-        meta: state.weatherLocation ? locationButton : spanText(t("weather.location.unset"), "efficiency-meta"),
+        meta: locationButton,
         content: createWeatherContent(),
       };
+    },
+    contextActions() {
+      return [{ label: t("weather.location.switch"), icon: "edit-05", action: editWeatherLocation }];
     },
     deactivate() { weatherEditing = false; searchToken += 1; weatherSearchBusy = false; },
   };
 
   function createWeatherContent() {
     const { forecast: weatherForecast, busy: weatherForecastBusy, error: weatherForecastError } = weatherState.read();
-    if (weatherEditing || !state.weatherLocation) return createWeatherEditor();
+    if (weatherEditing) return createWeatherEditor();
     if (weatherForecastBusy) {
       return createEmptyState({
         title: t("weather.loading.title"),
-        body: t("weather.loading.body"),
         variant: "compact",
       });
     }
@@ -53,7 +55,6 @@ export function createWeatherCardView({ state, t, getLocale, apiPost, createEmpt
     if (!weatherForecast) {
       return createEmptyState({
         title: t("weather.loading.title"),
-        body: t("weather.loading.body"),
         variant: "compact",
       });
     }
@@ -170,7 +171,7 @@ export function createWeatherCardView({ state, t, getLocale, apiPost, createEmpt
         weatherSearchError = t("weather.permission.declined");
         return;
       }
-      const result = await apiPost("/api/weather/search", { query, locale: getLocale() });
+      const result = await request({ type: "weather:search", payload: { query, locale: getLocale() } });
       if (token !== searchToken) return;
       weatherLocations = Array.isArray(result?.locations)
         ? result.locations.map(normalizeWeatherLocation).filter(Boolean).slice(0, 5)
@@ -201,8 +202,12 @@ export function createWeatherCardView({ state, t, getLocale, apiPost, createEmpt
   }
 
   function editWeatherLocation() {
+    if (weatherEditing) {
+      editorInput?.focus({ preventScroll: true });
+      return;
+    }
     weatherEditing = true;
-    weatherQuery = state.weatherLocation?.name || "";
+    weatherQuery = currentLocation().name;
     weatherLocations = [];
     weatherSearchError = "";
     requestRender({ animate: true });
@@ -246,7 +251,7 @@ export function createWeatherCardView({ state, t, getLocale, apiPost, createEmpt
     const attributionGroup = document.createElement("div");
     attributionGroup.className = "weather-attribution-group";
     attributionGroup.append(attribution);
-    if (state.weatherLocation?.source === "geonames") {
+    if (currentLocation().source === "geonames") {
       const separator = document.createElement("span");
       separator.className = "weather-attribution-separator";
       separator.setAttribute("aria-hidden", "true");
@@ -277,7 +282,22 @@ export function createWeatherCardView({ state, t, getLocale, apiPost, createEmpt
       t("weather.precipitation", { value: current.precipitationProbability }),
       forecast.stale ? t("weather.stale") : "",
     ].filter(Boolean).join(" · "), "weather-current-details");
-    summary.append(main, detail);
+    const metrics = document.createElement("dl");
+    metrics.className = "weather-current-metrics";
+    const humidity = Number.isFinite(current.relativeHumidity) ? `${current.relativeHumidity}%` : "—";
+    const wind = Number.isFinite(current.windSpeedKmh)
+      ? t("weather.windSpeedValue", { value: new Intl.NumberFormat(getLocale(), { maximumFractionDigits: 1 }).format(current.windSpeedKmh) })
+      : "—";
+    for (const [label, value] of [[t("weather.humidity"), humidity], [t("weather.windSpeed"), wind]]) {
+      const item = document.createElement("div");
+      const term = document.createElement("dt");
+      const description = document.createElement("dd");
+      term.textContent = label;
+      description.textContent = value;
+      item.append(term, description);
+      metrics.append(item);
+    }
+    summary.append(main, detail, metrics);
     return summary;
   }
 
@@ -311,6 +331,11 @@ export function createWeatherCardView({ state, t, getLocale, apiPost, createEmpt
     } catch {
       return date;
     }
+  }
+
+  function currentLocation() {
+    return normalizeWeatherLocation(state.weatherLocation)
+      || { ...defaultWeatherLocation(getLocale()), name: t("weather.location.default") };
   }
 
   function weatherLocationLabel(location) {

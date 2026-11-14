@@ -15,15 +15,16 @@ export async function runCardContextMenuTests() {
     menu.hidden = true;
     menu.setAttribute("role", "menu");
     doc.append(menu);
-    const opened = [], switched = [], appearanceOpened = [];
+    const opened = [], switched = [], appearanceOpened = [], feedback = [];
     const cover = doc.createElement("div");
     cover.id = "headerImageHero";
     cover.rect = { left: 0, right: 400, top: 0, bottom: 180 };
-    let locale = "zh-CN", pickerOpen = false;
+    let locale = "zh-CN", pickerOpen = false, aiEnabled = false, personalizationEnabled = false;
     const controller = createContextMenuController({
       menu, headerCover: cover, openAppearanceSettings: () => appearanceOpened.push(locale),
       t: key => key === "context.appearanceSettings" ? `${locale}:appearance` : key,
-      aiEnabled: () => false, personalizationEnabled: () => false,
+      aiEnabled: () => aiEnabled, personalizationEnabled: () => personalizationEnabled,
+      sendFeedback: (item, value) => feedback.push([item.feedItem.articleId, value]),
       openExternal: url => opened.push(url), itemUrl: item => item.url,
       getCardActions: target => {
         const id = target.closest("[data-dashboard-card]")?.dataset.dashboardCard;
@@ -71,6 +72,8 @@ export async function runCardContextMenuTests() {
     controller.attachLink(button, { url: "https://example.com/article" });
     await button.emit("contextmenu");
     assert.deepEqual(labels(), ["context.openNewTab", "context.copyLink", "en:switch"], "link actions and the card action share one menu without bubbling duplicates");
+    assert.equal(menu.children[0].className, "", "the first action never gets a leading divider");
+    assert.equal(menu.children[2].className, "context-menu-group-start", "card layout actions are separated from link actions");
     await menu.children[0].emit("click");
     assert.deepEqual(opened, ["https://example.com/article"]);
     assert.equal(switched.length, 18, "opening a link must not switch cards");
@@ -113,6 +116,32 @@ export async function runCardContextMenuTests() {
     assert(!(await outside.emit("contextmenu")).defaultPrevented);
     await button.emit("contextmenu");
     assert.deepEqual(labels(), ["context.openNewTab", "context.copyLink"], "links outside switchable cards keep their original actions");
+
+    const groupHeader = doc.createElement("div");
+    doc.append(groupHeader);
+    let hiddenGroup = "";
+    controller.attachGroup(groupHeader, () => ({ items: [{ url: "https://example.com/group" }] }), () => [{
+      label: "context.hideBookmarkCategory", action: () => { hiddenGroup = "sample"; },
+    }]);
+    await groupHeader.emit("contextmenu");
+    assert.deepEqual(labels(), ["context.openAll", "context.hideBookmarkCategory"], "group menus preserve bulk opening and expose category hiding");
+    assert.equal(menu.children[1].className, "context-menu-group-start", "management actions form a second group");
+    await menu.children[1].emit("click");
+    assert.equal(hiddenGroup, "sample");
+    assert(menu.hidden);
+
+    const article = doc.createElement("a"); doc.append(article);
+    aiEnabled = true; personalizationEnabled = true;
+    controller.attachLink(article, { url: "https://example.com/news", item: { feedItem: { articleId: "news" } } });
+    await article.emit("contextmenu");
+    assert.deepEqual(labels(), ["context.explainArticle", "context.openNewTab", "context.copyLink", "context.moreLike", "context.notInterested"]);
+    assert.deepEqual(menu.children.map(item => item.className), ["", "", "", "context-menu-group-start", ""], "one decorative divider separates feedback without adding a focusable row");
+    await menu.children[3].emit("click");
+    assert.deepEqual(feedback, [["news", "more_like_this"]]);
+    aiEnabled = false; personalizationEnabled = false;
+    await article.emit("contextmenu");
+    assert.deepEqual(menu.children.map(item => item.className), ["", ""], "unavailable action groups leave no orphan divider");
+    controller.hide();
 
     const pageBody = doc.createElement("body"), app = doc.createElement("div"), main = doc.createElement("main");
     app.className = "app"; main.className = "main";
@@ -162,6 +191,45 @@ export async function runCardContextMenuTests() {
     card.dataset.dashboardCard = "utility";
     await body.emit("contextmenu");
     assert.deepEqual(labels(), ["en:switch"], "cards over a fullscreen cover keep only their own actions");
+    controller.hide();
+
+    const more = doc.createElement("button"), otherMore = doc.createElement("button");
+    more.rect = otherMore.rect = { right: 390, bottom: 40 };
+    card.append(more, otherMore);
+    const selected = [];
+    const archiveActions = () => [{ label: `${locale}:clear`, icon: "trash-01", tone: "danger", action: () => selected.push(doc.activeElement) }];
+    controller.attachMenuButton(more, archiveActions);
+    controller.attachMenuButton(otherMore, archiveActions);
+    assert.equal(more.attributes["aria-haspopup"], "menu");
+    assert.equal(more.attributes["aria-controls"], menu.id);
+    assert.equal(more.attributes["aria-expanded"], "false");
+    await more.emit("click", { detail: 1 });
+    assert(!menu.hidden, "the opening click must not bubble into the outside-click dismissal");
+    assert.equal(more.attributes["aria-expanded"], "true");
+    assert.deepEqual(labels(), ["en:clear"], "explicit action menus must not inherit card switching");
+    assert.equal(menu.dataset.inputMode, "pointer");
+    assert.equal(menu.style.left, "214px", "button menus stay within the viewport");
+    assert.equal(menu.style.top, "44px", "button menus open below their trigger");
+    assert.equal(selected.length, 0, "opening a menu must not execute its destructive action");
+    await more.emit("click", { detail: 1 });
+    assert(menu.hidden && more.attributes["aria-expanded"] === "false", "a second click toggles the menu closed");
+    await more.emit("click", { detail: 0 });
+    assert.equal(menu.dataset.inputMode, "keyboard");
+    await menu.children[0].emit("keydown", { key: "Escape" });
+    assert(menu.hidden && doc.activeElement === more);
+    assert.equal(more.attributes["aria-expanded"], "false");
+    await more.emit("click", { detail: 0 });
+    await menu.children[0].emit("click");
+    assert.equal(selected[0], more, "restore the trigger before opening a confirmation so cancellation can return focus");
+    await more.emit("click", { detail: 1 });
+    await otherMore.emit("click", { detail: 1 });
+    assert.equal(more.attributes["aria-expanded"], "false", "switching instances resets the previous trigger");
+    assert.equal(otherMore.attributes["aria-expanded"], "true");
+    await outside.emit("click");
+    assert(menu.hidden && otherMore.attributes["aria-expanded"] === "false");
+    await body.emit("contextmenu");
+    assert.deepEqual(labels(), ["en:switch"], "card switching remains available from the card context menu");
+    controller.hide();
   } finally {
     for (const [key, descriptor] of Object.entries(originals)) {
       if (descriptor) Object.defineProperty(globalThis, key, descriptor);

@@ -7,12 +7,12 @@ const pending = { status: "bot", taskStatus: "pending" };
 const ready = { status: "bot", taskStatus: "idle" };
 const scenarios = [
   [{ runner: connected.runner }, pending, "bot.brief.connectTitle", "bot.connectFirst", ""],
-  [connected, ready, "bot.waitingContent", "bot.runner.briefHelp", "bot.runner.generate"],
+  [connected, ready, "bot.waitingContent", "", "bot.runner.generate"],
   [{ connection: {}, runner: { mode: "manual" } }, ready, "bot.waitingContent", "bot.brief.help", "bot.brief.prepare"],
   [{ connection: {}, runner: { mode: "manual" } }, pending, "bot.brief.pendingTitle", "bot.brief.pendingHelp", ""],
-  [connected, pending, "bot.brief.queuedTitle", "bot.brief.queuedHelp", ""],
-  [{ connection: {}, runner: { mode: "codex", status: "running", kind: "question" } }, pending, "bot.brief.queuedTitle", "bot.brief.queuedHelp", ""],
-  [{ connection: {}, runner: { mode: "codex", status: "running", kind: "brief" } }, pending, "bot.brief.runningTitle", "bot.brief.runningHelp", ""],
+  [connected, pending, "bot.brief.queuedTitle", "", ""],
+  [{ connection: {}, runner: { mode: "codex", status: "running", kind: "question" } }, pending, "bot.brief.queuedTitle", "", ""],
+  [{ connection: {}, runner: { mode: "codex", status: "running", kind: "brief" } }, pending, "bot.brief.runningTitle", "", ""],
 ];
 for (const error of ["unavailable", "auth", "quota", "timeout", "invalidResult", "interrupted", "failed"])
   scenarios.push([{ connection: {}, runner: { mode: "codex", status: "failed", error } }, pending, "bot.brief.failedTitle", `bot.runner.error.${error}`, "bot.runner.retry"]);

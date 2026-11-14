@@ -31,7 +31,7 @@ async function testDashboardLoads() {
   const controller = createDashboardController({
     state,
     els: { dailyBoard: { removeAttribute: noop }, summaryGrid: { removeAttribute: noop } },
-    apiGet: (url) => new Promise((resolve, reject) => pending.push({ url, resolve, reject })),
+    request: message => new Promise((resolve, reject) => pending.push({ ...message, resolve, reject })),
     renderConnectionError: (error) => errors.push(error),
     t: (key) => key, localizedErrorMessage: (error) => error.message,
     renderOverviewStatus: () => renders.push("notice"),
@@ -47,7 +47,7 @@ async function testDashboardLoads() {
   const burst = Array.from({ length: 12 }, () => controller.loadDashboard({ scope: "news" }));
   await Promise.resolve();
   assert.equal(pending.length, 1, "a burst of twelve notifications must share one dashboard request");
-  assert.equal(pending[0].url, "/api/dashboard?scope=news");
+  assert.equal(pending[0].payload.scope, "news");
   pending[0].resolve({ feed: { items: [] }, ai: {} });
   await Promise.all(burst);
   assert.equal(state.data.bookmarks, bookmarks, "content reloads must preserve the bookmark snapshot");
@@ -77,7 +77,7 @@ async function testDashboardLoads() {
   await Promise.resolve();
   assert.equal(state.data.marker, undefined);
   assert.equal(pending.length, 3, "notifications during a request must coalesce into one fresh follow-up");
-  assert.equal(pending[2].url, "/api/dashboard", "a full invalidation must take precedence over a news update");
+  assert.equal(pending[2].payload.scope, undefined, "a full invalidation must take precedence over a news update");
   controller.applyAiProgress({ autoStatus: { processed: 3 }, usedToday: 5 });
   pending[2].resolve({ marker: "fresh", bookmarks, ai: { usedToday: 4, autoStatus: { processed: 2 } } });
   await Promise.all([first, ...newer]);
@@ -107,14 +107,15 @@ async function testDashboardLoads() {
   await fullFailure;
   const recovery = controller.loadDashboard({ scope: "news", render: false });
   await Promise.resolve();
-  assert.equal(pending.at(-1).url, "/api/dashboard", "recovery from a full error surface must restore every region");
+  assert.equal(pending.at(-1).payload.scope, undefined, "recovery from a full error surface must restore every region");
   pending.at(-1).resolve({ bookmarks });
   await recovery;
 }
 
 async function testContentPermissions() {
   const source = { key: "synthetic", url: "https://source.example/feed", cardType: "news" };
-  const article = { articleId: "article", sourceKey: source.key, sourceOrigin: "https://source.example", url: "https://source.example/article" };
+  const article = { articleId: "article", sourceKey: source.key, sourceOrigin: "https://source.example", url: "https://source.example/article",
+    contentText: "Synthetic retained feed evidence", readerContent: { text: "Synthetic supplementary evidence" } };
   let origins = ["https://source.example/*"];
   let epoch = 0;
   let invalidateDuringRead = false;
@@ -145,6 +146,10 @@ async function testContentPermissions() {
   assert.equal(Object.hasOwn(news, "bookmarks"), false);
   assert.equal(Object.hasOwn(news, "sections"), false);
   assert.equal(news.feed.items.length, 1);
+  for (const payload of [full, news]) {
+    assert.equal(Object.hasOwn(payload.feed.items[0], "contentText"), false, "dashboard updates must not repeatedly transfer the organization body");
+    assert.equal(Object.hasOwn(payload.feed.items[0], "readerContent"), false);
+  }
   for (const mcpEnabled of [false, true]) {
     for (const dashboardMode of ["standard", "bot"]) {
       for (const cardSummaryEnabled of [true, false]) {
@@ -243,14 +248,14 @@ async function testRefreshCancellation() {
   let signal;
   const coordinator = createRefreshCoordinator();
   const service = createRefreshService({
-    refreshCoordinator: coordinator, cacheMutations: { capture: () => 0 },
-    getSettings: async () => ({ bookmarkConsentGranted: true }), settingsLocale: () => "en",
+    refreshCoordinator: coordinator, cacheMutations: { capture: () => 0, isCurrent: () => true },
+    aiConfigured: async () => false,
+    getSettings: async () => ({ bookmarkConsentGranted: true }),
     currentBookmarkModel: async () => ({ bookmarks: sources }),
     currentFeedPermissionState: async () => ({ sources, permitted: sources, denied: [] }),
-    selectRefreshBatch: () => ({ sources }), getRecord: async (_key, fallback) => fallback,
-    setRefreshStatus: async () => {}, broadcast: () => {}, pipelineStages,
-    emptySourceQuality: () => ({ records: {} }), feedCacheOrEmpty: (value) => value,
-    sourceFetchOptions: () => ({}), mapWithConcurrency, safeOrigin, hostOf, updateSourceQualityRecord,
+     getRecord: async (_key, fallback) => fallback,
+    setRefreshStatus: async () => {}, broadcast: () => {},
+    sourceFetchOptions: () => ({}),
     fetchSourceArticles: async (_source, options) => {
       calls += 1;
       assert.equal(options.signal, signal);

@@ -42,7 +42,7 @@ export function runActivityStoreTests() {
     srOnly: (label) => ({ className: "sr-only", textContent: label }),
     writeJson,
     readJson,
-    apiPost: async () => ({}),
+    request: async () => ({}),
   });
   const item = { key: "news-1", cardType: "news", title: "Item", url: "https://example.com/item" };
   state.opened.add(item.key);

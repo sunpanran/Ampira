@@ -1,18 +1,21 @@
 import { createSourceCoverageController } from "./source-coverage-controller.mjs";
+import { createCustomFeedSettings } from "./custom-feed-settings.mjs";
 
 export function createSourceSettingsController(options) {
   const {
-    state, els, t, tc, apiPost, setIconLabel, createEmptyState, renderSettingsStatus,
+    state, els, t, tc, request, setIconLabel, createEmptyState, renderSettingsStatus,
     runSettingsAction, localizedResponseMessage, localizedErrorMessage, localizedSourceLabel,
     localizedSourceReason, localizedExclusionReason, formatDateTime, normalizeUrl,
     allTranslations, newsCardType, newsSectionName, confirmAction,
   } = options;
   const { renderSourceCoverage } = createSourceCoverageController({
-    state, els, t, tc, apiPost, setIconLabel, createEmptyState, renderSettingsStatus,
+    state, els, t, tc, request, setIconLabel, createEmptyState, renderSettingsStatus,
     localizedErrorMessage, formatDateTime, allTranslations, getSourceQuality: sourceQualitySummary,
   });
   let exclusionListInitialized = false;
+  const customFeeds = els.customFeedCheck ? createCustomFeedSettings(options) : null;
   return {
+    customFeeds,
     currentExcludedNewsSources,
     availableNewsFolders,
     renderExcludeFolderOptions,
@@ -184,7 +187,7 @@ async function clearSourceSuggestions() {
   })) return;
   return runSettingsAction(async (isCurrent) => {
     try {
-      const result = await apiPost("/api/source-quality/reset");
+      const result = await request({ type: "source-quality:reset" });
       if (!isCurrent()) return;
       const sourceQuality = result.sourceQuality || { checked: 0, reviewCount: 0, keepCount: 0, suggestions: [] };
       if (state.data) state.data.sourceQuality = sourceQuality;
@@ -229,6 +232,7 @@ async function blockAllSourceSuggestions() {
 }
 
 function renderExclusionList({ reveal = false } = {}) {
+  customFeeds?.render();
   const list = currentExcludedNewsSources();
   renderSourceCoverage();
   renderExcludeFolderOptions();
@@ -236,13 +240,13 @@ function renderExclusionList({ reveal = false } = {}) {
   syncSourceSuggestionActionState();
   els.exclusionStatus.textContent = list.length
     ? tc("exclusion.ruleCount", list.length)
-    : t("exclusion.keepAll");
+    : "";
+  els.exclusionStatus.hidden = list.length === 0;
   if (!exclusionListInitialized || reveal) els.exclusionDetails.open = list.length > 0;
   exclusionListInitialized = true;
   if (!list.length) {
     els.exclusionList.replaceChildren(createEmptyState({
       title: t("exclusion.empty.title"),
-      body: t("exclusion.empty.body"),
       variant: "compact",
     }));
     return;
@@ -257,13 +261,14 @@ function renderSourceSuggestionList() {
   const suggestions = actionableSourceSuggestions();
   els.sourceSuggestionStatus.textContent = suggestions.length
     ? tc("exclusion.pendingSuggestions", suggestions.length)
-    : t(checked ? "exclusion.nonePending" : "exclusion.waitingStats");
+    : "";
+  els.sourceSuggestionStatus.hidden = suggestions.length === 0;
   if (!suggestions.length) {
     els.sourceSuggestionList.replaceChildren(createEmptyState({
       title: t(checked
         ? "exclusion.suggestionEmpty.checkedTitle"
         : "exclusion.suggestionEmpty.waitingTitle"),
-      body: t(checked ? "exclusion.suggestionEmpty.checked" : "exclusion.suggestionEmpty.waiting"),
+      body: checked ? "" : t("exclusion.suggestionEmpty.waiting"),
       variant: "compact",
     }));
     return;

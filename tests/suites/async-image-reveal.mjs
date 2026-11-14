@@ -1,11 +1,15 @@
 import assert from "node:assert/strict";
-import { loadImageWithReveal } from "../../assets/client/async-image-reveal.mjs";
+import { loadImageWithReveal, prepareImageForSnapshot } from "../../assets/client/async-image-reveal.mjs";
+import { settleBatchImages } from "../../assets/client/batch-transition.mjs";
 
 export async function runAsyncImageRevealTests() {
   await testNetworkLoadRevealsAfterDecode();
   await testCacheHitSkipsInitialReveal();
   await testResolvedPlaceholderStillReveals();
   testRejectedImageNeverReveals();
+  await testBatchSnapshotUsesDecodedImage();
+  await testSnapshotCancelsQueuedReveal();
+  await testSlowImageDoesNotBlockBatch();
 }
 
 async function testNetworkLoadRevealsAfterDecode() {
@@ -62,6 +66,45 @@ function testRejectedImageNeverReveals() {
   image.dispatch("load");
   assert.equal(rejects, 1, "an invalid image must preserve the existing recovery path");
   assert.equal(frames.length, 0);
+}
+
+async function testBatchSnapshotUsesDecodedImage() {
+  const image = createImage();
+  const frames = [];
+  loadImageWithReveal(image, "https://example.com/batch.webp", { requestFrame: callback => frames.push(callback), forceReveal: true });
+  const capture = prepareImageForSnapshot(image);
+  image.naturalWidth = 640;
+  image.dispatch("load");
+  await capture.ready;
+  capture.release();
+  assert.equal(frames.length, 0, "the decoded snapshot must not wait for a second image animation");
+  assert.equal(image.classList.contains("is-preview-image-pending"), false);
+  assert.equal(image.classList.contains("is-preview-image-revealing"), false);
+}
+
+async function testSnapshotCancelsQueuedReveal() {
+  const image = createImage({ complete: true, naturalWidth: 640 });
+  const frames = [];
+  loadImageWithReveal(image, "https://example.com/queued.webp", { requestFrame: callback => frames.push(callback), forceReveal: true });
+  await settlePromises();
+  const capture = prepareImageForSnapshot(image);
+  await capture.ready;
+  capture.release();
+  while (frames.length) frames.shift()();
+  assert.equal(image.classList.contains("is-preview-image-revealing"), false, "a queued image callback must not restart a fade after capture");
+}
+
+async function testSlowImageDoesNotBlockBatch() {
+  const image = createImage();
+  const frames = [];
+  loadImageWithReveal(image, "https://example.com/unresponsive.webp", { requestFrame: callback => frames.push(callback) });
+  await settleBatchImages([{ querySelectorAll: () => [image] }]);
+  assert.equal(image.classList.contains("is-preview-image-pending"), true, "snapshot preparation must time out without revealing an unloaded image");
+  image.naturalWidth = 640;
+  image.dispatch("load");
+  await settlePromises();
+  while (frames.length) frames.shift()();
+  assert.equal(image.classList.contains("is-preview-image-revealing"), true, "images arriving after the snapshot budget retain their normal load reveal");
 }
 
 function createImage({ complete = false, naturalWidth = 0 } = {}) {

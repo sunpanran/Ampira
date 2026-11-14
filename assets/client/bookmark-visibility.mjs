@@ -1,5 +1,5 @@
 export function isBookmarkSectionVisible(settings = {}) {
-  return settings?.bookmarkSectionEnabled !== false;
+  return settings?.bookmarkSectionEnabled ?? (settings?.newsSourceMode === "bookmarks");
 }
 
 export function hiddenBookmarkCategories(settings = {}) {

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import { createBotModeController } from "../../assets/client/bot-mode-controller.mjs";
-import { messageRequestForHttp } from "../../assets/client/message-contract.mjs";
+
 import { diffSettingsDraft } from "../../assets/client/settings-draft.mjs";
 
 const disabledBlur = { headerImageBlurEnabled: false, headerImageBlurAmount: 12, pointerGlowEnabled: false };
@@ -42,25 +42,23 @@ try {
   define("setInterval", callback => { tick = callback; return 1; }); define("clearInterval", () => {});
   const i18n = await import(`../../assets/client/i18n.mjs?mcp-menu=${Date.now()}`);
   const controller = createBotModeController({ state: { data: {} }, t: i18n.t, loadDashboard: async () => {},
-    apiGet: async () => configurationRead || structuredClone(configuration), apiPost: async (url, body) => {
+    request: async ({ type: url, payload: body }) => {
+      if (url === "bot:config") return configurationRead || structuredClone(configuration);
       posts.push({ url, body });
-      if (unsupported && url === "/api/mcp/enabled") throw { code: "UNKNOWN_REQUEST", messageKey: "background.error.unknownRequest", messageParams: { type: "mcp:enabled" } };
-      if (url === "/api/mcp/enabled") configuration.mcpEnabled = body.enabled;
-      if (url === "/api/bot/mode") configuration.mode = body.mode;
-      if (url === "/api/bot/organization") configuration.botOrganizeNews = body.enabled;
-      if (url === "/api/bot/takeover") configuration[body.scope === "brief" ? "botGenerateBrief" : body.scope === "news" ? "botOrganizeNews" : "botAnswerQuestions"] = body.enabled;
-      if (url === "/api/bot/disconnect") configuration.connection = null;
-      if (url === "/api/mcp/setup") return { command: "node integrations/local-mcp/connect.mjs --code synthetic-one-time-code" };
-      if (url === "/api/mcp/pair") return pairingResponse;
+      if (unsupported && url === "mcp:enabled") throw { code: "UNKNOWN_REQUEST", messageKey: "background.error.unknownRequest", messageParams: { type: "mcp:enabled" } };
+      if (url === "mcp:enabled") configuration.mcpEnabled = body.enabled;
+      if (url === "bot:mode") configuration.mode = body.mode;
+      if (url === "bot:organization") configuration.botOrganizeNews = body.enabled;
+      if (url === "bot:takeover") configuration[body.scope === "brief" ? "botGenerateBrief" : body.scope === "news" ? "botOrganizeNews" : "botAnswerQuestions"] = body.enabled;
+      if (url === "bot:disconnect") configuration.connection = null;
+      if (url === "mcp:setup") return { command: "node integrations/local-mcp/connect.mjs --code synthetic-one-time-code" };
+      if (url === "mcp:pair") return pairingResponse;
       return structuredClone(configuration);
     },
   });
   await controller.start();
   assert(byId("mcpFeatures").hidden);
   for (const id of ["botScopesSave", "botCopyInstructions", "botEndpoint", "botToken", "botConnectionSave", "botScope-news"]) assert(!nodes.has(id), `controller must not require retired control ${id}`);
-  assert.equal(messageRequestForHttp("POST", "/api/bot/scopes").request, null);
-  assert.equal(messageRequestForHttp("POST", "/api/bot/config").request, null, "the removed manual pairing form must have no writable route");
-  assert.equal(messageRequestForHttp("POST", "/api/bot/disconnect").request.type, "bot:disconnect");
   byId("mcpEnabledToggle").checked = true;
   await byId("mcpEnabledToggle").events.get("change")();
   assert.equal(posts.length, 0); assert.equal(byId("mcpEnabledToggle").checked, false);
@@ -79,7 +77,6 @@ try {
     assert.equal(configuration[field], false); assert.equal(documentStub.activeElement.id, id);
   }
   assert.equal(configuration.botOrganizeNews, true, "changing another checkbox preserves news ownership");
-  assert.equal(messageRequestForHttp("POST", "/api/bot/takeover").request.type, "bot:takeover");
   const beforeCopy = permissions.length;
   await byId("mcpCopySetup").events.get("click")();
   assert.equal(permissions.length, beforeCopy + 1, "the copy gesture can recover a revoked local permission");
@@ -91,12 +88,14 @@ try {
   pairingResponse = { status: "connected", configuration: structuredClone(configuration) };
   await tick();
   assert.equal(byId("mcpConnectionAddress").textContent, connection.endpoint);
+  assert(byId("mcpConnectionHelp").hidden, "paired connections must not retain an empty instruction row");
   assert(!byId("mcpConnectionDetails").hidden);
-  assert.equal(byId("mcpSetupStatus").textContent, i18n.t("mcp.pairSuccess"));
+  assert.equal(byId("mcpSetupStatus").textContent, "");
   byId("mcpEnabledToggle").checked = false; await byId("mcpEnabledToggle").events.get("change")();
   assert(!byId("mcpConnectionDetails").hidden, "disconnect remains available while the master switch is off");
   await byId("botConnectionRemove").events.get("click")();
   assert(byId("mcpConnectionDetails").hidden); assert.equal(configuration.mode, "bot"); assert.equal(configuration.botOrganizeNews, true);
+  assert(!byId("mcpConnectionHelp").hidden, "disconnecting must restore setup instructions for the next connection");
   assert.equal(documentStub.activeElement.id, "mcpEnabledToggle");
   byId("mcpEnabledToggle").checked = true; await byId("mcpEnabledToggle").events.get("change")();
   clipboardFails = true; await byId("mcpCopySetup").events.get("click")();
@@ -126,7 +125,9 @@ try {
   }
   const html = await fs.readFile(new URL("../../dashboard.html", import.meta.url), "utf8");
   const panel = html.slice(html.indexOf('data-settings-panel="bot"'), html.indexOf('data-settings-panel="cache"'));
-  assert.equal((panel.match(/type="checkbox"/g) || []).length, 5, "two master switches and three independent takeover choices");
+  const header = html.slice(html.indexOf('<div class="modal-head">'), html.indexOf('<form class="modal-body"'));
+  assert.equal((header.match(/id="mcpEnabledToggle"/g) || []).length, 1, "the MCP master switch remains available in the fixed header");
+  assert.equal((panel.match(/type="checkbox"/g) || []).length, 4, "the board master switch and three independent takeover choices remain in the panel");
   assert(panel.includes('class="settings-sync-options mcp-takeover-options"'), "takeover choices reuse the compact checkbox row");
   assert(!/type="password"|botScope-|botScopesSave|botCopyInstructions|botConnectionSave/.test(panel));
 } finally {

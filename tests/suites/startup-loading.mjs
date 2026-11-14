@@ -9,7 +9,7 @@ export async function runStartupLoadingTests(root) {
   const report = await measureStartup(root);
   assert.equal(report.dashboardJs.bytes, report.dashboardJs.modules.reduce((sum, item) => sum + item.bytes, 0));
   assert(report.dashboardJs.modules.some(item => item.file === "assets/client/theme-bootstrap.mjs"), "startup reports must include the synchronous theme bootstrap");
-  assert(report.activeLocaleBytes.en > 0 && report.css.files === 9 && report.htmlBytes > 0);
+  assert(report.activeLocaleBytes.en > 0 && report.css.files === 10 && report.htmlBytes > 0);
   for (const locale of ["en", "zh-CN", "zh-Hant"]) {
     const messages = runtimeLocaleMessages(locale);
     assert(!Object.hasOwn(messages, "reader.back"), "worker catalogs must omit page-only Reader controls");

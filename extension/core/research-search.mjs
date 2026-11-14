@@ -95,11 +95,26 @@ export function detectResearchTimeIntent(query, nowValue = Date.now()) {
   const queryText = cleanText(query);
   const now = finiteDate(nowValue);
   const endAt = endOfDay(now);
+  const defaultIntent = { kind: "default", explicit: false, startAt: "", endAt: "" };
   const explicitIsoRange = queryText.match(/\b(20\d{2})[-/.](\d{1,2})[-/.](\d{1,2})\s*(?:到|至|—|–|-|to|through)\s*(20\d{2})[-/.](\d{1,2})[-/.](\d{1,2})\b/i);
   if (explicitIsoRange) {
     const start = safeCalendarDate(explicitIsoRange[1], explicitIsoRange[2], explicitIsoRange[3]);
     const end = safeCalendarDate(explicitIsoRange[4], explicitIsoRange[5], explicitIsoRange[6], true);
     if (start && end && start <= end) return explicitTimeIntent("absolute", start, end);
+    return defaultIntent;
+  }
+  const chineseDateRange = queryText.match(/\b(20\d{2})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*[日号號]\s*(?:到|至|—|–|-)\s*(?:(20\d{2})\s*年\s*)?(?:(\d{1,2})\s*月\s*)?(\d{1,2})\s*[日号號]/);
+  if (chineseDateRange) {
+    const start = safeCalendarDate(chineseDateRange[1], chineseDateRange[2], chineseDateRange[3]);
+    const end = safeCalendarDate(chineseDateRange[4] || chineseDateRange[1], chineseDateRange[5] || chineseDateRange[2], chineseDateRange[6], true);
+    return start && end && start <= end ? explicitTimeIntent("absolute", start, end) : defaultIntent;
+  }
+  const singleDate = queryText.match(/\b(20\d{2})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*[日号號]/)
+    || queryText.match(/\b(20\d{2})[-/.](\d{1,2})[-/.](\d{1,2})\b/);
+  if (singleDate) {
+    const start = safeCalendarDate(singleDate[1], singleDate[2], singleDate[3]);
+    const end = safeCalendarDate(singleDate[1], singleDate[2], singleDate[3], true);
+    return start && end ? explicitTimeIntent("absolute", start, end) : defaultIntent;
   }
   const chineseMonthRange = queryText.match(/\b(20\d{2})\s*年\s*(\d{1,2})\s*月\s*(?:到|至|—|–|-)\s*(?:(20\d{2})\s*年\s*)?(\d{1,2})\s*月/);
   if (chineseMonthRange) {
@@ -108,17 +123,19 @@ export function detectResearchTimeIntent(query, nowValue = Date.now()) {
     const start = safeCalendarDate(startYear, chineseMonthRange[2], 1);
     const end = endOfMonth(endYear, Number(chineseMonthRange[4]));
     if (start && end && start <= end) return explicitTimeIntent("absolute", start, end);
+    return defaultIntent;
   }
   const chineseMonth = queryText.match(/\b(20\d{2})\s*年\s*(\d{1,2})\s*月/);
   if (chineseMonth) {
     const start = safeCalendarDate(chineseMonth[1], chineseMonth[2], 1);
     const end = endOfMonth(Number(chineseMonth[1]), Number(chineseMonth[2]));
     if (start && end) return explicitTimeIntent("absolute", start, end);
+    return defaultIntent;
   }
   if (/(?:近|过去|過去)\s*(?:1|一|一个|一個)?\s*(?:个|個)?月|\b(?:past|last)\s+(?:one\s+)?month\b/i.test(queryText)) {
     return explicitTimeIntent("relative-month", startOfDay(new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)), endAt);
   }
-  const explicitYear = queryText.match(/\b(20\d{2})\s*年\b/);
+  const explicitYear = queryText.match(/\b(20\d{2})\s*年/);
   if (explicitYear) {
     const year = Number(explicitYear[1]);
     return explicitTimeIntent("year", new Date(Date.UTC(year, 0, 1)), new Date(Date.UTC(year, 11, 31, 23, 59, 59, 999)));
@@ -135,12 +152,7 @@ export function detectResearchTimeIntent(query, nowValue = Date.now()) {
       endAt: "",
     };
   }
-  return {
-    kind: "default",
-    explicit: false,
-    startAt: "",
-    endAt: "",
-  };
+  return defaultIntent;
 }
 
 export function filterEvidenceByTimeIntent(input, intent) {
@@ -151,7 +163,7 @@ export function filterEvidenceByTimeIntent(input, intent) {
   const start = Date.parse(intent.startAt);
   const end = Date.parse(intent.endAt);
   return evidence.flatMap((item) => {
-    const published = Date.parse(String(item?.publishedAt || ""));
+    const published = item?.timeVerified === false ? NaN : Date.parse(String(item?.publishedAt || ""));
     if (!Number.isFinite(published)) return [{ ...item, timeVerified: false, timeScopeMatched: false }];
     if (published < start || published > end) return [];
     return [{ ...item, timeVerified: true, timeScopeMatched: true }];
@@ -163,7 +175,6 @@ export function scoreResearchEvidence(item, query, nowValue = Date.now(), corrob
   const title = cleanText(item?.title).toLowerCase();
   const snippet = cleanText(item?.snippet || item?.excerpt).toLowerCase();
   const host = cleanText(item?.host).toLowerCase();
-  const searchable = `${title} ${snippet} ${host}`;
   const relevance = terms.reduce((score, term) => score
     + (title.includes(term) ? 12 : 0)
     + (snippet.includes(term) ? 5 : 0)

@@ -23,7 +23,7 @@ for (const scenario of ["native", "foreign", "translation-batch"]) {
   });
   await h.run(undefined, { organize: false });
   await h.service.organizeNews(); await h.service.waitForOrganization();
-  const failed = h.records.get("feed").items[0];
+  const failed = h.records.get("feed").items.find(item => item.articleId === "retry-fail");
   assert.equal(h.statuses.at(-1).phase, "partial");
   assert.equal(h.statuses.at(-1).failed, 1);
   assert(Date.parse(failed.summaryRetry.nextEligibleAt) > Date.now(), "failed output enters its automatic cooldown");
@@ -31,7 +31,7 @@ for (const scenario of ["native", "foreign", "translation-batch"]) {
   const firstCalls = summaries().length;
   await h.run();
   assert.equal(summaries().length, firstCalls, "background refresh must still respect the cooldown");
-  const completedAt = h.records.get("feed").items[1].summarizedAt;
+  const completedAt = h.records.get("feed").items.find(item => item.articleId === "already-good").summarizedAt;
   const quotaBefore = (await h.quota.read(20)).used, requestsBefore = h.requests.length;
   repaired = true;
   const started = await Promise.all([h.service.organizeNews(), h.service.organizeNews()]);
@@ -44,8 +44,8 @@ for (const scenario of ["native", "foreign", "translation-batch"]) {
     const inputs = JSON.parse(retry[0].input).translations;
     assert.equal(inputs.length, 1); assert(inputs[0].title.includes("retry-fail"));
   } else assert.equal(retry[0].articleId, "retry-fail");
-  assert.equal(h.records.get("feed").items[1].summarizedAt, completedAt, "successful cached entries are not regenerated");
-  assert.equal(h.records.get("feed").items[0].summaryRetry, undefined);
+  assert.equal(h.records.get("feed").items.find(item => item.articleId === "already-good").summarizedAt, completedAt, "successful cached entries are not regenerated");
+  assert.equal(h.records.get("feed").items.find(item => item.articleId === "retry-fail").summaryRetry, undefined);
   assert.equal(h.statuses.at(-1).phase, "completed");
   assert.equal(h.statuses.at(-1).processed, 1);
   assert.equal(h.statuses.at(-1).deferred, 0);
@@ -57,7 +57,7 @@ for (const scenario of ["native", "foreign", "translation-batch"]) {
   await h.service.organizeNews(); await h.service.waitForOrganization();
   await h.service.organizeNews(); await h.service.waitForOrganization();
   assert.equal(h.requests.filter(request => request.kind === "card").length, 4, "each click allows only the existing single correction attempt");
-  assert.equal(h.records.get("feed").items[0].summaryRetry.failures, 2);
+  assert.equal(h.records.get("feed").items.find(item => item.articleId === "retry-fail").summaryRetry.failures, 2);
   await h.run();
   assert.equal(h.requests.filter(request => request.kind === "card").length, 4, "failed explicit retries retain a background cooldown");
 }

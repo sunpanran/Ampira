@@ -1,5 +1,7 @@
 import { DEFAULT_SETTINGS } from "./constants.mjs";
 
+export { isExcluded as isNewsSourceExcluded };
+
 export function buildBookmarkModel(tree, settings = {}) {
   const folders = topLevelFolders(tree);
   const folderNames = folders.map((folder) => clean(folder.title)).filter(Boolean);

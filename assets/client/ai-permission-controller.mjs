@@ -2,13 +2,14 @@ import { providerRequiresApiKey } from "../../extension/core/provider-policy.mjs
 import {
   CUSTOM_PROVIDER,
   aiProviderConfiguration,
+  aiProviderPreset,
   aiProviderPresetForUrl,
   aiProviderPresets,
   aiProviderRegionForUrl,
 } from "./ai-provider-presets.mjs";
 import { containsOrigins, requestOrigins } from "./permission-client.mjs";
 import { setDisclosureVisibility } from "./motion.mjs";
-import { createIcon } from "./icons.mjs";
+import { createThemedIcon } from "./icons.mjs";
 
 export function createAiPermissionController(options) {
   const {
@@ -48,12 +49,11 @@ export function createAiPermissionController(options) {
       selectProvider(button.dataset.providerId);
     };
     els.aiProviderPrimaryList.addEventListener("click", selectFromCatalog);
-    els.aiProviderMoreList.addEventListener("click", selectFromCatalog);
+    els.aiProviderOtherList.addEventListener("click", selectFromCatalog);
     els.editAiProvider.addEventListener("click", () => toggleProviderEditor("configuration"));
     els.changeAiProvider.addEventListener("click", () => toggleProviderEditor("catalog"));
     els.closeAiProviderCatalog.addEventListener("click", () => setProviderEditorMode(""));
     els.closeAiProviderConfiguration.addEventListener("click", () => setProviderEditorMode(""));
-    els.toggleMoreProviders.addEventListener("click", toggleMoreProviders);
     els.aiProviderRegionSelect.addEventListener("change", () => {
       const configuration = aiProviderConfiguration(selectedProvider, els.aiProviderRegionSelect.value);
       if (configuration) applyProviderConfiguration(configuration);
@@ -74,8 +74,7 @@ export function createAiPermissionController(options) {
   }
 
   function selectProvider(providerId) {
-    const provider = [...aiProviderPresets("primary"), ...aiProviderPresets("more")]
-      .find((item) => item.id === providerId) || CUSTOM_PROVIDER;
+    const provider = aiProviderPreset(providerId) || CUSTOM_PROVIDER;
     selectedProvider = provider;
     if (provider.id === CUSTOM_PROVIDER.id) {
       els.apiBaseUrlInput.value = "";
@@ -93,7 +92,7 @@ export function createAiPermissionController(options) {
     syncProviderConfiguration();
     setProviderEditorMode("configuration");
     syncAiSetupControls();
-    renderSettingsStatus(t("settings.service.providerSelected", { provider: providerName(provider) }));
+    renderSettingsStatus();
   }
 
   function applyProviderConfiguration(configuration) {
@@ -135,17 +134,9 @@ export function createAiPermissionController(options) {
     setProviderEditorMode(providerEditorMode === mode ? "" : mode);
   }
 
-  function toggleMoreProviders() {
-    const expanded = els.toggleMoreProviders.getAttribute("aria-expanded") !== "true";
-    els.toggleMoreProviders.setAttribute("aria-expanded", String(expanded));
-    setDisclosureVisibility(els.aiProviderMoreList, expanded);
-    const icon = els.toggleMoreProviders.querySelector(".ai-provider-more-icon");
-    if (icon) icon.replaceWith(createIcon(expanded ? "minus" : "plus", "inline-icon ai-provider-more-icon"));
-  }
-
   function renderProviderCatalog() {
     renderProviderList(els.aiProviderPrimaryList, aiProviderPresets("primary"));
-    renderProviderList(els.aiProviderMoreList, [...aiProviderPresets("more"), CUSTOM_PROVIDER]);
+    renderProviderList(els.aiProviderOtherList, [...aiProviderPresets("local"), CUSTOM_PROVIDER]);
   }
 
   function renderProviderList(container, providers) {
@@ -167,10 +158,13 @@ export function createAiPermissionController(options) {
       copy.className = "ai-provider-option-copy";
       const name = document.createElement("strong");
       name.textContent = providerName(provider);
-      const hint = document.createElement("small");
-      hint.textContent = t(provider.hintKey);
-      copy.append(name, hint);
-      button.append(mark, copy);
+      copy.append(name);
+      if (provider.hintKey) {
+        const hint = document.createElement("small");
+        hint.textContent = t(provider.hintKey);
+        copy.append(hint);
+      }
+      button.append(mark, copy, createThemedIcon("check", "ai-provider-option-check"));
       item.append(button);
       fragment.append(item);
     }
@@ -209,8 +203,17 @@ export function createAiPermissionController(options) {
   function syncProviderConfiguration() {
     const custom = selectedProvider.id === CUSTOM_PROVIDER.id;
     const busy = settingsBusy() || aiGrantPending;
+    els.aiProviderConfiguration.dataset.custom = String(custom);
     els.apiBaseUrlInput.readOnly = !custom;
+    els.aiProviderBaseUrlHelp.hidden = !custom;
+    if (custom) els.apiBaseUrlInput.setAttribute("aria-describedby", "aiProviderBaseUrlHelp");
+    else els.apiBaseUrlInput.removeAttribute("aria-describedby");
     els.apiStyleSelect.disabled = busy || !custom;
+    els.aiProviderApiStyleControl.hidden = !custom;
+    els.aiProviderApiStyleHelp.hidden = !custom;
+    els.aiProviderApiStyleValue.hidden = custom;
+    els.aiProviderApiStyleValue.textContent = els.apiStyleSelect.value === "responses"
+      ? "Responses" : t("settings.service.chatCompletions");
     els.aiProviderRegionSelect.disabled = busy || !selectedProvider.regions?.length;
     syncModelDocsLink();
     renderProviderCatalogSelection();
@@ -317,6 +320,10 @@ export function createAiPermissionController(options) {
 
   function renderProviderMark(mark, provider) {
     mark.replaceChildren();
+    if (provider.iconName) {
+      mark.append(createThemedIcon(provider.iconName, "ai-provider-logo"));
+      return;
+    }
     if (!provider.icon?.light || !provider.icon?.dark) {
       mark.textContent = provider.mark || "API";
       return;
@@ -352,7 +359,6 @@ export function createAiPermissionController(options) {
         : ({
           [aiSetupStage.INVALID_ORIGIN]: "settings.service.aiFormInvalidOrigin",
           [aiSetupStage.NEEDS_PERMISSION]: "settings.service.aiFormNeedsPermission",
-          [aiSetupStage.READY]: "settings.service.aiFormReady",
         })[aiSetupState.stage]);
     els.aiFormAccessStatus.dataset.stage = aiSetupFeedback
       ? "error"
@@ -459,7 +465,6 @@ export function createAiPermissionController(options) {
       if (!permissionGranted && feedback) {
         aiSetupFeedback = feedback;
         syncAiSetupControls();
-        renderSettingsStatus(t(feedback.key, feedback.params));
       } else if (permissionGranted && els.settingsModal.classList.contains("open")) {
         focusProviderCredential();
       }
@@ -475,9 +480,7 @@ export function createAiPermissionController(options) {
     syncAiSetupControls();
     setProviderEditorMode("configuration");
     let target = els.apiBaseUrlInput;
-    if (aiSetupState.stage === aiSetupStage.INVALID_ORIGIN) {
-      renderSettingsStatus(t("permission.invalidServiceUrl"));
-    } else if (aiSetupState.stage === aiSetupStage.NEEDS_CONSENT || aiSetupState.stage === aiSetupStage.NEEDS_PERMISSION) {
+    if (aiSetupState.stage === aiSetupStage.NEEDS_CONSENT || aiSetupState.stage === aiSetupStage.NEEDS_PERMISSION) {
       target = els.grantAiOrigin;
     } else if (!String(els.modelInput.value || "").trim()) {
       target = els.modelInput;

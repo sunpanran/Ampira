@@ -1,4 +1,5 @@
 import { hashText } from "./bookmarks.mjs";
+import { articleContentFingerprint } from "./feed-content.mjs";
 
 const RETRY_DELAYS_MS = [15 * 60_000, 60 * 60_000, 6 * 60 * 60_000];
 const CONTENT_ERRORS = new Set(["AI_WRONG_LANGUAGE", "AI_EMPTY_RESPONSE", "AI_INVALID_OUTPUT", "AI_OUTPUT_LIMIT", "AI_INCOMPLETE_RESPONSE"]);
@@ -9,7 +10,7 @@ export function isAiContentError(error) {
 
 export function cardSummaryContextKey(item, settings, locale) {
   return hashText(JSON.stringify([
-    item?.sourceKey, item?.sourceOrigin, item?.fetchOrigin, item?.url, item?.title, item?.excerpt,
+    articleContentFingerprint(item),
     locale, settings.openaiBaseUrl, settings.openaiApiStyle, settings.openaiSummaryModel,
     settings.credentialGeneration,
   ]));

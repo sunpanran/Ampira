@@ -293,7 +293,7 @@ export function createWebsiteShortcutsController(options) {
 
     function enterInitialShortcutRail() {
       if (!isInitialEntrance || state.data?.onboarding?.completed === false) return;
-      enterFirstFrame(els.websiteShortcuts, { startedAt: globalThis.ampiraFirstFrameStartedAt, targetDelay: 120 });
+      enterFirstFrame(els.websiteShortcuts, { startedAt: globalThis.ampiraFirstFrameStartedAt, targetDelay: 40 });
     }
   }
 

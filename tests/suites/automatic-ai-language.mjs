@@ -216,14 +216,16 @@ for (const order of ["importance", "time"]) {
   const sorted = mergeRankedUnique([presented.slice(0, 2), presented.slice(2)], { compare: ranker.compareByOrder(order), keyOf: (item) => item.articleId });
   assert.equal(sorted.at(-1).articleId, "foreign", `${order} applies language priority across source groups`);
 }
-const nowDate = new Date();
-const recentTime = new Date(nowDate.getFullYear(), nowDate.getMonth(), nowDate.getDate(), -1).toISOString();
-const many = Array.from({ length: 8 }, (_, index) => ({ ...native, articleId: `readable-${index}`, publisherHost: "same.example", publishedAt: index === 7 ? recentTime : native.publishedAt }));
-const visiblePool = [presented[0], ...many];
+// Keep yesterday's article inside the 24-hour window, including late-evening runs.
+const nowDate = new Date(2026, 0, 15, 23, 30);
+const todayTime = nowDate.toISOString();
+const recentTime = new Date(2026, 0, 14, 23, 59).toISOString();
+const many = Array.from({ length: 8 }, (_, index) => ({ ...native, articleId: `readable-${index}`, publisherHost: "same.example", publishedAt: index === 7 ? recentTime : todayTime }));
+const visiblePool = [{ ...presented[0], publishedAt: todayTime }, ...many];
 const selected = selectTodayNewsItems(visiblePool, { compare: ranker.compareImportant, pageSize: 3, pageCount: 4, publisherLimit: 1, now: nowDate });
 assert.equal(selected.at(-1).articleId, "foreign", "publisher diversity and today's priority cannot promote unreadable cards over readable recent cards");
 assert.equal(selected.length, 9, "deprioritizing must not remove visible cards");
-assert.equal(buildDailyCandidates(visiblePool, { limit: 5, publisherLimit: 1 }).some((item) => item.localizationPending), false);
+assert.equal(buildDailyCandidates(visiblePool, { limit: 5, publisherLimit: 1, now: nowDate }).some((item) => item.localizationPending), false);
 const eventPool = visiblePool.map((item, index) => ({ ...item, id: item.articleId, sourceCount: index ? 2 : 10, importanceScore: index ? 40 : 100 }));
-assert.equal(selectDailyEvents(eventPool, { limit: 3 }).some((item) => item.localizationPending), false, "event cards must also prefer readable events over high-scoring untranslated events");
+assert.equal(selectDailyEvents(eventPool, { limit: 3, now: nowDate }).some((item) => item.localizationPending), false, "event cards must also prefer readable events over high-scoring untranslated events");
 console.log("Automatic AI language recovery tests passed");

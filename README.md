@@ -21,7 +21,7 @@ Ampira 是一个支持 Google Chrome 与 Microsoft Edge 的 Manifest V3 新标�
 ### 功能亮点
 
 - 可选的 AI 助手看板支持分别勾选今日简报、资讯整理和 AI 问答，未勾选项沿用原有 AI 设置。天气、待办、资讯采集与排序、事件和灵感由插件处理。资讯的自动、批量和单条整理（含外文翻译）可选择内置 AI 或 Bot；刷新只采集，整理使用缓存。通过本机 MCP 配对，按需提交有界材料并复用已完成结果；需要 Node.js 20+ 和支持本地 MCP 的 AI 客户端。标准模式的数据与设置保留。[接入说明](bot-board-mode.md)
-- 以只读方式读取你选择的书签文件夹，并用 RSS、Atom、JSON Feed 和公共来源（Ampira）补充资讯。
+- 以只读方式读取你选择的书签文件夹，并用 RSS、Atom、JSON Feed 和公共来源（Ampira）补充资讯。可在“设置 → 书签 → 自定义订阅”验证并添加最多 50 个订阅，接入现有资讯与摘要；支持改名、停用和删除，随设置保存生效。订阅地址仅保存在本机，不参与设置同步或导出。
 - 公共来源按界面语言提供 14 个可直接读取的资讯来源，涵盖新闻、商业、科技、科学与文化。选择公共来源并授权网站后即可使用，无需添加资讯书签或配置 AI；另有 3 个跨语言来源在 AI 就绪或启用 Bot 整理后参与。升级后可在“设置 → 浏览器”补充授权新增网站。
 - 资讯支持按时间或重要性排序；同一事件的相关报道会放在一起，也可以按日期回看。
 - 配置自己的 API Key 后，可生成卡片摘要和今日简报，也能结合正文继续提问。
@@ -30,6 +30,9 @@ Ampira 是一个支持 Google Chrome 与 Microsoft Edge 的 Manifest V3 新标�
 - 每日灵感从 Ampira 预设或指定书签文件夹换一组卡片，也支持手动“换一换”。
 - 点击工具栏图标，或从资讯和书签卡片加入稍后读；站内阅读、搜索和归档用于继续处理或找回内容。
 - 快捷书签、待办、天气、统一搜索和主题可按需使用。
+- 右键卡片可切换为专注计时或主题追踪。专注计时支持暂停、休息和关联待办；主题追踪按关键词筛选已采集资讯，按时间展示匹配内容，阅读后仍保留在列表中，支持稍后读。小卡位保留主要操作，计时模式和待办选择放在设置中。主题名称、关键词和来源范围可单独开启跨设备同步；所有个人内容同步选项默认关闭，打开总开关不会自动勾选。
+- “生活信息”分类中的日历采用月历总览：小卡显示日期和当天日程，大卡展示整月及所选日期的日程。支持全天或指定时间的日程、编辑和删除；最多 200 项，默认保存在本机，可在跨设备同步中单独开启“日历”，多张卡片共享数据。
+- 随手记支持多条记录、自动保存、置顶和首行转待办；世界时钟支持最多 8 个城市，显示当地日期、时差和工作时段；未选城市时显示本地时间，点击时间行可选择或更换城市，右键删除。两种卡片均可分别开启浏览器账号同步，默认关闭；随手记最多 50 条，每条 2,000 个字符。
 - 网站访问只申请精确来源；API 密钥默认保存在本机，可单独开启浏览器账号同步。
 - 远程内容始终作为不可信数据处理，并支持简体中文、繁体中文和英文。
 
@@ -103,6 +106,9 @@ Ampira 是支援 Google Chrome 與 Microsoft Edge 的 Manifest V3 新分頁擴�
 
 每日靈感會從 Ampira 預設或指定書籤資料夾換一組卡片。稍後讀、站內閱讀、搜尋與封存則用來繼續處理或找回內容。
 
+在卡片上按右鍵可切換為專注計時或主題追蹤。專注計時支援暫停、休息與關聯待辦；主題追蹤依關鍵字篩選已擷取的資訊，依時間顯示符合條件的內容，閱讀後仍保留在清單中，支援稍後讀。小卡位保留主要操作，計時模式與待辦選擇放在設定中。日曆行程可在跨裝置同步中單獨啟用，預設關閉。主題名稱、關鍵字與來源範圍可單獨開啟跨裝置同步；所有個人內容同步選項預設關閉，開啟總開關不會自動勾選。
+隨手記支援多則記錄、自動儲存、置頂和首行轉待辦；世界時鐘支援最多 8 個城市，顯示當地日期、時差和工作時段；未選城市時顯示本機時間，點選時間列可選擇或更換城市，按右鍵刪除。兩種卡片均可分別開啟瀏覽器帳號同步，預設關閉；隨手記最多 50 則，每則 2,000 個字元。
+
 公共來源依介面語言提供 14 個可直接讀取的資訊來源，涵蓋新聞、商業、科技、科學與文化。選擇公共來源並授權網站後即可使用，無需新增資訊書籤或設定 AI；另有 3 個跨語言來源在 AI 就緒或啟用 Bot 整理後參與。升級後可在「設定 → 瀏覽器」補充授權新增網站。
 
 內容預設保存在瀏覽器中，不用註冊帳號。Ampira 沒有廣告、行為分析、開發者伺服器或遠端程式碼。
@@ -126,7 +132,7 @@ Data stays in the browser by default, with no account needed. Ampira has no ads,
 ### Highlights
 
 - The optional AI assistant dashboard lets you select the daily brief, news summaries and AI chat independently. Unchecked features use your existing AI settings; weather, to-dos, feed collection, ranking, events and inspiration stay in Ampira. Automatic, batch and individual news organization, including translation, can use the configured API or Bot. Refresh only collects sources; organization uses cached evidence. Local MCP sends bounded evidence on demand and reuses completed work. Requires Node.js 20+ and a local-MCP client. Standard-mode data and settings are kept. [Setup](integrations/local-mcp/README.md)
-- Reads the bookmark folders you choose in read-only mode, with RSS, Atom, JSON Feed, and Public sources (Ampira) as supplements.
+- Reads the bookmark folders you choose in read-only mode, with RSS, Atom, JSON Feed, and Public sources (Ampira) as supplements. In Settings → Bookmarks → Custom feeds, verify and add up to 50 feeds to the existing news and summaries. Rename, disable or remove feeds, then save settings to apply. Subscription URLs stay on this device and are excluded from settings sync and exports.
 - Public sources include 14 native-language feeds for each interface language, covering news, business, technology, science, and culture. Select public sources and allow website access to start reading, with no news bookmarks or AI setup needed. Three additional cross-language sources activate when AI is ready or Bot news organization is enabled. After an update, allow newly added websites in Settings → Browser.
 - Sorts news by time or importance, groups coverage of the same event, and keeps previous dates available.
 - Uses your own API key for card summaries, a daily brief, article analysis, and follow-up questions.
@@ -134,6 +140,9 @@ Data stays in the browser by default, with no account needed. Ampira has no ads,
 - Shows a different set of Inspiration cards each day from the Ampira preset or a bookmark folder you choose.
 - Adds pages to Read later from the toolbar or a card; in-app reading, search, and archive help you continue or find content again.
 - Keeps quick bookmarks, to-dos, weather, browser search, and themes available when you need them.
+- Right-click a card to choose Focus timer or Topic tracker. Focus supports pauses, breaks and linked tasks; topics show matching collected news newest first, keep items visible after reading and support Read later. Compact cards keep the main actions visible, with timer mode and task selection in settings. Topic names, keywords and source filters have a separate cross-device sync option. All personal-content sync options default off; opening the master switch does not select any category.
+- Calendar is available under Everyday life. Compact cards show the selected date and its events; tall cards add a full month view. Add, edit or delete up to 200 all-day or timed events. Calendar cards share local data. Calendar event sync is a separate, default-off option under Cross-device sync.
+- Quick notes supports automatic saving, pinned notes and adding the first line to to-dos; World clock shows up to 8 cities with dates, time differences and working hours. With no cities selected it shows local time; click a time row to choose or change a city, and right-click to delete. Each card has a separate, default-off browser account sync option. Notes are limited to 50 records of 2,000 characters each.
 - Requests only exact website origins. API keys stay local by default, with separate opt-in browser account sync.
 - Treats remote content as untrusted data and supports Simplified Chinese, Traditional Chinese, and English.
 

@@ -4,6 +4,7 @@ import { aiTaskLabelKey, briefTaskPhase, isAiTaskBusy } from "./ai-task-state.mj
 import { usesBotBrief } from "../../extension/core/bot-mode.mjs";
 import { botBriefStatusKey, botBriefEmptyStateKeys } from "./bot-runner-status.mjs";
 import { renderAiMarkdown } from "./ai-markdown.mjs";
+import { copyText } from "./clipboard.mjs";
 
 export function createDigestCardView({ state, t, createEmptyState, createIcon, localizedErrorMessage, openAiSettings,
   openExternal, refreshDailyDigest, isRevealPending }) {
@@ -15,16 +16,25 @@ export function createDigestCardView({ state, t, createEmptyState, createIcon, l
     if (refreshButton.getAttribute("aria-disabled") === "true") return;
     refreshDailyDigest(event);
   });
-  return { render };
+  return { render, contextActions };
+
+  function contextActions() {
+    const digest = state.data?.dailyDigest;
+    const lines = dailyDigestOverviewLines(digest);
+    if (!hasGeneratedDailyDigestOverview(digest, lines) || !lines.length) return [];
+    const text = (digest.status === "bot" ? lines : dailyDigestParagraphs(lines)).join("\n\n");
+    return [{ label: t("context.copyDigest"), icon: "copy-01", action: () => copyText(text) }];
+  }
+
   function dailyDigestStatusLabel(digest, ai) {
     const phase = briefTaskPhase(state);
     if (phase) return t(aiTaskLabelKey(phase));
     if (usesBotBrief(state.data)) return t(botBriefStatusKey(state.data.bot, digest));
-    if (ai?.enabled !== true) return t("digest.status.noService");
+    if (ai?.enabled !== true) return "";
     if (!digest?.generatedAt) return t("digest.status.waiting");
     if (digest.status === "ai") return t("digest.status.ai");
     if (digest.status === "quota-or-empty") return t("digest.status.quota");
-    if (digest.status === "no-api-key") return t("digest.status.noService");
+    if (digest.status === "no-api-key") return "";
     if (digest.status === "fallback") return t("digest.status.failed");
     if (digest.status === "pending") return t("digest.status.waiting");
     return t("digest.status.notGenerated");
@@ -33,7 +43,7 @@ export function createDigestCardView({ state, t, createEmptyState, createIcon, l
   function createDailyDigestEmptyState(digest) {
     if (usesBotBrief(state.data)) {
       const copy = botBriefEmptyStateKeys(state.data.bot, digest);
-      return createEmptyState({ title: t(copy.title), body: t(copy.body), variant: "compact",
+      return createEmptyState({ title: t(copy.title), body: copy.body ? t(copy.body) : "", variant: "compact",
         actionLabel: copy.action ? t(copy.action) : "", onAction: refreshDailyDigest });
     }
     if (state.data?.ai?.enabled !== true) {
@@ -86,9 +96,9 @@ export function createDigestCardView({ state, t, createEmptyState, createIcon, l
     const statusLabel = dailyDigestStatusLabel(digest, state.data?.ai);
     const available = usesBotBrief(state.data) ? Boolean(state.data.bot.connection) : state.data?.ai?.enabled === true;
     refreshButton.setAttribute("aria-disabled", String(busy || !available));
-    refreshButton.title = busy || !available ? statusLabel : t("action.reorganize");
+    refreshButton.title = busy || !available ? statusLabel || t("digest.status.noService") : t("action.reorganize");
     refreshButton.setAttribute("aria-label", refreshButton.title);
-    const meta = spanText(statusLabel, "efficiency-meta");
+    const meta = statusLabel ? spanText(statusLabel, "efficiency-meta") : null;
     if (phase) meta.replaceChildren(createAiTaskStatus(phase, statusLabel));
     const overview = document.createElement("div");
     overview.className = "ai-digest-overview";
@@ -96,24 +106,23 @@ export function createDigestCardView({ state, t, createEmptyState, createIcon, l
     overview.tabIndex = 0;
     overview.setAttribute("role", "region");
     overview.setAttribute("aria-label", t("digest.cardTitle"));
-    const overviewLines = Array.isArray(digest?.overview)
-      ? digest.overview.map((line) => String(line || "").trim()).filter(Boolean)
-      : [];
+    const overviewLines = dailyDigestOverviewLines(digest);
     if (hasGeneratedDailyDigestOverview(digest, overviewLines)) {
-      overview.replaceChildren(...dailyDigestBriefNodes(digest));
-    } else if (busy && !usesBotBrief(state.data)) {
-      overview.replaceChildren(createEmptyState({ body: t("digest.refreshing.body"), variant: "compact" }));
-    } else {
+      overview.replaceChildren(...dailyDigestBriefNodes(digest, overviewLines));
+    } else if (!busy || usesBotBrief(state.data)) {
       overview.replaceChildren(createDailyDigestEmptyState(digest));
     }
     return { meta, actions: [refreshButton], content: overview, busy, bot: digest?.status === "bot", resolving: isRevealPending() && !busy };
   }
 
-  function dailyDigestBriefNodes(digest) {
-    const nodes = [];
-    const overviewLines = Array.isArray(digest?.overview)
+  function dailyDigestOverviewLines(digest) {
+    return Array.isArray(digest?.overview)
       ? digest.overview.map((line) => String(line || "").trim()).filter(Boolean).slice(0, digest.status === "bot" ? undefined : 3)
       : [];
+  }
+
+  function dailyDigestBriefNodes(digest, overviewLines) {
+    const nodes = [];
     if (overviewLines.length) {
       const summary = document.createElement("div");
       summary.className = "ai-digest-summary";

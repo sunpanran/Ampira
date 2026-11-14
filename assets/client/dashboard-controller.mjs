@@ -2,7 +2,7 @@ import { briefTaskPhase } from "./ai-task-state.mjs";
 
 export function createDashboardController(options) {
   const {
-    state, els, t, apiGet, apiPost, preloadDailyInspiration,
+    state, els, t, request, preloadDailyInspiration,
     inspirationPreloadTimeoutMs, renderConnectionError, renderStatus,
     renderOverviewStatus, localizedErrorMessage, renderExclusionList,
     renderExcludeFolderOptions, renderTodayMetaValue, renderWebsiteShortcuts, renderEfficiencyPanel,
@@ -24,8 +24,8 @@ export function createDashboardController(options) {
 
 function loadDashboard(options = {}) {
   dashboardLoadToken += 1;
-  const request = { scope: options.scope === "news" && state.data && !needsFullRender ? "news" : "all", render: options.render !== false };
-  pendingLoad = mergeLoads(pendingLoad, request);
+  const loadRequest = { scope: options.scope === "news" && state.data && !needsFullRender ? "news" : "all", render: options.render !== false };
+  pendingLoad = mergeLoads(pendingLoad, loadRequest);
   if (!dashboardLoadPromise) dashboardLoadPromise = Promise.resolve().then(drainDashboardLoads);
   return dashboardLoadPromise;
 }
@@ -34,21 +34,21 @@ async function drainDashboardLoads() {
   let loaded = false;
   try {
     while (pendingLoad) {
-      const request = pendingLoad;
+      const loadRequest = pendingLoad;
       pendingLoad = null;
       const token = dashboardLoadToken;
       const progressVersion = aiProgressVersion;
       try {
-        const data = await apiGet(request.scope === "news" ? "/api/dashboard?scope=news" : "/api/dashboard");
+        const data = await request({ type: "dashboard:get", payload: loadRequest.scope === "news" ? { scope: "news" } : {} });
         if (token !== dashboardLoadToken) {
-          pendingLoad = mergeLoads(request, pendingLoad);
+          pendingLoad = mergeLoads(loadRequest, pendingLoad);
           continue;
         }
-        state.data = request.scope === "news" ? { ...state.data, ...data } : data;
-        if (request.scope === "all") needsFullRender = false;
+        state.data = loadRequest.scope === "news" ? { ...state.data, ...data } : data;
+        if (loadRequest.scope === "all") needsFullRender = false;
         if (progressVersion !== aiProgressVersion) patchAiProgress();
-        if (request.render) {
-          if (request.scope === "news") renderNews();
+        if (loadRequest.render) {
+          if (loadRequest.scope === "news") renderNews();
           else {
             renderAll();
             preloadDailyInspiration(inspirationPreloadTimeoutMs);
@@ -57,10 +57,10 @@ async function drainDashboardLoads() {
         loaded = true;
       } catch (error) {
         if (token !== dashboardLoadToken) {
-          pendingLoad = mergeLoads(request, pendingLoad);
+          pendingLoad = mergeLoads(loadRequest, pendingLoad);
           continue;
         }
-        if (request.scope === "news") {
+        if (loadRequest.scope === "news") {
           renderOverviewStatus(t("connection.unavailable"), localizedErrorMessage(error));
         } else {
           needsFullRender = true;
@@ -115,7 +115,7 @@ async function triggerRefresh(force) {
   els.settingsRefresh.disabled = true;
   setRefreshRequestFeedback(true);
   try {
-    const result = await apiPost(`/api/refresh${force ? "?force=1" : ""}`, { automatic: force !== true });
+    const result = await request({ type: "refresh:start", payload: { force: force === true, automatic: force !== true } });
     if (state.data && result.status) {
       state.data.status = result.status;
       renderStatus();
@@ -155,7 +155,7 @@ function startPolling() {
   const poll = async () => {
     state.pollTimer = null;
     try {
-      const status = await apiGet("/api/refresh");
+      const status = await request({ type: "refresh:status" });
       if (token !== refreshPollToken) return;
       if (state.data) {
         state.data.status = status;

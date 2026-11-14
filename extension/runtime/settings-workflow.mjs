@@ -1,3 +1,5 @@
+import { publicFeedsForLocale } from "../core/public-feeds.mjs";
+
 export function createSettingsWorkflow(options) {
   const {
     getSettings, settingsLocale, secretStatus,
@@ -63,6 +65,8 @@ async function publicSettings() {
     availableNewsFolders: model.availableNewsFolders,
     missingBookmarkFolders: model.missingFolders,
     sourcePermissions: permission,
+    onboardingSourcePermissions: await selectedOrigins(model, settings, { sourcesOnly: true }),
+    onboardingPublicSources: publicFeedsForLocale(settingsLocale(settings)).map(({ title, url }) => ({ title, url })),
     sourceQuality: filterSourceQuality(await getRecord("source-quality", emptySourceQuality()), feedPermissions),
   };
 }
@@ -107,12 +111,13 @@ async function performSaveSettings(body, transaction) {
     "newsBookmarkFolder", "newsSourceMode", "inspirationBookmarkFolder", "inspirationSourceMode", "bookmarkOnlyFolders", "hiddenBookmarkCategories", "floatingWebOpenEnabled",
     "readingQueueOpenOnReadAll", "readingQueueReadAllPrompted", "retainSeenArchive", "personalizedRankingEnabled", "publicFeedSupplementEnabled",
     "syncReadingQueueEnabled", "syncTodosEnabled", "syncWeatherLocationEnabled",
-    "syncStockWatchlistEnabled", "syncCountdownsEnabled",
+    "syncStockWatchlistEnabled", "syncCountdownsEnabled", "syncTrackedTopicsEnabled", "syncCalendarEnabled",
+    "syncNotesEnabled", "syncWorldClockEnabled",
     "sectionTitleOpacity",
-    "uiLocale", "colorMode", "navPosition", "accentTheme", "customAccentColor", "pointerGlowEnabled", "dashboardGlassBlurEnabled", "headerImageEnabled",
+    "uiLocale", "colorMode", "navPosition", "navAutoHideEnabled", "accentTheme", "customAccentColor", "pointerGlowEnabled", "dashboardGlassBlurEnabled", "headerImageEnabled",
     "headerImageFixed", "headerImageFullscreen", "headerImageBlurEnabled", "headerImageBlurAmount", "headerImageHeightScale", "headerImageUrl", "headerImageMediaType", "headerImageFit",
     "bookmarkSectionEnabled", "websiteShortcutsEnabled", "websiteShortcuts", "keyboardShortcutsEnabled", "keyboardShortcuts",
-    "excludedNewsSources",
+    "excludedNewsSources", "customFeeds",
   ];
   for (const key of allowed) if (Object.hasOwn(body, key)) next[key] = body[key];
   let providerPatch = {};
@@ -224,7 +229,7 @@ async function performSaveSettings(body, transaction) {
   ].some((key) => JSON.stringify(previous[key]) !== JSON.stringify(normalized[key]));
   const bookmarkSourceChanged = [
     "newsBookmarkFolder", "newsSourceMode", "inspirationBookmarkFolder", "inspirationSourceMode", "bookmarkOnlyFolders", "excludedNewsSources",
-    "publicFeedSupplementEnabled", "hotNewsCacheSize", "hotNewsEntriesPerSource", "newsEntriesPerCategory",
+    "publicFeedSupplementEnabled", "hotNewsCacheSize", "hotNewsEntriesPerSource", "newsEntriesPerCategory", "customFeeds",
   ]
     .some((key) => JSON.stringify(previous[key]) !== JSON.stringify(normalized[key]))
     || localeChanged && (previous.publicFeedSupplementEnabled !== false || normalized.publicFeedSupplementEnabled !== false);

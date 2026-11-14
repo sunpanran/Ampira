@@ -14,7 +14,7 @@ async function testArticlePreviewSurvivesOrganization() {
   const requests = [], images = [];
   const controller = createSitePreviewController({
     isEnabled: () => true, isHttpUrl: () => true, normalizeUrl: String, profileForItem: () => "article",
-    apiGet: () => new Promise(resolve => requests.push(resolve)),
+    request: () => new Promise(resolve => requests.push(resolve)),
     isCurrent: (_item, fingerprint) => controller.fingerprint(current) === fingerprint,
     onImage: (_item, imageUrl) => images.push(imageUrl),
   });
@@ -41,7 +41,7 @@ async function testStalePreviewStillInvalidates() {
   const images = [];
   const controller = createSitePreviewController({
     isEnabled: () => true, isHttpUrl: () => true, normalizeUrl: String, profileForItem: () => "article",
-    apiGet: () => new Promise(done => { resolve = done; }),
+    request: () => new Promise(done => { resolve = done; }),
     isCurrent: (_item, fingerprint) => controller.fingerprint(current) === fingerprint,
     onImage: (_item, imageUrl) => images.push(imageUrl),
   });
@@ -66,7 +66,7 @@ function testRepeatedImageNotification() {
     const item = { key: "article", url: "https://news.example/story", summary: {} };
     const card = { dataset: { key: item.key, previewFingerprint: "current" }, classList: { remove() {}, add() {} }, querySelector: () => thumb };
     const view = createSummaryImageThumbs({
-      els: { summaryGrid: { querySelectorAll: () => [card] } }, faviconUrl: () => "favicon.svg", itemUrl: item => item.url,
+      els: { summaryGrid: { querySelectorAll: () => [card] } }, faviconUrl: () => "favicon.svg",
       newsPreviews: { get: () => ({ imageUrl: "https://images.example/current.jpg" }), isRejected: () => false },
     });
     const thumb = view.createSummaryThumb(item);

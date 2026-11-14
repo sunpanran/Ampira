@@ -77,7 +77,7 @@ export function createKeyboardShortcutSettings({ root, resetButton, feedback, en
   }
 
   return {
-    load(settings) { enabledInput.checked = settings?.keyboardShortcutsEnabled !== false; bindings = normalizeKeyboardShortcuts(settings?.keyboardShortcuts); recording = ""; clearFeedback(); render(); },
+    load(settings) { enabledInput.checked = settings?.keyboardShortcutsEnabled === true; bindings = normalizeKeyboardShortcuts(settings?.keyboardShortcuts); recording = ""; clearFeedback(); render(); },
     payload: () => ({ keyboardShortcutsEnabled: enabledInput.checked, keyboardShortcuts: { ...bindings } }),
     setBusy(value) { busy = value; enabledInput.disabled = busy; if (busy) recording = ""; render(); },
   };

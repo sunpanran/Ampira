@@ -14,8 +14,7 @@ export function createReaderController(context) {
     state,
     els,
     t,
-    apiGet,
-    apiPost,
+    request,
     confirmManualAiUsage,
     markOpenedItem,
     renderEfficiencyPanel,
@@ -65,7 +64,7 @@ export function createReaderController(context) {
     renderReaderLoadingState();
     els.closeWebFrame.focus();
     try {
-      const result = await apiGet(`/api/reader?url=${encodeURIComponent(parsed.href)}`);
+      const result = await request({ type: "reader:get", payload: { url: parsed.href } });
       if (requestGeneration !== readerRequestGeneration) return;
       renderReaderResult(result, title, item);
     } catch (error) {
@@ -486,11 +485,11 @@ export function createReaderController(context) {
     button.textContent = t("reader.translating");
     try {
       const text = readerPlainText(original);
-      const translated = await apiPost("/api/reader/translate", {
+      const translated = await request({ type: "reader:translate", payload: {
         url: original.url || state.webFrameUrl,
         title: original.title || "",
         text,
-      });
+      } });
       readerTranslation = { original, translated, showing: true };
       renderTranslatedReader(translated, original);
     } catch (error) {

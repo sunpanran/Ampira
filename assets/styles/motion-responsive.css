@@ -96,72 +96,39 @@
   animation: digestContentIn var(--motion-state-duration) var(--motion-ease-enter) both;
 }
 
-:root.is-summary-batch-transitioning {
+:root:is(.is-summary-batch-transitioning, .is-daily-batch-transitioning) {
   view-transition-name: none;
 }
 
-:root.is-summary-batch-transitioning::view-transition-group(*) {
+:root:is(.is-summary-batch-transitioning, .is-daily-batch-transitioning)::view-transition {
+  pointer-events: none;
+}
+
+:root:is(.is-summary-batch-transitioning, .is-daily-batch-transitioning)::view-transition-group(*) {
   overflow: hidden;
   border-radius: var(--radius-card);
   corner-shape: var(--corner-shape-surface);
   pointer-events: none;
-  animation-duration: 0s;
-}
-
-:root.is-summary-batch-transitioning::view-transition-old(*) {
-  animation: signalFeedBatchOut var(--motion-state-duration) var(--motion-ease-exit) both;
-  mix-blend-mode: normal;
-}
-
-:root.is-summary-batch-transitioning::view-transition-new(*) {
-  opacity: 0;
-  animation: signalFeedBatchIn var(--motion-emphasis-duration) var(--motion-ease-enter) var(--motion-state-duration) both;
-  mix-blend-mode: normal;
-}
-
-.summary-card > .thumb[data-summary-thumb-phase="leaving"] {
-  animation: signalFeedThumbOut var(--motion-state-duration) var(--motion-ease-exit) both;
-  will-change: opacity;
-}
-
-.summary-card > .thumb[data-summary-thumb-phase="entering"] {
-  opacity: 0;
-  animation: signalFeedThumbIn var(--motion-emphasis-duration) var(--motion-ease-enter) var(--motion-state-duration) both;
-  will-change: opacity;
-}
-
-:root.is-daily-batch-transitioning {
-  view-transition-name: none;
+  animation-duration: var(--motion-emphasis-duration);
+  animation-timing-function: var(--motion-ease-standard);
 }
 
 :root.is-daily-batch-transitioning::view-transition-group(*) {
-  overflow: hidden;
   border-radius: var(--radius-row);
-  corner-shape: var(--corner-shape-surface);
-  pointer-events: none;
-  animation-duration: 0s;
 }
 
-:root.is-daily-batch-transitioning::view-transition-old(*) {
-  animation: dailyBatchOut var(--motion-state-duration) var(--motion-ease-exit) both;
-  mix-blend-mode: normal;
+:root:is(.is-summary-batch-transitioning, .is-daily-batch-transitioning)::view-transition-image-pair(*) {
+  isolation: isolate;
 }
 
-:root.is-daily-batch-transitioning::view-transition-new(*) {
-  opacity: 0;
-  animation: dailyBatchIn var(--motion-emphasis-duration) var(--motion-ease-enter) var(--motion-state-duration) both;
-  mix-blend-mode: normal;
+:root:is(.is-summary-batch-transitioning, .is-daily-batch-transitioning)::view-transition-old(*) {
+  animation: batchContentOut var(--motion-emphasis-duration) var(--motion-ease-standard) both;
+  mix-blend-mode: plus-lighter;
 }
 
-.daily-card > .inspiration-thumb[data-daily-thumb-phase="leaving"] {
-  animation: dailyThumbOut var(--motion-state-duration) var(--motion-ease-exit) both;
-  will-change: opacity;
-}
-
-.daily-card > .inspiration-thumb[data-daily-thumb-phase="entering"] {
-  opacity: 0;
-  animation: dailyThumbIn var(--motion-emphasis-duration) var(--motion-ease-enter) var(--motion-state-duration) both;
-  will-change: opacity;
+:root:is(.is-summary-batch-transitioning, .is-daily-batch-transitioning)::view-transition-new(*) {
+  animation: batchContentIn var(--motion-emphasis-duration) var(--motion-ease-standard) both;
+  mix-blend-mode: plus-lighter;
 }
 
 .inspiration-thumb:not(.is-fallback) > img.is-preview-image-pending,
@@ -173,11 +140,6 @@
   --preview-image-opacity: var(--inspiration-media-opacity);
   opacity: var(--preview-image-opacity);
   transition: opacity var(--motion-first-frame-duration) var(--motion-ease-ambient);
-}
-
-.inspiration-thumb[data-daily-thumb-phase="entering"] > img.is-preview-image-revealing {
-  transition-duration: var(--motion-press-duration);
-  transition-timing-function: var(--motion-ease-standard);
 }
 
 .thumb:not(.is-favicon-thumb) > img.is-preview-image-revealing {
@@ -221,42 +183,12 @@
   to { opacity: 1; transform: translateY(0); }
 }
 
-@keyframes signalFeedBatchOut {
+@keyframes batchContentOut {
   from { opacity: 1; }
   to { opacity: 0; }
 }
 
-@keyframes signalFeedBatchIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-
-@keyframes signalFeedThumbOut {
-  from { opacity: var(--summary-thumb-opacity); }
-  to { opacity: 0; }
-}
-
-@keyframes signalFeedThumbIn {
-  from { opacity: 0; }
-  to { opacity: var(--summary-thumb-opacity); }
-}
-
-@keyframes dailyBatchOut {
-  from { opacity: 1; }
-  to { opacity: 0; }
-}
-
-@keyframes dailyBatchIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-
-@keyframes dailyThumbOut {
-  from { opacity: 1; }
-  to { opacity: 0; }
-}
-
-@keyframes dailyThumbIn {
+@keyframes batchContentIn {
   from { opacity: 0; }
   to { opacity: 1; }
 }
@@ -309,11 +241,6 @@
   100% { transform: scale(1); }
 }
 
-@keyframes categoryFilterIn {
-  from { opacity: 0; transform: translateY(-6px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
 @keyframes settingsBackdropIn {
   from { opacity: 0; }
   to { opacity: 1; }
@@ -340,13 +267,13 @@
 }
 
 @keyframes aiSearchOverlayIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from { background-color: transparent; }
+  to { background-color: var(--search-overlay-bg); }
 }
 
 @keyframes aiSearchOverlayOut {
-  from { opacity: 1; }
-  to { opacity: 0; }
+  from { background-color: var(--search-overlay-bg); }
+  to { background-color: transparent; }
 }
 
 @keyframes aiSearchPanelOpen {
@@ -369,11 +296,6 @@
     opacity: 0;
     transform: translateY(6px) scale(.99);
   }
-}
-
-@keyframes aiSearchControlIn {
-  from { opacity: 0; transform: translateY(3px); }
-  to { opacity: 1; transform: translateY(0); }
 }
 
 @keyframes aiAnswerIn {
@@ -417,35 +339,33 @@
 }
 
 @keyframes firstFrameNavIn {
-  from { opacity: 0; transform: translate3d(var(--nav-enter-x, -4px), -50%, 0); }
-  to { opacity: 1; transform: translate3d(0, -50%, 0); }
+  from { transform: translate3d(var(--nav-enter-x, -4px), -50%, 0); }
+  to { transform: translate3d(0, -50%, 0); }
 }
 
 @keyframes firstFrameMobileNavIn {
-  from { opacity: .2; transform: translate3d(-50%, var(--nav-enter-y, 6px), 0); }
-  to { opacity: 1; transform: translate3d(-50%, 0, 0); }
+  from { transform: translate3d(-50%, var(--nav-enter-y, 6px), 0); }
+  to { transform: translate3d(-50%, 0, 0); }
 }
 
-@keyframes firstFrameContentIn {
-  from { opacity: .2; transform: translate3d(0, 8px, 0); }
-  to { opacity: 1; transform: translate3d(0, 0, 0); }
+@keyframes firstFrameFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 @keyframes firstFrameDashboardHeaderIn {
-  from { opacity: 0; transform: translate3d(0, 4px, 0); }
-  to { opacity: 1; transform: translate3d(0, 0, 0); }
+  from { transform: translate3d(0, 6px, 0); }
+  to { transform: translate3d(0, 0, 0); }
 }
 
-.has-first-frame-motion .sidebar {
-  animation: firstFrameNavIn var(--motion-first-frame-duration) 24ms var(--motion-ease-standard) backwards;
+.has-nav-entrance:not([data-bookmark-section="pending"]) .sidebar {
+  animation: firstFrameNavIn var(--motion-first-frame-duration) var(--motion-ease-move) backwards,
+    firstFrameFadeIn var(--motion-overlay-duration) var(--motion-ease-standard) backwards;
 }
 
 .has-first-frame-motion #daily > .section-head > :first-child {
-  animation: firstFrameDashboardHeaderIn var(--motion-first-frame-duration) 40ms var(--motion-ease-standard) backwards;
-}
-
-.website-shortcuts.is-first-frame-entering {
-  animation: firstFrameContentIn var(--motion-overlay-duration) var(--first-frame-shortcuts-delay, 0ms) var(--motion-ease-enter) backwards;
+  animation: firstFrameDashboardHeaderIn var(--motion-first-frame-duration) 24ms var(--motion-ease-standard) backwards,
+    firstFrameFadeIn var(--motion-emphasis-duration) 24ms var(--motion-ease-standard) backwards;
 }
 
 @keyframes spin {
@@ -596,18 +516,6 @@
 
   .board-column.is-news .news-list-card {
     min-height: 0;
-  }
-
-  .board-column.is-inspiration .card-list:not(.is-empty) {
-    grid-template-rows: repeat(5, var(--inspiration-card-h));
-    overflow: auto;
-    padding-right: 3px;
-  }
-
-  .board-column.is-inspiration .daily-card,
-  .board-column.is-inspiration .daily-card.has-inspiration-thumb {
-    height: var(--inspiration-card-h);
-    min-height: var(--inspiration-card-h);
   }
 
   .summary-grid {
@@ -772,8 +680,8 @@
     transform: translateX(-50%);
   }
 
-  .has-first-frame-motion .sidebar {
-    animation: firstFrameMobileNavIn 300ms 24ms var(--motion-ease-enter) backwards;
+  .has-nav-entrance:not([data-bookmark-section="pending"]) .sidebar {
+    animation-name: firstFrameMobileNavIn, firstFrameFadeIn;
   }
 
   .sidebar:hover,
@@ -844,6 +752,10 @@
   .settings-overview-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .category-grid {
+    column-count: 2;
+  }
 }
 
 @media (max-width: 820px) {
@@ -909,10 +821,6 @@
     justify-content: flex-start;
   }
 
-  .refresh-availability {
-    text-align: left;
-  }
-
   .news-actions {
     align-items: center;
   }
@@ -953,43 +861,63 @@
   }
 
   #settingsModal .modal {
-    height: 92dvh;
-    max-height: 92dvh;
+    --settings-content-padding: 20px;
+    height: min(92dvh, 680px);
+    max-height: min(92dvh, 680px);
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto minmax(0, 1fr) auto;
+  }
+
+  #settingsModal.is-immediate-settings .modal {
+    grid-template-rows: auto auto minmax(0, 1fr);
+  }
+
+  .settings-sidebar {
+    display: contents;
+  }
+
+  .settings-sidebar-head {
+    display: none;
+  }
+
+  #settingsModal .modal-head {
+    grid-column: 1;
+    min-height: 66px;
+  }
+
+  #settingsModal .modal-actions {
+    grid-column: 1;
+    grid-row: 4;
+  }
+
+  #settingsForm {
+    grid-column: 1;
+    grid-row: 3;
   }
 
   #settingsModal.is-cover-previewing .modal-actions {
-    border-top-color: color-mix(in srgb, var(--line-soft) 28%, transparent);
     background: color-mix(in srgb, var(--surface-1) 12%, transparent);
     opacity: .28;
   }
 
   .modal-body {
-    grid-template-columns: 1fr;
-    grid-template-rows: max-content max-content max-content;
-    gap: 14px;
-    padding: 12px;
-  }
-
-  .settings-tabs,
-  .modal-body > .settings-panel {
-    grid-column: 1;
-    grid-row: auto;
+    padding: 16px var(--settings-content-padding) 20px;
   }
 
   .settings-tabs {
-    position: sticky;
-    top: 0;
+    grid-column: 1;
+    grid-row: 2;
     z-index: 3;
     align-self: stretch;
     display: flex;
     gap: 4px;
+    margin-inline: var(--settings-content-padding);
     padding: 4px 0 8px;
     border-right: 0;
     border-bottom: 1px solid var(--line-faint);
-    background: color-mix(in srgb, var(--settings-panel-bg) 88%, transparent);
-    -webkit-backdrop-filter: blur(18px);
-    backdrop-filter: blur(18px);
+    background: transparent;
     overflow-x: auto;
+    overflow-y: hidden;
     overscroll-behavior-inline: contain;
     scroll-snap-type: inline proximity;
   }
@@ -1003,18 +931,17 @@
     scroll-snap-align: start;
   }
 
-  .settings-tabs button.active::before {
-    inset: auto 14px -5px;
-    width: auto;
+  .settings-tabs::before {
+    width: calc(var(--settings-indicator-width, 76px) - 28px);
     height: 2px;
-    transform: none;
+    transform: translate(calc(var(--settings-indicator-x, 0px) + 14px), calc(var(--settings-indicator-y, 27px) + var(--settings-indicator-height, 46px) / 2 + 3px));
   }
 
-  .saved-source-permission-prompt {
-    grid-template-columns: auto minmax(0, 1fr);
+  .settings-permission-prompt {
+    grid-template-columns: 18px minmax(0, 1fr);
   }
 
-  .saved-source-permission-actions {
+  .settings-permission-actions {
     grid-column: 2;
     justify-content: flex-start;
     flex-wrap: wrap;
@@ -1037,24 +964,6 @@
     flex-direction: column;
   }
 
-  .settings-danger-zone .settings-section-actions .danger {
-    margin-left: 0;
-  }
-
-  .ai-image-actions {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .ai-image-actions > .credential-controls {
-    width: 100%;
-  }
-
-  .ai-image-actions > .danger {
-    align-self: flex-start;
-    margin-top: 0;
-  }
-
   .bookmark-only-picker,
   .exclude-form {
     grid-template-columns: 1fr;
@@ -1065,7 +974,11 @@
     gap: 0;
   }
 
-  .settings-overview .settings-overview-item + .settings-overview-item {
+  .settings-overview .settings-overview-cache {
+    margin-inline-start: 0;
+    margin-top: 14px;
+    padding-top: 18px;
+    padding-inline-start: 12px;
     border-block-start: 1px solid var(--line-faint);
     border-inline-start: 0;
   }
@@ -1271,6 +1184,27 @@
     flex: 1 0 auto;
   }
 
+  #library .controls {
+    gap: 8px;
+  }
+
+  #library .controls .segmented {
+    column-gap: 4px;
+  }
+
+  #sectionFilter button {
+    min-width: 0;
+    padding-inline: 10px;
+  }
+
+  .category-filter {
+    width: 132px;
+  }
+
+  .category-filter:lang(en) {
+    width: 148px;
+  }
+
   .summary-card {
     min-height: 226px;
   }
@@ -1318,17 +1252,6 @@
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .settings-overview-head {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-
-  .settings-overview-actions {
-    width: 100%;
-    flex-wrap: wrap;
-    justify-content: flex-start;
-  }
-
   .settings-about-panel {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -1362,10 +1285,12 @@
     height: 144px;
   }
 
-  .modal-head,
-  .modal-actions,
-  .modal-body {
-    padding-inline: 12px;
+  #settingsModal .modal {
+    --settings-content-padding: 16px;
+  }
+
+  .settings-head-actions {
+    gap: 10px;
   }
 
   .web-frame-toolbar {
@@ -1401,6 +1326,12 @@
     left: auto;
     right: var(--nav-edge);
     --nav-enter-x: 4px;
+    --nav-hide-x: 12px;
+  }
+
+  :root[data-nav-position="right"] .nav-reveal {
+    left: auto;
+    right: 0;
   }
 
   :root:is([data-nav-position="top"], [data-nav-position="bottom"]) .app {
@@ -1412,6 +1343,8 @@
   }
 
   :root:is([data-nav-position="top"], [data-nav-position="bottom"]) .sidebar {
+    --nav-hide-x: 0px;
+    --nav-hide-y: 12px;
     left: 50%;
     right: auto;
     width: max-content;
@@ -1460,8 +1393,8 @@
     transition-delay: .04s, .04s, 0s;
   }
 
-  :root:is([data-nav-position="top"], [data-nav-position="bottom"]).has-first-frame-motion .sidebar {
-    animation-name: firstFrameMobileNavIn;
+  :root:is([data-nav-position="top"], [data-nav-position="bottom"]).has-nav-entrance:not([data-bookmark-section="pending"]) .sidebar {
+    animation-name: firstFrameMobileNavIn, firstFrameFadeIn;
   }
 
   :root[data-nav-position="top"] .daily-primary,
@@ -1477,12 +1410,45 @@
   }
 
   .sidebar {
+    --nav-hide-x: 0px;
+    --nav-hide-y: 12px;
     bottom: max(14px, env(safe-area-inset-bottom));
   }
 
   .main {
     padding-bottom: calc(108px + env(safe-area-inset-bottom));
   }
+}
+
+@media (max-width: 1120px) {
+  .nav-reveal {
+    left: 50%;
+    top: auto;
+    bottom: env(safe-area-inset-bottom);
+    width: 88px;
+    height: 44px;
+    transform: translateX(-50%);
+  }
+
+}
+
+:root:is([data-nav-position="top"], [data-nav-position="bottom"]) .nav-reveal {
+  left: 50%;
+  top: auto;
+  bottom: env(safe-area-inset-bottom);
+  width: 88px;
+  height: 44px;
+  transform: translateX(-50%);
+}
+
+:root[data-nav-position="top"] .sidebar {
+  --nav-hide-x: 0px;
+  --nav-hide-y: -12px;
+}
+
+:root[data-nav-position="top"] .nav-reveal {
+  top: env(safe-area-inset-top);
+  bottom: auto;
 }
 
 @media (forced-colors: active) {
@@ -1494,9 +1460,7 @@
   .themed-icon,
   .select-combobox-chevron,
   .select-combobox-option.is-selected::after,
-  .settings-disclosure-chevron,
-  .mcp-help-details > summary::before,
-  .mcp-connection-details > summary::before {
+  .settings-disclosure-chevron {
     forced-color-adjust: none;
     background-color: CanvasText;
     filter: none !important;

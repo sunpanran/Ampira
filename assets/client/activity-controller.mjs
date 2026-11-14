@@ -15,7 +15,7 @@ export function createActivityController(options) {
     renderActivitySurfaces = renderAll,
     newsSummaryItems, hostFromUrl, t, newsSectionName, newsCardType, findNewsItemReference,
     isNewsCard, displaySummaryTitle, displayTitle, displayBookmarkTitle, createThemedIcon,
-    srOnly, writeJson, readJson, apiPost, confirmAction,
+    srOnly, writeJson, readJson, request, confirmAction,
   } = options;
   return {
     readingQueueItems, openAndMarkReadingQueue, findNewsItemByReference, isQueued,
@@ -79,7 +79,7 @@ async function openAndMarkReadingQueue(items) {
     if (!fadeElementsOut(globalThis.document?.querySelectorAll?.(".queue-row"), renderAll)) renderAll();
     if (preferencePatch) {
       try {
-        state.settings = await apiPost("/api/settings", preferencePatch);
+        state.settings = await request({ type: "settings:save", payload: preferencePatch });
       } catch {
         // Keep the choice for this session after completing the requested action.
       }
@@ -316,13 +316,13 @@ function sendFeedback(item, action) {
   const article = item?.feedItem;
   if (!article?.articleId) return;
   if (action === "opened" && state.settings?.personalizedRankingEnabled === false) return;
-  apiPost("/api/feedback", {
+  request({ type: "feedback:record", payload: {
     articleId: article.articleId,
     action,
     source: article.publisher || article.source || item.title || "",
     category: article.category || item.category || "",
     topics: article.topics || [],
-  }).catch(() => {});
+  } }).catch(() => {});
 }
 
 function persistActionRecords(storageKey, keys, meta) {

@@ -120,9 +120,9 @@ assert(chineseAiDisclosure.includes("提交或选择的内容")
   && chineseAiDisclosure.includes("所需的上下文")
   && chineseAiDisclosure.includes("配置的服务商"),
 "the Chinese AI disclosure must identify user-directed content, required context, and the configured provider");
-assert.equal(translate("en", "onboarding.step4.searchTitle"), "Content insights", "English onboarding must describe the content interpretation capability concisely");
-assert.equal(translate("zh-CN", "onboarding.step4.searchTitle"), "内容解读", "Chinese onboarding must retain the concise content interpretation label");
-assert.equal(translate("zh-CN", "onboarding.step1.body"), "从书签里的网站获取新资讯，再用 AI 整理和解读。", "onboarding must use the reviewed concise product introduction");
+assert.equal(translate("en", "onboarding.sources.title"), "Choose your sources");
+assert.equal(translate("zh-CN", "onboarding.sources.title"), "选择内容来源");
+assert.equal(translate("zh-CN", "onboarding.sources.consent"), "仅在本机读取书签标题、网址和文件夹，不修改书签。");
 assert.equal(translateCount("en", "unit.entries", 1), "1 entry");
 assert.equal(translateCount("en", "unit.entries", 2), "2 entries");
 assert.equal(formatListForLocale("en", ["News", "Design"]), "News and Design");
@@ -137,7 +137,7 @@ assert.equal(DEFAULT_SETTINGS.headerImageEnabled, true, "the header image must b
 assert.equal(DEFAULT_SETTINGS.headerImageBlurEnabled, false, "header-image blur must be opt-in");
 assert.equal(DEFAULT_SETTINGS.headerImageBlurAmount, 12, "header-image blur must remember a useful default amount");
 assert.equal(DEFAULT_SETTINGS.headerImageHeightScale, 100, "header-image height must preserve the existing responsive default");
-assert.equal(DEFAULT_SETTINGS.bookmarkSectionEnabled, true, "bookmark navigation and the main bookmark section must remain enabled by default");
+assert.equal(DEFAULT_SETTINGS.bookmarkSectionEnabled, false, "public sources must hide bookmark navigation and the main bookmark section by default");
 assert.equal(truncateText("标题", 4), "标题");
 assert.equal(truncateText("这是一个过长标题", 5), "这是一个…");
 assert.equal(textLength(truncateText("😀😀😀😀", 3)), 3, "text caps must count Unicode characters without splitting emoji");
@@ -215,10 +215,10 @@ const reviewedAiServiceTitles = {
   "zh-CN": "AI 整理与解读",
   "zh-Hant": "AI 整理與解讀",
 };
-const reviewedOnboardingAiTitles = {
-  en: "Set up AI to organize and analyze content",
-  "zh-CN": "配置 AI，整理和解读内容",
-  "zh-Hant": "設定 AI，整理與解讀內容",
+const reviewedOnboardingTitles = {
+  en: "Choose your sources",
+  "zh-CN": "选择内容来源",
+  "zh-Hant": "選擇內容來源",
 };
 const reviewedPainOpenings = {
   en: "Bookmarks are easy to save and easy to forget. The sites you follow are scattered across the web, and checking each one every day takes time. Ampira reads the bookmarks you choose, brings saved pages and new posts from those sites into one New Tab page, and sorts them by time or importance. Optional AI creates card summaries and a daily brief. It can also read an article and answer follow-up questions.",
@@ -230,7 +230,9 @@ const reviewedProfessionalUseCases = {
   "zh-CN": "如果你需要长期跟踪一个行业或研究主题，可以把常看的来源放进同一个书签文件夹。Ampira 会集中更新，按重要性排序，再用 AI 整理成今日简报。遇到值得继续看的内容，也可以打开正文追问。",
   "zh-Hant": "如果你需要長期追蹤一個產業或研究主題，可以把常看的來源放進同一個書籤資料夾。Ampira 會集中更新，依重要性排序，再用 AI 整理成今日簡報。遇到值得繼續看的內容，也可以開啟內文追問。",
 };
-const futureMarketingPattern = /\b(?:Pro|price|pricing|subscription|subscribe|coming soon)\b|付费|付費|订阅|訂閱|路线图|路線圖|未来功能|未來功能|专题雷达|專題雷達|简报工作室|簡報工作室|研究项目|研究項目/i;
+const futureMarketingPattern = /\b(?:Pro|price|pricing|paid subscriptions?|subscription (?:plans?|fees?)|subscribe now|coming soon)\b|付费|付費|路线图|路線圖|未来功能|未來功能|专题雷达|專題雷達|简报工作室|簡報工作室|研究项目|研究項目/i;
+assert(!futureMarketingPattern.test("RSS subscription / RSS 订阅 / RSS 訂閱"), "feed subscriptions are a supported source feature");
+assert(futureMarketingPattern.test("paid subscription"), "paid plans remain outside the published product scope");
 for (const locale of SUPPORTED_LOCALES) {
   const messages = localeMessages(locale);
   const runtimeMessages = runtimeLocaleMessages(locale);
@@ -240,7 +242,7 @@ for (const locale of SUPPORTED_LOCALES) {
   assert(Object.keys(runtimeMessages).length < localeKeys.length / 4, `${locale} runtime catalog must stay below one quarter of the client catalog`);
   assert.equal(messages["settings.about.tagline"], reviewedBrandTaglines[locale], `${locale} must use the reviewed About tagline`);
   assert.equal(messages["settings.service.title"], reviewedAiServiceTitles[locale], `${locale} must use the reviewed AI settings title`);
-  assert.equal(messages["onboarding.step4.title"], reviewedOnboardingAiTitles[locale], `${locale} must use the reviewed AI onboarding title`);
+  assert.equal(messages["onboarding.sources.title"], reviewedOnboardingTitles[locale], `${locale} must use the reviewed source-selection title`);
   for (const key of localeKeys) {
     const expected = [...String(defaultMessages[key]).matchAll(/\{([a-zA-Z0-9_]+)\}/g)].map((match) => match[1]).sort();
     const actual = [...String(messages[key]).matchAll(/\{([a-zA-Z0-9_]+)\}/g)].map((match) => match[1]).sort();
@@ -333,8 +335,7 @@ for (const [language, locale, summary] of [
 const dashboardSource = await fs.readFile(path.join(root, "dashboard.html"), "utf8");
 assert(dashboardSource.includes(`<div class="about-meta" data-i18n="settings.about.tagline">${reviewedBrandTaglines["zh-CN"]}</div>`), "the static About fallback must match the reviewed Simplified Chinese tagline");
 assert(dashboardSource.includes(`<h3 data-i18n="settings.service.title">${reviewedAiServiceTitles["zh-CN"]}</h3>`), "the static AI settings title must match the reviewed Simplified Chinese copy");
-assert(dashboardSource.includes(`<p data-i18n="onboarding.step1.body">${reviewedBrandTaglines["zh-CN"]}</p>`), "the static onboarding introduction must match the reviewed Simplified Chinese tagline");
-assert(dashboardSource.includes(`<span data-i18n="onboarding.step4.titleLead">配置 AI，</span><span class="onboarding-title-phrase" data-i18n="onboarding.step4.titleTail">整理和解读内容</span>`), "the static AI onboarding title must match the reviewed Simplified Chinese copy");
+assert(dashboardSource.includes('data-i18n="onboarding.sources.title" tabindex="-1">选择内容来源</h1>'), "the source-selection step must match its localized title and receive reading focus");
 const settingsCssSource = await fs.readFile(path.join(root, "assets", "styles", "settings.css"), "utf8");
 const tokensCssSource = await fs.readFile(path.join(root, "assets", "styles", "tokens.css"), "utf8");
 const settingsResponsiveCssSource = await fs.readFile(path.join(root, "assets", "styles", "motion-responsive.css"), "utf8");
@@ -356,9 +357,9 @@ const settingsPanelNames = [...dashboardSource.matchAll(/data-settings-panel="([
 assert.deepEqual(settingsTabNames, settingsPanelNames, "every settings tab must map to exactly one settings panel");
 assert.deepEqual(settingsTabNames, ["about", "appearance", "bookmarks", "bot", "browser", "cache", "exclusions", "service"], "settings must retain the seven existing sections and add a dedicated Bot board page");
 for (const id of [
-  "sourceCoverageDetails", "cacheAdvancedDetails", "cacheMaintenanceDetails",
+  "sourceCoverageDetails", "cacheAdvancedDetails",
   "bookmarkExtraDetails", "bookmarkHiddenDetails", "sourcePermissionDetails", "exclusionDetails",
-  "sourceSuggestionDetails", "settingsTransferDetails",
+  "sourceSuggestionDetails",
 ]) assert(dashboardSource.includes(`id="${id}"`), `settings must preserve the compact disclosure: ${id}`);
 assert(tokensCssSource.includes("--settings-panel-bg:")
   && tokensCssSource.includes("--settings-panel-backdrop: blur(28px)")
@@ -372,9 +373,9 @@ assert(contentSyncSettingsSource.includes("els.contentSyncDetails.hidden = !els.
 const quotaStatusIndex = dashboardSource.indexOf('id="settingsQuotaStatus"');
 const cacheStatusIndex = dashboardSource.indexOf('id="settingsCacheOverviewStatus"');
 const autoStatusIndex = dashboardSource.indexOf('id="settingsAutoAiStatus"');
-assert(quotaStatusIndex > 0 && quotaStatusIndex < cacheStatusIndex && cacheStatusIndex < autoStatusIndex, "AI settings must keep quota, cache, and automatic organization visible in one ordered status band");
-assert(!settingsCssSource.includes(".settings-overview .settings-overview-item + .settings-overview-item")
-  && settingsResponsiveCssSource.includes("border-block-start: 1px solid var(--line-faint)"), "the runtime status band must omit desktop column separators while retaining narrow-screen row separators");
+assert(autoStatusIndex > 0 && autoStatusIndex < quotaStatusIndex && quotaStatusIndex < cacheStatusIndex, "AI settings must group automatic organization with its quota before the independent cache status");
+assert(dashboardSource.includes('id="settingsQuotaMeter" role="meter" aria-labelledby="settingsQuotaLabel"')
+  && settingsResponsiveCssSource.includes("border-block-start: 1px solid var(--line-faint)"), "the grouped runtime overview must expose a labeled usage meter and separate stacked cache status on narrow screens");
 for (const removedRuntimeDetail of ["settingsRuntimeDetails", "settingsRuntimeSummaryStatus", "settings-runtime-details", "settings-runtime-detail-grid", "settings-overview-metric"]) {
   assert(!dashboardSource.includes(removedRuntimeDetail) && !settingsCssSource.includes(removedRuntimeDetail), `the persistent runtime status band must not retain obsolete disclosure code: ${removedRuntimeDetail}`);
 }
@@ -416,11 +417,10 @@ const bookmarksPanelSource = dashboardSource.slice(bookmarksPanelStart, appearan
 const cacheFetchStart = dashboardSource.indexOf('aria-labelledby="cacheFetchTitle"');
 const sourceCoverageStart = dashboardSource.indexOf('aria-labelledby="sourceCoverageTitle"');
 const cacheAdvancedStart = dashboardSource.indexOf('aria-labelledby="cacheAdvancedTitle"');
-const cacheMaintenanceStart = dashboardSource.indexOf('aria-labelledby="cacheMaintenanceTitle"');
 const cacheFetchSource = dashboardSource.slice(cacheFetchStart, sourceCoverageStart);
-const cacheAdvancedSource = dashboardSource.slice(cacheAdvancedStart, cacheMaintenanceStart);
+const cacheAdvancedSource = dashboardSource.slice(cacheAdvancedStart, bookmarksPanelStart);
 assert(!/<input[^>]+(?:id|name)="[^"]*(?:new.?tab|override)[^"]*"/i.test(browserPanelSource), "browser integration must not expose a fake writable new-tab toggle");
-assert(bookmarksPanelSource.includes('<input id="bookmarkSectionEnabledInput" type="checkbox" checked>'), "bookmark settings must expose an enabled-by-default home-section switch");
+assert(bookmarksPanelSource.includes('<input id="bookmarkSectionEnabledInput" type="checkbox">'), "bookmark settings must expose a default-off home-section switch for public sources");
 assert(!browserPanelSource.includes('id="bookmarkSectionEnabledInput"'), "bookmark-section visibility must remain in bookmark settings");
 assert(bookmarksPanelSource.includes('id="websiteShortcutsEnabledInput"'), "bookmark settings must expose the quick-bookmark module switch explicitly");
 assert(!browserPanelSource.includes('id="websiteShortcutsEnabledInput"'), "browser settings must not retain quick-bookmark management");
@@ -456,25 +456,27 @@ assert(dashboardSource.includes('id="sourcePermissionSummary"'), "website access
 assert(dashboardSource.includes('id="sourceCoverageSummary"') && dashboardSource.includes('id="sourceCoverageList"'), "news settings must expose source coverage and per-source diagnostics");
 assert(!dashboardSource.includes('id="sourceCoverageStatus"') && !dashboardSource.includes('id="bookmarkSourceStatus"'), "settings must not repeat source summaries beside the controls that already show them");
 assert(!dashboardSource.includes("IndexedDB") && !dashboardSource.includes("Manifest V3"), "settings and onboarding must not expose storage or extension implementation details");
-assert(dashboardSource.includes('data-i18n="settings.cache.clearHelp"')
-  && dashboardSource.includes('data-i18n="settings.bookmarks.inspirationFolderHelp"')
-  && dashboardSource.includes('data-i18n="settings.sync.security"'), "copy cleanup must retain cache, bookmark, and secret-storage consequences");
+assert(dashboardSource.includes('data-i18n="onboarding.sources.consent"')
+  && dashboardSource.includes('data-i18n="settings.sync.security"'), "copy cleanup must retain bookmark and secret-storage consequences");
 const sourceCoverageControllerSource = await fs.readFile(path.join(root, "assets", "client", "source-coverage-controller.mjs"), "utf8");
 assert(!sourceCoverageControllerSource.includes("settings.sources.method."), "source status rows must not expose internal extraction methods");
 assert(sourceCoverageControllerSource.includes("await requestOrigins([pattern])"), "cross-origin Feed discovery must require a direct user-gesture permission request through the shared permission client");
-assert(sourceCoverageControllerSource.includes('apiPost("/api/feed/source/refresh", { sourceKey })'), "source diagnostics must support a scoped source retry");
+
 const refreshServiceSource = await fs.readFile(path.join(root, "extension", "runtime", "refresh-service.mjs"), "utf8");
 assert(/return\s*\{[\s\S]{0,160}\brefreshSource\b/.test(refreshServiceSource), "the refresh service factory must expose the scoped source refresh route");
-assert.equal((dashboardSource.match(/class="ai-service-group"/g) || []).length, 2, "optional image search and top search must remain separate from the combined AI service region without adding a second Feed permission path");
+assert(servicePanelSource.includes('class="credential-panel ai-image-layout"')
+  && !servicePanelSource.includes('id="toggleBrowserSearchPermission"')
+  && browserPanelSource.includes('id="toggleBrowserSearchPermission"')
+  && browserPanelSource.includes('id="toggleHistorySearchPermission"'), "optional image search must remain in AI settings while browser and history search stay independently manageable in browser settings");
 assert(!dashboardSource.includes('id="aiFeedAccessGroup"') && !dashboardSource.includes('id="grantAiFeedOrigins"'), "cross-language Feed domains must use the existing initial source-permission flow");
-assert(dashboardSource.includes('class="credential-panel ai-image-layout"') && dashboardSource.includes('class="ai-image-actions"'), "optional image-search controls must use a grouped credential layout with responsive actions");
+assert(dashboardSource.includes('class="credential-panel ai-image-layout"') && /class="[^"]*\bai-image-actions\b[^"]*"/.test(dashboardSource), "optional image-search controls must use a grouped credential layout with responsive actions");
 assert(!dashboardSource.includes('id="refreshPermissionStatus"'), "website access must sync automatically without a no-op refresh button");
 assert(dashboardSource.includes('id="toggleFaviconPermission"'), "existing users must be able to manage the optional favicon permission in settings");
-assert(dashboardSource.includes('id="toggleBrowserSearchPermission"'), "browser search must be explicitly manageable from AI settings");
-assert(!dashboardSource.includes('data-permission="favicon"'), "onboarding must not duplicate the favicon permission action beside the combined primary action");
-assert.equal((dashboardSource.match(/data-onboarding-step="\d"/g) || []).length, 4, "onboarding must use the four-step product, folder, permission, and AI setup flow");
-assert.equal((dashboardSource.match(/<div class="onboarding-progress"[\s\S]*?<\/div>/)?.[0].match(/<span/g) || []).length, 4, "onboarding progress must expose four visual steps");
-assert(dashboardSource.includes('data-i18n="onboarding.step1.body"')
+assert(dashboardSource.includes('data-i18n="onboarding.sites.favicon"'), "onboarding must disclose the bundled browser-provided website icons");
+assert.equal((dashboardSource.match(/data-onboarding-step="\d"/g) || []).length, 3, "onboarding must contain welcome, source and access steps");
+assert(dashboardSource.includes('id="onboardingProgress" role="progressbar"')
+  && dashboardSource.includes('aria-valuemin="1" aria-valuemax="3" aria-valuenow="1"'), "onboarding progress must expose its three-step range to assistive technology");
+assert(dashboardSource.includes('data-i18n="onboarding.sources.title"')
   && !dashboardSource.includes('class="onboarding-step-icon"')
   && !dashboardSource.includes('class="onboarding-feature-copy"'), "onboarding must keep the simplified copy-first presentation without decorative feature cards");
 assert(dashboardSource.includes('id="onboardingNewsFolder"') && dashboardSource.includes('id="onboardingInspirationFolder"'), "onboarding must let users choose bookmark folders in place");
@@ -482,42 +484,31 @@ assert(dashboardSource.includes('id="inspirationBookmarkFolderSelect"'), "settin
 assert(!dashboardSource.includes('id="inspirationSourceModeGroup"') && !dashboardSource.includes('id="onboardingInspirationSourceMode"'), "settings and onboarding must not restore the large inspiration-source card selectors");
 assert(!dashboardSource.includes('name="inspirationSourceMode"') && !dashboardSource.includes('name="onboardingInspirationSource"'), "inspiration mode must be represented by the folder selects rather than parallel radio groups");
 assert(dashboardSource.indexOf('id="onboardingNewsFolder"') < dashboardSource.indexOf('id="onboardingGrantSources"'), "folder selection must precede exact-origin permission calculation");
-assert(dashboardSource.indexOf('id="onboardingGrantSources"') < dashboardSource.indexOf('id="onboardingConfigureAi"'), "website access must precede the optional AI setup handoff");
+assert(!dashboardSource.includes('id="onboardingConfigureAi"'), "AI setup must be deferred to its existing settings entry");
 assert(!dashboardSource.includes('id="onboardingApiKey"') && !dashboardSource.includes('id="finishOnboarding"'), "AI credentials and redundant completion controls must stay out of onboarding");
-assert(dashboardSource.includes('id="onboardingSkipFolders"') && dashboardSource.includes('id="onboardingSkipPermissions"'), "folder selection and optional website access must both remain skippable");
-assert(dashboardSource.includes('id="onboardingConfigureAi"') && dashboardSource.includes('id="onboardingSkipAi"'), "the final AI step must support immediate or deferred setup");
-assert(dashboardSource.includes('id="onboardingAiStatus" aria-live="polite"'), "AI setup completion failures must have a visible live status region");
-assert.equal((dashboardSource.match(/data-i18n="onboarding\.step4\.(?:localization|digest|summary|search)Title"/g) || []).length, 4, "onboarding must explain the four reviewed AI capabilities");
+assert(!dashboardSource.includes('id="onboardingSkipFolders"') && !dashboardSource.includes('id="onboardingSkipPermissions"'), "first-time setup must require authorization instead of offering a skip action");
+assert(dashboardSource.includes('id="onboardingPermissionStatus" aria-live="polite"'), "authorization and completion failures must have a live status region");
 const permissionUiSource = await fs.readFile(path.join(root, "assets", "client", "extension-ui.mjs"), "utf8");
+const onboardingSource = await fs.readFile(path.join(root, "assets", "client", "onboarding-controller.mjs"), "utf8");
 assert(permissionUiSource.includes('requestPermissions(["search"])')
   && permissionUiSource.includes('removePermissions(["search"])'), "browser search must be enabled and revoked only through the optional-permission control");
 assert(!permissionUiSource.includes('createIcon("key-01", "source-permission-icon")'), "website permission rows must not repeat the section key icon for every origin");
-assert(permissionUiSource.includes("newsSourceMode,")
-  && permissionUiSource.includes("inspirationSourceMode,"), "onboarding news and inspiration source choices must persist through the settings boundary");
-assert(permissionUiSource.includes('publicFeedSupplementEnabled: newsSourceMode === "public"'),
-  "onboarding must disable Public Feed coverage when a new user selects a personal news folder");
-assert(permissionUiSource.includes('INSPIRATION_PRESET_VALUE') && permissionUiSource.includes('inspirationBookmarkValue(item.name)'), "onboarding must build the fixed preset option before encoded personal-folder options");
+assert(onboardingSource.includes('request("settings:save", patch)'), "onboarding selections must use the settings boundary");
+assert(onboardingSource.includes('fillSelect(inspiration, INSPIRATION_PRESET_VALUE'), "onboarding must retain its packaged inspiration option");
 const bookmarkSettingsSource = await fs.readFile(path.join(root, "assets", "client", "bookmark-settings-controller.mjs"), "utf8");
 const bookmarksViewSource = await fs.readFile(path.join(root, "assets", "client", "bookmarks-view.mjs"), "utf8");
 assert(bookmarksViewSource.includes('emptyKind === "noEntries" ? t("action.openSettings") : ""')
   && bookmarksViewSource.includes("hasAction ? openBookmarkSettings : undefined"), "an empty bookmark index must guide the user directly to Bookmark settings");
 assert(bookmarkSettingsSource.includes('const optionNodes = [createFolderOption(INSPIRATION_PRESET_VALUE'), "settings must place the Ampira preset first in the inspiration folder select");
-assert(permissionUiSource.includes('const optionNodes = [createOption(PUBLIC_FEED_VALUE')
+assert(onboardingSource.includes('fillSelect(news, PUBLIC_FEED_VALUE')
   && bookmarkSettingsSource.includes('const optionNodes = [createFolderOption(PUBLIC_FEED_VALUE'), "onboarding and settings must place Public Feed first in the news source select");
 assert(bookmarkSettingsSource.includes('t("settings.bookmarks.notFound"'), "settings must retain a visible missing option for a removed personal folder");
-assert(!permissionUiSource.includes('request("settings:save", { openaiApiKey, aiDisclosureAccepted: true })'), "AI credentials must be configured progressively from Settings rather than onboarding");
-assert(permissionUiSource.includes('permissions: nativeFaviconSupported ? ["favicon"] : []'), "the onboarding primary action must request website icons only where the browser supports its native favicon service");
-assert(permissionUiSource.includes('nativeFaviconSupported ? "onboarding.step2.grant" : "onboarding.step2.grantSites"'), "onboarding must not promise website icons on browsers that do not support the native favicon service");
+assert(!onboardingSource.includes('openaiApiKey'), "onboarding must never handle AI credentials");
+assert(onboardingSource.includes('await requestPermissionDetails(details)')
+  && onboardingSource.includes('supportsNativeFavicon()'), "onboarding must bundle source access and supported browser icons in one permission request");
 assert(permissionUiSource.includes('microsoftEdge ? "edge://extensions/"'), "the extension manager action must use Edge's internal management page in Microsoft Edge");
-assert(permissionUiSource.includes('writeValue(ONBOARDING_PROGRESS_KEY, "permissions")'), "onboarding must resume at the permission step after folder activation");
-assert(permissionUiSource.includes('writeValue(ONBOARDING_PROGRESS_KEY, "ai")')
-  && permissionUiSource.includes('progress === "ai"'), "onboarding must persist and restore the final AI step");
-assert(permissionUiSource.includes('onGranted: showOnboardingAi')
-  && permissionUiSource.includes('els.skipPermissions?.addEventListener("click", showOnboardingAi)'), "granting or skipping website access must advance to AI setup without completing onboarding");
-assert(permissionUiSource.includes('request("onboarding:complete")')
-  && permissionUiSource.includes('{ openAiSettings: true }'), "only the final AI actions may complete onboarding and optionally hand off to settings");
-assert(permissionUiSource.includes('targetUrl.searchParams.set("open", "ai-settings")')
-  && permissionUiSource.includes("setOnboardingCompletionBusy(true)"), "AI setup handoff must be one-shot and prevent duplicate completion requests");
+assert(onboardingSource.includes('writeValue(PROGRESS_KEY, "permissions")'), "onboarding must resume at the access step after saving sources");
+assert(onboardingSource.includes('request("onboarding:complete")') && onboardingSource.includes('if (busy || step !== 2 || !permissionReady) return;'), "completion must prevent duplicate requests and require the ready authorization step");
 assert(permissionUiSource.includes('event.detail?.type === "settings.changed"'), "website access must react to extension permission updates");
 assert(permissionUiSource.includes('"visibilitychange"'), "website access must recheck when the page becomes visible");
 const aiFieldsetStart = dashboardSource.indexOf('<fieldset class="ai-provider-fields"');
@@ -597,7 +588,7 @@ const copyGuidelinesSource = await fs.readFile(path.join(root, "copy-guidelines.
 for (const copy of [
   ...Object.values(reviewedBrandTaglines),
   ...Object.values(reviewedAiServiceTitles),
-  ...Object.values(reviewedOnboardingAiTitles),
+  ...Object.values(reviewedOnboardingTitles),
   ...Object.values(reviewedPainOpenings),
   ...Object.values(reviewedProfessionalUseCases),
   ...manifestDescriptions,

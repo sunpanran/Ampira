@@ -1,8 +1,9 @@
 import { normalizeLocale } from "./locale.mjs";
 import { cachedLocalization, withLocalization } from "./feed-localization.mjs";
+import { currentSummaryContent } from "./feed-content.mjs";
 
 import { classifyContentLocale } from "./content-language.mjs";
-import { aiOutputMatchesLocale, aiOutputPartsMatchLocale, visibleAiProse } from "./ai-output-language.mjs";
+import { aiOutputPartsMatchLocale, visibleAiProse } from "./ai-output-language.mjs";
 
 export { classifyContentLocale };
 
@@ -21,10 +22,6 @@ export function classifyFeedEntryLocale(title, summary, declaredLocale = "") {
   return { ...classifyContentLocale(`${title}\n${summary}`, declared), detectedField: "combined" };
 }
 
-export function contentMatchesLocale(value, locale) {
-  return Boolean(visibleAiProse(value)) && aiOutputMatchesLocale(value, locale);
-}
-
 export function localizedSummaryMatchesLocale(title, summary, locale) {
   const lines = (Array.isArray(summary) ? summary : []).map((part) => String(part || "").trim()).filter(Boolean);
   return Boolean(String(title || "").trim()) && lines.length > 0
@@ -34,7 +31,7 @@ export function localizedSummaryMatchesLocale(title, summary, locale) {
 export function feedItemNeedsLocalization(item, locale) {
   const target = normalizeLocale(locale);
   if (cachedLocalization(item, target)) return false;
-  if (!item?.localization && item?.summaryStatus === "ai" && item.summaryLocale === target
+  if (!item?.localization && currentSummaryContent(item) && item?.summaryStatus === "ai" && item.summaryLocale === target
     && localizedSummaryMatchesLocale(item.summaryTitle, item.summary, target)) return false;
   const parts = [item?.title, item?.excerpt].filter((part) => visibleAiProse(part));
   return parts.length > 0 && !aiOutputPartsMatchLocale(parts, target);
@@ -46,7 +43,7 @@ export function filterPresentableFeedItems(items = [], locale, options = {}) {
     const shared = cachedLocalization(item, target);
     if (shared) item = withLocalization(item, shared);
     if (!isPresentableFeedItem(item, target, options)) return [];
-    const localized = Boolean(shared) || options.aiConfigured && !item.localization && item.summaryStatus === "ai" && item.summaryLocale === target
+    const localized = Boolean(shared) || options.aiConfigured && !item.localization && currentSummaryContent(item) && item.summaryStatus === "ai" && item.summaryLocale === target
       && sameOrigin(item.summaryProviderOrigin, options.providerOrigin)
       && localizedSummaryMatchesLocale(item.summaryTitle, item.summary, target);
     const localizationPending = feedItemNeedsLocalization(localized ? item : { ...item, summaryStatus: "" }, target);
@@ -54,6 +51,8 @@ export function filterPresentableFeedItems(items = [], locale, options = {}) {
     const localizedSummary = Array.isArray(item.summary) ? item.summary.filter(Boolean) : [];
     return [{
       ...item,
+      originalTitle: item.title,
+      originalExcerpt: item.excerpt,
       title: item.summaryTitle,
       excerpt: localizedSummary.join(" "),
       summary: localizedSummary,
@@ -76,7 +75,7 @@ export function isPresentableFeedItem(item, locale, {
   // A name-heavy native headline can disagree with the coarse source detector.
   const originalParts = [item?.title, item?.excerpt].filter((part) => visibleAiProse(part));
   if (originalParts.length && aiOutputPartsMatchLocale(originalParts, target)) return true;
-  if (item?.localization || !aiConfigured || item?.summaryStatus !== "ai" || item?.summaryLocale !== target) return false;
+  if (item?.localization || !currentSummaryContent(item) || !aiConfigured || item?.summaryStatus !== "ai" || item?.summaryLocale !== target) return false;
   if (!sameOrigin(item?.summaryProviderOrigin, providerOrigin)) return false;
   return localizedSummaryMatchesLocale(item?.summaryTitle, item?.summary, target);
 }

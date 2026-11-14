@@ -40,7 +40,7 @@ const utility = element(), first = element(), second = element(), last = element
 const button = (root) => Object.assign(element(), { module: root, focus() { doc.activeElement = this; } });
 const firstButton = button(first), secondButton = button(second), lastButton = button(last);
 const targets = [first, second, last].map((root, index) => ({ root, button: [firstButton, secondButton, lastButton][index], run: () => calls.push(`batch-${index}`) }));
-let enabled = true, blocked = false;
+let enabled = normalizeSettings({}).keyboardShortcutsEnabled, blocked = false;
 const controller = createKeyboardShortcutsController({
   doc, view, isEnabled: () => enabled, isBlocked: () => blocked,
   getUtilityCard: () => utility,
@@ -49,6 +49,12 @@ const controller = createKeyboardShortcutsController({
   getBatchTargets: () => targets,
 });
 controller.bind(); controller.bind();
+for (const code of ["KeyN", "Digit1", "Digit2", "Digit3", "KeyR"]) {
+  const event = key(code); doc.emit("keydown", event);
+  assert(!event.defaultPrevented, "default settings leave shortcut keys untouched");
+}
+assert.equal(calls.length, 0, "page shortcuts stay inactive until enabled");
+enabled = true;
 for (const code of ["KeyN", "Digit1", "Digit2", "Digit3"]) {
   const event = key(code); doc.emit("keydown", event); assert(event.defaultPrevented);
 }
@@ -100,15 +106,20 @@ controller.destroy(); doc.emit("keydown", key("KeyN")); assert.equal(calls.lengt
 
 const hint = element();
 setKeyboardShortcutHint(hint, "todo", "Add");
+assert.equal(hint.title, "Add"); assert.equal(hint.getAttribute("aria-keyshortcuts"), null);
+setKeyboardShortcutHint(hint, "todo", "Add", { keyboardShortcutsEnabled: true });
+assert.equal(hint.title, "Add (Alt + N)");
 assert.equal(hint.getAttribute("aria-keyshortcuts"), "Alt+N");
 setKeyboardShortcutHint(hint, "todo", "Add", { keyboardShortcutsEnabled: false });
 assert.equal(hint.title, "Add"); assert.equal(hint.getAttribute("aria-keyshortcuts"), null);
 hint.visibility = "hidden";
 assert.equal(shortcutTargetVisible(hint, { view }), false);
 
-assert.equal(normalizeSettings({}).keyboardShortcutsEnabled, true, "old settings enable the new defaults");
+assert.equal(normalizeSettings().keyboardShortcutsEnabled, false, "new settings disable shortcuts by default");
+assert.equal(normalizeSettings({ uiLocale: "zh-CN" }).keyboardShortcutsEnabled, false, "legacy settings without a preference leave shortcuts disabled");
 for (const value of [true, false]) {
   const settings = normalizeSettings({ keyboardShortcutsEnabled: value });
+  assert.equal(settings.keyboardShortcutsEnabled, value, "saved preferences remain unchanged");
   const encoded = encodeSettingsForSync(settings);
   const decoded = decodeSettingsFromSync(encoded);
   assert.equal(decoded.keyboardShortcutsEnabled, value, "browser sync preserves the preference");
@@ -117,9 +128,9 @@ for (const value of [true, false]) {
   assert.equal(parseSettingsTransferDocument(exported, {}).patch.keyboardShortcutsEnabled, value);
 }
 const baseline = snapshotSettingsDraft(normalizeSettings({}));
-const draft = { ...baseline, keyboardShortcutsEnabled: false };
-assert.deepEqual(diffSettingsDraft(draft, baseline), { keyboardShortcutsEnabled: false });
-assert.equal(baseline.keyboardShortcutsEnabled, true, "canceling an unsaved draft leaves the active preference intact");
+const draft = { ...baseline, keyboardShortcutsEnabled: true };
+assert.deepEqual(diffSettingsDraft(draft, baseline), { keyboardShortcutsEnabled: true });
+assert.equal(baseline.keyboardShortcutsEnabled, false, "canceling an unsaved draft leaves shortcuts disabled");
 assert.deepEqual(diffSettingsDraft({ ...baseline, keyboardShortcuts: { ...baseline.keyboardShortcuts } }, baseline), {}, "an unchanged binding map is not an unsaved edit");
 const legacyExport = createSettingsTransferDocument({});
 delete legacyExport.settings.keyboardShortcutsEnabled;
@@ -140,10 +151,12 @@ assert.equal(validKeyboardShortcutMap({ ...custom, daily: "Ctrl+KeyW" }), false)
 assert.equal(normalizeKeyboardShortcuts({ todo: "Ctrl+KeyW" }).todo, DEFAULT_KEYBOARD_SHORTCUTS.todo);
 assert.equal(normalizeKeyboardShortcuts({ todo: "Alt+Digit1" }).daily, null, "malformed duplicate persisted bindings have one deterministic owner");
 setKeyboardShortcutHint(hint, "todo", "Add", { keyboardShortcuts: custom });
+assert.equal(hint.getAttribute("aria-keyshortcuts"), null, "custom bindings alone do not enable shortcuts");
+setKeyboardShortcutHint(hint, "todo", "Add", { keyboardShortcutsEnabled: true, keyboardShortcuts: custom });
 assert.equal(hint.getAttribute("aria-keyshortcuts"), "Alt+Shift+Z");
-setKeyboardShortcutHint(hint, "news", "News", { keyboardShortcuts: custom });
+setKeyboardShortcutHint(hint, "news", "News", { keyboardShortcutsEnabled: true, keyboardShortcuts: custom });
 assert.equal(hint.getAttribute("aria-keyshortcuts"), null);
-const customSettings = normalizeSettings({ keyboardShortcuts: custom });
+const customSettings = normalizeSettings({ keyboardShortcutsEnabled: true, keyboardShortcuts: custom });
 assert.deepEqual(decodeSettingsFromSync(encodeSettingsForSync(customSettings)).keyboardShortcuts, custom);
 const customExport = createSettingsTransferDocument(customSettings);
 assert.deepEqual(parseSettingsTransferDocument(customExport, {}).patch.keyboardShortcuts, custom);
@@ -159,7 +172,13 @@ try {
   let changed = 0;
   const editor = createKeyboardShortcutSettings({ root, resetButton, feedback, enabledInput,
     t: (key, params) => `${key}${params ? JSON.stringify(params) : ""}`, onChange: () => { changed += 1; } });
+  for (const settings of [undefined, {}, normalizeSettings(), { keyboardShortcutsEnabled: false }]) {
+    editor.load(settings);
+    assert.equal(enabledInput.checked, false, "the shortcut switch loads unchecked unless explicitly enabled");
+    assert.equal(editor.payload().keyboardShortcutsEnabled, false);
+  }
   editor.load(customSettings);
+  assert.equal(enabledInput.checked, true, "the shortcut switch preserves an enabled preference");
   const todoRecord = root.children[0].children[1].children[0];
   const todoClear = root.children[0].children[1].children[1];
   todoRecord.emit("click");

@@ -1,10 +1,19 @@
 import { normalizeEvidenceUrl, scoreResearchEvidence } from "./research-search.mjs";
+import { searchQueryTerms } from "./search.mjs";
 
 const DEFAULT_CHUNK_CHARS = 680;
 const DEFAULT_OVERLAP_CHARS = 120;
 const MAX_DOCUMENT_CHARS = 24000;
 const MIN_PASSAGE_CHARS = 40;
 const MAX_PASSAGES_PER_DOCUMENT = 24;
+const QUERY_STOPWORDS = new Set([
+  "the", "is", "are", "was", "were", "of", "and", "or", "to", "in", "on", "for", "with", "at", "by", "as",
+  "it", "its", "this", "that", "these", "those", "what", "which", "who", "how", "when", "where", "why",
+  "can", "could", "would", "should", "do", "does", "did", "me", "my", "we", "you", "your", "please",
+  "compare", "comparison", "versus", "vs", "between", "better", "best", "recommend", "summarize", "recent", "latest",
+  "什么", "什麼", "哪些", "怎么", "怎麼", "如何", "可以", "有没有", "有沒有", "最近", "最新", "近期", "今天", "今年",
+  "比较", "比較", "对比", "對比", "推荐", "推薦", "总结", "總結", "有哪些", "有什么", "有什麼", "追问", "追問", "新闻", "新聞", "news",
+]);
 
 export function createResearchDocument(value = {}) {
   const url = normalizeEvidenceUrl(value.url);
@@ -67,8 +76,12 @@ export function segmentResearchDocument(value, options = {}) {
 export function retrieveResearchPassages(input, plan, options = {}) {
   const now = Number(options.now ?? Date.now());
   const limit = clamp(options.limit, 1, 12, 12);
-  const passages = dedupePassages(Array.isArray(input) ? input : []);
   const query = cleanText(plan?.standaloneQuery);
+  const terms = queryTerms(query);
+  const timeOnly = query && !terms.length && ["absolute", "year", "relative-month", "recent"].includes(plan?.freshnessIntent);
+  // Dates, source metadata and passage length cannot establish topical relevance.
+  const passages = dedupePassages(Array.isArray(input) ? input : [])
+    .filter(item => timeOnly || matchingTerms(`${item.title} ${item.snippet}`, terms).length > 0);
   const lexical = passages
     .map((item) => ({ item, score: passageLexicalScore(item, query, now) }))
     .sort(rankRows);
@@ -76,8 +89,8 @@ export function retrieveResearchPassages(input, plan, options = {}) {
     .map((item) => ({ item, score: passageFreshnessScore(item) }))
     .sort(rankRows);
   const aggregate = new Map();
-  addReciprocalRanks(aggregate, lexical, 1);
-  addReciprocalRanks(aggregate, freshness, plan?.freshnessIntent === "default" ? 0.28 : 0.72);
+  addReciprocalRanks(aggregate, lexical, 1, "lexical");
+  addReciprocalRanks(aggregate, freshness, plan?.freshnessIntent === "default" ? 0.28 : 0.72, "freshness");
   const perDocument = new Map();
   return [...aggregate.values()]
     .sort((left, right) => right.rrfScore - left.rrfScore
@@ -121,22 +134,23 @@ function passageLexicalScore(item, query, now) {
   const base = scoreResearchEvidence(item, query, now);
   const terms = queryTerms(query);
   const snippet = cleanText(item?.snippet).toLowerCase();
-  const exactMatches = terms.filter((term) => snippet.includes(term)).length;
+  const exactMatches = matchingTerms(snippet, terms).length;
   const density = snippet.length ? exactMatches / Math.max(1, terms.length) : 0;
   return base + density * 30 + Math.min(8, snippet.length / 100) + Number(item?.retrievalScore || 0) * 0.001;
 }
 
 function passageFreshnessScore(item) {
+  if (item?.timeVerified === false) return 0;
   const published = Date.parse(String(item?.publishedAt || ""));
   return Number.isFinite(published) ? published : 0;
 }
 
-function addReciprocalRanks(target, rows, weight) {
+function addReciprocalRanks(target, rows, weight, ranking) {
   rows.forEach((row, index) => {
     const key = passageIdentity(row.item);
     const current = target.get(key) || { item: row.item, rrfScore: 0, lexicalScore: 0 };
     current.rrfScore += weight / (60 + index + 1);
-    current.lexicalScore = Math.max(current.lexicalScore, row.score);
+    if (ranking === "lexical") current.lexicalScore = row.score;
     target.set(key, current);
   });
 }
@@ -186,7 +200,18 @@ function rankRows(left, right) {
 }
 
 function queryTerms(value) {
-  return [...new Set(cleanText(value).toLowerCase().match(/[\p{L}\p{N}]{2,}/gu) || [])].slice(0, 32);
+  const topic = cleanText(value).normalize("NFKC")
+    .replace(/\b20\d{2}(?:\s*年(?:\s*\d{1,2}\s*月(?:\s*\d{1,2}\s*[日号號])?)?|[-/.]\d{1,2}(?:[-/.]\d{1,2})?)/g, " ")
+    .replace(/(?:到|至)?\s*\d{1,2}\s*(?:月|[日号號])/g, " ")
+    .replace(/发生了什么|發生了什麼|what\s+happened/gi, " ");
+  return searchQueryTerms(topic)
+    .filter(term => !QUERY_STOPWORDS.has(term)).slice(0, 64);
+}
+
+function matchingTerms(value, terms) {
+  const text = cleanText(value).normalize("NFKC").toLowerCase();
+  const words = new Set(text.match(/[\p{Script=Latin}\p{N}_]+/gu) || []);
+  return terms.filter(term => /^[\p{Script=Latin}\p{N}_]+$/u.test(term) ? words.has(term) : text.includes(term));
 }
 
 function cleanDocumentText(value) {

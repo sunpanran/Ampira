@@ -93,7 +93,8 @@ try {
     aiReady = true;
     assert.equal((await content.configuredFeedSources(settings, model)).length, expanded.length,
       "cross-language expansion must remain gated on AI readiness");
-    assert.deepEqual(await content.configuredFeedSources({ ...settings, bookmarkConsentGranted: false }, model), []);
+    assert.equal((await content.configuredFeedSources({ ...settings, bookmarkConsentGranted: false }, model)).length, expanded.length,
+      "public feeds must remain independent of bookmark consent");
     assert.deepEqual(await content.configuredFeedSources({ ...settings, publicFeedSupplementEnabled: false }, model), []);
   }
 } finally {

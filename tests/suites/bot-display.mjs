@@ -313,7 +313,7 @@ function harness(options = {}) {
   els.aiSearchOverlay.classList.add("open");
   const controller = createBotConversationController({
     state, els, t: (key) => key,
-    apiPost: (url, body) => url === "/api/bot/refresh" ? (options.get || (async () => structuredClone(state.data.bot)))() : options.post(url, body),
+    request: ({ type: url, payload: body }) => url === "bot:refresh" ? (options.get || (async () => structuredClone(state.data.bot)))() : options.post(url, body),
     appendMessage(input) { const model = { ...input, element: node() }; model.element.textContent = input.text; els.aiAnswer.append(model.element); return model; },
     async finishMessage(model, response) { await options.finish?.(); if (model.element.isConnected) { model.element.textContent = response.text; model.element.dataset.taskPhase = response.taskPhase || ""; } },
     removeMessages(models) { models.forEach((model) => model.element.remove()); },

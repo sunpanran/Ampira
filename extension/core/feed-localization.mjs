@@ -1,9 +1,9 @@
-import { hashText } from "./bookmarks.mjs";
+import { articleContentFingerprint } from "./feed-content.mjs";
 import { aiOutputPartsMatchLocale } from "./ai-output-language.mjs";
 import { normalizeCardSummary } from "./card-summary-format.mjs";
 
 export function localizationFingerprint(item) {
-  return hashText(JSON.stringify([item?.url, item?.sourceKey, item?.sourceOrigin, item?.title, item?.excerpt]));
+  return articleContentFingerprint(item);
 }
 export function validTranslation(value, locale) {
   return ["zh-CN", "zh-Hant", "en"].includes(locale) && typeof value?.title === "string" && value.title.trim().length > 0 && value.title.length <= 300

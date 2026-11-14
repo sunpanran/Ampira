@@ -10,6 +10,27 @@ export const INSPIRATION_COVER_ASSETS = Object.freeze([
 ].map((key) => `assets/presets/inspiration/${key}.webp`));
 
 const PACKAGED_COVER_PATTERN = /^assets\/presets\/inspiration\/[a-z0-9-]+\.webp$/;
+const COVER_POSITIONS = new Map([
+  ["type-rhythm-01", "50% 64%"],
+  ["brand-form-03", "50% 23%"],
+  ["material-study-02", "50% 46%"],
+  ["motion-field-02", "50% 68%"],
+].map(([key, position]) => [`assets/presets/inspiration/${key}.webp`, position]));
+
+// Covers A4 02, 04, 09, 16, 19, 23 and 24 need light text in either theme.
+const DARK_INSPIRATION_COVER_ASSETS = new Set([
+  "web-signal-02", "web-signal-04", "type-rhythm-01", "space-light-02",
+  "art-chroma-02", "material-study-01", "material-study-02",
+].map((key) => `assets/presets/inspiration/${key}.webp`));
+
+export function isDarkInspirationCover(asset) {
+  const normalized = String(asset || "").trim().replace(/^\/+/, "");
+  return DARK_INSPIRATION_COVER_ASSETS.has(normalized);
+}
+
+export function inspirationCoverPosition(asset) {
+  return COVER_POSITIONS.get(String(asset || "").trim().replace(/^\/+/, "")) || "50% 50%";
+}
 
 export function resolveInspirationCoverUrl(asset, baseUrl = defaultBaseUrl()) {
   const normalized = String(asset || "").trim().replace(/^\/+/, "");

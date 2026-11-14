@@ -20,7 +20,6 @@ export function grantBookmarkConsent() {
 export function markOnboardingComplete() {
   return updateConsent((current) => ({
     ...current,
-    bookmark: { version: CONSENT_VERSION, granted: true },
     onboarding: { version: CONSENT_VERSION, completed: true },
   }));
 }
@@ -65,8 +64,7 @@ function consentStatus(value, openaiBaseUrl) {
   const record = normalizeConsentRecord(value);
   const bookmarkConsentGranted = record.bookmark.version === CONSENT_VERSION
     && record.bookmark.granted === true;
-  const onboardingCompleted = bookmarkConsentGranted
-    && record.onboarding.version === CONSENT_VERSION
+  const onboardingCompleted = record.onboarding.version === CONSENT_VERSION
     && record.onboarding.completed === true;
   const aiDisclosureAccepted = record.aiDisclosure.version === CONSENT_VERSION
     && record.aiDisclosure.accepted === true

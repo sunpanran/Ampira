@@ -46,6 +46,7 @@ export async function runDashboardLayoutTests() {
   const broadcasts = [];
   const workflow = createSettingsWorkflow({
     getSettings: async () => saved,
+    settingsLocale: settings => settings.uiLocale,
     defaultSettings: DEFAULT_SETTINGS,
     settingsService: { mutate: (action) => action({ write: async (value) => { saved = normalizeSettings(value); } }) },
     contentSyncService: { applySettings: async () => {} },

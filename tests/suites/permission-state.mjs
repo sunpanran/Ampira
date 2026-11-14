@@ -2,10 +2,8 @@ import assert from "node:assert/strict";
 import {
   buildPermissionRows,
   filterFeedItemsBySources,
-  filterRevokedFeedItems,
   normalizeOriginPattern,
   revokedSourceKeys,
-  valueTouchesOrigins,
 } from "../../extension/core/permission-state.mjs";
 
 assert.equal(normalizeOriginPattern("https://example.com/path"), "https://example.com/*");
@@ -35,12 +33,12 @@ const sources = [
 ];
 const revokedKeys = revokedSourceKeys(sources, ["https://one.example/*"]);
 assert.deepEqual([...revokedKeys], ["a"]);
-assert.deepEqual(filterRevokedFeedItems([
+assert.deepEqual(filterFeedItemsBySources([
   { sourceKey: "a", url: "https://cdn.example/article" },
   { sourceKey: "b", sourceOrigin: "https://two.example", url: "https://two.example/article" },
   { sourceKey: "b", sourceOrigin: "https://two.example", url: "https://one.example/article" },
   { sourceKey: "legacy", url: "https://unrelated.example/article" },
-], ["https://one.example/*"], revokedKeys), [
+], sources.filter((source) => !revokedKeys.has(source.key))), [
   { sourceKey: "b", sourceOrigin: "https://two.example", url: "https://two.example/article" },
   { sourceKey: "b", sourceOrigin: "https://two.example", url: "https://one.example/article" },
 ]);
@@ -57,9 +55,5 @@ assert.deepEqual(filterFeedItemsBySources([
 ], "read-time filtering must require both the current source key and its exact source origin");
 
 assert.deepEqual([...revokedSourceKeys(sources, ["https://*/*"])], [], "broad origins must not participate in source cleanup");
-
-assert.equal(valueTouchesOrigins({ url: "https://one.example/article" }, ["https://one.example/*"]), true);
-assert.equal(valueTouchesOrigins({ links: [{ url: "https://two.example/article" }] }, ["https://one.example/*"]), false);
-assert.equal(valueTouchesOrigins({ url: "https://two.example/article" }, ["https://*/*"]), false);
 
 console.log("permission state tests passed");

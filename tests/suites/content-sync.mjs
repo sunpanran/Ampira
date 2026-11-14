@@ -11,7 +11,7 @@ import {
 } from "../../extension/core/content-sync.mjs";
 import { normalizeSettings } from "../../extension/core/settings.mjs";
 
-for (const field of ["syncReadingQueueEnabled", "syncTodosEnabled", "syncWeatherLocationEnabled", "syncStockWatchlistEnabled", "syncCountdownsEnabled"]) {
+for (const { flag: field } of Object.values(CONTENT_SYNC_DATASETS)) {
   assert.equal(DEFAULT_SETTINGS[field], false, `${field} must remain opt-in`);
   assert.equal(normalizeSettings({})[field], false, `${field} must normalize to disabled by default`);
   assert.equal(normalizeSettings({ [field]: true })[field], true, `${field} must preserve explicit opt-in`);
@@ -185,7 +185,110 @@ assert(!Object.keys(disabledSyncValues).some((key) => key.startsWith("ampira.con
 assert.equal(JSON.parse(firstRestarted.state["dash.utility.todos.v1"])[0].text, "Updated on device two", "disabling sync must preserve local content");
 assert(firstRestarted.records.has(CONTENT_SYNC_META_KEY), "content sync metadata must remain extension-local");
 
+await testPendingLocalChanges();
+await testLocalEditDuringRemoteRead();
+await testFailedLocalUpload();
+await testColdPatchAndExpiredTombstone();
+
 console.log("content sync tests passed");
+
+async function testPendingLocalChanges() {
+  const key = "dash.utility.todos.v1";
+  for (const restart of [false, true]) {
+    for (const change of ["edit", "delete", "remote-delete"]) {
+      const storage = memoryStorage();
+      const original = [todoRecord("changed", false), todoRecord("untouched", false)];
+      const local = device({ syncStorage: storage, now: 1000, state: { [key]: JSON.stringify(original) } });
+      await local.service.initialize();
+      const remote = device({ syncStorage: storage, now: 2000, state: {} });
+      await remote.service.initialize();
+      const remoteValues = original.filter(item => change !== "remote-delete" || item.id !== "changed")
+        .map(item => ({ ...item, text: `Remote ${item.id}` }));
+      await remote.clientStateStore.save({ values: { [key]: JSON.stringify(remoteValues) } });
+      await remote.service.handleLocalPatch({ [key]: JSON.stringify(remoteValues) });
+      const patch = JSON.stringify(original.filter(item => change !== "delete" || item.id !== "changed")
+        .map(item => item.id === "changed" ? { ...item, text: "Newest local edit" } : item));
+      await local.clientStateStore.save({ values: { [key]: patch } });
+      // The local clock is behind the remote clock; its new edit still needs a newer logical version.
+      const active = restart ? device({ syncStorage: storage, now: 1000, state: local.state, records: local.records }) : local;
+      if (restart) await active.service.initialize();
+      else await active.service.handleLocalPatch({ [key]: patch });
+      const items = JSON.parse(active.state[key]);
+      assert.equal(items.find(item => item.id === "changed")?.text, change === "delete" ? undefined : "Newest local edit",
+        `pending local ${change} must survive an unseen remote revision${restart ? " after restart" : ""}`);
+      assert.equal(items.find(item => item.id === "untouched").text, "Remote untouched", "unchanged local entries must still accept remote changes");
+      const uploaded = (await storage.get(null))[await contentSyncStorageKey("todos", "changed")];
+      assert(uploaded.updatedAt > 2000, "a new local version must advance past observed remote versions");
+      assert.equal(uploaded.deleted === true, change === "delete");
+      const observer = device({ syncStorage: storage, now: 3000, state: {} });
+      await observer.service.initialize();
+      assert.deepEqual(JSON.parse(observer.state[key]), items, "another device must converge on the preserved edit or deletion");
+    }
+  }
+}
+
+async function testLocalEditDuringRemoteRead() {
+  const key = "dash.utility.todos.v1";
+  const storage = memoryStorage();
+  const local = device({ syncStorage: storage, now: 4000, state: { [key]: JSON.stringify([todoRecord("race", false)]) } });
+  await local.service.initialize();
+  const remoteKey = await contentSyncStorageKey("todos", "race");
+  const previous = (await storage.get(null))[remoteKey];
+  await storage.set({ [remoteKey]: { ...previous, updatedAt: 5000, revision: "5000:remote", value: { ...previous.value, text: "Remote edit" } } });
+  const originalGet = storage.get;
+  let release;
+  let entered;
+  const reached = new Promise(resolve => { entered = resolve; });
+  const gate = new Promise(resolve => { release = resolve; });
+  storage.get = async keys => { entered(); await gate; return originalGet(keys); };
+  const pending = local.service.handleLocalPatch({ [key]: local.state[key] });
+  await reached;
+  const patch = JSON.stringify([{ ...todoRecord("race", false), text: "Edit while sync is reading" }]);
+  await local.clientStateStore.save({ values: { [key]: patch } });
+  release();
+  await pending;
+  storage.get = originalGet;
+  assert.equal(JSON.parse(local.state[key])[0].text, "Edit while sync is reading", "a remote read must not later overwrite a concurrent local save");
+}
+
+async function testFailedLocalUpload() {
+  const key = "dash.utility.todos.v1";
+  const storage = memoryStorage();
+  const local = device({ syncStorage: storage, now: 6000, state: { [key]: JSON.stringify([todoRecord("retry", false)]) } });
+  await local.service.initialize();
+  const remoteKey = await contentSyncStorageKey("todos", "retry");
+  const previous = (await storage.get(null))[remoteKey];
+  await storage.set({ [remoteKey]: { ...previous, updatedAt: 7000, revision: "7000:remote", value: { ...previous.value, text: "Remote edit" } } });
+  const patch = JSON.stringify([{ ...todoRecord("retry", false), text: "Unsynced local edit" }]);
+  await local.clientStateStore.save({ values: { [key]: patch } });
+  const originalSet = storage.set;
+  storage.set = async () => { throw new Error("Synthetic upload failure"); };
+  await assert.rejects(local.service.handleLocalPatch({ [key]: patch }), /Synthetic upload failure/);
+  assert.equal(local.state[key], patch, "failed sync must retain the pending local content");
+  storage.set = originalSet;
+  await local.service.handleLocalPatch({ [key]: patch });
+  assert.equal((await storage.get(null))[remoteKey].value.text, "Unsynced local edit", "retry must still publish the unsynced edit");
+}
+
+async function testColdPatchAndExpiredTombstone() {
+  const key = "dash.utility.todos.v1";
+  const storage = memoryStorage();
+  const original = todoRecord("cold", false);
+  const initial = device({ syncStorage: storage, now: 1000, state: { [key]: JSON.stringify([original]) } });
+  await initial.service.initialize();
+  const patch = JSON.stringify([{ ...original, text: "Cold runtime local edit" }]);
+  const cold = device({ syncStorage: storage, now: 2000, state: { [key]: patch } });
+  await cold.service.handleLocalPatch({ [key]: patch });
+  assert.equal(cold.state[key], patch, "initialization must not overwrite the local patch that triggered it");
+  const remoteKey = await contentSyncStorageKey("todos", "cold");
+  await storage.set({ [remoteKey]: { version: 1, dataset: "todos", id: "cold", deleted: true, updatedAt: 3000, revision: "3000:remote" } });
+  const restoredPatch = JSON.stringify([{ ...original, text: "Restored after long offline period" }]);
+  await cold.clientStateStore.save({ values: { [key]: restoredPatch } });
+  const restarted = device({ syncStorage: storage, now: 40 * 24 * 60 * 60 * 1000, state: cold.state, records: cold.records });
+  await restarted.service.initialize();
+  assert.equal((await storage.get(null))[remoteKey]?.value?.text, "Restored after long offline period",
+    "pruning an old tombstone must not delete the new local revision written over it");
+}
 
 function device({ syncStorage, now, state, records = new Map(), settings = enabledSettings }) {
   const localState = state;

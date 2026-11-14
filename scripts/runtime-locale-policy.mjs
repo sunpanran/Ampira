@@ -8,6 +8,8 @@ export const RUNTIME_LOCALE_PREFIXES = Object.freeze([
 ]);
 
 export const RUNTIME_LOCALE_KEYS = Object.freeze([
+  "settings.feeds.invalidFeed",
+  "settings.feeds.invalidUrl",
   "summary.status.noContent",
   "reader.translationEmpty",
   "reader.error.notFoundBody",

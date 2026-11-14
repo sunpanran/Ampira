@@ -118,7 +118,7 @@ export function createSitePreviewController(options) {
     cancelRetryTimer(pendingKey);
     const requestGeneration = generation;
     const operation = Promise.resolve()
-      .then(() => options.apiGet(`/api/site-preview?url=${encodeURIComponent(item.url)}&title=${encodeURIComponent(item.title || "")}&mode=${mode}&profile=${profile(item)}`))
+      .then(() => options.request({ type: "preview:get", payload: { url: item.url, title: item.title || "", mode, profile: profile(item) } }))
       .then((preview) => {
         if (!isCurrent(item, key, requestGeneration)) return null;
         const normalized = withoutRejectedImages(item, preview && typeof preview === "object"
