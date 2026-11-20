@@ -37,6 +37,7 @@ export function createConfirmationDialogController(options) {
     kicker.textContent = String(content.kicker || "CONFIRM");
     title.textContent = String(content.title || "");
     body.textContent = String(content.body || "");
+    body.classList?.toggle("confirmation-multiline", content.multiline === true);
     cancelButton.textContent = String(content.cancelLabel || "Cancel");
     confirmButton.textContent = String(content.confirmLabel || "Continue");
     confirmButton.classList.toggle("danger", content.tone === "danger");

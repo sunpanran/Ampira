@@ -1,4 +1,5 @@
 /* settings */
+.confirmation-multiline { white-space: pre-line; }
 .mcp-features,
 .mcp-mode-options {
   min-width: 0;

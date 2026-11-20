@@ -18,9 +18,11 @@ import {
   captureCredentialState,
   readProviderProfile,
   readSecrets,
+  readTransferCredentials,
   restoreCredentialState,
   secretStatus,
   updateCredentials,
+  withCredentialTransaction,
 } from "../core/secrets.mjs";
 import {
   captureDeviceConsentState,
@@ -103,6 +105,7 @@ import { createBrowserSearchService } from "./browser-search-service.mjs";
 import { createLocalSearchService } from "./local-search-service.mjs";
 import { createFactoryResetService } from "./factory-reset-service.mjs";
 import { createPersonalCardsService } from "./personal-cards-service.mjs";
+import { createManualSyncService } from "./manual-sync-service.mjs";
 import { emptySourceQuality, localDateKey, pipelineStages, safeOrigin, summarizeQuality, uniqueStrings } from "./runtime-utils.mjs";
 
 export function createExtensionRuntime(deps = {}) {
@@ -112,7 +115,9 @@ const clientStateStore = createClientStateStore({ getRecord, setRecord });
 const quotaManager = createQuotaManager(chrome.storage.local, localDateKey);
 const headerCoverStore = createHeaderCoverStore(chrome.storage.local, { records: { getRecord, setRecord, deleteRecord, listRecords } });
 const headerCoverCache = createHeaderCoverCache({ getRecord, setRecord, deleteRecord });
-const settingsStore = createSettingsStore(chrome.storage.sync, chrome.storage.local);
+let manualSync;
+const syncReady = () => manualSync?.isReady() === true;
+const settingsStore = createSettingsStore(chrome.storage.sync, chrome.storage.local, { canWrite: syncReady });
 const settingsService = createRuntimeSettingsService({ store: settingsStore, readProviderProfile, readDeviceConsent });
 const { getSettings } = settingsService;
 const cardSummaryPolicy = createCardSummaryPolicy({ settingsLocale, originPattern });
@@ -128,6 +133,7 @@ const presentableFeedItems = (items, settings, configuredForAi) => filterPresent
 const permissionEpoch = createPermissionEpoch();
 const cacheMetadataPolicy = createCacheMetadataPolicy({ safeOrigin, originPattern, buildPermissionRows });
 const contentSyncService = createContentSyncService({
+  canSync: syncReady,
   storage: chrome.storage.sync,
   clientStateStore,
   getSettings,
@@ -143,7 +149,21 @@ let publicSettings;
 let saveSettings;
 let exportSettings;
 let importSettings;
+let authorizeImportedSettings;
+let reconcileImportedSettings;
 let factoryResetting = false;
+manualSync = createManualSyncService({
+  storage: chrome.storage.sync, localStorage: chrome.storage.local, settingsStore, contentSyncService,
+  clientStateStore, withCredentialTransaction, getRecord, setRecord, broadcast,
+  isResetting: () => factoryResetting,
+  onApplied: async plan => {
+    if (plan.direction === "clear") return;
+    cacheMutations.invalidate();
+    refreshCoordinator.invalidate();
+    await cacheMutations.run(() => setRecord("daily-digest", null, "cache"));
+    await pruneBravePreviewCaches();
+  },
+});
 const activeRequests = new Set();
 const {
   getRefreshStatus,
@@ -308,7 +328,7 @@ const { factoryReset } = createFactoryResetService({
   clearImageCache: () => headerCoverCache.clear(),
   setResetting: (value) => {
     factoryResetting = value === true;
-    if (factoryResetting) invalidateBookmarkModel();
+    if (factoryResetting) { manualSync.invalidate(); invalidateBookmarkModel(); }
   },
   broadcast,
 });
@@ -374,8 +394,8 @@ const {
   newsPreviewTargets,
   permissionEpoch, aiAccessPolicy, cacheAccessPolicy,
 });
-({ publicSettings, saveSettings, exportSettings, importSettings } = createSettingsWorkflow({
-  getSettings, settingsLocale, defaultBookmarkFoldersForLocale, secretStatus,
+({ publicSettings, saveSettings, exportSettings, importSettings, authorizeImportedSettings, reconcileImportedSettings } = createSettingsWorkflow({
+  getSettings, settingsLocale, defaultBookmarkFoldersForLocale, secretStatus, readTransferCredentials,
   currentBookmarkModel, emptyBookmarkModel, selectedOrigins, currentFeedPermissionState,
   filterSourceQuality, getRecord, emptySourceQuality, defaultSettings: DEFAULT_SETTINGS,
   settingsService, readProviderProfile, bindProviderPatchToOrigin, isValidServiceUrl,
@@ -388,6 +408,7 @@ const {
   contentSyncService,
   headerCoverStore,
   browserSearchEnabled: browserSearchService.enabled,
+  getOptionalPermissions: () => chrome.permissions.getAll(),
   getAppVersion: () => chrome.runtime.getManifest().version,
   now: () => new Date().toISOString(),
 }));
@@ -507,7 +528,11 @@ const routeMessage = createMessageRouter({
   "header-cover:reject": async (payload) => { await headerCoverCache.reject(payload.url); return { ok: true }; },
   "settings:save": (payload) => saveSettings(payload),
   "settings:export": () => exportSettings(),
+  "sync:preview": payload => manualSync.preview(payload),
+  "sync:apply": payload => manualSync.apply(payload),
   "settings:import": (payload) => importSettings(payload),
+  "settings:authorize-import": (payload) => authorizeImportedSettings(payload),
+  "settings:reconcile-import": () => reconcileImportedSettings(),
   "settings:factory-reset": () => factoryReset(),
   "settings:test": (payload) => testOpenAISettings(payload),
   "settings:image-test": (payload) => testImageSearchSettings(payload),
@@ -628,10 +653,18 @@ chrome.permissions.onRemoved.addListener(handlePermissionsRemoved);
 registerHistoryInvalidation();
 
 chrome.storage.onChanged?.addListener((changes, areaName) => {
+  if (factoryResetting || areaName !== "sync") return;
+  const operation = manualSync.recover().then(() => applySyncChanges(changes, areaName));
+  activeRequests.add(operation);
+  operation.finally(() => activeRequests.delete(operation))
+    .catch(() => broadcast("settings.changed", { syncRecoveryPending: true }));
+});
+
+function applySyncChanges(changes, areaName) {
   if (factoryResetting) return;
   contentSyncService.handleStorageChanged(changes, areaName);
   const changedSettings = areaName === "sync" ? changes[SETTINGS_KEY] : null;
-  if (changedSettings && JSON.stringify(changedSettings.oldValue?.dashboardCardOrder) !== JSON.stringify(changedSettings.newValue?.dashboardCardOrder)) {
+  if (changedSettings?.newValue && JSON.stringify(changedSettings.oldValue?.dashboardCardOrder) !== JSON.stringify(changedSettings.newValue?.dashboardCardOrder)) {
     broadcast("settings.changed", { dashboardLayoutOnly: true, dashboardCardOrder: normalizeSettings(changedSettings.newValue).dashboardCardOrder });
   }
   if (changedSettings && (changedSettings.oldValue?.mcpEnabled !== changedSettings.newValue?.mcpEnabled || changedSettings.oldValue?.dashboardMode !== changedSettings.newValue?.dashboardMode
@@ -642,6 +675,10 @@ chrome.storage.onChanged?.addListener((changes, areaName) => {
     broadcast("settings.changed", { mcpSettingsChanged: true });
   }
   if (areaName === "sync" && Object.hasOwn(changes, SYNC_CREDENTIALS_KEY)) {
+    if (!changes[SYNC_CREDENTIALS_KEY].newValue) {
+      broadcast("settings.changed", { credentialSyncChanged: true });
+      return;
+    }
     cacheMutations.invalidate();
     refreshCoordinator.invalidate();
     settingsService.mutate(async () => {
@@ -654,7 +691,7 @@ chrome.storage.onChanged?.addListener((changes, areaName) => {
       broadcast("dashboard.updated", { reason: "credential-sync" });
     }).catch(() => broadcast("settings.changed", { credentialSyncChanged: true }));
   }
-});
+}
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (!request || typeof request.type !== "string") return false;
@@ -744,6 +781,7 @@ function handlePermissionsRemoved(permissions) {
 }
 
 async function ensureRuntime() {
+  await manualSync.recover();
   await chrome.alarms.create(REFRESH_ALARM, { periodInMinutes: REFRESH_PERIOD_MINUTES });
   await getSettings();
   await contentSyncService.initialize();
@@ -767,7 +805,7 @@ async function handleRequest(request, sender) {
   if (factoryResetting && request?.type !== "settings:factory-reset") {
     throw typedError("FACTORY_RESET_IN_PROGRESS", "background.error.factoryResetInProgress", {}, true);
   }
-  const operation = Promise.resolve().then(() => routeMessage(request, sender));
+  const operation = Promise.resolve().then(() => manualSync.recover()).then(() => routeMessage(request, sender));
   activeRequests.add(operation);
   try {
     return await operation;

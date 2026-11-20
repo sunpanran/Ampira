@@ -45,6 +45,7 @@ export function createSettingsController(options) {
     focusSettingsStart, closeSettings, requestCloseSettings, resetSecretDrafts,
     setSettingsBusy, runSettingsAction, selectSettingsTab, renderSettingsStatus,
     isBusy: () => settingsBusy,
+    hasUnsavedChanges: currentSettingsHaveUnsavedChanges,
   };
 async function grantBookmarkAccess() {
   if (settingsBusy) return;
@@ -62,10 +63,10 @@ async function grantBookmarkAccess() {
     }
   });
 }
-async function loadSettings() {
+async function loadSettings({ settings: suppliedSettings } = {}) {
   const token = ++settingsLoadToken;
   try {
-    const [settings] = await Promise.all([request({ type: "settings:get" }), headerCoverController.load()]);
+    const [settings] = await Promise.all([suppliedSettings || request({ type: "settings:get" }), headerCoverController.load()]);
     if (token !== settingsLoadToken) return false;
     const imagePreviewChanged = !state.settings
       || state.settings.webImageSearchEnabled !== settings.webImageSearchEnabled
@@ -453,6 +454,7 @@ function setSettingsBusy(busy) {
   els.readingQueueOpenOnReadAllInput.disabled = busy;
   els.retainSeenArchiveInput.disabled = busy;
   setContentSyncControlsBusy(els, busy);
+  for (const key of ["uploadSyncData", "downloadSyncData", "clearSyncData"]) if (els[key]) els[key].disabled = busy;
   els.personalizedRankingEnabledInput.disabled = busy;
   syncPublicFeedSupplementControl(busy);
   els.uiLocaleSelect.disabled = busy;
@@ -502,7 +504,7 @@ async function runSettingsAction(action) {
     && els.settingsModal.classList.contains("open");
   setSettingsBusy(true);
   try {
-    await action(isCurrent);
+    return await action(isCurrent);
   } finally {
     if (isCurrent()) setSettingsBusy(false);
   }

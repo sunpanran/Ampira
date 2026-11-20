@@ -845,6 +845,64 @@
           <div class="settings-panel-intro">
             <h3 data-i18n="settings.browser.title">浏览器集成</h3>
           </div>
+          <section class="settings-section settings-sync" aria-labelledby="browserContentSyncTitle">
+            <div class="settings-section-head"><div><h4 id="browserContentSyncTitle" data-i18n="settings.sync.title">跨设备同步</h4></div></div>
+            <div class="settings-row-list">
+              <div class="settings-sync-personal">
+                <label class="switch-field" for="contentSyncEnabledInput">
+                  <span class="switch-copy"><span class="switch-title" id="contentSyncLabel" data-i18n="settings.sync.master">同步个人内容</span></span>
+                  <span class="toggle"><input id="contentSyncEnabledInput" type="checkbox"><span aria-hidden="true"></span></span>
+                </label>
+                <div class="settings-dependent-list settings-sync-options" id="contentSyncDetails" role="group" aria-labelledby="contentSyncLabel" hidden>
+                  <label class="switch-field settings-sync-option" for="syncReadingQueueEnabledInput">
+                    <input id="syncReadingQueueEnabledInput" type="checkbox"><span data-i18n="settings.sync.readingQueue">稍后读</span>
+                  </label>
+                  <label class="switch-field settings-sync-option" for="syncTodosEnabledInput">
+                    <input id="syncTodosEnabledInput" type="checkbox"><span data-i18n="settings.sync.todos">待办</span>
+                  </label>
+                  <label class="switch-field settings-sync-option" for="syncWeatherLocationEnabledInput">
+                    <input id="syncWeatherLocationEnabledInput" type="checkbox"><span data-i18n="settings.sync.weather">天气城市</span>
+                  </label>
+                  <label class="switch-field settings-sync-option" for="syncStockWatchlistEnabledInput">
+                    <input id="syncStockWatchlistEnabledInput" type="checkbox"><span data-i18n="settings.sync.stocks">自选股票</span>
+                  </label>
+                  <label class="switch-field settings-sync-option" for="syncCountdownsEnabledInput">
+                    <input id="syncCountdownsEnabledInput" type="checkbox"><span data-i18n="settings.sync.countdowns">倒数日</span>
+                  </label>
+                  <label class="switch-field settings-sync-option" for="syncTrackedTopicsEnabledInput">
+                    <input id="syncTrackedTopicsEnabledInput" type="checkbox"><span data-i18n="settings.sync.topics">主题追踪</span>
+                  </label>
+                  <label class="switch-field settings-sync-option" for="syncCalendarEnabledInput">
+                    <input id="syncCalendarEnabledInput" type="checkbox"><span data-i18n="settings.sync.calendar">日历</span>
+                  </label>
+                  <label class="switch-field settings-sync-option" for="syncNotesEnabledInput">
+                    <input id="syncNotesEnabledInput" type="checkbox"><span data-i18n="settings.sync.notes">随手记</span>
+                  </label>
+                  <label class="switch-field settings-sync-option" for="syncWorldClockEnabledInput">
+                    <input id="syncWorldClockEnabledInput" type="checkbox"><span data-i18n="settings.sync.worldClock">世界时钟</span>
+                  </label>
+                </div>
+              </div>
+              <label class="switch-field" for="syncAiSettingsEnabledInput">
+                <span class="switch-copy"><span class="switch-title" data-i18n="settings.sync.ai">同步 API 密钥和 AI 配置</span></span>
+                <span class="toggle"><input id="syncAiSettingsEnabledInput" type="checkbox" aria-describedby="credentialSyncSecurity"><span aria-hidden="true"></span></span>
+              </label>
+            </div>
+            <div class="settings-panel-actions">
+              <button class="btn ghost" id="uploadSyncData" type="button" data-i18n="settings.sync.upload">上传数据</button>
+              <button class="btn ghost" id="downloadSyncData" type="button" data-i18n="settings.sync.download">下载覆盖</button>
+              <button class="btn ghost danger" id="clearSyncData" type="button" data-i18n="settings.sync.clear">清空云端配置</button>
+            </div>
+            <details class="settings-disclosure settings-inline-disclosure">
+              <summary class="settings-disclosure-summary"><span data-i18n="settings.sync.details">同步说明</span><span class="settings-disclosure-chevron" aria-hidden="true"></span></summary>
+              <div class="settings-disclosure-body">
+                <p class="settings-disclosure-note" id="credentialSyncSecurity" data-i18n="settings.sync.security">AI／Brave 密钥会写入浏览器账号的同步空间，Ampira 不额外加密。</p>
+                <p class="settings-disclosure-note" data-i18n="settings.sync.offHelp">所有同步选项默认关闭。关闭后删除账号中的同步副本，各设备已收到的内容和设置仍会保留。</p>
+                <p class="settings-disclosure-note" data-i18n="settings.sync.deviceHelp">需使用同一浏览器账号并开启扩展同步。新设备仍需确认 AI 数据传输并授权服务网站。</p>
+                <p class="settings-disclosure-note" data-i18n="settings.sync.manualHelp">已开启的项目会自动同步。手动操作仅处理已保存的数据，联网传输仍由浏览器完成。</p>
+              </div>
+            </details>
+          </section>
           <section class="settings-section" aria-labelledby="browserSearchTitle">
             <div class="settings-section-head"><div><h4 id="browserSearchTitle" data-i18n="settings.browser.searchTitle">统一搜索</h4></div></div>
             <div class="settings-row-list">
@@ -898,58 +956,6 @@
                 </div>
               </details>
             </div>
-          </section>
-          <section class="settings-section settings-sync" aria-labelledby="browserContentSyncTitle">
-            <div class="settings-section-head"><div><h4 id="browserContentSyncTitle" data-i18n="settings.sync.title">跨设备同步</h4></div></div>
-            <div class="settings-row-list">
-              <div class="settings-sync-personal">
-                <label class="switch-field" for="contentSyncEnabledInput">
-                  <span class="switch-copy"><span class="switch-title" id="contentSyncLabel" data-i18n="settings.sync.master">同步个人内容</span></span>
-                  <span class="toggle"><input id="contentSyncEnabledInput" type="checkbox"><span aria-hidden="true"></span></span>
-                </label>
-                <div class="settings-dependent-list settings-sync-options" id="contentSyncDetails" role="group" aria-labelledby="contentSyncLabel" hidden>
-                  <label class="switch-field settings-sync-option" for="syncReadingQueueEnabledInput">
-                    <input id="syncReadingQueueEnabledInput" type="checkbox"><span data-i18n="settings.sync.readingQueue">稍后读</span>
-                  </label>
-                  <label class="switch-field settings-sync-option" for="syncTodosEnabledInput">
-                    <input id="syncTodosEnabledInput" type="checkbox"><span data-i18n="settings.sync.todos">待办</span>
-                  </label>
-                  <label class="switch-field settings-sync-option" for="syncWeatherLocationEnabledInput">
-                    <input id="syncWeatherLocationEnabledInput" type="checkbox"><span data-i18n="settings.sync.weather">天气城市</span>
-                  </label>
-                  <label class="switch-field settings-sync-option" for="syncStockWatchlistEnabledInput">
-                    <input id="syncStockWatchlistEnabledInput" type="checkbox"><span data-i18n="settings.sync.stocks">自选股票</span>
-                  </label>
-                  <label class="switch-field settings-sync-option" for="syncCountdownsEnabledInput">
-                    <input id="syncCountdownsEnabledInput" type="checkbox"><span data-i18n="settings.sync.countdowns">倒数日</span>
-                  </label>
-                  <label class="switch-field settings-sync-option" for="syncTrackedTopicsEnabledInput">
-                    <input id="syncTrackedTopicsEnabledInput" type="checkbox"><span data-i18n="settings.sync.topics">主题追踪</span>
-                  </label>
-                  <label class="switch-field settings-sync-option" for="syncCalendarEnabledInput">
-                    <input id="syncCalendarEnabledInput" type="checkbox"><span data-i18n="settings.sync.calendar">日历</span>
-                  </label>
-                  <label class="switch-field settings-sync-option" for="syncNotesEnabledInput">
-                    <input id="syncNotesEnabledInput" type="checkbox"><span data-i18n="settings.sync.notes">随手记</span>
-                  </label>
-                  <label class="switch-field settings-sync-option" for="syncWorldClockEnabledInput">
-                    <input id="syncWorldClockEnabledInput" type="checkbox"><span data-i18n="settings.sync.worldClock">世界时钟</span>
-                  </label>
-                </div>
-              </div>
-              <label class="switch-field" for="syncAiSettingsEnabledInput">
-                <span class="switch-copy"><span class="switch-title" data-i18n="settings.sync.ai">同步 API 密钥和 AI 配置</span></span>
-                <span class="toggle"><input id="syncAiSettingsEnabledInput" type="checkbox" aria-describedby="credentialSyncSecurity"><span aria-hidden="true"></span></span>
-              </label>
-            </div>
-            <details class="settings-disclosure settings-inline-disclosure">
-              <summary class="settings-disclosure-summary"><span data-i18n="settings.sync.details">同步说明</span><span class="settings-disclosure-chevron" aria-hidden="true"></span></summary>
-              <div class="settings-disclosure-body">
-                <p class="settings-disclosure-note" id="credentialSyncSecurity" data-i18n="settings.sync.security">AI／Brave 密钥会写入浏览器账号的同步空间，Ampira 不额外加密。</p>
-                <p class="settings-disclosure-note" data-i18n="settings.sync.offHelp">所有同步选项默认关闭。关闭后删除账号中的同步副本，各设备已收到的内容和设置仍会保留。</p>
-                <p class="settings-disclosure-note" data-i18n="settings.sync.deviceHelp">需使用同一浏览器账号并开启扩展同步。新设备仍需确认 AI 数据传输并授权服务网站。</p>
-              </div>
-            </details>
           </section>
           <section class="settings-section" aria-labelledby="browserPermissionsTitle">
             <details class="settings-disclosure" id="sourcePermissionDetails">
@@ -1036,7 +1042,7 @@
             <button class="btn danger" id="factoryResetSettings" type="button"><span class="btn-label" data-i18n="settings.transfer.factoryReset">恢复出厂设置</span></button>
             <input id="settingsImportFile" type="file" accept=".json,application/json" aria-label="选择 Ampira 配置文件" data-i18n-aria-label="settings.transfer.fileLabel" hidden>
           </div>
-          <p class="settings-transfer-note" data-i18n="settings.transfer.note">导出含网址和服务地址，不含密钥、授权或缓存。</p>
+          <p class="settings-transfer-note" data-i18n="settings.transfer.note">导出含网址、服务地址和明文密钥，请妥善保管。</p>
         </div>
       </form>
       <div class="modal-actions">

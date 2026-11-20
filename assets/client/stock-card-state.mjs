@@ -1,15 +1,29 @@
 import { STOCK_FRESH_MS, STOCK_WATCHLIST_KEY, normalizeStockWatchlist } from "../../extension/core/stocks.mjs";
+import { normalizeLocale } from "../../extension/core/locale.mjs";
 import { readJson } from "./storage.mjs";
 
-export function createStockCardState({ request, localizedErrorMessage, notify, writeJson, initialSymbols = readJson(STOCK_WATCHLIST_KEY, []) }) {
-  let symbols = normalizeStockWatchlist(initialSymbols);
+const DEFAULT_STOCK_SYMBOLS = Object.freeze({
+  "zh-CN": Object.freeze(["sh600519", "hk00700", "sz002594"]),
+  en: Object.freeze(["usAAPL", "usMSFT", "usNVDA"]),
+});
+
+export function createStockCardState({ request, getLocale = () => "zh-CN", localizedErrorMessage, notify, writeJson, initialSymbols = readJson(STOCK_WATCHLIST_KEY, null) }) {
+  let selectedSymbols = initialSymbols;
+  const currentSymbols = () => normalizeStockWatchlist(selectedSymbols ?? DEFAULT_STOCK_SYMBOLS[normalizeLocale(getLocale()) === "en" ? "en" : "zh-CN"]);
+  let symbols = currentSymbols();
   let generation = 0, result = null, error = null, pending = null, attemptedAt = 0;
-  function read() { return { symbols: [...symbols], result, error, busy: Boolean(pending) }; }
-  function invalidate() {
+  function read() { syncSymbols(); return { symbols: [...symbols], result, error, busy: Boolean(pending) }; }
+  function reset() {
     generation += 1; result = null; error = null; pending = null; attemptedAt = 0;
-    notify();
+  }
+  function invalidate() { reset(); notify(); }
+  function syncSymbols() {
+    const next = currentSymbols();
+    if (JSON.stringify(next) === JSON.stringify(symbols)) return false;
+    symbols = next; reset(); return true;
   }
   function ensure({ force = false } = {}) {
+    syncSymbols();
     if (pending) return pending;
     if (!symbols.length || !force && (error || attemptedAt && Date.now() - attemptedAt < STOCK_FRESH_MS)) return Promise.resolve();
     const token = generation;
@@ -30,11 +44,10 @@ export function createStockCardState({ request, localizedErrorMessage, notify, w
   }
   return { read, ensure, invalidate,
     syncFromStorage() {
-      const next = normalizeStockWatchlist(readJson(STOCK_WATCHLIST_KEY, []));
-      if (JSON.stringify(next) === JSON.stringify(symbols)) return;
-      symbols = next; invalidate();
+      selectedSymbols = readJson(STOCK_WATCHLIST_KEY, null);
+      if (syncSymbols()) notify();
     },
-    update(next) { symbols = normalizeStockWatchlist(next); writeJson(STOCK_WATCHLIST_KEY, symbols); invalidate(); },
+    update(next) { selectedSymbols = normalizeStockWatchlist(next); symbols = [...selectedSymbols]; writeJson(STOCK_WATCHLIST_KEY, symbols); invalidate(); },
     setError(value) { error = value; notify(); },
   };
 }

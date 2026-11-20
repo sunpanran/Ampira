@@ -200,9 +200,13 @@ function normalizeAiMessages(value, fallbackInput) {
 
 function assertAiResponseOk(response, data, endpoint) {
   if (response.ok) return;
+  const regionBlocked = [data?.error?.code, data?.error?.type].includes("unsupported_country_region_territory");
+  const messageKey = response.status === 403
+    ? (regionBlocked ? "background.error.aiRegionUnsupported" : "background.error.aiForbidden")
+    : "background.error.aiHttp";
   throw serviceError(
     "AI_HTTP_ERROR",
-    "background.error.aiHttp",
+    messageKey,
     { status: response.status },
     response.status === 408 || response.status === 429 || response.status >= 500,
     { status: response.status, url: response.url || endpoint, providerCode: data?.error?.code || "" },

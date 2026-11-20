@@ -38,7 +38,7 @@ export function createEfficiencyView(options) {
   };
   let stockState = null;
   const getStockState = () => stockState ||= import("./stock-card-state.mjs").then(({ createStockCardState }) =>
-    createStockCardState({ request, localizedErrorMessage, writeJson, notify: () => renderType("stocks") }))
+    createStockCardState({ request, getLocale, localizedErrorMessage, writeJson, notify: () => renderType("stocks") }))
     .catch(error => { stockState = null; throw error; });
   const refreshStocks = () => {
     if (document.visibilityState === "visible" && Object.values(state.cardTypes).includes("stocks")) {

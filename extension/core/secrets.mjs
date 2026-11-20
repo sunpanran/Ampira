@@ -17,12 +17,40 @@ export function readSecrets() {
   });
 }
 
+// Read keys and their provider identity together so exports cannot cross-bind them.
+export function readTransferCredentials() {
+  return enqueue(async () => {
+    const { provider, secrets, syncEnabled } = await readCredentialBundle();
+    return {
+      openaiBaseUrl: provider.openaiBaseUrl,
+      openaiApiStyle: provider.openaiApiStyle,
+      openaiSummaryModel: provider.openaiSummaryModel,
+      openaiApiKey: provider.openaiApiKey,
+      braveSearchApiKey: secrets.braveSearchApiKey,
+      syncAiSettingsEnabled: syncEnabled,
+    };
+  });
+}
+
 export function updateCredentials(patch = {}, fallback = {}) {
   return enqueue(async () => (await writeCredentialBundle(patch, fallback)).provider);
 }
 
 export function captureCredentialState() {
   return enqueue(captureCredentialStateRaw);
+}
+
+// Manual transfers must inspect the saved local bundle before an automatic read
+// adopts the sync bundle. Hold the same queue used by normal credential changes.
+export function withCredentialTransaction(action) {
+  return enqueue(() => action({
+    capture: captureCredentialStateRaw,
+    async applyLocal(value) {
+      const snapshot = await captureCredentialStateRaw();
+      const current = normalizeProviderRecord(snapshot.provider);
+      await persistLocalCredentials(nextProviderRecord(value.provider, current), normalizeSecrets(value.secrets), snapshot);
+    },
+  }));
 }
 
 export function restoreCredentialState(snapshot) {

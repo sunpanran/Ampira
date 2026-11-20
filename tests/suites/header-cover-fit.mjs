@@ -41,7 +41,7 @@ for (const fit of modes) {
   assert.equal(saved.automaticAiStarted, false);
   const reloaded = await createSettingsStore(storage).read();
   assert.equal(reloaded.headerImageFit, fit);
-  assert.equal(decodeSettingsFromSync(encodeSettingsForSync(reloaded)).headerImageFit, fit);
+  assert.equal((await decodeSettingsFromSync(await encodeSettingsForSync(reloaded))).headerImageFit, fit);
   const exported = createSettingsTransferDocument(reloaded);
   assert.equal(parseSettingsTransferDocument(exported).patch.headerImageFit, fit);
   assert.deepEqual(diffSettingsDraft({ headerImageFit: fit }, snapshotSettingsDraft(reloaded)), {});

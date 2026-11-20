@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { STOCK_CACHE_KEY, STOCK_LIMIT, STOCK_ORIGIN, STOCK_STALE_MS, normalizeStockSymbol, normalizeStockWatchlist, parseStockQuotes } from "../../extension/core/stocks.mjs";
+import { STOCK_CACHE_KEY, STOCK_LIMIT, STOCK_ORIGIN, STOCK_STALE_MS, STOCK_WATCHLIST_KEY, normalizeStockSymbol, normalizeStockWatchlist, parseStockQuotes } from "../../extension/core/stocks.mjs";
 import { createStockService } from "../../extension/runtime/stock-service.mjs";
 import { createPermissionEpoch } from "../../extension/runtime/permission-epoch.mjs";
 import { createEpochMutationQueue } from "../../extension/core/mutation-queue.mjs";
@@ -32,7 +32,65 @@ export async function runStockTests() {
     quote("usAAPL", "Zero", "AAPL", "20261112150000", { 3: "0" })]) assert.equal(parseStockQuotes(text, ["AAPL"]).quotes.length, 0);
   assert.equal(globalThis.stockInjected, undefined);
   await testService(payload);
+  await testDefaultState();
   await testState();
+}
+
+async function testDefaultState() {
+  const defaults = ["sh600519", "hk00700", "sz002594"], english = ["usAAPL", "usMSFT", "usNVDA"], saved = [], requests = [];
+  let locale = "zh-CN";
+  const options = { getLocale: () => locale, notify() {}, localizedErrorMessage: error => error.message,
+    writeJson(key, value) { saved.push([key, value]); applyExternalStoragePatch({ [key]: JSON.stringify(value) }); },
+    async request(message) { requests.push(message); return { quotes: [] }; },
+  };
+  const fresh = createStockCardState(options);
+  assert.deepEqual(fresh.read().symbols, defaults, "an unconfigured card starts with default stocks");
+  assert.equal(saved.length, 0, "defaults do not overwrite storage or trigger content sync");
+  assert.equal(requests.length, 0, "creating stock state does not fetch quotes");
+  fresh.read().symbols.pop();
+  assert.deepEqual(fresh.read().symbols, defaults, "readers cannot mutate the default watchlist");
+  fresh.syncFromStorage();
+  assert.deepEqual(fresh.read().symbols, defaults, "unrelated storage updates retain unsaved defaults");
+  await fresh.ensure();
+  assert.deepEqual(requests[0].payload.symbols, defaults);
+  locale = "zh-Hant";
+  assert.deepEqual(fresh.read().symbols, defaults, "both Chinese locales use Chinese-market defaults");
+  assert.notEqual(fresh.read().result, null, "switching Chinese variants retains matching quotes");
+  locale = "en";
+  assert.deepEqual(fresh.read().symbols, english, "English defaults use US stocks");
+  assert.equal(fresh.read().result, null, "switching default markets clears old quotes");
+  assert.deepEqual(createStockCardState(options).read().symbols, english, "first use in English selects US defaults");
+  await fresh.ensure();
+  assert.deepEqual(requests[1].payload.symbols, english);
+  locale = "zh-CN";
+  const held = deferred();
+  const switching = createStockCardState({ ...options, request: () => held.promise });
+  const previous = switching.ensure(); await flush();
+  locale = "en";
+  switching.read();
+  held.resolve({ quotes: [{ symbol: "sh600519" }] }); await previous;
+  assert.equal(switching.read().result, null, "late quotes from the previous language cannot replace current defaults");
+
+  fresh.update(["MSFT", "00700"]);
+  locale = "zh-CN";
+  assert.deepEqual(fresh.read().symbols, ["usMSFT", "hk00700"], "language changes preserve custom stocks");
+  assert.deepEqual(createStockCardState(options).read().symbols, ["usMSFT", "hk00700"], "saved selections and order take precedence");
+  fresh.update([]);
+  const empty = createStockCardState(options);
+  assert.deepEqual(empty.read().symbols, [], "removing all stocks stays empty after reopening");
+  await empty.ensure();
+  locale = "en";
+  assert.deepEqual(empty.read().symbols, [], "language changes preserve an explicitly empty list");
+  assert.equal(requests.length, 2, "an explicitly empty list does not fetch default quotes");
+  assert.deepEqual(createStockCardState({ ...options, initialSymbols: [] }).read().symbols, []);
+
+  applyExternalStoragePatch({ [STOCK_WATCHLIST_KEY]: '["NVDA"]' });
+  fresh.syncFromStorage();
+  assert.deepEqual(fresh.read().symbols, ["usNVDA"], "synced selections replace local defaults");
+  applyExternalStoragePatch({ [STOCK_WATCHLIST_KEY]: "[]" });
+  fresh.syncFromStorage();
+  assert.deepEqual(fresh.read().symbols, [], "a synced empty list never restores defaults");
+  assert.equal(saved.length, 2, "only explicit list edits persist");
 }
 
 async function testService(payload) {

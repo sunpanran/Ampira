@@ -36,7 +36,7 @@ assert.deepEqual(local.values[LOCAL_CUSTOM_FEEDS_KEY], [feed]);
 assert(!Object.hasOwn(sync.values[SETTINGS_KEY], "customFeeds"));
 assert(!JSON.stringify(sync.values).includes("rss.example"), "subscription URLs never enter browser account sync");
 sync.fail = true;
-await assert.rejects(store.write({ ...settings, customFeeds: [] }), /synthetic write failure/);
+await assert.rejects(store.write({ ...settings, colorMode: "light", customFeeds: [] }), /synthetic write failure/);
 assert.deepEqual((await store.read()).customFeeds, [feed], "failed settings writes restore local subscriptions");
 sync.fail = false;
 await store.reset();

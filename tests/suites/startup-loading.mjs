@@ -89,6 +89,7 @@ async function testSettingsImport() {
   const input = { files: [], value: "selected" };
   const controller = createSettingsTransferController({
     state: { settings: {} }, els: { settingsImportFile: input, importSettings: { disabled: false } },
+    runSettingsAction: action => action(() => true),
     t: (key, params) => params?.message || key,
     renderSettingsStatus: message => feedback.push(message),
     confirmAction: async () => { confirmations++; return false; },

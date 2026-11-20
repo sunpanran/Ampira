@@ -24,7 +24,13 @@ export async function runArchitectureTests(root) {
   // Notes and world clock add bounded state policies, sync routing and error messages (9 KiB).
   // News evidence/version tracking and incremental commits add at most 14 KiB;
   // Reader extraction is reused, and the three new modules stay within 6 KiB.
-  assert(workerGraphBytes <= 864 * 1024, `the service worker static graph must stay within its 864 KiB startup budget (found ${workerGraphBytes} bytes)`);
+  // Manual sync, clear baselines and interrupted-operation recovery add at most 32 KiB.
+  // Import sync-preference consent and localized AI 403 diagnostics add at most 2 KiB.
+  // Shared sync validation and committed-import recovery are included in this working-tree graph.
+  assert(workerGraphBytes <= 904 * 1024, `the service worker static graph must stay within its 904 KiB startup budget (found ${workerGraphBytes} bytes)`);
+  const manualSyncModules = ["extension/core/sync-values.mjs", "extension/core/sync-snapshot.mjs", "extension/core/manual-sync-plan.mjs", "extension/runtime/manual-sync-service.mjs"];
+  const manualSyncBytes = (await Promise.all(manualSyncModules.map(file => fs.stat(path.join(root, file))))).reduce((sum, stat) => sum + stat.size, 0);
+  assert(manualSyncBytes <= 24 * 1024, "manual sync planning and recovery modules must stay within 24 KiB");
   const newsModules = ["extension/core/feed-content.mjs", "extension/runtime/feed-content-service.mjs", "extension/runtime/feed-batch-writer.mjs"];
   const newsBytes = (await Promise.all(newsModules.map(file => fs.stat(path.join(root, file))))).reduce((sum, stat) => sum + stat.size, 0);
   assert(newsBytes <= 6 * 1024, "news content and batch policies must stay within 6 KiB");
@@ -59,9 +65,13 @@ export async function runArchitectureTests(root) {
   // Shared display policies must not pull in extraction, ranking, or unopened tools.
   // Onboarding and optional-card dispatch add startup wiring; card implementations remain lazy.
   // Reading queue copy adds menu wiring and URL serialization within 1 KiB.
-  assert(dashboardGraphBytes <= 769 * 1024, `the dashboard static graph must stay within its 769 KiB startup budget (found ${dashboardGraphBytes} bytes)`);
+  // Manual sync and its clear action add button wiring within 2 KiB; the controller stays lazy.
+  // Export draft/size guards and committed-import recovery add at most 1 KiB.
+  assert(dashboardGraphBytes <= 772 * 1024, `the dashboard static graph must stay within its 772 KiB startup budget (found ${dashboardGraphBytes} bytes)`);
+  assert(!dashboardGraphRelative.has("assets/client/manual-sync-controller.mjs"), "manual sync UI must remain outside the startup graph");
   for (const module of ["extension/core/image-candidates.mjs", "extension/core/reader-html-tree.mjs",
-    "extension/core/news-ranking.mjs", "extension/core/settings-transfer.mjs", "assets/client/reader-ui.mjs"]) {
+    "extension/core/news-ranking.mjs", "extension/core/settings-transfer.mjs", "assets/client/settings-import-controller.mjs",
+    "assets/client/settings-import-authorization.mjs", "assets/client/reader-ui.mjs"]) {
     assert(!dashboardGraphRelative.has(module), `${module} must stay outside the dashboard startup graph`);
   }
   assert(!dashboardGraphRelative.has("assets/client/header-cover-image.mjs")

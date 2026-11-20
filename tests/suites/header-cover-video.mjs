@@ -20,7 +20,7 @@ for (const type of ["auto", "image", "video"]) {
   const settings = normalizeSettings({ headerImageUrl: "https://media.example/stream", headerImageMediaType: type });
   const transfer = createSettingsTransferDocument(settings);
   assert.equal(parseSettingsTransferDocument(transfer, {}).patch.headerImageMediaType, type);
-  assert.equal(decodeSettingsFromSync(encodeSettingsForSync(settings)).headerImageMediaType, type);
+  assert.equal((await decodeSettingsFromSync(await encodeSettingsForSync(settings))).headerImageMediaType, type);
 }
 for (const url of ["http://media.example/cover.mp4", "javascript:alert(1)", "data:video/mp4;base64,AAAA", "https://user:pass@media.example/cover.mp4"]) {
   assert.equal(normalizeSettings({ headerImageUrl: url, headerImageMediaType: "video" }).headerImageUrl, "");

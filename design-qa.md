@@ -1,5 +1,95 @@
 # Ampira MV3 QA
 
+## 2026-11-20 — 小版本发布验证与首屏对比
+
+- 针对“新标签页首屏出现慢”，将上一已发布 ZIP 与当前候选 ZIP 分别加载到未登录的隔离 Chromium，使用相同合成设置、真实 `chrome://newtab/` 导航和交替顺序，对比普通配置与 160 条排除记录的分块配置。共 84 次打开：各配置每版 12 次连续新标签页、9 次浏览器重启后的首次打开；阻断外部网络，未读取用户浏览器数据。首屏绘制与内容填充分别计时，不能将脚本源码大小当作启动耗时。
+- 普通配置首屏绘制中位数为旧版／候选 120／134 ms，重启后为 220／228 ms；分块配置为 132／120 ms，重启后为 240／220 ms。普通配置重启后的内容就绪中位数为 479.5／516.8 ms，分块配置为 464.8／447.7 ms；没有复现明显的首屏绘制退化，不将本次隔离结果推断为用户真实配置或联网图片耗时。未据此改动启动代码。见 [合并结果](output/playwright/startup-compare/summary.json)、[首轮样本](output/playwright/startup-compare/initial-runs.json) 和 [冷启动复核](output/playwright/startup-compare/cold-confirm-runs.json)。
+- `scripts/verify-extension.ps1 -Package` 完整通过，退出码 0，覆盖统一测试、所有模块语法、三语、资源与安全约束；首次沙盒运行受本机合成服务连接限制，正常本地环境复跑通过。见 [完整日志](output/playwright/release-27.0.4/verification-full.log)。
+- 真实扩展在另一份未登录隔离 Chromium 中完成 18 项发布检查：深浅主题 × 1280×800／1440×1000／390×844 首页与同步操作布局、无横向溢出、确认／取消及焦点恢复、键盘、减少动态效果、上传／下载、损坏副本及未保存草稿反馈、英文和繁体窄屏。无页面错误或非预期控制台错误，已查看桌面确认框与窄屏截图；数据与权限状态为合成环境，未验证真实账号云端传输。见 [结果](output/playwright/release-27.0.4/results.json) 和 [浏览器日志](output/playwright/release-27.0.4/browser-check.log)。
+- 发布 ZIP、SHA-256 sidecar 与逐文件清单审计通过：430 个文件与源码一致，根目录 `manifest.json` 正确，无缓存、测试、输出文件、凭据模式、机器绝对路径或远程脚本。见 [包审计](output/playwright/release-27.0.4/package-audit.json)。
+
+## 2026-11-20 — 同步一致性修复与核心重构
+
+- 修复审查中复现的四项问题：旧分块清理与恢复记录收尾保持在写入锁内，并在删除前重查当前根记录引用；首次读取不完整配置时拒绝建立截断镜像，已有完整镜像继续可读，保存则等待完整数据；新写入的分块附带 SHA-256 校验，拒绝新旧分块混用；覆盖上传逐条验证本机记录，自动合并也不允许损坏本机输入覆盖或删除有效远端记录。
+- 保留 `ampira.settings.v1`、内容记录与密钥记录的现有标识和版本。分块的 `settingsChunks.version` 仍为 1，校验信息为附加字段；当前已保存的无校验 v1 数据继续可读，首次显式保存补充校验。使用仓库已推送基线 a46604f 的冻结读取器及已有 released-settings 夹具检查兼容；旧读取器可以读取新记录。无原始校验值的旧记录仍采用 v1 完整性规则，不虚构历史批次校验信息。
+- 将内容记录、数据集定义、版本与限额规则拆入 `content-sync-records.mjs`，共用 `sync-values.mjs` 的值校验工具；自动同步和手动计划共用编解码及时间推进规则。普通保存与手动上传共用设置写入计划和清理方法；恢复未完成时暂停普通保存和自动同步写入，存储事件先处理恢复。多项目同步共用一次全区读取和元数据读取，只有变化时才写元数据，避免无变化的重复落盘；旧记录中的本机专有字段仍会在显式保存时移除。
+- 新增 [一致性回归](tests/suites/sync-integrity.mjs) 和 [已推送读取器夹具](tests/fixtures/published-sync-settings.mjs)，覆盖四项故障、延迟分块、混合／重复记录、清理中断、恢复期间排队写入、旧格式读取与升级、损坏配置无镜像时的显式清空，以及批量读取和无变化写入计数。已有同步、凭据、设置存储、日历、主题追踪等检查保持通过。
+- `scripts/verify-extension.ps1` 最终完整通过，退出码 0，沿用现有体积预算。两份未登录的隔离 Chromium 配置完成 11 项同步／分批分块／旧读取器检查，再完成 6 项清空流程及 1 项本机缓存保留检查，全部通过，无页面或控制台错误；仅使用合成传输，不涉及真实账号。见 [完整校验](output/playwright/sync-core-refactor/verification.log)、[双设备结果](output/playwright/sync-core-refactor/results.json)、[清空结果](output/playwright/sync-core-refactor/clear-results.json) 和 [缓存结果](output/playwright/sync-core-refactor/cache-results.json)。
+
+## 2026-11-20 — 导入导出状态与格式重构
+
+- 将读文件、解析、确认和提交放入同一设置操作会话，并增加单次导入锁。连续选文件不会共享确认结果；读取或确认期间关闭设置后，过期回调不再提交。导入实现拆为按需加载的 `settings-import-controller.mjs`，入口保留文件选择、锁定和焦点恢复。
+- 后台拆分保存提交与缓存／刷新处理。导入及导入授权返回明确的 `committed` 和 `postCommit` 状态；提交后的缓存或视图读取失败仍返回已保存状态和授权需求，不误报整次导入失败。新增只处理当前配置的 `settings:reconcile-import`，客户端最多自动重试一次后续处理，不重放配置或密钥写入；持续失败保留明确反馈。提交阶段出错继续恢复设置、凭据和本机同意。
+- 授权流程返回 `ready`、`pending`、`cancelled` 或 `failed`，保留文件内及后续发现的完整权限集合，每轮读取当前设置和权限后复查。早期网站或图标权限被撤销时再次提示缺失项，全部核验后才完成。有效的本机同意与既有权限继续复用，浏览器申请仍发生在确认按钮的同步点击回调。
+- `settings-transfer-schema.mjs` 集中普通字段顺序、白名单和校验规则，`settings-transfer-errors.mjs` 统一前后台错误映射；v1/v2 在解析入口统一为内部结构。加入已推送字段集的 v1 夹具和未含同步开关的已保存 v2 夹具，保留缺失字段不改本机状态的语义，不新增格式版本或中间版本适配器。
+- 三个审查复现已转为正式行为测试，补充关闭、取消、过期回调、提交后失败与无重写恢复、视图失败、跨轮撤权、已有授权和服务身份变化。部分源码片段断言改为行为断言。定向复现修复结果见 [回归记录](output/reviews/settings-transfer-audit-fixed.json)。
+- 合成浏览器完成既有三语／深浅主题／1280 与 390px 的 56 项检查，以及新增多轮撤权、提交后恢复和持续失败的 9 项检查，均通过；已查看补授权截图。见 [界面结果](output/playwright/settings-transfer/ui-refactor-results.json)、[新增流程结果](output/playwright/settings-transfer/refactor-results.json)、[补授权截图](output/playwright/settings-transfer/revoked-earlier-grants.png)。本轮未测试真实密钥或真实云端账号。
+- 最终 `scripts/verify-extension.ps1` 完整通过，退出码 0，见 [完整日志](output/playwright/settings-transfer/verification-refactor-complete.log)。验证同时覆盖工作区正在进行的同步重构；自定义 Feed 回滚夹具改为同时变更一个同步字段，以实际触发写入失败而不被去重跳过。首页静态脚本较本轮基线减少 3,444 字节；后台预算 904 KiB 包含共享工作区的同步完整性校验及本次提交后恢复，不能将整体增长全部归因于导入重构。这些数值是源码体积，不是耗时测量。
+
+## 2026-11-20 — 导入导出闭环复核与已有授权保留
+
+- 修复同一服务域名导入时无条件清除本机 AI 同意的问题。现在保留当前设备对同一服务仍有效的 AI 同意、书签同意和已授予的浏览器权限；更换服务域名会清除旧 AI 同意，新设备仍需本机确认。导入文件不复制实际授权，也不删除当前已有的网站权限。
+- 导出前拦截未保存的设置草稿，避免用户以为新选择已进入文件；以实际下载的格式化 JSON 字节数检查 256 KiB 上限，避免导出后无法导入。导入保存成功后，设置界面刷新失败不再跳过权限申请；后续界面处理失败会明确说明配置已经导入，不误报存储失败。
+- 定向回归覆盖已授权同服务直接使用、跨域重授、旧版文件、同步开关恢复、损坏／超限文件、未保存草稿、界面刷新失败、拒绝／取消／未真正授予权限及书签同意后新域名发现。实际请求比较仍保持服务地址、协议、模型和密钥绑定一致。
+- 使用专用扩展副本和未登录的隔离 Chromium 配置，以仅含合成域名的安装夹具建立历史授权后恢复生产 `manifest.json`，验证真实扩展存储和权限接口。已有授权重导入、清空合成密钥并关闭同步后恢复均通过；随后撤销这些可选权限并重新导入，观察到原生权限框。自动点击原生按钮曾遇到窗口几何错误，之后观察到原生框结束、真实权限恢复；不将点击成功归因于自动化。最终回读为 129/129 域名已授权，favicon／search／history 均生效，AI／书签同意与凭据同步为 true，AI／Brave 密钥存在。真实运行时的 AI 测试路径使用合成响应成功，认证头和模型绑定匹配。见 [最终回读](output/playwright/settings-transfer/installed-audit-result.json)、[界面证据](output/playwright/settings-transfer/installed-grants.png)。未使用用户真实配置或密钥。一次后续重复运行因测试浏览器关闭而中断，未记为通过。
+- `scripts/verify-extension.ps1` 完整通过，退出码 0；见 [本轮完整校验](output/playwright/settings-transfer/verification-final-audit.log)。首页为导出保护与导入后处理反馈增加 1 KiB 静态源码预算（771 → 772 KiB），不代表启动耗时变化。用户之前确认的 OpenAI 地区限制不属于配置迁移问题，本轮未声称真实 OpenAI 服务恢复可用。
+
+## 2026-11-20 — 恢复导出时的 AI 同步选项与 403 诊断
+
+- 新导出文件记录独立的 `syncAiSettingsEnabled`，与密钥、服务地址、协议和模型从同一凭据快照读取。导入确认明确说明开启会将密钥放入浏览器账号同步存储、关闭会移除云端副本；后台要求明确确认后才改变同步选择。旧文件没有此字段时保持当前选择，不推测历史状态；此前已经导出的旧文件需要手动恢复开关后重新导出。
+- 回归覆盖开启状态导出、关闭／更换配置后的导入恢复、关闭状态恢复、本机密钥保留、缺少确认时拒绝并保留原配置、旧文件保持现状。使用合成密钥比较导入前后实际生成的 AI 请求，接口 URL、模型、协议和认证头一致。未使用真实密钥测试。
+- 对 HTTP 403，只在返回的错误代码／类型明确为 `unsupported_country_region_territory` 时显示地区限制；其他 403 保留原因未明提示，不回显服务响应原文。覆盖普通和流式请求，保持非重试错误与密钥隐私。用户更新后的测试反馈为“当前网络所在地区不受支持”，因此本例 403 已定位到服务端地区限制，不属于扩展网站权限或同步开关。
+- 三语的同步开启／关闭确认、390px 浅色与 1280px 深色显示及恢复状态共 6 项检查通过，已查看截图；见 [界面记录](output/playwright/settings-transfer/sync-preference-check.log)。后台为同步恢复确认及本地化 403 诊断增加 2 KiB 静态源码预算（896 → 898 KiB），这是源码大小约束，不是启动耗时。`scripts/verify-extension.ps1` 完整通过，退出码 0；见 [完整校验](output/playwright/settings-transfer/verification-sync-preference.log)。
+
+## 2026-11-20 — 导入后补齐新发现的网站权限
+
+- 修复导入授权清单在书签读取同意之前生成的问题：首次申请后会重新读取当前所需来源，对新发现的未授权域名单独补弹确认，并在新的点击手势中发起原生权限请求。进入授权流程时同样重新读取清单，覆盖导入响应过期／未携带待授权域名的情况。旧版文件选中书签来源时也会申请本机书签读取同意。
+- 每次申请后调用浏览器 `permissions.contains` 回读网站及命名权限，未实际生效时保留“尚未授权”反馈；浏览器异常显示具体失败原因。重新收集来源后仍有缺失时继续申请，最多三轮；只有所需权限确实齐全才显示完成。
+- 新增回归先复现“127 个新域名未申请却显示完成”（修复前 0/127），修复后覆盖首次书签同意、已有书签同意但清单为空、旧文件、拒绝、API 异常及返回成功但未授予权限。完整校验通过，见 [日志](output/playwright/settings-transfer/verification-permission-fix.log)。三语、深浅主题和窄屏的 56 项既有界面检查通过，另有 21 项补授权检查通过，见 [界面日志](output/playwright/settings-transfer/browser-permission-fix.log)、[新增域名检查](output/playwright/settings-transfer/discovery-check.log)。
+- 隔离 Chromium 中加载真实扩展并建立合成书签，已观察到浏览器原生“请求获得更多权限”窗口及“允许／拒绝”按钮，真实 API 调用保留点击手势。原生按钮自动点击因工具的窗口几何／缓存索引错误未完成，因此不声称原生接受后的端到端验收通过；127 个域名实际授予及回读的检查使用合成权限实现。未操作用户安装实例或真实权限。
+
+## 2026-11-20 — 配置密钥迁移与导入授权
+
+- 配置导出升级为格式 2，包含 AI / Brave 密钥及对应 AI 服务配置、已开启的可选权限清单和书签读取同意请求。文件为明文；关于页仅保留“导出含网址、服务地址和明文密钥，请妥善保管。”，不常驻显示授权与缓存说明，三语同步。格式 1 仍可导入；缺失／空白密钥保留本机值，换域名且没有对应密钥时清除旧 AI 密钥。
+- 导入复用设置事务和凭据回滚，先保存配置、暂停导入的 AI 凭据，再弹出授权确认。网站图标、浏览器搜索、历史建议及精确网站来源在确认按钮的同步点击回调中合并申请；AI 数据传输和书签读取同意仅在接受后记录。实际授权不会随文件迁移，导入不会开启密钥同步，已有同步选择继续生效。Edge 跳过不支持的图标权限并提示。取消、拒绝或申请失败保留已导入配置，完成后焦点返回导入按钮。
+- [格式回归](tests/suites/settings-transfer.mjs) 和 [工作流回归](tests/suites/settings-transfer-workflow.mjs) 覆盖密钥绑定、旧文件、非法权限、超限／损坏数据、隐私边界、保存失败回滚、已有同步选择、授权前不启动 AI、过期服务配置以及取消／拒绝／失败／失效回调。三语隐私、商店披露和审阅说明已同步。
+- 真实 Chrome 中的合成页面使用实际导入控制器与确认弹窗，通过三语 × 深浅主题 × 1280×800／390×844、焦点与键盘、减少动态效果、长网站列表、授权拒绝／失败检查；权限调用保留真实点击手势，页面和控制台无错误。另验证下载文件重新上传后出现完整授权弹窗、无效 JSON 被拒绝。已查看桌面深色和英文窄屏浅色截图。浏览器权限响应使用合成桩，未操作用户安装实例或真实密钥，未把这些检查记为原生权限弹窗人工验收。见 [界面结果](output/playwright/settings-transfer/results.json)、[文件回读](output/playwright/settings-transfer/file-check.log)、[桌面授权](output/playwright/settings-transfer/zh-CN-dark-1280.png)、[窄屏授权](output/playwright/settings-transfer/en-light-390.png)。
+- `scripts/verify-extension.ps1` 完整通过，退出码 0，包含统一测试、模块语法、三语、导入、资源和安全检查。首次沙盒运行被本机合成 HTTP 连接权限阻止，正常测试环境重跑通过；见 [完整校验](output/playwright/settings-transfer/verification-final.log)。本次未打包或发布。
+
+## 2026-11-20 — 跨设备同步置顶
+
+- 将浏览器设置页的“跨设备同步”完整移至第一分区；后续依次为统一搜索、页面功能、网站访问权限。保留现有控件、文案和行为，复用首分区的无顶部分隔线样式，DOM 与键盘顺序同步调整。
+- 隔离 Chromium 完成深浅主题 × 1280×800／390×844 × 展开／收起检查，并确认首屏可见、无横向溢出和键盘顺序，共 10 项通过，无页面或控制台错误。`scripts/verify-extension.ps1` 完整通过，退出码 0。见 [界面结果](output/playwright/sync-section-order/results.json)、[桌面](output/playwright/sync-section-order/dark-1280-collapsed.png)、[窄屏](output/playwright/sync-section-order/light-390-expanded.png) 和 [完整验证](output/playwright/sync-section-order/verification.log)。
+
+## 2026-11-20 — 清空云端配置
+
+- 在上传／下载旁增加“清空云端配置”危险按钮，保持紧凑布局与三语。确认后清空当前扩展的全部浏览器同步记录，包含旧配置、个人内容及密钥副本；本机内容、设置、密钥和缓存保留。密钥同步随副本删除而关闭，个人内容开关保留；其他设备或后续修改仍可能重新上传，确认框明确说明。
+- 复用同步预览、一次性令牌和串行队列；清空前复核版本，取消、预览过期或失败不执行后续删除。更新本机同步基线，避免未修改内容在刷新、重启时立即回填；中断恢复只完成本机状态，不再次清空。同步区已空时直接反馈。设置删除事件不再把卡片布局重置为默认，密钥副本删除也不再清理本机简报缓存。
+- [同步回归](tests/suites/manual-sync.mjs)、内容同步和凭据同步定向检查通过，覆盖本机保留、旧／损坏记录、失败与恢复、过期确认及后续重新同步。两个未登录的隔离 Chromium 配置完成 12 项界面和模拟同步检查，另完成 1 项本机缓存保留检查；无页面或控制台错误。深浅主题、1280×800／390×844、三语、取消焦点、禁用状态、键盘、重启和空态均检查。见 [浏览器结果](output/playwright/manual-sync-clear/results.json)、[缓存结果](output/playwright/manual-sync-clear/cache-results.json)、[桌面按钮](output/playwright/manual-sync-clear/dark-1280.png) 和 [窄屏确认](output/playwright/manual-sync-clear/light-390-confirm.png)。未清空真实账号。
+- 三语隐私及数据删除文档同步更新。清空入口的首页接线预算增加 1 KiB（770 → 771 KiB），控制器仍按需加载；后台为清空规划、保留基线与恢复处理增加 4 KiB 预算（892 → 896 KiB），三个同步模块合计仍限制在 24 KiB 内。这是静态源码大小约束，不是启动耗时测量。`scripts/verify-extension.ps1` 最终完整通过，退出码 0，见 [日志](output/playwright/manual-sync-clear/verification.log)。
+
+## 2026-11-20 — 天气预报滚动条
+
+- 天气预报区域隐藏原生滚动条，继续允许内容溢出时滚动；不改变卡片尺寸、预报行和来源署名，也不影响城市搜索列表的滚动条。
+- 隔离 Chrome 合成预览通过深浅主题、1920／1440／1280px 桌面与 390px 窄屏、简繁英、大小卡位检查；长内容滚轮、减少动态效果、键盘城市搜索、加载／错误状态均通过，无横向溢出、来源裁切、页面／控制台错误或外部请求。已查看桌面深浅色与窄屏截图，未操作用户安装实例。见 [浏览器检查](output/playwright/weather-overflow/browser-check.log) 和 [截图](output/playwright/weather-overflow/)。
+- `scripts/verify-extension.ps1` 完整通过，退出码 0。首次沙盒运行因本地合成服务连接被限制而停止，在正常环境重跑通过；见 [完整验证](output/playwright/weather-overflow/verification-final.log)。
+
+## 2026-11-20 — 手动上传与下载覆盖
+
+- 「设置 → 浏览器 → 跨设备同步」新增“上传数据”“下载覆盖”两个紧凑按钮，复用既有控件与反馈区。自动同步和已有开关保留；操作范围为普通设置、已勾选个人内容和已开启同步的密钥／AI 配置。覆盖前仅显示项目及新增、更新、移除数量，密钥和个人内容不进入预览。未保存草稿先提示保存；缺少同步副本时保留本机数据。
+- 普通设置增加仅存本机的镜像，旧安装从完整同步记录初始化；沿用现有同步键、内容版本和删除标记。手动操作串行执行，使用短期本机恢复记录，并在恢复出厂时清理；恢复记录不复制未参与操作的客户端状态或关闭同步的凭据。上传只反馈提交到浏览器同步区，下载只反馈应用当前可用副本，不声称云端传输完成。
+- [定向回归](tests/suites/manual-sync.mjs) 覆盖两个方向、删除与防复活、空副本／损坏分块、过期预览、配额、凭据绑定、并发编辑、失败保留和中断恢复，并注册统一测试。MV3 不支持后台动态导入，后台静态源码预算随新功能从 864 调整到 892 KiB，新增三个规划／恢复模块另限 24 KiB；界面控制器按需加载，首页按钮接线预算增加 1 KiB（769 → 770 KiB）。这些是源码大小约束，不是启动耗时测量。
+- 隔离 Chromium 使用全新配置与合成数据完成 10 项检查：深浅主题 × 1280×800／390×844、覆盖确认／取消与焦点返回、键盘及减少动态效果、真实后台上传／下载、无变化和损坏数据反馈、未保存拦截，以及英文和繁体窄屏按钮。无页面或控制台错误，已查看桌面、窄屏和确认弹窗截图。未操作用户安装实例，也未验证真实账号的云端或跨设备传输。见 [浏览器结果](output/playwright/manual-sync/results.json)、[桌面](output/playwright/manual-sync/dark-1280.png)、[窄屏确认](output/playwright/manual-sync/light-390-confirm.png)、[英文窄屏](output/playwright/manual-sync/en-390.png)。
+- `scripts/verify-extension.ps1` 最终完整通过，退出码 0，包含统一测试、所有模块语法及资源／本地化／安全约束检查。日志：[完整验证](output/playwright/manual-sync/verification.log)。本次不打包发布。
+- 同日补充虚拟双设备验证：两份独立、未登录的 Chromium 配置加载同一扩展，通过合成同步记录传输模拟设备间到达。9 项检查通过，覆盖双向自动同步、延迟到达、界面上传后的跨端覆盖与删除标记、下载覆盖且不反向上传、取消保留、确认过期保护、重启不恢复旧条目，以及空副本保留本机内容；无页面或控制台错误。这是模拟通道验证，不代表真实 Google 账号传输验收。见 [双设备结果](output/playwright/manual-sync-virtual/results.json) 和 [验证脚本](output/playwright/manual-sync-virtual/check.mjs)。
+- 缺少副本时的反馈缩短为“暂无可下载的数据，本机内容已保留。”，不再与“内容已一致”拼接或枚举内容名称；部分成功也采用单句反馈，三语同步。已检查 [实际空副本提示](output/playwright/manual-sync-virtual/empty-copy-short-message.png)，本机内容保持不变；本轮完整验证见 [日志](output/playwright/manual-sync-virtual/verification.log)。
+
+## 2026-11-17 — 按语言提供默认股票
+
+- 未保存自选列表时，简体及繁体中文默认显示贵州茅台（600519）、腾讯控股（00700）、比亚迪（002594）；英文默认显示 Apple（AAPL）、Microsoft（MSFT）、NVIDIA（NVDA）。未自定义的列表随语言切换并丢弃旧行情响应，已保存的自选、顺序和主动清空的列表保持不变。默认项不自动写入存储或触发内容同步，行情继续遵守既有授权流程。
+- 扩展 [股票回归](tests/suites/stocks.mjs)，覆盖中英文默认项、繁体共用、语言切换及过期响应、自选保存、清空重开和远端同步。定向检查与 `scripts/verify-extension.ps1` 完整通过，退出码 0；首次沙箱运行因合成 MCP 临时文件重命名权限中止，最终在常规环境完成校验。
+- 隔离 Chrome 使用真实股票视图、状态与存储模块及合成行情，检查三语切换、Enter 触发精确来源授权、删除后刷新、清空后刷新与语言切换，均通过，无横向溢出或页面／控制台错误。已查看中英文截图；本次未改布局或样式，检查限定为深色 1280×800。授权由夹具模拟，未验证原生权限弹窗或实时行情，未操作用户安装实例。见 [检查脚本](output/playwright/stock-defaults/browser-check.js)、[中文截图](output/playwright/stock-defaults/chinese.png)、[英文截图](output/playwright/stock-defaults/english.png)。
+
 ## 2026-11-15 — 灵感通栏影像与大小卡位
 
 - 按确认稿调整今日灵感：大卡位使用 112px 通栏影像，分类、站点名和网址成组居中，取消分类底板，不增加图案或外链箭头；文字侧遮罩为 76%，向右减弱，图片恢复完整亮度。内部 14px 连续曲率圆角、18px 行间距和内容侧留白与外框协调，标题栏继续与今日资讯共用边距和“换一换”定位。四张内置封面补充焦点位置，远端预览保持默认裁切。
@@ -152,7 +242,7 @@
 | --- | --- | --- |
 | 消息与架构 | 请求关联、迟到响应保护、权限与刷新代次、串行写入、本地代码和依赖方向 | [统一测试](tests/extension.mjs)、[架构](tests/suites/architecture.mjs)、[API 路由](tests/suites/api-routing.mjs) |
 | 权限与隐私 | 工具栏只捕获用户点击页面的标题与 URL；书签只读；网站按精确来源授权；历史搜索按查询使用、撤权失效且不持久化或传给 AI | [Manifest 安全](tests/suites/manifest-security.mjs)、[权限状态](tests/suites/permission-state.mjs)、[统一搜索](tests/suites/unified-search.mjs) |
-| 设置与凭据 | 三语一致、草稿与错误恢复、密钥不回显或导出；凭据同步独立且默认关闭；新设备重新授权 | [设置迁移](tests/suites/settings-transfer.mjs)、[设置导航](tests/suites/settings-navigation.mjs)、[客户端语言](tests/suites/client-i18n.mjs) |
+| 设置与凭据 | 三语一致、草稿与错误恢复、密钥不回显；显式导出含明文密钥和待申请权限；凭据同步独立且默认关闭；导入后重新授权 | [设置迁移](tests/suites/settings-transfer.mjs)、[设置导航](tests/suites/settings-navigation.mjs)、[客户端语言](tests/suites/client-i18n.mjs) |
 | 个人内容同步 | 分类独立且默认关闭；开启总开关不自动全选；版本合并、删除保护、配额失败保留本机数据，关闭类别只清理其同步副本 | [内容同步](tests/suites/content-sync.mjs)、[同步控件](tests/suites/content-sync-settings.mjs)、[主题追踪同步](tests/suites/tracked-topics-sync.mjs)、[日历同步](tests/suites/calendar-sync.mjs)、[随手记与时钟](tests/suites/notes-world-clock.mjs) |
 | 引导与来源 | 两步引导、明确同意后读取书签、所选来源授权后完成、拒绝授权保留引导、精确来源与受支持的网站图标合并授权、RSS 校验和失败恢复 | [引导](tests/suites/onboarding.mjs)、[公共来源](tests/suites/public-feeds.mjs)、[自定义 RSS](tests/suites/custom-feeds.mjs) |
 | 搜索与研究 | URL/书签/历史优先级，收藏夹和联网范围隔离，正文相关性与日期过滤，有限证据回答、取消和引用校验 | [统一搜索](tests/suites/unified-search.mjs)、[研究搜索](tests/suites/research-search.mjs) |

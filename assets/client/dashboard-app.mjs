@@ -688,10 +688,18 @@ export async function createDashboardApp() {
   });
   const { exportSettings, importSettingsFile, factoryReset } = createSettingsTransferController({
     els: settingsElements, state, t, request, confirmAction, localizedErrorMessage,
+    hasUnsavedChanges: settingsController.hasUnsavedChanges,
     runSettingsAction, renderSettingsStatus, loadSettings, captureSettingsSnapshot, resetSecretDrafts,
     applyUiLocale, getLocale, prepareLocale, inspirationPreviews: sitePreviews, loadDashboard, triggerRefresh,
     resetExtensionPage,
   });
+  let manualSyncReady;
+  const runManualSync = direction => {
+    manualSyncReady ||= import("./manual-sync-controller.mjs").then(({ createManualSyncController }) => createManualSyncController({
+      els: settingsElements, settingsController, t, request, confirmAction, localizedErrorMessage, loadDashboard,
+    }));
+    return manualSyncReady.then(controller => controller.run(direction));
+  };
   dashboardController = createDashboardController({
     state, els: { ...dashboardElements, settingsRefresh: settingsElements.settingsRefresh }, t, request, preloadDailyInspiration,
     inspirationPreloadTimeoutMs: UPDATE_INSPIRATION_PRELOAD_TIMEOUT_MS,
@@ -1134,6 +1142,7 @@ export async function createDashboardApp() {
     els.resetQuota.addEventListener("click", resetQuota);
     els.resetPreferences.addEventListener("click", resetPreferences);
     els.exportSettings.addEventListener("click", exportSettings);
+    for (const [key, action] of [["uploadSyncData", "upload"], ["downloadSyncData", "download"], ["clearSyncData", "clear"]]) els[key].addEventListener("click", () => runManualSync(action));
     els.importSettings.addEventListener("click", () => els.settingsImportFile.click());
     els.factoryResetSettings.addEventListener("click", factoryReset);
     els.settingsImportFile.addEventListener("change", importSettingsFile);

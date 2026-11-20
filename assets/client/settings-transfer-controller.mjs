@@ -1,27 +1,28 @@
 export function createSettingsTransferController(options) {
   const {
-    els, state, t, request, confirmAction, localizedErrorMessage,
-    runSettingsAction, renderSettingsStatus, loadSettings, captureSettingsSnapshot, resetSecretDrafts,
-    applyUiLocale, getLocale, prepareLocale, inspirationPreviews, loadDashboard, triggerRefresh,
-    resetExtensionPage,
+    els, t, request, confirmAction, localizedErrorMessage, runSettingsAction, renderSettingsStatus,
+    loadSettings, loadDashboard, resetExtensionPage,
   } = options;
 
+  let importPending = false;
   return { exportSettings, importSettingsFile, factoryReset };
 
   function exportSettings() {
+    if (options.hasUnsavedChanges?.()) return renderSettingsStatus(t("settings.transfer.saveFirst"));
     return runSettingsAction(async (isCurrent) => {
       renderSettingsStatus(t("settings.transfer.exporting"));
       try {
-        const [config, { settingsTransferFilename }] = await Promise.all([
+        const [config, { settingsTransferFilename, serializeSettingsTransferDocument }] = await Promise.all([
           request({ type: "settings:export" }),
           import("../../extension/core/settings-transfer.mjs"),
         ]);
         if (!isCurrent()) return;
         const fileName = settingsTransferFilename(config.exportedAt);
-        downloadSettingsDocument(config, fileName);
+        downloadSettingsDocument(serializeSettingsTransferDocument(config), fileName);
         renderSettingsStatus(t("settings.transfer.exported", { fileName }));
       } catch (error) {
-        if (isCurrent()) renderSettingsStatus(t("settings.transfer.exportFailed", { message: localizedErrorMessage(error) }));
+        if (isCurrent()) renderSettingsStatus(t("settings.transfer.exportFailed", { message: error?.name === "SettingsTransferError"
+          ? settingsTransferErrorMessage(error) : localizedErrorMessage(error) }));
       }
     });
   }
@@ -30,56 +31,22 @@ export function createSettingsTransferController(options) {
     const input = event?.currentTarget || els.settingsImportFile;
     const file = input.files?.[0];
     input.value = "";
-    if (!file || els.importSettings.disabled) return;
-    let transfer;
+    if (!file || importPending || els.importSettings.disabled) return { status: "ignored" };
+    importPending = true;
+    let isActive = () => false;
     try {
-      const { MAX_SETTINGS_TRANSFER_BYTES, parseSettingsTransferText } = await import("../../extension/core/settings-transfer.mjs");
-      if (file.size > MAX_SETTINGS_TRANSFER_BYTES) {
-        renderSettingsStatus(t("settings.transfer.importFailed", { message: t("settings.transfer.error.tooLarge") }));
-        return;
-      }
-      transfer = parseSettingsTransferText(await file.text(), state.settings);
+      return await runSettingsAction(async (isCurrent) => {
+        isActive = isCurrent;
+        const { importSettingsDocument } = await import("./settings-import-controller.mjs");
+        return importSettingsDocument(file, options, isCurrent);
+      });
     } catch (error) {
-      renderSettingsStatus(t("settings.transfer.importFailed", { message: settingsTransferErrorMessage(error) }));
-      return;
+      if (isActive()) renderSettingsStatus(t("settings.transfer.importFailed", { message: settingsTransferErrorMessage(error) }));
+      return { status: "failed", committed: false };
+    } finally {
+      importPending = false;
+      if (isActive() && !els.importSettings.disabled) els.importSettings.focus?.({ preventScroll: true });
     }
-
-    const bodyKey = transfer.providerOriginChanged
-      ? "confirmation.import.bodyProviderChanged"
-      : "confirmation.import.body";
-    if (!await confirmAction({
-      kicker: t("confirmation.import.kicker"),
-      title: t("confirmation.import.title"),
-      body: t(bodyKey, { fileName: file.name, count: transfer.fieldCount }),
-      cancelLabel: t("confirmation.import.cancel"),
-      confirmLabel: t("confirmation.import.confirm"),
-    })) return;
-
-    return runSettingsAction(async (isCurrent) => {
-      renderSettingsStatus(t("settings.transfer.importing"));
-      try {
-        const savedSettings = await request({ type: "settings:import", payload: { config: transfer.config } });
-        if (!isCurrent()) return;
-        const bookmarkSourceChanged = savedSettings.bookmarkSourceChanged === true;
-        const rankingChanged = savedSettings.rankingChanged === true;
-        const automaticAiStarted = savedSettings.automaticAiStarted === true;
-        const sourceRefreshScheduled = savedSettings.sourceRefreshScheduled === true;
-        if (bookmarkSourceChanged || savedSettings.imageSearchChanged === true) inspirationPreviews.invalidate();
-        await prepareLocale(savedSettings.uiLocale || getLocale());
-        if (!isCurrent()) return;
-        applyUiLocale(savedSettings.uiLocale || getLocale(), { persist: true });
-        resetSecretDrafts();
-        if (!await loadSettings() || !isCurrent()) return;
-        captureSettingsSnapshot();
-        renderSettingsStatus(t("settings.transfer.imported", {
-          count: savedSettings.importedFieldCount || transfer.fieldCount,
-        }));
-        await loadDashboard();
-        if ((bookmarkSourceChanged || rankingChanged) && !automaticAiStarted && !sourceRefreshScheduled) await triggerRefresh(true);
-      } catch (error) {
-        if (isCurrent()) renderSettingsStatus(t("settings.transfer.importFailed", { message: localizedErrorMessage(error) }));
-      }
-    });
   }
 
   async function factoryReset() {
@@ -112,23 +79,13 @@ export function createSettingsTransferController(options) {
   }
 
   function settingsTransferErrorMessage(error) {
-    const keys = {
-      SETTINGS_IMPORT_INVALID_JSON: "settings.transfer.error.invalidJson",
-      SETTINGS_IMPORT_INVALID_FORMAT: "settings.transfer.error.invalidFormat",
-      SETTINGS_IMPORT_UNSUPPORTED_VERSION: "settings.transfer.error.unsupportedVersion",
-      SETTINGS_IMPORT_FILE_TOO_LARGE: "settings.transfer.error.tooLarge",
-      SETTINGS_IMPORT_EMPTY: "settings.transfer.error.empty",
-      SETTINGS_IMPORT_INVALID_VALUE: "settings.transfer.error.invalidValue",
-    };
-    return t(keys[error?.code] || "settings.transfer.error.invalidFormat", {
-      field: error?.details?.field || "",
-      version: error?.details?.version ?? "",
-    });
+    return error?.messageKey ? t(error.messageKey, error.messageParams || {}) : localizedErrorMessage(error);
   }
+
 }
 
-function downloadSettingsDocument(config, fileName) {
-  const blob = new Blob([`${JSON.stringify(config, null, 2)}\n`], { type: "application/json" });
+function downloadSettingsDocument(text, fileName) {
+  const blob = new Blob([text], { type: "application/json" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;

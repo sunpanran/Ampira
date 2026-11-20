@@ -359,7 +359,6 @@ assert(primarySourceChangeSource.includes('"newsBookmarkFolder", "newsSourceMode
 assert(settingsWorkflowSource.indexOf("refreshCoordinator.invalidate()") < settingsWorkflowSource.indexOf("if (sourceRefreshScheduled) startRefresh(true)"), "a primary source switch must invalidate the stale generation before scheduling a forced refresh");
 assert(settingsWorkflowSource.includes("const sourceRefreshScheduled = bookmarkSourceChanged")
   && settingsWorkflowSource.includes("if (sourceRefreshScheduled) startRefresh(true).catch"), "primary, public-coverage, and locale source changes must schedule a forced cache refresh in the background workflow");
-assert(settingsWorkflowSource.includes("const saved = await saveSettings(transfer.patch)"), "imports must reuse the normal settings save and provider-origin safety path");
 assert.match(
   settingsWorkflowSource,
   /localeChanged && \(previous\.publicFeedSupplementEnabled !== false \|\| normalized\.publicFeedSupplementEnabled !== false\)/,
@@ -390,9 +389,8 @@ assert(transferRuntimeSource.includes('"settings:export": () => exportSettings()
   && transferRuntimeSource.includes('"settings:factory-reset": () => factoryReset()'), "settings transfer must remain behind background message routes");
 assert(transferRuntimeSource.includes('request?.type !== "settings:factory-reset"')
   && transferRuntimeSource.includes('"FACTORY_RESET_IN_PROGRESS"'), "factory reset must reject competing requests while storage is being cleared");
-assert(transferControllerSource.includes("file.size > MAX_SETTINGS_TRANSFER_BYTES")
-  && transferControllerSource.includes('input.value = ""')
-  && transferControllerSource.includes("URL.revokeObjectURL(url)"), "settings transfer must bound file reads, allow retrying the same file, and release download URLs");
+assert(transferControllerSource.includes('input.value = ""')
+  && transferControllerSource.includes("URL.revokeObjectURL(url)"), "settings transfer must allow retrying the same file and release download URLs");
 
 runActivityStoreTests();
 await runActivityControllerTests();
@@ -1344,7 +1342,7 @@ const largeNormalizedSettings = normalizeSettings({
     reasonDetail: "failure ".repeat(60),
   })),
 });
-const encodedSettings = encodeSettingsForSync(largeNormalizedSettings);
+const encodedSettings = await encodeSettingsForSync(largeNormalizedSettings);
 assert(settingsChunkKeys(encodedSettings[SETTINGS_KEY]).length > 0, "large valid settings must be split across sync items");
 for (const [key, value] of Object.entries(encodedSettings)) {
   assert(new TextEncoder().encode(JSON.stringify(value)).byteLength <= 7000, `${key} must stay below the sync per-item safety budget`);
@@ -1352,7 +1350,7 @@ for (const [key, value] of Object.entries(encodedSettings)) {
 assert(Object.entries(encodedSettings).reduce((total, [key, value]) => (
   total + new TextEncoder().encode(JSON.stringify(key)).byteLength + new TextEncoder().encode(JSON.stringify(value)).byteLength
 ), 0) <= 90 * 1024, "chunked settings must stay below the sync total safety budget");
-const decodedSettings = decodeSettingsFromSync(encodedSettings);
+const decodedSettings = await decodeSettingsFromSync(encodedSettings);
 assert.deepEqual(decodedSettings.bookmarkOnlyFolders, largeNormalizedSettings.bookmarkOnlyFolders);
 assert.deepEqual(decodedSettings.hiddenBookmarkCategories, largeNormalizedSettings.hiddenBookmarkCategories);
 assert.deepEqual(decodedSettings.websiteShortcuts, largeNormalizedSettings.websiteShortcuts);
@@ -1364,9 +1362,9 @@ const maximumShortcutSettings = normalizeSettings({
     url: `https://long-shortcut-${index}.example/${"x".repeat(1800)}`,
   })),
 });
-const encodedMaximumShortcuts = encodeSettingsForSync(maximumShortcutSettings);
+const encodedMaximumShortcuts = await encodeSettingsForSync(maximumShortcutSettings);
 assert(encodedMaximumShortcuts[SETTINGS_KEY].settingsChunks.fields.websiteShortcuts.length > 1, "the full 16-shortcut allowance must be chunked below Chrome Sync's per-item limit");
-assert.deepEqual(decodeSettingsFromSync(encodedMaximumShortcuts).websiteShortcuts, maximumShortcutSettings.websiteShortcuts);
+assert.deepEqual((await decodeSettingsFromSync(encodedMaximumShortcuts)).websiteShortcuts, maximumShortcutSettings.websiteShortcuts);
 for (const value of Object.values(encodedMaximumShortcuts)) {
   assert(new TextEncoder().encode(JSON.stringify(value)).byteLength <= 7000, "every maximum-shortcut sync record must stay below the per-item safety budget");
 }
@@ -2031,7 +2029,6 @@ assert(!readerUiSource.includes('code.textContent = error?.code')
 const aiSearchUiSource = await fs.readFile(path.join(root, "assets/client/ai-search-ui.mjs"), "utf8");
 const settingsControllerSource = await fs.readFile(path.join(root, "assets/client/settings-controller.mjs"), "utf8");
 const savedSourcePermissionControllerSource = await fs.readFile(path.join(root, "assets/client/saved-source-permission-controller.mjs"), "utf8");
-const settingsTransferControllerSource = await fs.readFile(path.join(root, "assets/client/settings-transfer-controller.mjs"), "utf8");
 const appearanceControllerSource = await fs.readFile(path.join(root, "assets/client/appearance-controller.mjs"), "utf8") + "\n" + await fs.readFile(path.join(root, "assets/client/header-cover-renderer.mjs"), "utf8") + "\n" + await fs.readFile(path.join(root, "assets/client/header-cover-model.mjs"), "utf8");
 const coverBlurPreviewSource = await fs.readFile(path.join(root, "assets/client/cover-blur-preview-controller.mjs"), "utf8");
 const contextMenuSource = await fs.readFile(path.join(root, "assets/client/context-menu-controller.mjs"), "utf8");
@@ -2425,9 +2422,7 @@ assert(appSource.includes('t("settings.bookmarks.folderOption"'));
 assert(appSource.includes('isEnabled: () => state.settings?.bookmarkConsentGranted === true'), "original previews must not depend on Brave configuration");
 assert(appSource.includes('detail?.payload?.permissionsChanged || detail?.payload?.bookmarkSourceChanged || detail?.payload?.imageSearchChanged'), "permission, bookmark-source, and Brave configuration changes must invalidate previews in every open tab");
 assert(settingsControllerSource.includes("if (bookmarkSourceChanged || imageSearchChanged)"), "saving a different inspiration source must invalidate the current tab preview cache before reloading the dashboard");
-assert(settingsTransferControllerSource.includes("if (bookmarkSourceChanged || savedSettings.imageSearchChanged === true)"), "importing a different inspiration source must invalidate the current tab preview cache before reloading the dashboard");
-assert(settingsControllerSource.includes("!automaticAiStarted && !sourceRefreshScheduled")
-  && settingsTransferControllerSource.includes("!automaticAiStarted && !sourceRefreshScheduled"), "clients must not duplicate a primary-source refresh already scheduled by the settings workflow");
+assert(settingsControllerSource.includes("!automaticAiStarted && !sourceRefreshScheduled"), "settings saves must not duplicate a primary-source refresh already scheduled by the settings workflow");
 assert(/renderAll\(\);\n\s+preloadDailyInspiration\(UPDATE_INSPIRATION_PRELOAD_TIMEOUT_MS\);/.test(appSource), "the initial dashboard must render before inspiration previews preload");
 assert(/els\.headerImage\.addEventListener\("error", handleHeaderImageError\);\n\s+syncHeaderImageLoadState\(\);/.test(appSource), "the header cover must reconcile an image that completed before its runtime listeners were bound");
 assert(appearanceControllerSource.includes('if (!els.headerImage.complete || els.headerImage.naturalWidth <= 0) return;')
@@ -2856,6 +2851,10 @@ for (const suite of [
   "permission-state.mjs",
   "provider-consent.mjs",
   "credential-sync.mjs",
+  "settings-transfer-workflow.mjs",
+  "settings-import-lifecycle.mjs",
+  "settings-import-authorization.mjs",
+  "ai-forbidden.mjs",
   "provider-policy.mjs",
   "ai-provider-presets.mjs",
   "ai-provider-disclosure.mjs",
@@ -2881,6 +2880,8 @@ for (const suite of [
   "settings-store.mjs",
   "title-opacity.mjs",
   "content-sync.mjs",
+  "manual-sync.mjs",
+  "sync-integrity.mjs",
   "tracked-topics-sync.mjs",
   "calendar-sync.mjs",
   "notes-world-clock.mjs",

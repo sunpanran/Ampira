@@ -1,0 +1,90 @@
+{
+  "format": "ampira-settings",
+  "formatVersion": 2,
+  "appVersion": "saved-fixture",
+  "exportedAt": "2026-11-14T00:00:00.000Z",
+  "settings": {
+    "keyboardShortcutsEnabled": false,
+    "keyboardShortcuts": {
+      "todo": "Alt+KeyN",
+      "daily": "Alt+Digit1",
+      "news": "Alt+Digit2",
+      "library": "Alt+Digit3",
+      "batch": "Alt+KeyR"
+    },
+    "uiLocale": "",
+    "colorMode": "system",
+    "navPosition": "left",
+    "navAutoHideEnabled": false,
+    "accentTheme": "cyan",
+    "customAccentColor": "#06B6D4",
+    "sectionTitleOpacity": 100,
+    "pointerGlowEnabled": true,
+    "dashboardGlassBlurEnabled": true,
+    "dashboardCardOrder": [
+      "utility",
+      "digest",
+      "archive",
+      "news",
+      "inspiration",
+      "queue"
+    ],
+    "headerImageEnabled": true,
+    "headerImageFixed": false,
+    "headerImageFullscreen": false,
+    "headerImageBlurEnabled": false,
+    "headerImageBlurAmount": 12,
+    "headerImageHeightScale": 100,
+    "headerImageUrl": "",
+    "headerImageMediaType": "auto",
+    "headerImageFit": "cover",
+    "bookmarkSectionEnabled": false,
+    "websiteShortcutsEnabled": false,
+    "websiteShortcuts": [],
+    "newsBookmarkFolder": "",
+    "newsSourceMode": "public",
+    "inspirationBookmarkFolder": "",
+    "inspirationSourceMode": "preset",
+    "bookmarkOnlyFolders": [],
+    "hiddenBookmarkCategories": [],
+    "cardSummaryEnabled": true,
+    "floatingWebOpenEnabled": false,
+    "readingQueueOpenOnReadAll": true,
+    "readingQueueReadAllPrompted": false,
+    "retainSeenArchive": false,
+    "syncReadingQueueEnabled": false,
+    "syncTodosEnabled": false,
+    "syncWeatherLocationEnabled": false,
+    "syncStockWatchlistEnabled": false,
+    "syncCountdownsEnabled": false,
+    "syncTrackedTopicsEnabled": false,
+    "syncCalendarEnabled": false,
+    "syncNotesEnabled": false,
+    "syncWorldClockEnabled": false,
+    "personalizedRankingEnabled": false,
+    "publicFeedSupplementEnabled": true,
+    "webImageSearchEnabled": false,
+    "excludedNewsSources": [],
+    "openaiBaseUrl": "https://api.openai.com/v1",
+    "openaiApiStyle": "responses",
+    "openaiSummaryModel": "gpt-6-luna",
+    "dailyAiLimit": 160,
+    "hotNewsCacheSize": 192,
+    "hotNewsEntriesPerSource": 5,
+    "newsEntriesPerCategory": 12,
+    "todayNewsPerPublisherLimit": 0
+  },
+  "credentials": {
+    "openaiApiKey": "synthetic-saved-ai",
+    "braveSearchApiKey": "synthetic-saved-brave"
+  },
+  "permissions": {
+    "origins": [
+      "https://saved.example/*"
+    ],
+    "permissions": [
+      "favicon"
+    ],
+    "bookmarkConsent": true
+  }
+}

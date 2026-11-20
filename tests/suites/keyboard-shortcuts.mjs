@@ -120,8 +120,8 @@ assert.equal(normalizeSettings({ uiLocale: "zh-CN" }).keyboardShortcutsEnabled, 
 for (const value of [true, false]) {
   const settings = normalizeSettings({ keyboardShortcutsEnabled: value });
   assert.equal(settings.keyboardShortcutsEnabled, value, "saved preferences remain unchanged");
-  const encoded = encodeSettingsForSync(settings);
-  const decoded = decodeSettingsFromSync(encoded);
+  const encoded = await encodeSettingsForSync(settings);
+  const decoded = await decodeSettingsFromSync(encoded);
   assert.equal(decoded.keyboardShortcutsEnabled, value, "browser sync preserves the preference");
   const exported = createSettingsTransferDocument(settings);
   assert.equal(exported.settings.keyboardShortcutsEnabled, value);
@@ -157,7 +157,7 @@ assert.equal(hint.getAttribute("aria-keyshortcuts"), "Alt+Shift+Z");
 setKeyboardShortcutHint(hint, "news", "News", { keyboardShortcutsEnabled: true, keyboardShortcuts: custom });
 assert.equal(hint.getAttribute("aria-keyshortcuts"), null);
 const customSettings = normalizeSettings({ keyboardShortcutsEnabled: true, keyboardShortcuts: custom });
-assert.deepEqual(decodeSettingsFromSync(encodeSettingsForSync(customSettings)).keyboardShortcuts, custom);
+assert.deepEqual((await decodeSettingsFromSync(await encodeSettingsForSync(customSettings))).keyboardShortcuts, custom);
 const customExport = createSettingsTransferDocument(customSettings);
 assert.deepEqual(parseSettingsTransferDocument(customExport, {}).patch.keyboardShortcuts, custom);
 customExport.settings.keyboardShortcuts.todo = "Ctrl+KeyW";

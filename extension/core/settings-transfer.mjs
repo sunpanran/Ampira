@@ -1,137 +1,52 @@
-import {
-  isValidServiceUrl,
-  normalizePublicUrl,
-  normalizeSettings,
-  providerOrigin,
-} from "./settings.mjs";
-import {
-  DEFAULT_SETTINGS,
-  HEADER_IMAGE_HEIGHT_MAX,
-  HEADER_IMAGE_HEIGHT_MIN,
-  HEADER_IMAGE_HEIGHT_STEP,
-} from "./constants.mjs";
+import { normalizeSettings, providerOrigin } from "./settings.mjs";
+import { normalizeOriginPattern } from "./permission-state.mjs";
+import { PORTABLE_SETTINGS_FIELDS, validatePortableValue, validateNormalizedCollections } from "./settings-transfer-schema.mjs";
+import { settingsTransferError as transferError, invalidTransferValue as invalidValue } from "./settings-transfer-errors.mjs";
 
-import { validKeyboardShortcutMap } from "./keyboard-shortcuts.mjs";
-
+export { PORTABLE_SETTINGS_FIELDS } from "./settings-transfer-schema.mjs";
 export const SETTINGS_TRANSFER_FORMAT = "ampira-settings";
-export const SETTINGS_TRANSFER_VERSION = 1;
+export const SETTINGS_TRANSFER_VERSION = 2;
 export const MAX_SETTINGS_TRANSFER_BYTES = 256 * 1024;
-
-export const PORTABLE_SETTINGS_FIELDS = Object.freeze([
-  "keyboardShortcutsEnabled",
-  "keyboardShortcuts",
-  "uiLocale",
-  "colorMode",
-  "navPosition",
-  "navAutoHideEnabled",
-  "accentTheme",
-  "customAccentColor",
-  "sectionTitleOpacity",
-  "pointerGlowEnabled",
-  "dashboardGlassBlurEnabled",
-  "dashboardCardOrder",
-  "headerImageEnabled",
-  "headerImageFixed",
-  "headerImageFullscreen",
-  "headerImageBlurEnabled",
-  "headerImageBlurAmount",
-  "headerImageHeightScale",
-  "headerImageUrl",
-  "headerImageMediaType",
-  "headerImageFit",
-  "bookmarkSectionEnabled",
-  "websiteShortcutsEnabled",
-  "websiteShortcuts",
-  "newsBookmarkFolder",
-  "newsSourceMode",
-  "inspirationBookmarkFolder",
-  "inspirationSourceMode",
-  "bookmarkOnlyFolders",
-  "hiddenBookmarkCategories",
-  "cardSummaryEnabled",
-  "floatingWebOpenEnabled",
-  "readingQueueOpenOnReadAll",
-  "readingQueueReadAllPrompted",
-  "retainSeenArchive",
-  "syncReadingQueueEnabled",
-  "syncTodosEnabled",
-  "syncWeatherLocationEnabled",
-  "syncStockWatchlistEnabled",
-  "syncCountdownsEnabled",
-  "syncTrackedTopicsEnabled",
-  "syncCalendarEnabled",
-  "syncNotesEnabled",
-  "syncWorldClockEnabled",
-  "personalizedRankingEnabled",
-  "publicFeedSupplementEnabled",
-  "webImageSearchEnabled",
-  "excludedNewsSources",
-  "openaiBaseUrl",
-  "openaiApiStyle",
-  "openaiSummaryModel",
-  "dailyAiLimit",
-  "hotNewsCacheSize",
-  "hotNewsEntriesPerSource",
-  "newsEntriesPerCategory",
-  "todayNewsPerPublisherLimit",
-]);
-
-const BOOLEAN_FIELDS = new Set(PORTABLE_SETTINGS_FIELDS.filter(field => typeof DEFAULT_SETTINGS[field] === "boolean"));
-const ARRAY_FIELDS = new Set(["dashboardCardOrder", "websiteShortcuts", "bookmarkOnlyFolders", "hiddenBookmarkCategories", "excludedNewsSources"]);
-const NUMBER_RANGES = Object.freeze({
-  sectionTitleOpacity: [0, 100],
-  headerImageBlurAmount: [0, 50],
-  headerImageHeightScale: [HEADER_IMAGE_HEIGHT_MIN, HEADER_IMAGE_HEIGHT_MAX],
-  dailyAiLimit: [1, 500],
-  hotNewsCacheSize: [16, 500],
-  hotNewsEntriesPerSource: [0, 12],
-  newsEntriesPerCategory: [0, 100],
-  todayNewsPerPublisherLimit: [0, 10],
-});
-const STRING_LIMITS = Object.freeze({
-  uiLocale: 20,
-  colorMode: 20,
-  navPosition: 20,
-  accentTheme: 20,
-  customAccentColor: 7,
-  headerImageUrl: 2048,
-  headerImageMediaType: 10,
-  headerImageFit: 10,
-  newsBookmarkFolder: 200,
-  newsSourceMode: 20,
-  inspirationBookmarkFolder: 200,
-  inspirationSourceMode: 20,
-  openaiBaseUrl: 2048,
-  openaiApiStyle: 40,
-  openaiSummaryModel: 200,
-});
-const LOCALES = new Set(["", "en", "zh-CN", "zh-Hant"]);
-const COLOR_MODES = new Set(["system", "dark", "light"]);
-const NAV_POSITIONS = new Set(["top", "bottom", "left", "right"]);
-const ACCENT_THEMES = new Set(["violet", "cyan", "emerald", "amber", "rose", "custom"]);
-const API_STYLES = new Set(["responses", "chat_completions"]);
-const NEWS_SOURCE_MODES = new Set(["public", "bookmarks"]);
-const INSPIRATION_SOURCE_MODES = new Set(["preset", "bookmarks"]);
+export const TRANSFER_BROWSER_PERMISSIONS = Object.freeze(["favicon", "search", "history"]);
 
 export function createSettingsTransferDocument(settings, {
   appVersion = "",
   exportedAt = new Date().toISOString(),
+  credentials = {},
+  permissions = {},
 } = {}) {
   const normalized = normalizeSettings(settings);
-  return {
+  const document = {
     format: SETTINGS_TRANSFER_FORMAT,
     formatVersion: SETTINGS_TRANSFER_VERSION,
     appVersion: cleanMetadata(appVersion, 40),
     exportedAt: normalizedTimestamp(exportedAt),
     settings: pickPortableSettings(normalized),
+    ...(typeof settings.syncAiSettingsEnabled === "boolean" ? { syncAiSettingsEnabled: settings.syncAiSettingsEnabled } : {}),
+    credentials: portableCredentials(credentials, normalized),
+    permissions: portablePermissions({
+      origins: (permissions.origins || []).map(normalizeOriginPattern).filter(Boolean),
+      permissions: (permissions.permissions || []).filter(permission => TRANSFER_BROWSER_PERMISSIONS.includes(permission)),
+      bookmarkConsent: settings.bookmarkConsentGranted === true,
+    }),
   };
+  serializeSettingsTransferDocument(document);
+  return document;
+}
+
+export function serializeSettingsTransferDocument(document) {
+  const text = `${JSON.stringify(document, null, 2)}\n`;
+  if (new TextEncoder().encode(text).byteLength > MAX_SETTINGS_TRANSFER_BYTES) {
+    throw transferError("SETTINGS_IMPORT_FILE_TOO_LARGE");
+  }
+  return text;
 }
 
 export function parseSettingsTransferDocument(input, currentSettings = {}) {
   if (!isRecord(input) || input.format !== SETTINGS_TRANSFER_FORMAT) {
     throw transferError("SETTINGS_IMPORT_INVALID_FORMAT");
   }
-  if (input.formatVersion !== SETTINGS_TRANSFER_VERSION) {
+  if (![1, SETTINGS_TRANSFER_VERSION].includes(input.formatVersion)) {
     throw transferError("SETTINGS_IMPORT_UNSUPPORTED_VERSION", { version: input.formatVersion });
   }
   if (!isRecord(input.settings)) throw transferError("SETTINGS_IMPORT_INVALID_FORMAT");
@@ -139,14 +54,20 @@ export function parseSettingsTransferDocument(input, currentSettings = {}) {
     throw transferError("SETTINGS_IMPORT_FILE_TOO_LARGE");
   }
 
+  const document = decodeTransferVersion(input);
   const candidate = {};
   for (const field of PORTABLE_SETTINGS_FIELDS) {
-    if (!Object.hasOwn(input.settings, field)) continue;
-    validatePortableValue(field, input.settings[field]);
-    candidate[field] = input.settings[field];
+    if (!Object.hasOwn(document.settings, field)) continue;
+    validatePortableValue(field, document.settings[field]);
+    candidate[field] = document.settings[field];
   }
+  const credentials = portableCredentials(document.credentials, candidate);
+  const permissions = portablePermissions(document.permissions);
+  const syncAiSettingsEnabled = document.syncAiSettingsEnabled;
+  if (syncAiSettingsEnabled !== undefined && typeof syncAiSettingsEnabled !== "boolean") throw invalidValue("syncAiSettingsEnabled");
   const fields = Object.keys(candidate);
-  if (!fields.length) throw transferError("SETTINGS_IMPORT_EMPTY");
+  if (!fields.length && !Object.keys(credentials).length && !permissions.origins.length
+    && !permissions.permissions.length && !permissions.bookmarkConsent) throw transferError("SETTINGS_IMPORT_EMPTY");
 
   const current = normalizeSettings(currentSettings);
   const normalized = normalizeSettings({ ...current, ...candidate });
@@ -156,12 +77,58 @@ export function parseSettingsTransferDocument(input, currentSettings = {}) {
   const nextProviderOrigin = providerOrigin(patch.openaiBaseUrl || current.openaiBaseUrl);
   return {
     patch,
+    credentials,
+    permissions,
+    syncAiSettingsEnabled,
     fieldCount: fields.length,
     formatVersion: input.formatVersion,
     appVersion: cleanMetadata(input.appVersion, 40),
     exportedAt: normalizedTimestamp(input.exportedAt, ""),
     providerOriginChanged: currentProviderOrigin !== nextProviderOrigin,
   };
+}
+
+function decodeTransferVersion(input) {
+  const base = { settings: input.settings, credentials: {}, permissions: {}, syncAiSettingsEnabled: undefined };
+  if (input.formatVersion === 1) return base;
+  return { ...base,
+    credentials: Object.hasOwn(input, "credentials") ? input.credentials : {},
+    permissions: Object.hasOwn(input, "permissions") ? input.permissions : {},
+    syncAiSettingsEnabled: input.syncAiSettingsEnabled,
+  };
+}
+
+function portableCredentials(value, settings) {
+  if (!isRecord(value)) throw invalidValue("credentials");
+  const credentials = {};
+  for (const field of ["openaiApiKey", "braveSearchApiKey"]) {
+    if (!Object.hasOwn(value, field)) continue;
+    const key = value[field];
+    if (typeof key !== "string" || key.length > 8192 || /[\u0000-\u001f\u007f]/.test(key)) {
+      throw invalidValue(field);
+    }
+    if (key.trim()) credentials[field] = key.trim();
+  }
+  // A key must travel with its complete provider identity, never a local default.
+  if (credentials.openaiApiKey) {
+    for (const field of ["openaiBaseUrl", "openaiApiStyle", "openaiSummaryModel"]) {
+      if (!Object.hasOwn(settings, field) || !settings[field]) throw invalidValue(field);
+      validatePortableValue(field, settings[field]);
+    }
+  }
+  return credentials;
+}
+
+function portablePermissions(value) {
+  if (!isRecord(value)) throw invalidValue("permissions");
+  const { origins = [], permissions = [], bookmarkConsent = false } = value;
+  if (!Array.isArray(origins) || origins.length > 1000
+    || origins.some(origin => typeof origin !== "string" || origin.length > 2048 || !normalizeOriginPattern(origin)
+      || normalizeOriginPattern(origin) !== origin)) throw invalidValue("permissions.origins");
+  if (!Array.isArray(permissions) || permissions.length > 3
+    || permissions.some(permission => !TRANSFER_BROWSER_PERMISSIONS.includes(permission))) throw invalidValue("permissions.permissions");
+  if (typeof bookmarkConsent !== "boolean") throw invalidValue("permissions.bookmarkConsent");
+  return { origins: [...new Set(origins)], permissions: [...new Set(permissions)], bookmarkConsent };
 }
 
 export function parseSettingsTransferText(text, currentSettings = {}) {
@@ -189,81 +156,6 @@ export function settingsTransferFilename(exportedAt) {
 
 function pickPortableSettings(settings) {
   return Object.fromEntries(PORTABLE_SETTINGS_FIELDS.map((field) => [field, settings[field]]));
-}
-
-function validatePortableValue(field, value) {
-  if (field === "keyboardShortcuts") {
-    if (!validKeyboardShortcutMap(value)) throw invalidValue(field);
-    return;
-  }
-  if (BOOLEAN_FIELDS.has(field)) {
-    if (typeof value !== "boolean") throw invalidValue(field);
-    return;
-  }
-  if (ARRAY_FIELDS.has(field)) {
-    if (!Array.isArray(value)) throw invalidValue(field);
-    validateCollection(field, value);
-    return;
-  }
-  if (Object.hasOwn(NUMBER_RANGES, field)) {
-    const [min, max] = NUMBER_RANGES[field];
-    if (!Number.isInteger(value) || value < min || value > max
-      || field === "headerImageHeightScale" && (value - HEADER_IMAGE_HEIGHT_MIN) % HEADER_IMAGE_HEIGHT_STEP !== 0) throw invalidValue(field);
-    return;
-  }
-  if (!Object.hasOwn(STRING_LIMITS, field) || typeof value !== "string" || value.length > STRING_LIMITS[field]) {
-    throw invalidValue(field);
-  }
-  if (field === "uiLocale" && !LOCALES.has(value)) throw invalidValue(field);
-  if (field === "colorMode" && !COLOR_MODES.has(value)) throw invalidValue(field);
-  if (field === "navPosition" && !NAV_POSITIONS.has(value)) throw invalidValue(field);
-  if (field === "accentTheme" && !ACCENT_THEMES.has(value)) throw invalidValue(field);
-  if (field === "customAccentColor" && !/^#[0-9a-f]{6}$/i.test(value)) throw invalidValue(field);
-  if (field === "headerImageUrl" && value && !normalizePublicUrl(value)) throw invalidValue(field);
-  if (field === "headerImageMediaType" && !["auto", "image", "video"].includes(value)) throw invalidValue(field);
-  if (field === "headerImageFit" && !["cover", "contain", "fill", "height"].includes(value)) throw invalidValue(field);
-  if (field === "openaiBaseUrl" && !isValidServiceUrl(value)) throw invalidValue(field);
-  if (field === "openaiApiStyle" && !API_STYLES.has(value)) throw invalidValue(field);
-  if (field === "newsSourceMode" && !NEWS_SOURCE_MODES.has(value)) throw invalidValue(field);
-  if (field === "inspirationSourceMode" && !INSPIRATION_SOURCE_MODES.has(value)) throw invalidValue(field);
-}
-
-function validateCollection(field, value) {
-  if (field === "dashboardCardOrder") {
-    if (value.length > 6 || value.some((id) => typeof id !== "string")) throw invalidValue(field);
-    return;
-  }
-  if (field === "bookmarkOnlyFolders") {
-    if (value.length > 100 || value.some((item) => typeof item !== "string" || !item.trim() || item.length > 200)) {
-      throw invalidValue(field);
-    }
-    return;
-  }
-  const limit = field === "websiteShortcuts" ? 16 : 250;
-  if (value.length > limit || value.some((item) => !isRecord(item))) throw invalidValue(field);
-}
-
-function validateNormalizedCollections(candidate, normalized) {
-  for (const field of ARRAY_FIELDS) {
-    if (!Object.hasOwn(candidate, field)) continue;
-    if (JSON.stringify(candidate[field]) !== JSON.stringify(normalized[field])) throw invalidValue(field);
-  }
-  if (Object.hasOwn(candidate, "headerImageFullscreen")
-    && candidate.headerImageFullscreen !== normalized.headerImageFullscreen) {
-    throw invalidValue("headerImageFullscreen");
-  }
-}
-
-function invalidValue(field) {
-  return transferError("SETTINGS_IMPORT_INVALID_VALUE", { field });
-}
-
-function transferError(code, details = {}) {
-  const error = new Error(code);
-  error.name = "SettingsTransferError";
-  error.code = code;
-  error.details = details;
-  return error;
 }
 
 function normalizedTimestamp(value, fallback = new Date().toISOString()) {

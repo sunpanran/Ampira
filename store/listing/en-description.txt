@@ -15,7 +15,7 @@ Data and permissions
 
 • No account is required. Ampira has no ads, behavioral analytics, or developer-operated backend.
 • Feeds, reading state, and caches stay in the browser. Read later, to-dos, and the selected weather city stay local unless you enable their separate Chrome Sync options.
-• AI and Brave image-search keys stay in this browser by default. To use them on other devices, turn on the separate switch for key and AI configuration sync. Keys are then saved in your browser account's sync storage, with no additional encryption from Ampira. On new devices, you still need to agree to AI data sharing and allow access to service websites. When used, keys go directly to the relevant service, never to the developer.
+• AI and Brave image-search keys stay in this browser by default. To use them on other devices, turn on the separate switch for key and AI configuration sync. Keys are then saved in your browser account's sync storage, with no additional encryption from Ampira. On new devices, you still need to agree to AI data sharing and allow access to service websites. When used, keys go directly to the relevant service, never to the developer. User-initiated configuration exports include plaintext keys; keep the file safe. Import prompts for AI and bookmark consent plus supported icon, website, search and history-suggestion access recorded in the file.
 • Website access is requested only when you enable a source or need to read a page, and each request is limited to named origins. You can revoke access in Settings.
 
 Ampira replaces Chrome's New Tab page while the extension is enabled. Disable or uninstall it from Chrome's extension manager to restore the default page.

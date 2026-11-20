@@ -1,8 +1,11 @@
 import { publicFeedsForLocale } from "../core/public-feeds.mjs";
+import { providerOrigin } from "../core/settings.mjs";
+
+const IMPORT_PROVIDER_FIELDS = ["openaiBaseUrl", "openaiApiStyle", "openaiSummaryModel", "credentialGeneration"];
 
 export function createSettingsWorkflow(options) {
   const {
-    getSettings, settingsLocale, secretStatus,
+    getSettings, settingsLocale, secretStatus, readTransferCredentials,
     currentBookmarkModel, emptyBookmarkModel, selectedOrigins, currentFeedPermissionState,
     filterSourceQuality, getRecord, emptySourceQuality, defaultSettings, settingsService,
     readProviderProfile, bindProviderPatchToOrigin, isValidServiceUrl, typedError,
@@ -14,9 +17,10 @@ export function createSettingsWorkflow(options) {
     defaultAiAutoStatus, startRefresh, broadcast,
     createSettingsTransferDocument, parseSettingsTransferDocument, getAppVersion, now,
     headerCoverStore, browserSearchEnabled = async () => false,
+    getOptionalPermissions = async () => ({ origins: [], permissions: [] }),
   } = options;
 
-  return { publicSettings, saveSettings, exportSettings, importSettings };
+  return { publicSettings, saveSettings, exportSettings, importSettings, authorizeImportedSettings, reconcileImportedSettings };
 
 async function publicSettings() {
   const settings = await getSettings();
@@ -76,30 +80,87 @@ function saveSettings(body) {
 }
 
 async function exportSettings() {
-  return createSettingsTransferDocument(await getSettings(), {
-    appVersion: getAppVersion(),
-    exportedAt: now(),
-  });
+  const settings = await getSettings();
+  const credentials = await readTransferCredentials();
+  try {
+    return createSettingsTransferDocument({ ...settings, ...credentials }, {
+      appVersion: getAppVersion(),
+      exportedAt: now(),
+      credentials,
+      permissions: await getOptionalPermissions(),
+    });
+  } catch (error) { throw settingsTransferTypedError(error); }
 }
 
 async function importSettings(body = {}) {
-  const current = await getSettings();
-  let transfer;
-  try {
-    transfer = parseSettingsTransferDocument(body.config, current);
-  } catch (error) {
-    throw settingsTransferTypedError(error);
-  }
-  const saved = await saveSettings(transfer.patch);
-  return {
-    ...saved,
-    importedFieldCount: transfer.fieldCount,
-    importFormatVersion: transfer.formatVersion,
-  };
+  return settingsService.mutate(async (transaction) => {
+    const current = await getSettings();
+    let transfer;
+    try {
+      transfer = parseSettingsTransferDocument(body.config, current);
+    } catch (error) {
+      throw settingsTransferTypedError(error);
+    }
+    const patch = { ...transfer.patch, ...transfer.credentials };
+    if (typeof transfer.syncAiSettingsEnabled === "boolean") {
+      const currentSyncEnabled = (await secretStatus()).syncAiSettingsEnabled === true;
+      if (transfer.syncAiSettingsEnabled !== currentSyncEnabled && body.restoreCredentialSync !== true) {
+        throw typedError("SETTINGS_IMPORT_SYNC_CONFIRMATION_REQUIRED", "settings.transfer.error.syncConfirmation", {}, false);
+      }
+      if (body.restoreCredentialSync === true) patch.syncAiSettingsEnabled = transfer.syncAiSettingsEnabled;
+    }
+    if (transfer.providerOriginChanged) {
+      patch.aiDisclosureAccepted = false;
+    }
+    // Consent stays device-local and bound to the recipient origin. Reimporting
+    // the same provider preserves valid consent; a new origin needs a new gesture.
+    const committed = await commitSettings(patch, transaction, { importing: true });
+    const saved = await completeImportedCommit(committed);
+    const origins = new Set([...saved.sourcePermissions.map(row => row.origin), ...transfer.permissions.origins]);
+    const permissions = transfer.permissions.permissions;
+    let aiProvider = null;
+    if (saved.hasOpenAIKey || !providerRequiresApiKey(saved.openaiBaseUrl)) {
+      origins.add(`${providerOrigin(saved.openaiBaseUrl)}/*`);
+      aiProvider = Object.fromEntries(IMPORT_PROVIDER_FIELDS.map(field => [field, saved[field]]));
+    }
+    return {
+      ...saved,
+      importedFieldCount: transfer.fieldCount,
+      importFormatVersion: transfer.formatVersion,
+      importAuthorization: { origins: [...origins], permissions, aiProvider,
+        bookmarkConsent: transfer.permissions.bookmarkConsent
+          || saved.newsSourceMode === "bookmarks" || saved.inspirationSourceMode === "bookmarks" },
+    };
+  });
 }
 
-async function performSaveSettings(body, transaction) {
+function authorizeImportedSettings(body = {}) {
+  return settingsService.mutate(async (transaction) => {
+    const current = await getSettings();
+    assertImportProvider(current, body);
+    if (!await hasOriginPermission(current.openaiBaseUrl)) {
+      throw typedError("ORIGIN_PERMISSION_REQUIRED", "background.error.aiOriginPermission", {}, false);
+    }
+    const committed = await commitSettings({ aiDisclosureAccepted: true }, transaction, { expectedProvider: body });
+    return completeImportedCommit(committed);
+  });
+}
+
+function assertImportProvider(current, expected) {
+  if (!IMPORT_PROVIDER_FIELDS.every(field => current[field] === expected[field])) {
+    throw typedError("AI_CONFIGURATION_CHANGED", "background.error.aiConfigurationChanged", {}, false);
+  }
+}
+
+async function performSaveSettings(body, transaction, options) {
+  const committed = await commitSettings(body, transaction, options);
+  const changes = await applySettingsEffects(committed);
+  return { ...(await publicSettings()), ...changes };
+}
+
+async function commitSettings(body, transaction, { importing = false, expectedProvider = null } = {}) {
   const previous = await getSettings();
+  if (expectedProvider) assertImportProvider(previous, expectedProvider);
   const next = { ...previous };
   const headerCoverOperation = Object.hasOwn(body, "headerCoverOperation")
     ? await headerCoverStore.validateOperation(body.headerCoverOperation)
@@ -138,7 +199,7 @@ async function performSaveSettings(body, transaction) {
     const candidateBaseUrl = providerPatch.openaiBaseUrl || currentProvider.openaiBaseUrl;
     const configuringNoKeyProvider = !providerRequiresApiKey(candidateBaseUrl)
       && body.aiDisclosureAccepted === true;
-    if (submittedOpenAIKey || configuringNoKeyProvider) {
+    if (!importing && (submittedOpenAIKey || configuringNoKeyProvider)) {
       if (!isValidServiceUrl(candidateBaseUrl)) {
         throw typedError("INVALID_URL", "background.error.invalidUrl", {}, false);
       }
@@ -166,7 +227,8 @@ async function performSaveSettings(body, transaction) {
   let headerCoverMutation = null;
   let credentialSnapshot = null;
   let consentSnapshot = null;
-  let normalized;
+  let normalized, credentialStatus;
+  let settingsWriteAttempted = false;
   try {
     if (credentialsChanged) {
       credentialSnapshot = await captureCredentialState();
@@ -177,24 +239,22 @@ async function performSaveSettings(body, transaction) {
       : null;
     if (Object.hasOwn(body, "aiDisclosureAccepted")) {
       provider = provider || await readProviderProfile(previous);
+      if (expectedProvider) assertImportProvider(provider, expectedProvider);
       await setAiDisclosureConsent(body.aiDisclosureAccepted === true, provider.openaiBaseUrl);
     }
     if (headerCoverOperation) headerCoverMutation = await headerCoverStore.apply(headerCoverOperation);
+    if (importing || expectedProvider) credentialStatus = await secretStatus();
+    settingsWriteAttempted = true;
     await transaction.write(next);
     normalized = await getSettings();
-    try {
-      await contentSyncService.applySettings(previous, normalized);
-    } catch (error) {
+    await contentSyncService.applySettings(previous, normalized);
+  } catch (error) {
+    if (settingsWriteAttempted) {
       try {
         await transaction.write(previous);
-        await contentSyncService.applySettings(normalized, previous);
-      } catch (rollbackError) {
-        error.rollbackFailed = true;
-        error.rollbackCode = rollbackError?.code || "SETTINGS_ROLLBACK_FAILED";
-      }
-      throw error;
+        if (normalized) await contentSyncService.applySettings(normalized, previous);
+      } catch (rollbackError) { recordRollbackFailure(error, rollbackError, "SETTINGS_ROLLBACK_FAILED"); }
     }
-  } catch (error) {
     if (consentSnapshot) {
       try {
         await restoreDeviceConsentState(consentSnapshot);
@@ -219,15 +279,22 @@ async function performSaveSettings(body, transaction) {
     throw error;
   }
   if (headerCoverMutation) await headerCoverStore.finalize?.(headerCoverMutation).catch(() => {});
-  if (Object.keys(body).length === 1 && Object.hasOwn(body, "dashboardCardOrder")) {
+  return { previous, normalized, credentialStatus,
+    layoutOnly: Object.keys(body).length === 1 && Object.hasOwn(body, "dashboardCardOrder"),
+    imageSearchKeyChanged: Object.hasOwn(bravePatch, "braveSearchApiKey"), headerCoverChanged: Boolean(headerCoverOperation) };
+}
+
+async function applySettingsEffects(committed) {
+  const { previous, normalized } = committed;
+  if (committed.layoutOnly) {
     broadcast("settings.changed", { dashboardLayoutOnly: true, dashboardCardOrder: normalized.dashboardCardOrder });
-    return publicSettings();
+    return {};
   }
   const localeChanged = settingsLocale(previous) !== settingsLocale(normalized);
   const primarySourceChanged = [
     "newsBookmarkFolder", "newsSourceMode", "inspirationBookmarkFolder", "inspirationSourceMode",
   ].some((key) => JSON.stringify(previous[key]) !== JSON.stringify(normalized[key]));
-  const bookmarkSourceChanged = [
+  const bookmarkSourceChanged = committed.forceReconcile === true || [
     "newsBookmarkFolder", "newsSourceMode", "inspirationBookmarkFolder", "inspirationSourceMode", "bookmarkOnlyFolders", "excludedNewsSources",
     "publicFeedSupplementEnabled", "hotNewsCacheSize", "hotNewsEntriesPerSource", "newsEntriesPerCategory", "customFeeds",
   ]
@@ -235,16 +302,18 @@ async function performSaveSettings(body, transaction) {
     || localeChanged && (previous.publicFeedSupplementEnabled !== false || normalized.publicFeedSupplementEnabled !== false);
   const rankingChanged = previous.todayNewsPerPublisherLimit !== normalized.todayNewsPerPublisherLimit;
   const imageSearchChanged = previous.webImageSearchEnabled !== normalized.webImageSearchEnabled
-    || Object.hasOwn(bravePatch, "braveSearchApiKey");
-  const headerCoverChanged = Boolean(headerCoverOperation);
+    || committed.imageSearchKeyChanged;
+  const headerCoverChanged = committed.headerCoverChanged;
   const aiConfigurationChanged = previous.aiDisclosureAccepted !== normalized.aiDisclosureAccepted
     || previous.credentialGeneration !== normalized.credentialGeneration;
-  const automaticAiChanged = aiConfigurationChanged
+  const automaticAiChanged = committed.forceReconcile === true || aiConfigurationChanged
     || previous.cardSummaryEnabled !== normalized.cardSummaryEnabled
     || previous.dailyAiLimit !== normalized.dailyAiLimit;
   const mcpSettingsChanged = previous.mcpEnabled !== normalized.mcpEnabled || previous.dashboardMode !== normalized.dashboardMode
     || previous.botOrganizeNews !== normalized.botOrganizeNews || previous.botGenerateBrief !== normalized.botGenerateBrief
     || previous.botAnswerQuestions !== normalized.botAnswerQuestions;
+  const changes = committed.changes = { primarySourceChanged, sourceRefreshScheduled: false, bookmarkSourceChanged, rankingChanged,
+    localeChanged, imageSearchChanged, headerCoverChanged, automaticAiChanged, automaticAiStarted: false, mcpSettingsChanged };
   if (mcpSettingsChanged) {
     refreshCoordinator.invalidate();
     cacheMutations.invalidate();
@@ -258,28 +327,50 @@ async function performSaveSettings(body, transaction) {
   }
   const sourceRefreshScheduled = bookmarkSourceChanged;
   if (sourceRefreshScheduled) startRefresh(true).catch(() => {});
+  changes.sourceRefreshScheduled = sourceRefreshScheduled;
   let automaticAiStarted = false;
   if (automaticAiChanged) {
     const ready = await aiConfigured(normalized);
     await setAiAutoStatus(ready ? defaultAiAutoStatus() : { ...defaultAiAutoStatus(), phase: "not-ready" }, false);
     if (ready) {
       automaticAiStarted = true;
+      changes.automaticAiStarted = true;
       if (!sourceRefreshScheduled) startRefresh(true).catch(() => {});
     }
   }
   broadcast("settings.changed", { primarySourceChanged, sourceRefreshScheduled, bookmarkSourceChanged, rankingChanged, localeChanged, imageSearchChanged, headerCoverChanged, automaticAiChanged, automaticAiStarted, mcpSettingsChanged });
-  return {
-    ...(await publicSettings()),
-    primarySourceChanged,
-    sourceRefreshScheduled,
-    bookmarkSourceChanged,
-    rankingChanged,
-    localeChanged,
-    imageSearchChanged,
-    headerCoverChanged,
-    automaticAiChanged,
-    automaticAiStarted,
-  };
+  return changes;
+}
+
+async function completeImportedCommit(committed) {
+  const failedSteps = [];
+  let changes;
+  try { changes = await applySettingsEffects(committed); }
+  catch {
+    failedSteps.push("effects"); changes = committed.changes || {};
+    try { broadcast("settings.changed", { ...changes, postCommitPending: true }); }
+    catch { failedSteps.push("notify"); }
+  }
+  let settings;
+  try { settings = await publicSettings(); }
+  catch {
+    failedSteps.push("settings-view");
+    const status = committed.credentialStatus || {};
+    settings = { ...committed.normalized, sourcePermissions: [],
+      hasOpenAIKey: status.hasOpenAIKey === true, hasImageSearchKey: status.hasImageSearchKey === true,
+      syncAiSettingsEnabled: status.syncAiSettingsEnabled === true };
+  }
+  return { ...settings, ...changes, committed: true,
+    postCommit: { status: failedSteps.length ? "pending" : "complete", failedSteps } };
+}
+
+function reconcileImportedSettings() {
+  return settingsService.mutate(async () => {
+    const settings = await getSettings();
+    const credentialStatus = await secretStatus();
+    return completeImportedCommit({ previous: settings, normalized: settings, credentialStatus,
+      forceReconcile: true, imageSearchKeyChanged: true, headerCoverChanged: false, layoutOnly: false });
+  });
 }
 
 function recordRollbackFailure(error, rollbackError, fallbackCode) {
@@ -290,18 +381,7 @@ function recordRollbackFailure(error, rollbackError, fallbackCode) {
 
 function settingsTransferTypedError(error) {
   if (error?.name !== "SettingsTransferError") return error;
-  const messageKeys = {
-    SETTINGS_IMPORT_INVALID_FORMAT: "settings.transfer.error.invalidFormat",
-    SETTINGS_IMPORT_UNSUPPORTED_VERSION: "settings.transfer.error.unsupportedVersion",
-    SETTINGS_IMPORT_FILE_TOO_LARGE: "settings.transfer.error.tooLarge",
-    SETTINGS_IMPORT_EMPTY: "settings.transfer.error.empty",
-    SETTINGS_IMPORT_INVALID_VALUE: "settings.transfer.error.invalidValue",
-  };
-  const messageKey = messageKeys[error.code] || "settings.transfer.error.invalidFormat";
-  return typedError(error.code || "SETTINGS_IMPORT_INVALID_FORMAT", messageKey, {
-    field: error.details?.field || "",
-    version: error.details?.version ?? "",
-  }, false);
+  return typedError(error.code, error.messageKey, error.messageParams, false);
 }
 
 }
